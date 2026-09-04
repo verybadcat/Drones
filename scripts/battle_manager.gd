@@ -15,12 +15,18 @@ signal battle_ended(report_text: String)
 
 const FLASH_DURATION: float = 0.3
 
+# If nobody has fired AND nobody is trying to move for this long, the battle
+# has genuinely stalled (e.g. both mortars gone, everyone dug into cover
+# with no LOS to anyone) — end it rather than running out the full clock.
+const STAGNATION_TIMEOUT: float = 15.0
+
 var player_units: Array[Unit] = []
 var enemy_units: Array[Unit] = []
 var combat_log: CombatLog
 var elapsed_time: float = 0.0
 var battle_over: bool = false
 var _fire_flashes: Array[Dictionary] = []
+var _seconds_since_last_shot: float = 0.0
 
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
@@ -28,6 +34,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	elapsed_time = 0.0
 	battle_over = false
 	_fire_flashes.clear()
+	_seconds_since_last_shot = 0.0
 
 	for unit in player_units + enemy_units:
 		unit.queue_free()
@@ -127,6 +134,7 @@ func _process(delta: float) -> void:
 		return
 
 	elapsed_time += delta
+	_seconds_since_last_shot += delta
 
 	_tick_movement(delta)
 	_update_spotting(delta)
@@ -262,6 +270,7 @@ func _tick_fire(unit: Unit, delta: float, enemies: Array[Unit]) -> void:
 		"from": unit.global_position, "to": target.global_position, "team": unit.team,
 		"time": elapsed_time, "is_mortar": unit.kind == Unit.Kind.MORTAR,
 	})
+	_seconds_since_last_shot = 0.0
 	_log_hit_consequence(target, target_was_active)
 
 	if unit.kind == Unit.Kind.MORTAR:
@@ -356,6 +365,23 @@ func _check_battle_end() -> void:
 	if _all_done_fighting(player_units) or _all_done_fighting(enemy_units) \
 			or elapsed_time >= GameConfig.BATTLE_TIME_LIMIT:
 		_end_battle()
+	elif _seconds_since_last_shot >= STAGNATION_TIMEOUT and not _anyone_moving():
+		combat_log.add_entry("--- Battle stalemated: no movement or fire for %ds ---" % int(STAGNATION_TIMEOUT))
+		_end_battle()
+
+
+## True if any unit on either side is currently trying to move — mid-retreat
+## (either leg) or ACTIVE with a move_target (road march, diving for cover).
+## Used to detect a genuine stalemate: if nobody is moving and nobody has
+## fired in a while, nothing is ever going to change before the time limit,
+## so there is no reason to make the player sit through the rest of it.
+func _anyone_moving() -> bool:
+	for u in player_units + enemy_units:
+		if u.state == Unit.State.RETREATING:
+			return true
+		if u.state == Unit.State.ACTIVE and u.has_move_target:
+			return true
+	return false
 
 
 ## True once nobody in `units` is still ACTIVE or mid-RETREAT — everyone left
