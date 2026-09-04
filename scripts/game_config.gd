@@ -1,6 +1,6 @@
 extends RefCounted
 class_name GameConfig
-## Shared map layout: the village, terrain, deployment zone, and enemy
+## Shared map layout: the village, terrain, deployment zones, and enemy
 ## approach. Kept in one place so no other script can drift out of sync.
 
 enum TerrainType { OPEN, TREES, BUILDING, HIGH_GROUND, ROAD }
@@ -11,14 +11,15 @@ enum TerrainType { OPEN, TREES, BUILDING, HIGH_GROUND, ROAD }
 # is a movement corridor the enemy marches down before scattering. Order
 # matters for drawing: earlier = painted first (underneath).
 #
-# More scattered cover than the first pass: small outbuildings/walls and
-# extra tree clumps between the village and the enemy's approach, so a
-# squad that breaks from the road under fire actually has somewhere nearby
-# to go to ground.
+# The village is now a proper-sized settlement (see _draw_village, which
+# generates a grid of houses rather than a fixed handful) plus scattered
+# outlying cover — small outbuildings/walls and tree clumps between the
+# village and the enemy's approach, so a squad that breaks from the road
+# under fire has somewhere nearby to go to ground.
 const TERRAIN_ZONES: Array[Dictionary] = [
-	{"rect": Rect2(100, 40, 300, 620), "type": TerrainType.HIGH_GROUND, "elevation": 1},
+	{"rect": Rect2(90, 30, 340, 460), "type": TerrainType.HIGH_GROUND, "elevation": 1},
 	{"rect": Rect2(330, 335, 600, 24), "type": TerrainType.ROAD, "elevation": 0},
-	{"rect": Rect2(150, 150, 180, 260), "type": TerrainType.BUILDING, "elevation": 1},
+	{"rect": Rect2(120, 60, 280, 360), "type": TerrainType.BUILDING, "elevation": 1},
 	{"rect": Rect2(480, 110, 90, 160), "type": TerrainType.TREES, "elevation": 0},
 	{"rect": Rect2(560, 400, 90, 160), "type": TerrainType.TREES, "elevation": 0},
 	{"rect": Rect2(700, 40, 70, 620), "type": TerrainType.TREES, "elevation": 0},
@@ -28,18 +29,24 @@ const TERRAIN_ZONES: Array[Dictionary] = [
 	{"rect": Rect2(600, 470, 45, 35), "type": TerrainType.BUILDING, "elevation": 0},
 ]
 
-# Legal area for the player to drag their units into on the deployment
-# screen — inside the village/high ground, matching "holding the village."
-const PLAYER_DEPLOYMENT_ZONE: Rect2 = Rect2(140, 160, 260, 340)
+# Legal area for the player to drag squads/mortar into on the deployment
+# screen — inside the village, matching "holding the village."
+const PLAYER_DEPLOYMENT_ZONE: Rect2 = Rect2(135, 75, 250, 330)
+
+# Separate, more forward deployment zone for the artillery spotter — it's a
+# reconnaissance asset, not a firing position, so it belongs further out
+# than the squads/mortar, near (not necessarily inside) the outlying cover.
+const PLAYER_SPOTTER_DEPLOYMENT_ZONE: Rect2 = Rect2(400, 200, 220, 300)
+const PLAYER_SPOTTER_DEFAULT_POSITION: Vector2 = Vector2(500, 240)
 
 # Default starting token positions on the deployment screen, before the
-# player drags them anywhere else within PLAYER_DEPLOYMENT_ZONE.
+# player drags them anywhere else within their zone.
 const PLAYER_DEFAULT_POSITIONS: Array[Vector2] = [
-	Vector2(200, 220),
-	Vector2(220, 340),
-	Vector2(190, 400),
+	Vector2(200, 120),
+	Vector2(320, 190),
+	Vector2(200, 340),
 ]
-const PLAYER_MORTAR_DEFAULT_POSITION: Vector2 = Vector2(280, 300)
+const PLAYER_MORTAR_DEFAULT_POSITION: Vector2 = Vector2(280, 260)
 
 # Enemy squads start at the map's far edge and initially march down the
 # road toward the village; once they take fire they break off toward the
@@ -67,6 +74,12 @@ const DETECTION_BASE_RANGE: float = 260.0
 const DETECTION_ELEVATION_BONUS: float = 150.0 # added when spotter is higher than target
 const SPOT_CHANCE_PER_SECOND: float = 0.15
 const MOVING_SPOT_MULTIPLIER: float = 3.0
+
+# The artillery spotter: a small, fragile, unarmed recon team whose job is
+# purely to extend detection for the mortar. Better trained to spot at range
+# and to stay hidden itself than a rifle squad is.
+const SPOTTER_DETECTION_RANGE_BONUS: float = 120.0 # added to its own spotting rolls
+const SPOTTER_CONCEALMENT_BONUS: float = 0.5 # multiplies the chance IT gets spotted
 
 # A unit caught moving in the open is much easier to hit, not just to spot —
 # it has broken cover to advance (or to retreat). See CombatResolver.
@@ -114,6 +127,10 @@ static func get_terrain_type_at(pos: Vector2) -> TerrainType:
 	return best
 
 
+static func is_in_cover(terrain: TerrainType) -> bool:
+	return terrain == TerrainType.BUILDING or terrain == TerrainType.TREES
+
+
 ## A point inside the nearest TREES/BUILDING zone to `from` — where a unit
 ## bolting for cover heads. Randomized within the zone (not always the exact
 ## center) so several units heading for the same patch of cover spread out
@@ -157,6 +174,16 @@ static func draw_terrain(ci: CanvasItem) -> void:
 				_draw_forest(ci, zone.rect)
 
 
+## A ring around a unit/token showing whether its current spot is cover —
+## shown in the battle view AND on the deployment screen, so cover status is
+## visible before the battle even starts.
+static func draw_cover_ring(ci: CanvasItem, radius: float, terrain: TerrainType) -> void:
+	var in_cover := is_in_cover(terrain)
+	var color: Color = Color(0.25, 1.0, 0.35, 0.9) if in_cover else Color(1.0, 0.3, 0.2, 0.55)
+	var width: float = 3.0 if in_cover else 1.5
+	ci.draw_arc(Vector2.ZERO, radius + 5.0, 0.0, TAU, 24, color, width, true)
+
+
 static func _draw_hill(ci: CanvasItem, rect: Rect2) -> void:
 	ci.draw_rect(rect, Color(0.62, 0.58, 0.4, 0.55))
 	for inset in [18.0, 40.0, 65.0]:
@@ -175,7 +202,9 @@ static func _draw_road(ci: CanvasItem, rect: Rect2) -> void:
 
 
 ## Small isolated BUILDING zones (outside the main village blob) render as a
-## single low wall/ruin rather than a cluster of houses.
+## single low wall/ruin. The main village renders as a grid of houses,
+## scaling with the zone's size — a bigger village automatically gets more
+## buildings, no hand-placed list to keep in sync.
 static func _draw_village(ci: CanvasItem, rect: Rect2) -> void:
 	if rect.size.x <= 60.0:
 		ci.draw_rect(rect, Color(0.5, 0.48, 0.45))
@@ -183,17 +212,27 @@ static func _draw_village(ci: CanvasItem, rect: Rect2) -> void:
 		return
 
 	ci.draw_rect(rect, Color(0.65, 0.58, 0.45, 0.4))
-	var buildings: Array[Rect2] = [
-		Rect2(rect.position + Vector2(10, 10), Vector2(55, 42)),
-		Rect2(rect.position + Vector2(85, 25), Vector2(45, 55)),
-		Rect2(rect.position + Vector2(15, 95), Vector2(60, 48)),
-		Rect2(rect.position + Vector2(100, 105), Vector2(48, 52)),
-	]
-	for b in buildings:
-		if not rect.encloses(b):
-			continue
-		ci.draw_rect(b, Color(0.55, 0.42, 0.3))
-		ci.draw_rect(Rect2(b.position, Vector2(b.size.x, 8.0)), Color(0.35, 0.2, 0.15))
+
+	var cols := 3
+	var rows := 4
+	var margin := 12.0
+	var cell_w: float = (rect.size.x - margin) / float(cols)
+	var cell_h: float = (rect.size.y - margin) / float(rows)
+	for row in rows:
+		for col in cols:
+			# Skip a few cells so the village reads as organic, not a grid.
+			if (row + col) % 4 == 3:
+				continue
+			var b := Rect2(
+				rect.position.x + margin + col * cell_w + 4.0,
+				rect.position.y + margin + row * cell_h + 4.0,
+				cell_w - 12.0,
+				cell_h - 14.0
+			)
+			if b.size.x <= 0.0 or b.size.y <= 0.0:
+				continue
+			ci.draw_rect(b, Color(0.55, 0.42, 0.3))
+			ci.draw_rect(Rect2(b.position, Vector2(b.size.x, 8.0)), Color(0.35, 0.2, 0.15))
 
 
 static func _draw_forest(ci: CanvasItem, rect: Rect2) -> void:

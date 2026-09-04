@@ -9,7 +9,7 @@ class_name Unit
 ## battle.
 
 enum Team { PLAYER, ENEMY }
-enum Kind { SQUAD, MORTAR }
+enum Kind { SQUAD, MORTAR, SPOTTER }
 ## ACTIVE: fighting (possibly moving toward move_target). RETREATING: pulling
 ## back off the field entirely, still on the field and can still take fire.
 ## WITHDRAWN: reached safety, no longer part of the fight. DESTROYED: out of
@@ -81,18 +81,24 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 	team = p_team
 	kind = p_kind
 	position = p_position
-	if kind == Kind.MORTAR:
-		max_pips = 1
-		base_hit_chance = 0.40
-		unit_label = "Mortar"
-		fire_interval = reload_time
-	else:
-		max_pips = 4
-		# Defenders fight from prepared, pre-ranged positions — their first
-		# shots land far more often than an attacker's do.
-		base_hit_chance = 0.32 if team == Team.PLAYER else 0.20
-		unit_label = "Squad"
-		fire_interval = 2.0
+	match kind:
+		Kind.MORTAR:
+			max_pips = 1
+			base_hit_chance = 0.40
+			unit_label = "Mortar"
+			fire_interval = reload_time
+		Kind.SPOTTER:
+			max_pips = 1 # a small, fragile recon team
+			base_hit_chance = 0.0 # never fires — see BattleManager._tick_fire
+			unit_label = "Spotter"
+			fire_interval = 0.0
+		_:
+			max_pips = 4
+			# Defenders fight from prepared, pre-ranged positions — their first
+			# shots land far more often than an attacker's do.
+			base_hit_chance = 0.32 if team == Team.PLAYER else 0.20
+			unit_label = "Squad"
+			fire_interval = 2.0
 	pips = max_pips
 	queue_redraw()
 
@@ -185,6 +191,8 @@ func terrain_type() -> GameConfig.TerrainType:
 
 func _draw() -> void:
 	var color := Color(0.25, 0.55, 1.0) if team == Team.PLAYER else Color(1.0, 0.35, 0.25)
+	if kind == Kind.SPOTTER:
+		color = Color(0.75, 0.9, 0.2) if team == Team.PLAYER else Color(0.9, 0.7, 0.15)
 	if not is_spotted and state != State.DESTROYED:
 		color.a = 0.0 if team == Team.ENEMY else 1.0 # unspotted enemies are invisible; player is always drawn
 	if state == State.RETREATING:
@@ -197,16 +205,24 @@ func _draw() -> void:
 	if color.a <= 0.0:
 		return
 
-	var radius := 14.0 if kind == Kind.SQUAD else 10.0
+	var radius := 14.0 if kind == Kind.SQUAD else (8.0 if kind == Kind.SPOTTER else 10.0)
 	draw_circle(Vector2.ZERO, radius, color)
 
 	if kind == Kind.MORTAR:
 		draw_circle(Vector2.ZERO, radius * 0.45, Color.BLACK)
+	elif kind == Kind.SPOTTER:
+		draw_circle(Vector2.ZERO, radius * 0.4, Color(0.1, 0.1, 0.1))
+		draw_circle(Vector2.ZERO, radius * 0.18, Color.WHITE)
 
 	if state == State.WITHDRAWN or state == State.DESTROYED:
-		return # no pip bar for a unit that's left the fight one way or another
+		return # no pip bar or cover ring for a unit that's left the fight one way or another
 
-	# Pip bar above the unit (mortars just show full/empty — no percent bar).
+	# Cover ring — visible any time the unit is on the field, so cover status
+	# is always readable at a glance during the battle.
+	GameConfig.draw_cover_ring(self, radius, terrain_type())
+
+	# Pip bar above the unit (mortars/spotter just show full/empty — no
+	# percent bar; both are 1 pip).
 	var bar_width := 28.0
 	var bar_y := -radius - 10.0
 	draw_rect(Rect2(-bar_width / 2.0, bar_y, bar_width, 4.0), Color(0.15, 0.15, 0.15))

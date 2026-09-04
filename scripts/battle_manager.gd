@@ -53,6 +53,10 @@ func _spawn_player_units(doctrine: Dictionary) -> void:
 	_set_retreat_profile(m1, Unit.Team.PLAYER)
 	player_units.append(m1)
 
+	var spotter := _make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, doctrine.spotter.position)
+	_set_retreat_profile(spotter, Unit.Team.PLAYER)
+	player_units.append(spotter)
+
 
 func _spawn_enemy_units() -> void:
 	for i in GameConfig.ENEMY_SQUAD_START_Y.size():
@@ -129,6 +133,8 @@ func _process(delta: float) -> void:
 	_prune_fire_flashes()
 	_check_battle_end()
 	queue_redraw() # keep fire-tracer fade-out animating smoothly
+	for unit in player_units + enemy_units:
+		unit.queue_redraw() # cover ring must track position/terrain live
 
 
 ## Any unit with an active move_target (the enemy's road march, or either
@@ -194,6 +200,8 @@ func _spot_side(spotters: Array[Unit], targets: Array[Unit], delta: float) -> vo
 
 
 func _tick_fire(unit: Unit, delta: float, enemies: Array[Unit]) -> void:
+	if unit.kind == Unit.Kind.SPOTTER:
+		return # the spotter never fires — it only extends detection (see roll_spot)
 	if unit.state != Unit.State.ACTIVE:
 		return # destroyed/withdrawn/retreating units don't fire
 

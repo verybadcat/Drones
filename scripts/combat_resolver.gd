@@ -5,20 +5,24 @@ class_name CombatResolver
 ## physics raycast, so this logic is easy to read and verify without running
 ## the engine.
 
-# Cover against DIRECT fire (squads): strong — this is what "attacks on
-# units in cover have a hard time causing casualties" means in practice.
+# Cover against DIRECT fire (squads): a tremendous swing. In the open, a
+# squad is exposed and takes an outright penalty (1.3x) on top of having no
+# protection at all — brutal. In trees or a building, fire almost never
+# lands. This is the whole point of holding the village.
 const SQUAD_COVER_MULTIPLIER := {
-	GameConfig.TerrainType.OPEN: 1.0,
-	GameConfig.TerrainType.HIGH_GROUND: 1.0,
-	GameConfig.TerrainType.TREES: 0.35,
-	GameConfig.TerrainType.BUILDING: 0.15,
+	GameConfig.TerrainType.OPEN: 1.3,
+	GameConfig.TerrainType.HIGH_GROUND: 1.3,
+	GameConfig.TerrainType.TREES: 0.2,
+	GameConfig.TerrainType.BUILDING: 0.1,
 }
 
 # Cover against MORTAR fire: much weaker — a mortar's plunging fire is the
 # thing that punishes cover that stops rifles. Not impossible, just easier.
+# The open-exposure penalty still applies — a mortar hits an exposed target
+# harder too, same as direct fire does.
 const MORTAR_COVER_MULTIPLIER := {
-	GameConfig.TerrainType.OPEN: 1.0,
-	GameConfig.TerrainType.HIGH_GROUND: 1.0,
+	GameConfig.TerrainType.OPEN: 1.3,
+	GameConfig.TerrainType.HIGH_GROUND: 1.3,
 	GameConfig.TerrainType.TREES: 0.85,
 	GameConfig.TerrainType.BUILDING: 0.7,
 }
@@ -36,9 +40,14 @@ const CONCEALMENT_MULTIPLIER := {
 ## Returns true if `target` becomes (or remains) spotted. Call this only for
 ## targets not already spotted — an already-spotted unit stays spotted until
 ## it is removed from play (no "losing" a spot in v1, to keep this legible).
+##
+## The artillery spotter sees further than a rifle squad does (its whole job)
+## and is itself harder to notice — a trained observer that stays hidden.
 static func roll_spot(spotter: Unit, target: Unit, delta: float) -> bool:
 	var distance: float = spotter.global_position.distance_to(target.global_position)
 	var detection_range: float = GameConfig.DETECTION_BASE_RANGE
+	if spotter.kind == Unit.Kind.SPOTTER:
+		detection_range += GameConfig.SPOTTER_DETECTION_RANGE_BONUS
 	if spotter.elevation() > target.elevation():
 		detection_range += GameConfig.DETECTION_ELEVATION_BONUS
 	if distance > detection_range:
@@ -46,6 +55,8 @@ static func roll_spot(spotter: Unit, target: Unit, delta: float) -> bool:
 
 	var chance: float = GameConfig.SPOT_CHANCE_PER_SECOND
 	chance *= CONCEALMENT_MULTIPLIER[target.terrain_type()]
+	if target.kind == Unit.Kind.SPOTTER:
+		chance *= GameConfig.SPOTTER_CONCEALMENT_BONUS
 	if target.activity == Unit.Activity.MOVING:
 		chance *= GameConfig.MOVING_SPOT_MULTIPLIER
 	chance *= clamp(1.0 - (distance / detection_range), 0.0, 1.0)

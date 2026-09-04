@@ -68,6 +68,7 @@ func _on_start_pressed() -> void:
 	var doctrine := {
 		"squads": squads,
 		"mortar": mortar_doctrine,
+		"spotter": {"position": positions.spotter_position},
 	}
 
 	deployment_screen.queue_free()
