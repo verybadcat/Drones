@@ -28,8 +28,11 @@ var retreat_threshold: float = 0.30 # SQUAD only — fraction of pips lost that 
 var state: State = State.ACTIVE
 var activity: Activity = Activity.STATIONARY
 
-# Spotting: is this unit currently visible to the OPPOSING side?
-var is_spotted: bool = false
+# Is this unit currently visible to the OPPOSING side, right now? This is a
+# live, moment-to-moment fact recomputed by BattleManager every tick — not a
+# permanent flag. Spotting something once does not make it spotted forever;
+# losing line of sight loses visibility too.
+var is_visible: bool = false
 
 var fire_interval: float = 2.0 # seconds between fire attempts
 var fire_timer: float = 0.0
@@ -197,7 +200,7 @@ func seek_cover() -> void:
 
 
 func is_targetable() -> bool:
-	return state != State.DESTROYED and state != State.WITHDRAWN and is_spotted
+	return state != State.DESTROYED and state != State.WITHDRAWN and is_visible
 
 
 func display_name() -> String:
@@ -221,8 +224,8 @@ func _draw() -> void:
 	var color := Color(0.25, 0.55, 1.0) if team == Team.PLAYER else Color(1.0, 0.35, 0.25)
 	if kind == Kind.SPOTTER:
 		color = Color(0.75, 0.9, 0.2) if team == Team.PLAYER else Color(0.9, 0.7, 0.15)
-	if not is_spotted and state != State.DESTROYED:
-		color.a = 0.0 if team == Team.ENEMY else 1.0 # unspotted enemies are invisible; player is always drawn
+	if not is_visible and state != State.DESTROYED:
+		color.a = 0.0 if team == Team.ENEMY else 1.0 # not-currently-visible enemies are hidden; player is always drawn
 	if state == State.RETREATING:
 		color = color.darkened(0.55)
 	if state == State.WITHDRAWN:

@@ -73,6 +73,10 @@ func log_spotted(unit: Unit) -> void:
 	add_entry("%s was spotted" % unit.display_name())
 
 
+func log_lost_contact(unit: Unit) -> void:
+	add_entry("Contact lost with %s" % unit.display_name())
+
+
 func log_revealed_by_fire(unit: Unit) -> void:
 	add_entry("%s opened fire, revealing its position" % unit.display_name())
 

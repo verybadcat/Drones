@@ -36,12 +36,30 @@ const CONCEALMENT_MULTIPLIER := {
 }
 
 
-## One spotting roll for `spotter` trying to notice `target` this tick.
-## Returns true if `target` becomes (or remains) spotted. Call this only for
-## targets not already spotted — an already-spotted unit stays spotted until
-## it is removed from play (no "losing" a spot in v1, to keep this legible).
+## The detection range between a specific observer/target pair — shared by
+## both roll_spot (becoming visible) and has_live_observer (staying visible)
+## so the two can never disagree about how far someone can be seen. A hidden
+## spotter overrides everything else: elevation and a spotter's own extended
+## range don't help you find someone hunkered down and hidden.
+static func effective_detection_range(observer: Unit, target: Unit) -> float:
+	if target.kind == Unit.Kind.SPOTTER and GameConfig.is_in_cover(target.terrain_type()):
+		return GameConfig.SPOTTER_HIDDEN_DETECTION_RANGE
+	var detection_range: float = GameConfig.DETECTION_BASE_RANGE
+	if observer.kind == Unit.Kind.SPOTTER:
+		detection_range += GameConfig.SPOTTER_DETECTION_RANGE_BONUS
+	if observer.elevation() > target.elevation():
+		detection_range += GameConfig.DETECTION_ELEVATION_BONUS
+	return detection_range
+
+
+## One spotting roll for `observer` trying to notice `target` this tick.
+## Returns true if `target` becomes visible this tick. Call this only for
+## targets not already visible — BattleManager separately handles a
+## currently-visible target LOSING visibility (see has_live_observer) once
+## nobody has eyes on it any more; visibility is a live, moment-to-moment
+## fact, not a permanent flag (see Unit.is_visible).
 ##
-## Line of sight does not go through buildings — a building between spotter
+## Line of sight does not go through buildings — a building between observer
 ## and target blocks the roll outright, same rule as direct fire (see
 ## GameConfig.has_direct_los). This applies to anyone doing the looking,
 ## squad or spotter alike; seeing and shooting are blocked the same way.
@@ -50,26 +68,16 @@ const CONCEALMENT_MULTIPLIER := {
 ## job). Its OWN concealment is two very different stories: hidden in cover,
 ## the enemy effectively can't find it beyond point-blank range; standing in
 ## the open, it's found close to normally.
-static func roll_spot(spotter: Unit, target: Unit, delta: float) -> bool:
-	if not GameConfig.has_direct_los(spotter.global_position, target.global_position):
+static func roll_spot(observer: Unit, target: Unit, delta: float) -> bool:
+	if not GameConfig.has_direct_los(observer.global_position, target.global_position):
 		return false
 
-	var distance: float = spotter.global_position.distance_to(target.global_position)
-	var target_hidden_spotter := target.kind == Unit.Kind.SPOTTER and GameConfig.is_in_cover(target.terrain_type())
-
-	var detection_range: float = GameConfig.DETECTION_BASE_RANGE
-	if spotter.kind == Unit.Kind.SPOTTER:
-		detection_range += GameConfig.SPOTTER_DETECTION_RANGE_BONUS
-	if target_hidden_spotter:
-		# Overrides everything above — elevation and a spotter's own extended
-		# range don't help you find someone hunkered down and hidden.
-		detection_range = GameConfig.SPOTTER_HIDDEN_DETECTION_RANGE
-	elif spotter.elevation() > target.elevation():
-		detection_range += GameConfig.DETECTION_ELEVATION_BONUS
-
+	var distance: float = observer.global_position.distance_to(target.global_position)
+	var detection_range: float = effective_detection_range(observer, target)
 	if distance > detection_range:
 		return false
 
+	var target_hidden_spotter := target.kind == Unit.Kind.SPOTTER and GameConfig.is_in_cover(target.terrain_type())
 	var chance: float = GameConfig.SPOT_CHANCE_PER_SECOND
 	chance *= CONCEALMENT_MULTIPLIER[target.terrain_type()]
 	if target.kind == Unit.Kind.SPOTTER and not target_hidden_spotter:
@@ -80,6 +88,25 @@ static func roll_spot(spotter: Unit, target: Unit, delta: float) -> bool:
 	chance *= delta
 
 	return randf() < chance
+
+
+## True if ANY unit in `observers` currently has clear, in-range line of
+## sight to `target` right now. This is what keeps a currently-visible
+## target visible (or makes it visible instantly, e.g. when it fires) — the
+## moment nobody qualifies any more, the target stops being visible. Uses
+## the exact same range rule as roll_spot (effective_detection_range) but
+## with no concealment-based chance roll — this asks "could someone be
+## watching it right now," not "did anyone just now notice it."
+static func has_live_observer(target: Unit, observers: Array[Unit]) -> bool:
+	for observer in observers:
+		if observer.state != Unit.State.ACTIVE:
+			continue
+		var distance: float = observer.global_position.distance_to(target.global_position)
+		if distance > effective_detection_range(observer, target):
+			continue
+		if GameConfig.has_direct_los(observer.global_position, target.global_position):
+			return true
+	return false
 
 
 ## Resolves one shot from `attacker` at `defender`. Both must already be

@@ -195,19 +195,32 @@ func _step_retreat(unit: Unit, delta: float) -> void:
 
 
 func _update_spotting(delta: float) -> void:
-	_spot_side(player_units, enemy_units, delta)
-	_spot_side(enemy_units, player_units, delta)
+	_refresh_visibility(player_units, enemy_units, delta)
+	_refresh_visibility(enemy_units, player_units, delta)
 
 
-func _spot_side(spotters: Array[Unit], targets: Array[Unit], delta: float) -> void:
+## Visibility is live, not permanent: a target already visible stays that
+## way only as long as some observer currently has line of sight to it
+## (checked every tick, hard cutoff, no chance roll — see
+## CombatResolver.has_live_observer); the instant nobody does, it goes
+## invisible again, even if it was seen a moment ago. A target not currently
+## visible has a chance each tick to be freshly noticed (CombatResolver.
+## roll_spot — the existing probabilistic, concealment-aware roll).
+func _refresh_visibility(observers: Array[Unit], targets: Array[Unit], delta: float) -> void:
 	for target in targets:
-		if target.state == Unit.State.DESTROYED or target.is_spotted:
+		if target.state == Unit.State.DESTROYED:
 			continue
-		for spotter in spotters:
-			if spotter.state != Unit.State.ACTIVE:
+		if target.is_visible:
+			if not CombatResolver.has_live_observer(target, observers):
+				target.is_visible = false
+				target.queue_redraw()
+				combat_log.log_lost_contact(target)
+			continue
+		for observer in observers:
+			if observer.state != Unit.State.ACTIVE:
 				continue
-			if CombatResolver.roll_spot(spotter, target, delta):
-				target.is_spotted = true
+			if CombatResolver.roll_spot(observer, target, delta):
+				target.is_visible = true
 				target.queue_redraw()
 				combat_log.log_spotted(target)
 				break
@@ -228,11 +241,12 @@ func _tick_fire(unit: Unit, delta: float, enemies: Array[Unit]) -> void:
 		unit.fire_timer = unit.fire_interval
 		return
 
-	# A squad's muzzle flash gives it away; a mortar firing on spotter-relayed
-	# information does not — see CombatResolver / GameConfig for the
-	# counter-battery consequence of firing instead.
-	if unit.kind == Unit.Kind.SQUAD and not unit.is_spotted:
-		unit.is_spotted = true
+	# A squad's muzzle flash gives it away immediately; a mortar firing on
+	# spotter-relayed information does not — see CombatResolver / GameConfig
+	# for the counter-battery consequence of firing instead. Like any
+	# visibility, this can be lost again later once nobody has eyes on it.
+	if unit.kind == Unit.Kind.SQUAD and not unit.is_visible:
+		unit.is_visible = true
 		unit.queue_redraw()
 		combat_log.log_revealed_by_fire(unit)
 
@@ -301,16 +315,17 @@ func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
 		combat_log.log_bolts_for_cover(unit)
 
 
-## A SQUAD can only fire at a target within its own engagement range — direct
-## fire needs the firer's own eyes on it. A MORTAR has no such limit: it
-## fires on anything any friendly unit has spotted, anywhere on the map,
-## per the design doc's spotter-relayed indirect fire.
 ## A SQUAD can only fire at a target within its own engagement range AND
-## with actual line of sight — a building between attacker and target blocks
-## it outright, not just "harder to hit" (that's what the cover multiplier
-## is for). A MORTAR has neither restriction: it fires on anything any
-## friendly unit has spotted, anywhere, per the design doc's spotter-relayed
-## indirect fire.
+## with its own actual line of sight — a building between attacker and
+## target blocks it outright, not just "harder to hit" (that's what the
+## cover multiplier is for).
+##
+## A MORTAR has no range or LOS limit of its own — it fires on spotter-
+## relayed information. e.is_targetable() is enough of a gate here on its
+## own: is_visible is now a LIVE fact (see _refresh_visibility), maintained
+## every tick by whether some friendly currently has line of sight — not a
+## permanent flag — so a target that broke contact behind a building has
+## already stopped being targetable by the time this runs.
 func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 	var candidates: Array[Unit] = []
 	for e in enemies:
