@@ -231,6 +231,12 @@ func _tick_fire(unit: Unit, delta: float, enemies: Array[Unit]) -> void:
 		return # the spotter never fires — it only extends detection (see roll_spot)
 	if unit.state != Unit.State.ACTIVE:
 		return # destroyed/withdrawn/retreating units don't fire
+	if unit.has_move_target:
+		return # moving with intent (road march, diving for cover) — too busy to fire.
+		# Without this, "immediately head for cover" was true mechanically
+		# (seek_cover() redirects movement right away) but invisible in
+		# practice: the unit kept trading fire the whole way there, so a
+		# dash for cover looked identical to just standing and fighting.
 
 	unit.fire_timer -= delta
 	if unit.fire_timer > 0.0:
