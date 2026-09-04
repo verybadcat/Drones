@@ -92,9 +92,19 @@ const SPOTTER_DETECTION_RANGE_BONUS: float = 120.0 # added to its own spotting r
 const SPOTTER_HIDDEN_DETECTION_RANGE: float = 70.0 # replaces detection range entirely when in cover
 const SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER: float = 0.8 # applies only when NOT in cover
 
-# A unit caught moving in the open is much easier to hit, not just to spot —
-# it has broken cover to advance (or to retreat). See CombatResolver.
+# A unit caught moving in the open is much easier to hit by DIRECT fire, not
+# just to spot — it has broken cover to advance (or to retreat). See
+# CombatResolver.
 const MOVING_HIT_MULTIPLIER: float = 1.6
+
+# MORTAR fire against a moving target is the opposite story: indirect fire
+# has to be aimed at where the target WILL be, which only works if the
+# movement is predictable (the enemy's steady road march — see
+# Unit.movement_predictable). Erratic, reactive movement (diving for cover,
+# retreating) is hard to lead-aim against — a real hit-chance penalty, not
+# just "no bonus."
+const MORTAR_PREDICTABLE_MOVING_MULTIPLIER: float = 1.1
+const MORTAR_UNPREDICTABLE_MOVING_MULTIPLIER: float = 0.25
 
 # Direct-fire (squad) engagement range — a squad can only fire at a target
 # IT could plausibly see and reach with its own weapons, unlike a mortar

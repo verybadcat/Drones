@@ -28,6 +28,11 @@ var battle_over: bool = false
 var _fire_flashes: Array[Dictionary] = []
 var _seconds_since_last_shot: float = 0.0
 
+# Word travels fast: the moment ANY enemy squad comes under fire, every
+# enemy squad still marching breaks for cover and starts moving carefully —
+# not just the one that was actually shot at. One-shot per battle.
+var enemy_alerted: bool = false
+
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	combat_log = p_combat_log
@@ -35,6 +40,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	battle_over = false
 	_fire_flashes.clear()
 	_seconds_since_last_shot = 0.0
+	enemy_alerted = false
 
 	for unit in player_units + enemy_units:
 		unit.queue_free()
@@ -83,6 +89,7 @@ func _spawn_enemy_units() -> void:
 			Vector2(GameConfig.ENEMY_ROAD_ENTRY_X, road_y),
 			Vector2(GameConfig.ENEMY_ROAD_MARCH_TARGET_X, road_y),
 		])
+		squad.movement_predictable = true # a steady, known march — lead-aimable by mortar fire
 		squad.activity = Unit.Activity.MOVING
 		_set_retreat_profile(squad, Unit.Team.ENEMY)
 		enemy_units.append(squad)
@@ -264,6 +271,12 @@ func _tick_fire(unit: Unit, delta: float, enemies: Array[Unit]) -> void:
 		unit.queue_redraw()
 		combat_log.log_revealed_by_fire(unit)
 
+	# Coming under fire alerts the whole enemy side, not just the unit being
+	# shot at — every enemy squad still marching breaks for cover too.
+	if target.team == Unit.Team.ENEMY and target.kind == Unit.Kind.SQUAD and not enemy_alerted:
+		enemy_alerted = true
+		_alert_enemy_squads()
+
 	var target_was_active := target.state == Unit.State.ACTIVE
 	CombatResolver.resolve_fire(unit, target)
 	_fire_flashes.append({
@@ -283,6 +296,24 @@ func _tick_fire(unit: Unit, delta: float, enemies: Array[Unit]) -> void:
 			unit.fire_timer = unit.reload_time
 	else:
 		unit.fire_timer = unit.fire_interval
+
+
+## Word travels fast: break every still-marching enemy squad off its road
+## march and send it to cover, same reaction as if it had personally been
+## shot at (see Unit.take_hit's ENEMY-team branch). Squads already seeking
+## cover, retreating, withdrawn, or destroyed are left alone.
+func _alert_enemy_squads() -> void:
+	var alerted_any := false
+	for u in enemy_units:
+		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or u.sought_cover:
+			continue
+		u.sought_cover = true
+		u.sought_cover_logged = true # logged once, right here, not via _log_hit_consequence
+		u.seek_cover()
+		combat_log.log_seeking_cover(u)
+		alerted_any = true
+	if alerted_any:
+		combat_log.add_entry("--- Enemy is alerted: squads moving carefully, using cover ---")
 
 
 ## Firing gives the OPPOSING mortar(s) — and only the opposing mortar, not

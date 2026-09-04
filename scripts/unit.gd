@@ -53,6 +53,12 @@ var move_queue: Array[Vector2] = []
 var move_speed: float = 40.0
 const MOVE_ARRIVE_RADIUS: float = 8.0
 
+# True only for the enemy's initial road march — a steady, known path a
+# mortar crew can lead-aim against. Anything reactive (diving for cover,
+# retreating) is unpredictable and gets marked false the moment it starts —
+# see seek_cover() and order_retreat(). Irrelevant while STATIONARY.
+var movement_predictable: bool = false
+
 # ENEMY SQUAD only: true once it has broken from the road march toward
 # cover after first contact — a one-time reaction, not re-rolled every hit.
 # BattleManager polls sought_cover_logged to log the moment exactly once.
@@ -168,6 +174,7 @@ func order_retreat() -> void:
 	if state != State.ACTIVE:
 		return
 	state = State.RETREATING
+	movement_predictable = false # pulling out under pressure, not a calm march
 	if not GameConfig.is_in_cover(terrain_type()):
 		seek_cover()
 	else:
@@ -191,12 +198,16 @@ func set_path(waypoints: Array[Vector2]) -> void:
 ## Head for the nearest cover instead of wherever it was going. Used both for
 ## an enemy squad breaking from its road march and for either side's squad
 ## bolting under mortar fire. Clears any queued path (e.g. the rest of a
-## road march) — cover takes priority over wherever it was headed.
+## road march) — cover takes priority over wherever it was headed. Marks the
+## movement unpredictable: diving for cover is reactive and erratic, not a
+## steady lead-aimable path, so a mortar should have a much harder time
+## hitting a unit doing this than one on its own predictable road march.
 func seek_cover() -> void:
 	move_target = GameConfig.nearest_cover_point(global_position)
 	has_move_target = true
 	move_queue.clear()
 	move_speed = GameConfig.REPOSITION_SPEED
+	movement_predictable = false
 
 
 func is_targetable() -> bool:

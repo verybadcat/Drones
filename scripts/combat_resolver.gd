@@ -114,20 +114,25 @@ static func has_live_observer(target: Unit, observers: Array[Unit]) -> bool:
 ## checked before this is called.
 ##
 ## A defender caught MOVING gets no benefit from terrain cover at all (you
-## can't use a foxhole while you're up and running for the next one) and is
-## hit harder overall — this is the mechanical bite behind "an attacking
-## squad advancing in the open takes heavy casualties," and it applies just
-## as much to a player unit retreating or repositioning under fire.
-##
-## Otherwise, cover strength depends on what's firing: mortars punch through
-## cover that stops direct fire (see the two multiplier tables above).
+## can't use a foxhole while you're up and running for the next one) — that
+## part is universal. What moving does to hit CHANCE differs by weapon:
+## direct fire (squads) sees a moving target more easily and hits it harder,
+## same as ever. Indirect fire (mortars) is the opposite — hitting something
+## that's moving means predicting where it will be, which only works if the
+## movement is predictable (Unit.movement_predictable — the enemy's steady
+## road march). Reactive, erratic movement (diving for cover, retreating) is
+## hard to lead-aim against and gets a real hit-chance PENALTY, not just "no
+## bonus."
 static func resolve_fire(attacker: Unit, defender: Unit) -> bool:
 	var moving := defender.activity == Unit.Activity.MOVING
 	var cover_table: Dictionary = MORTAR_COVER_MULTIPLIER if attacker.kind == Unit.Kind.MORTAR else SQUAD_COVER_MULTIPLIER
 	var cover_multiplier: float = 1.0 if moving else cover_table[defender.terrain_type()]
 	var chance: float = attacker.base_hit_chance * cover_multiplier
 	if moving:
-		chance *= GameConfig.MOVING_HIT_MULTIPLIER
+		if attacker.kind == Unit.Kind.MORTAR:
+			chance *= GameConfig.MORTAR_PREDICTABLE_MOVING_MULTIPLIER if defender.movement_predictable else GameConfig.MORTAR_UNPREDICTABLE_MOVING_MULTIPLIER
+		else:
+			chance *= GameConfig.MOVING_HIT_MULTIPLIER
 	var hit: bool = randf() < chance
 	if hit:
 		defender.take_hit(attacker.kind == Unit.Kind.MORTAR)
