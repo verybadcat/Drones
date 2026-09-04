@@ -49,13 +49,18 @@ const PLAYER_DEFAULT_POSITIONS: Array[Vector2] = [
 ]
 const PLAYER_MORTAR_DEFAULT_POSITION: Vector2 = Vector2(280, 260)
 
-# Enemy squads start at the map's far edge and initially march down the
-# road toward the village; once they take fire they break off toward the
-# nearest cover (see BattleManager/Unit.seek_cover). The enemy's two
-# mortars deploy at fixed rear positions and never advance.
+# Enemy squads start at the map's far edge, first move onto the road (the
+# strip is Rect2(330, 335, 600, 24) -> y:335-359), then actually march DOWN
+# it toward the village — a real two-waypoint path, not a beeline to a
+# scattered point that might not even be on the road. Once they take fire
+# they break off toward the nearest cover (see BattleManager/Unit.seek_cover).
+# The enemy's two mortars deploy at fixed rear positions and never advance.
 const ENEMY_SPAWN_X: float = 950.0
 const ENEMY_SQUAD_START_Y: Array[float] = [60.0, 170.0, 280.0, 390.0, 500.0, 610.0]
-const ENEMY_ROAD_RALLY_POINT: Vector2 = Vector2(420.0, 335.0) # where the road march initially heads
+const ENEMY_ROAD_ENTRY_X: float = 920.0 # just inside the road's east end
+const ENEMY_ROAD_MARCH_TARGET_X: float = 420.0 # where the march ends and engagement begins
+const ENEMY_ROAD_Y_MIN: float = 338.0 # kept inside the road strip (335-359) with margin
+const ENEMY_ROAD_Y_MAX: float = 356.0
 const ENEMY_MORTAR_POSITIONS: Array[Vector2] = [Vector2(950.0, 250.0), Vector2(950.0, 450.0)]
 const ENEMY_ADVANCE_SPEED: float = 35.0 # pixels/sec
 const ENEMY_RETREAT_SPEED: float = 60.0 # pixels/sec, away from the village

@@ -65,11 +65,17 @@ func _spawn_enemy_units() -> void:
 		squad.retreat_threshold = GameConfig.ENEMY_RETREAT_THRESHOLD
 		squad.concern_threshold = GameConfig.ENEMY_CONCERN_THRESHOLD
 		squad.move_speed = GameConfig.ENEMY_ADVANCE_SPEED
-		# Spread the road-march waypoints out well so all 6 don't converge on
-		# nearly the same point (and end up bunched again once they scatter).
-		var offset := Vector2(randf_range(-60.0, 60.0), randf_range(-120.0, 120.0))
-		squad.move_target = GameConfig.ENEMY_ROAD_RALLY_POINT + offset
-		squad.has_move_target = true
+		# A real road march: first get onto the road (near-vertical from the
+		# spawn edge), then march west along it toward the village. Each
+		# squad gets a slightly different y within the road strip so they're
+		# visibly distinct, not stacked in a single-file line, but all of
+		# them stay genuinely on the road the whole way.
+		var t: float = float(i) / float(max(GameConfig.ENEMY_SQUAD_START_Y.size() - 1, 1))
+		var road_y: float = lerp(GameConfig.ENEMY_ROAD_Y_MIN, GameConfig.ENEMY_ROAD_Y_MAX, t)
+		squad.set_path([
+			Vector2(GameConfig.ENEMY_ROAD_ENTRY_X, road_y),
+			Vector2(GameConfig.ENEMY_ROAD_MARCH_TARGET_X, road_y),
+		])
 		squad.activity = Unit.Activity.MOVING
 		_set_retreat_profile(squad, Unit.Team.ENEMY)
 		enemy_units.append(squad)
@@ -161,8 +167,12 @@ func _step_toward_target(unit: Unit, delta: float) -> void:
 	var step: float = unit.move_speed * delta
 	if step >= dist or dist <= Unit.MOVE_ARRIVE_RADIUS:
 		unit.position = unit.move_target
-		unit.has_move_target = false
-		unit.activity = Unit.Activity.STATIONARY
+		if not unit.move_queue.is_empty():
+			unit.move_target = unit.move_queue.pop_front()
+			# has_move_target stays true — next leg of the path starts next tick.
+		else:
+			unit.has_move_target = false
+			unit.activity = Unit.Activity.STATIONARY
 	else:
 		unit.position += to_target.normalized() * step
 
@@ -228,7 +238,10 @@ func _tick_fire(unit: Unit, delta: float, enemies: Array[Unit]) -> void:
 
 	var target_was_active := target.state == Unit.State.ACTIVE
 	CombatResolver.resolve_fire(unit, target)
-	_fire_flashes.append({"from": unit.global_position, "to": target.global_position, "team": unit.team, "time": elapsed_time})
+	_fire_flashes.append({
+		"from": unit.global_position, "to": target.global_position, "team": unit.team,
+		"time": elapsed_time, "is_mortar": unit.kind == Unit.Kind.MORTAR,
+	})
 	_log_hit_consequence(target, target_was_active)
 
 	if unit.kind == Unit.Kind.MORTAR:
@@ -431,5 +444,22 @@ func _draw() -> void:
 			continue
 		var alpha: float = 1.0 - (age / FLASH_DURATION)
 		var color: Color = Color(1.0, 0.85, 0.2, alpha) if flash.team == Unit.Team.ENEMY else Color(0.3, 0.85, 1.0, alpha)
-		draw_line(flash.from, flash.to, color, 2.0)
+		if flash.is_mortar:
+			# Lobbed, not straight — a mortar shell arcs over whatever's
+			# between it and the target, so the tracer should never look
+			# like it punched through a wall to get there.
+			_draw_arc_tracer(flash.from, flash.to, color)
+		else:
+			draw_line(flash.from, flash.to, color, 2.0)
 		draw_circle(flash.from, 5.0, Color(1.0, 1.0, 0.6, alpha))
+
+
+func _draw_arc_tracer(from: Vector2, to: Vector2, color: Color) -> void:
+	var apex: Vector2 = (from + to) / 2.0 - Vector2(0.0, from.distance_to(to) * 0.2)
+	var points := PackedVector2Array()
+	var segments := 12
+	for i in segments + 1:
+		var t: float = float(i) / float(segments)
+		var one_minus_t: float = 1.0 - t
+		points.append(from * (one_minus_t * one_minus_t) + apex * (2.0 * one_minus_t * t) + to * (t * t))
+	draw_polyline(points, color, 2.0, true)

@@ -39,11 +39,14 @@ var shoot_and_scoot: bool = false
 var relocate_cooldown: float = 5.0
 var reload_time: float = 3.0
 
-# General-purpose movement target, used for: an enemy squad's initial road
-# march, either side's squad bolting for cover, and RETREATING's pull to
-# safety uses its own retreat_speed/retreat_target_x instead (see below).
+# General-purpose movement target + queue, used for: an enemy squad's
+# initial road march (a real multi-waypoint path — see set_path), either
+# side's squad bolting for cover, and a retreat's first leg to cover.
+# RETREATING's final leg to safety uses its own retreat_speed/
+# retreat_target_x instead (see below).
 var move_target: Vector2 = Vector2.ZERO
 var has_move_target: bool = false
+var move_queue: Array[Vector2] = []
 var move_speed: float = 40.0
 const MOVE_ARRIVE_RADIUS: float = 8.0
 
@@ -169,12 +172,27 @@ func order_retreat() -> void:
 	state_changed.emit(self)
 
 
+## Walk a real multi-waypoint path (e.g. "get onto the road, then march down
+## it") instead of a single beeline. BattleManager._step_toward_target pops
+## the next waypoint off move_queue each time one is reached.
+func set_path(waypoints: Array[Vector2]) -> void:
+	if waypoints.is_empty():
+		has_move_target = false
+		move_queue.clear()
+		return
+	move_target = waypoints[0]
+	move_queue = waypoints.slice(1)
+	has_move_target = true
+
+
 ## Head for the nearest cover instead of wherever it was going. Used both for
 ## an enemy squad breaking from its road march and for either side's squad
-## bolting under mortar fire.
+## bolting under mortar fire. Clears any queued path (e.g. the rest of a
+## road march) — cover takes priority over wherever it was headed.
 func seek_cover() -> void:
 	move_target = GameConfig.nearest_cover_point(global_position)
 	has_move_target = true
+	move_queue.clear()
 	move_speed = GameConfig.REPOSITION_SPEED
 
 
