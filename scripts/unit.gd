@@ -151,11 +151,21 @@ func _check_retreat() -> void:
 ## Force this unit into a retreat regardless of its threshold — used both by
 ## the automatic threshold check above and by the player's general retreat
 ## order (see BattleManager.order_general_retreat).
+##
+## Takes a safe-ish path rather than a beeline: if not already in cover, the
+## first leg heads for the nearest cover (BattleManager._tick_movement runs
+## this leg via the normal move_target system); once there — or immediately,
+## if already in cover — the final leg is the straight pull to the safe
+## line (BattleManager._step_retreat). A unit tucked behind a building this
+## way can also break direct-fire LOS entirely (see GameConfig.has_direct_los).
 func order_retreat() -> void:
 	if state != State.ACTIVE:
 		return
-	has_move_target = false
 	state = State.RETREATING
+	if not GameConfig.is_in_cover(terrain_type()):
+		seek_cover()
+	else:
+		has_move_target = false
 	state_changed.emit(self)
 
 

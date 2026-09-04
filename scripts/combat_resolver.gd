@@ -41,22 +41,39 @@ const CONCEALMENT_MULTIPLIER := {
 ## targets not already spotted — an already-spotted unit stays spotted until
 ## it is removed from play (no "losing" a spot in v1, to keep this legible).
 ##
-## The artillery spotter sees further than a rifle squad does (its whole job)
-## and is itself harder to notice — a trained observer that stays hidden.
+## Line of sight does not go through buildings — a building between spotter
+## and target blocks the roll outright, same rule as direct fire (see
+## GameConfig.has_direct_los). This applies to anyone doing the looking,
+## squad or spotter alike; seeing and shooting are blocked the same way.
+##
+## The artillery spotter sees further than a rifle squad does (its whole
+## job). Its OWN concealment is two very different stories: hidden in cover,
+## the enemy effectively can't find it beyond point-blank range; standing in
+## the open, it's found close to normally.
 static func roll_spot(spotter: Unit, target: Unit, delta: float) -> bool:
+	if not GameConfig.has_direct_los(spotter.global_position, target.global_position):
+		return false
+
 	var distance: float = spotter.global_position.distance_to(target.global_position)
+	var target_hidden_spotter := target.kind == Unit.Kind.SPOTTER and GameConfig.is_in_cover(target.terrain_type())
+
 	var detection_range: float = GameConfig.DETECTION_BASE_RANGE
 	if spotter.kind == Unit.Kind.SPOTTER:
 		detection_range += GameConfig.SPOTTER_DETECTION_RANGE_BONUS
-	if spotter.elevation() > target.elevation():
+	if target_hidden_spotter:
+		# Overrides everything above — elevation and a spotter's own extended
+		# range don't help you find someone hunkered down and hidden.
+		detection_range = GameConfig.SPOTTER_HIDDEN_DETECTION_RANGE
+	elif spotter.elevation() > target.elevation():
 		detection_range += GameConfig.DETECTION_ELEVATION_BONUS
+
 	if distance > detection_range:
 		return false
 
 	var chance: float = GameConfig.SPOT_CHANCE_PER_SECOND
 	chance *= CONCEALMENT_MULTIPLIER[target.terrain_type()]
-	if target.kind == Unit.Kind.SPOTTER:
-		chance *= GameConfig.SPOTTER_CONCEALMENT_BONUS
+	if target.kind == Unit.Kind.SPOTTER and not target_hidden_spotter:
+		chance *= GameConfig.SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER
 	if target.activity == Unit.Activity.MOVING:
 		chance *= GameConfig.MOVING_SPOT_MULTIPLIER
 	chance *= clamp(1.0 - (distance / detection_range), 0.0, 1.0)

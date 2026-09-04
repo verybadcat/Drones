@@ -33,10 +33,11 @@ const TERRAIN_ZONES: Array[Dictionary] = [
 # screen — inside the village, matching "holding the village."
 const PLAYER_DEPLOYMENT_ZONE: Rect2 = Rect2(135, 75, 250, 330)
 
-# Separate, more forward deployment zone for the artillery spotter — it's a
-# reconnaissance asset, not a firing position, so it belongs further out
-# than the squads/mortar, near (not necessarily inside) the outlying cover.
-const PLAYER_SPOTTER_DEPLOYMENT_ZONE: Rect2 = Rect2(400, 200, 220, 300)
+# The spotter can deploy just about anywhere on the map — it's a
+# reconnaissance asset, not a firing position, and unlike squads/mortar
+# isn't restricted to the village. Kept a small margin off the outer edges
+# only so it can't be dropped literally off-map.
+const PLAYER_SPOTTER_DEPLOYMENT_ZONE: Rect2 = Rect2(20, 20, 1320, 660)
 const PLAYER_SPOTTER_DEFAULT_POSITION: Vector2 = Vector2(500, 240)
 
 # Default starting token positions on the deployment screen, before the
@@ -77,9 +78,14 @@ const MOVING_SPOT_MULTIPLIER: float = 3.0
 
 # The artillery spotter: a small, fragile, unarmed recon team whose job is
 # purely to extend detection for the mortar. Better trained to spot at range
-# and to stay hidden itself than a rifle squad is.
+# than a rifle squad is. Concealment is two very different stories depending
+# on whether it's actually using cover: hidden in trees/a building, the
+# enemy effectively cannot find it beyond point-blank range — "unless they
+# get very close." Standing in the open, it's found close to normally (just
+# a small trained-to-minimize-exposure edge).
 const SPOTTER_DETECTION_RANGE_BONUS: float = 120.0 # added to its own spotting rolls
-const SPOTTER_CONCEALMENT_BONUS: float = 0.5 # multiplies the chance IT gets spotted
+const SPOTTER_HIDDEN_DETECTION_RANGE: float = 70.0 # replaces detection range entirely when in cover
+const SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER: float = 0.8 # applies only when NOT in cover
 
 # A unit caught moving in the open is much easier to hit, not just to spot —
 # it has broken cover to advance (or to retreat). See CombatResolver.
@@ -131,31 +137,75 @@ static func is_in_cover(terrain: TerrainType) -> bool:
 	return terrain == TerrainType.BUILDING or terrain == TerrainType.TREES
 
 
-## A point inside the nearest TREES/BUILDING zone to `from` — where a unit
-## bolting for cover heads. Randomized within the zone (not always the exact
-## center) so several units heading for the same patch of cover spread out
-## instead of stacking on the same pixel. Always returns something (there is
-## always at least one cover zone on this map).
+## A point inside a nearby TREES/BUILDING zone to `from` — where a unit
+## bolting for cover heads. Weighted-random among the 2-3 nearest zones
+## (mostly the nearest, sometimes the next one out) rather than always the
+## single closest, plus a randomized point within whichever zone is chosen —
+## so several units converging from similar positions spread across
+## different patches of cover instead of all piling into the same one.
 static func nearest_cover_point(from: Vector2) -> Vector2:
-	var best_rect: Rect2
-	var best_dist: float = INF
-	var found := false
+	var candidates: Array[Dictionary] = []
 	for zone in TERRAIN_ZONES:
 		if zone.type != TerrainType.TREES and zone.type != TerrainType.BUILDING:
 			continue
 		var center: Vector2 = zone.rect.position + zone.rect.size / 2.0
-		var d: float = from.distance_to(center)
-		if d < best_dist:
-			best_dist = d
-			best_rect = zone.rect
-			found = true
-	if not found:
+		candidates.append({"rect": zone.rect, "dist": from.distance_to(center)})
+	if candidates.is_empty():
 		return from
+	candidates.sort_custom(func(a, b): return a.dist < b.dist)
+
+	var pool_size: int = min(3, candidates.size())
+	var weights: Array[float] = [0.55, 0.3, 0.15]
+	var roll := randf()
+	var cumulative := 0.0
+	var chosen_index := pool_size - 1
+	for i in pool_size:
+		cumulative += weights[i]
+		if roll <= cumulative:
+			chosen_index = i
+			break
+	var best_rect: Rect2 = candidates[chosen_index].rect
 
 	var margin := 10.0
 	var w: float = max(best_rect.size.x - margin * 2.0, 1.0)
 	var h: float = max(best_rect.size.y - margin * 2.0, 1.0)
 	return best_rect.position + Vector2(margin, margin) + Vector2(randf() * w, randf() * h)
+
+
+## True if a straight line from `from` to `to` is blocked by a BUILDING
+## that is neither endpoint's own position — i.e. some third building sits
+## between attacker and target. Used to stop direct (squad) fire from
+## shooting straight through the village; mortars ignore this entirely
+## (indirect, spotter-relayed fire). Trees do NOT block LOS outright — they
+## only affect cover/concealment — matching the existing terrain model.
+static func has_direct_los(from: Vector2, to: Vector2) -> bool:
+	for zone in TERRAIN_ZONES:
+		if zone.type != TerrainType.BUILDING:
+			continue
+		if zone.rect.has_point(from) or zone.rect.has_point(to):
+			continue # firing from/into this building doesn't block itself
+		if _line_crosses_rect(from, to, zone.rect):
+			return false
+	return true
+
+
+static func _line_crosses_rect(from: Vector2, to: Vector2, rect: Rect2) -> bool:
+	var tl := rect.position
+	var tr := rect.position + Vector2(rect.size.x, 0.0)
+	var br := rect.position + rect.size
+	var bl := rect.position + Vector2(0.0, rect.size.y)
+	return _segments_intersect(from, to, tl, tr) \
+		or _segments_intersect(from, to, tr, br) \
+		or _segments_intersect(from, to, br, bl) \
+		or _segments_intersect(from, to, bl, tl)
+
+
+static func _segments_intersect(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2) -> bool:
+	var d1 := (p4 - p3).cross(p1 - p3)
+	var d2 := (p4 - p3).cross(p2 - p3)
+	var d3 := (p2 - p1).cross(p3 - p1)
+	var d4 := (p2 - p1).cross(p4 - p1)
+	return ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0))
 
 
 ## Shared terrain rendering, used by both the battle view and the deployment

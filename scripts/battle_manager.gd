@@ -65,9 +65,9 @@ func _spawn_enemy_units() -> void:
 		squad.retreat_threshold = GameConfig.ENEMY_RETREAT_THRESHOLD
 		squad.concern_threshold = GameConfig.ENEMY_CONCERN_THRESHOLD
 		squad.move_speed = GameConfig.ENEMY_ADVANCE_SPEED
-		# Spread the road-march waypoints out a little so all 6 don't stack
-		# on the exact same point.
-		var offset := Vector2(float(i) * 12.0, (8.0 if i % 2 == 0 else -8.0))
+		# Spread the road-march waypoints out well so all 6 don't converge on
+		# nearly the same point (and end up bunched again once they scatter).
+		var offset := Vector2(randf_range(-60.0, 60.0), randf_range(-120.0, 120.0))
 		squad.move_target = GameConfig.ENEMY_ROAD_RALLY_POINT + offset
 		squad.has_move_target = true
 		squad.activity = Unit.Activity.MOVING
@@ -137,15 +137,19 @@ func _process(delta: float) -> void:
 		unit.queue_redraw() # cover ring must track position/terrain live
 
 
-## Any unit with an active move_target (the enemy's road march, or either
-## side bolting for cover) walks straight toward it and stops on arrival.
-## A unit ordered to retreat instead pulls toward its own side's safe line
-## and is marked WITHDRAWN on arrival — no longer part of the fight, but its
-## casualties still count in the AAR report.
+## Any unit with an active move_target (the enemy's road march, either side
+## bolting for cover, or a retreat's first leg to cover — see
+## Unit.order_retreat) walks straight toward it and stops on arrival. A
+## RETREATING unit with no move_target left is on its final leg: the
+## straight pull to its own side's safe line, marked WITHDRAWN on arrival —
+## no longer part of the fight, but its casualties still count in the AAR.
 func _tick_movement(delta: float) -> void:
 	for unit in player_units + enemy_units:
 		if unit.state == Unit.State.RETREATING:
-			_step_retreat(unit, delta)
+			if unit.has_move_target:
+				_step_toward_target(unit, delta)
+			else:
+				_step_retreat(unit, delta)
 		elif unit.state == Unit.State.ACTIVE and unit.has_move_target:
 			_step_toward_target(unit, delta)
 
@@ -288,14 +292,22 @@ func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
 ## fire needs the firer's own eyes on it. A MORTAR has no such limit: it
 ## fires on anything any friendly unit has spotted, anywhere on the map,
 ## per the design doc's spotter-relayed indirect fire.
+## A SQUAD can only fire at a target within its own engagement range AND
+## with actual line of sight — a building between attacker and target blocks
+## it outright, not just "harder to hit" (that's what the cover multiplier
+## is for). A MORTAR has neither restriction: it fires on anything any
+## friendly unit has spotted, anywhere, per the design doc's spotter-relayed
+## indirect fire.
 func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 	var candidates: Array[Unit] = []
 	for e in enemies:
 		if not e.is_targetable():
 			continue
-		if unit.kind == Unit.Kind.SQUAD \
-				and unit.global_position.distance_to(e.global_position) > GameConfig.SQUAD_ENGAGEMENT_RANGE:
-			continue
+		if unit.kind == Unit.Kind.SQUAD:
+			if unit.global_position.distance_to(e.global_position) > GameConfig.SQUAD_ENGAGEMENT_RANGE:
+				continue
+			if not GameConfig.has_direct_los(unit.global_position, e.global_position):
+				continue
 		candidates.append(e)
 	if candidates.is_empty():
 		return null
