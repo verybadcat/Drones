@@ -1,14 +1,19 @@
 extends Node2D
 class_name Unit
 ## A single deployable unit: an infantry squad or a mortar crew.
-## Pure data + drawing. All combat/spotting/movement/timing logic lives in
-## BattleManager and CombatResolver so this stays a dumb, easy-to-inspect object.
+## Pure data + drawing. All combat/spotting/timing logic lives in
+## BattleManager and CombatResolver so this stays a dumb, easy-to-inspect
+## object — with one exception: what a hit does to THIS unit's own state
+## (destroyed / retreat / seek cover) is decided right here in take_hit(),
+## since that's inherent to the unit reacting to being hit, not to the wider
+## battle.
 
 enum Team { PLAYER, ENEMY }
 enum Kind { SQUAD, MORTAR }
-## ACTIVE: fighting. RETREATING: pulling back, still on the field and can
-## still take fire. WITHDRAWN: reached safety, no longer part of the fight.
-## DESTROYED: out of action for good.
+## ACTIVE: fighting (possibly moving toward move_target). RETREATING: pulling
+## back off the field entirely, still on the field and can still take fire.
+## WITHDRAWN: reached safety, no longer part of the fight. DESTROYED: out of
+## action for good.
 enum State { ACTIVE, RETREATING, WITHDRAWN, DESTROYED }
 enum Activity { STATIONARY, MOVING }
 
@@ -33,17 +38,27 @@ var fire_timer: float = 0.0
 var shoot_and_scoot: bool = false
 var relocate_cooldown: float = 5.0
 var reload_time: float = 3.0
-var shots_since_relocate: int = 0
-var counter_battery_shot_threshold: int = 2
-var counter_battery_tick_chance: float = 0.05 # per 1s tick, once threshold crossed
-var counter_battery_timer: float = 0.0
 
-# Movement, used by RETREATING units on both sides and by advancing enemy
-# squads. Player squads/mortar never move on their own — only when ordered
-# to retreat.
-var move_speed: float = 0.0
+# General-purpose movement target, used for: an enemy squad's initial road
+# march, either side's squad bolting for cover, and RETREATING's pull to
+# safety uses its own retreat_speed/retreat_target_x instead (see below).
+var move_target: Vector2 = Vector2.ZERO
+var has_move_target: bool = false
+var move_speed: float = 40.0
+const MOVE_ARRIVE_RADIUS: float = 8.0
+
+# ENEMY SQUAD only: true once it has broken from the road march toward
+# cover after first contact — a one-time reaction, not re-rolled every hit.
+# BattleManager polls sought_cover_logged to log the moment exactly once.
+var sought_cover: bool = false
+var sought_cover_logged: bool = false
+
+# Set (not cleared) whenever seek_cover() is called for a reason OTHER than
+# the one-time road-march break above — i.e. a mortar-fire bolt-for-cover.
+# BattleManager polls + clears this to log each occurrence once.
+var bolted_for_cover: bool = false
+
 var retreat_speed: float = 0.0
-var advance_stop_x: float = 0.0 # ENEMY SQUAD only
 var retreat_target_x: float = 0.0 # x that means "reached safety" while retreating
 
 # ENEMY SQUAD only: set once, before the real retreat threshold, as a
@@ -73,14 +88,19 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 		fire_interval = reload_time
 	else:
 		max_pips = 4
-		base_hit_chance = 0.20
+		# Defenders fight from prepared, pre-ranged positions — their first
+		# shots land far more often than an attacker's do.
+		base_hit_chance = 0.32 if team == Team.PLAYER else 0.20
 		unit_label = "Squad"
 		fire_interval = 2.0
 	pips = max_pips
 	queue_redraw()
 
 
-func take_hit() -> void:
+## `from_mortar` — did this hit come from a mortar shell rather than direct
+## fire? Mortar fire can rattle a squad into relocating even without heavy
+## casualties (see RELOCATE_ON_MORTAR_HIT_CHANCE below).
+func take_hit(from_mortar: bool = false) -> void:
 	if state == State.DESTROYED:
 		return
 	pips -= 1
@@ -93,10 +113,23 @@ func take_hit() -> void:
 			crew_casualty_percent = randi_range(25, 100)
 		state_changed.emit(self)
 		return
+
 	# A mortar crew is either in action or it is not — no percent-casualties
-	# "retreat" state for a mortar. Only squads can be worn down and pull back.
-	if kind == Kind.SQUAD:
-		_check_retreat()
+	# "retreat" state for a mortar. Only squads can be worn down and pull back,
+	# break from an advance toward cover, or bolt under mortar fire.
+	if kind != Kind.SQUAD:
+		return
+
+	_check_retreat()
+	if state != State.ACTIVE:
+		return
+
+	if team == Team.ENEMY and not sought_cover:
+		sought_cover = true
+		seek_cover()
+	elif from_mortar and randf() < GameConfig.RELOCATE_ON_MORTAR_HIT_CHANCE:
+		seek_cover()
+		bolted_for_cover = true
 
 
 func _check_retreat() -> void:
@@ -105,7 +138,7 @@ func _check_retreat() -> void:
 	var fraction_lost: float = float(max_pips - pips) / float(max_pips)
 	if fraction_lost >= retreat_threshold:
 		order_retreat()
-	elif kind == Kind.SQUAD and not reported_issue and fraction_lost >= concern_threshold:
+	elif not reported_issue and fraction_lost >= concern_threshold:
 		reported_issue = true
 
 
@@ -115,8 +148,18 @@ func _check_retreat() -> void:
 func order_retreat() -> void:
 	if state != State.ACTIVE:
 		return
+	has_move_target = false
 	state = State.RETREATING
 	state_changed.emit(self)
+
+
+## Head for the nearest cover instead of wherever it was going. Used both for
+## an enemy squad breaking from its road march and for either side's squad
+## bolting under mortar fire.
+func seek_cover() -> void:
+	move_target = GameConfig.nearest_cover_point(global_position)
+	has_move_target = true
+	move_speed = GameConfig.REPOSITION_SPEED
 
 
 func is_targetable() -> bool:

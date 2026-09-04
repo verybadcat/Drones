@@ -62,7 +62,7 @@ func log_destroyed(unit: Unit) -> void:
 
 
 func log_counter_battery(unit: Unit) -> void:
-	add_entry("Counter-battery fire found %s holding position" % unit.display_name())
+	add_entry("Counter-battery fire found %s" % unit.display_name())
 
 
 func log_relocate(unit: Unit) -> void:
@@ -75,6 +75,14 @@ func log_spotted(unit: Unit) -> void:
 
 func log_revealed_by_fire(unit: Unit) -> void:
 	add_entry("%s opened fire, revealing its position" % unit.display_name())
+
+
+func log_seeking_cover(unit: Unit) -> void:
+	add_entry("%s breaks off and heads for cover" % unit.display_name())
+
+
+func log_bolts_for_cover(unit: Unit) -> void:
+	add_entry("%s bolts for a new position under mortar fire" % unit.display_name())
 
 
 func log_battle_end(report_text: String) -> void:

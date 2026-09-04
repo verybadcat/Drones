@@ -1,26 +1,33 @@
 extends Node2D
 class_name BattleManager
-## Runs one battle: spawns units per doctrine, advances the enemy, resolves
-## spotting and fire each tick, and produces an after-action report once both
-## sides are done fighting. Enemy doctrine is fixed/hardcoded here —
-## deliberately NOT a mirrored doctrine-interpreting engine (see design doc).
+## Runs one battle: spawns units per doctrine, marches the enemy down the
+## road, resolves spotting and fire each tick, and produces an after-action
+## report once both sides are done fighting. Enemy doctrine is fixed/
+## hardcoded here — deliberately NOT a mirrored doctrine-interpreting engine
+## (see design doc).
 ##
 ## No routine per-shot fire log (see CombatLog) — the log only records
-## moments that change the picture.
+## moments that change the picture. Fire IS shown visually, though — every
+## shot leaves a brief tracer (see _fire_flashes / _draw), color-coded by
+## side, so it is always clear when and where the enemy is shooting.
 
 signal battle_ended(report_text: String)
+
+const FLASH_DURATION: float = 0.3
 
 var player_units: Array[Unit] = []
 var enemy_units: Array[Unit] = []
 var combat_log: CombatLog
 var elapsed_time: float = 0.0
 var battle_over: bool = false
+var _fire_flashes: Array[Dictionary] = []
 
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	combat_log = p_combat_log
 	elapsed_time = 0.0
 	battle_over = false
+	_fire_flashes.clear()
 
 	for unit in player_units + enemy_units:
 		unit.queue_free()
@@ -48,21 +55,27 @@ func _spawn_player_units(doctrine: Dictionary) -> void:
 
 
 func _spawn_enemy_units() -> void:
-	for start_y in GameConfig.ENEMY_SQUAD_START_Y:
+	for i in GameConfig.ENEMY_SQUAD_START_Y.size():
+		var start_y: float = GameConfig.ENEMY_SQUAD_START_Y[i]
 		var squad := _make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(GameConfig.ENEMY_SPAWN_X, start_y))
 		squad.retreat_threshold = GameConfig.ENEMY_RETREAT_THRESHOLD
 		squad.concern_threshold = GameConfig.ENEMY_CONCERN_THRESHOLD
-		squad.advance_stop_x = GameConfig.ENEMY_ADVANCE_STOP_X
 		squad.move_speed = GameConfig.ENEMY_ADVANCE_SPEED
+		# Spread the road-march waypoints out a little so all 6 don't stack
+		# on the exact same point.
+		var offset := Vector2(float(i) * 12.0, (8.0 if i % 2 == 0 else -8.0))
+		squad.move_target = GameConfig.ENEMY_ROAD_RALLY_POINT + offset
+		squad.has_move_target = true
 		squad.activity = Unit.Activity.MOVING
 		_set_retreat_profile(squad, Unit.Team.ENEMY)
 		enemy_units.append(squad)
 
-	var em := _make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, GameConfig.ENEMY_MORTAR_POS)
-	em.shoot_and_scoot = false
-	em.relocate_cooldown = 5.0
-	_set_retreat_profile(em, Unit.Team.ENEMY)
-	enemy_units.append(em)
+	for mortar_pos in GameConfig.ENEMY_MORTAR_POSITIONS:
+		var em := _make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, mortar_pos)
+		em.shoot_and_scoot = false
+		em.relocate_cooldown = 5.0
+		_set_retreat_profile(em, Unit.Team.ENEMY)
+		enemy_units.append(em)
 
 
 func _set_retreat_profile(unit: Unit, team: Unit.Team) -> void:
@@ -113,26 +126,35 @@ func _process(delta: float) -> void:
 	for unit in enemy_units:
 		_tick_fire(unit, delta, player_units)
 
+	_prune_fire_flashes()
 	_check_battle_end()
+	queue_redraw() # keep fire-tracer fade-out animating smoothly
 
 
-## Enemy squads advance on the village until they reach engagement range,
-## then hold. Any unit ordered to retreat (automatically, past its casualty
-## threshold, or by the player's general order) pulls back toward its own
-## side's safe line and is marked WITHDRAWN on arrival — no longer part of
-## the fight, but its casualties still count in the AAR report.
+## Any unit with an active move_target (the enemy's road march, or either
+## side bolting for cover) walks straight toward it and stops on arrival.
+## A unit ordered to retreat instead pulls toward its own side's safe line
+## and is marked WITHDRAWN on arrival — no longer part of the fight, but its
+## casualties still count in the AAR report.
 func _tick_movement(delta: float) -> void:
-	for unit in enemy_units:
-		if unit.kind == Unit.Kind.SQUAD and unit.state == Unit.State.ACTIVE:
-			if unit.position.x > unit.advance_stop_x:
-				unit.position.x -= unit.move_speed * delta
-				unit.activity = Unit.Activity.MOVING
-			else:
-				unit.activity = Unit.Activity.STATIONARY
-
 	for unit in player_units + enemy_units:
 		if unit.state == Unit.State.RETREATING:
 			_step_retreat(unit, delta)
+		elif unit.state == Unit.State.ACTIVE and unit.has_move_target:
+			_step_toward_target(unit, delta)
+
+
+func _step_toward_target(unit: Unit, delta: float) -> void:
+	unit.activity = Unit.Activity.MOVING
+	var to_target: Vector2 = unit.move_target - unit.position
+	var dist: float = to_target.length()
+	var step: float = unit.move_speed * delta
+	if step >= dist or dist <= Unit.MOVE_ARRIVE_RADIUS:
+		unit.position = unit.move_target
+		unit.has_move_target = false
+		unit.activity = Unit.Activity.STATIONARY
+	else:
+		unit.position += to_target.normalized() * step
 
 
 func _step_retreat(unit: Unit, delta: float) -> void:
@@ -172,53 +194,70 @@ func _spot_side(spotters: Array[Unit], targets: Array[Unit], delta: float) -> vo
 
 
 func _tick_fire(unit: Unit, delta: float, enemies: Array[Unit]) -> void:
-	if unit.state == Unit.State.DESTROYED:
-		return
-
-	# Counter-battery accrual for a mortar holding position too long
-	# (only applies in "hold position" mode, not shoot-and-scoot).
-	if unit.kind == Unit.Kind.MORTAR and not unit.shoot_and_scoot \
-			and unit.state == Unit.State.ACTIVE \
-			and unit.shots_since_relocate > unit.counter_battery_shot_threshold:
-		unit.counter_battery_timer += delta
-		while unit.counter_battery_timer >= 1.0:
-			unit.counter_battery_timer -= 1.0
-			if randf() < unit.counter_battery_tick_chance:
-				unit.take_hit()
-				combat_log.log_counter_battery(unit)
-				_log_hit_consequence(unit, true)
-
 	if unit.state != Unit.State.ACTIVE:
-		return # retreating units stop firing but remain on the field
+		return # destroyed/withdrawn/retreating units don't fire
 
 	unit.fire_timer -= delta
 	if unit.fire_timer > 0.0:
 		return
 
-	var target := _pick_target(enemies)
+	var target := _pick_target(unit, enemies)
 	if target == null:
 		unit.fire_timer = unit.fire_interval
 		return
 
-	if not unit.is_spotted:
+	# A squad's muzzle flash gives it away; a mortar firing on spotter-relayed
+	# information does not — see CombatResolver / GameConfig for the
+	# counter-battery consequence of firing instead.
+	if unit.kind == Unit.Kind.SQUAD and not unit.is_spotted:
 		unit.is_spotted = true
 		unit.queue_redraw()
 		combat_log.log_revealed_by_fire(unit)
 
 	var target_was_active := target.state == Unit.State.ACTIVE
 	CombatResolver.resolve_fire(unit, target)
+	_fire_flashes.append({"from": unit.global_position, "to": target.global_position, "team": unit.team, "time": elapsed_time})
 	_log_hit_consequence(target, target_was_active)
 
 	if unit.kind == Unit.Kind.MORTAR:
+		_resolve_mortar_counter_battery(unit)
 		if unit.shoot_and_scoot:
-			unit.shots_since_relocate = 0
 			combat_log.log_relocate(unit)
+			_hop_mortar(unit)
 			unit.fire_timer = unit.relocate_cooldown + unit.reload_time
 		else:
-			unit.shots_since_relocate += 1
 			unit.fire_timer = unit.reload_time
 	else:
 		unit.fire_timer = unit.fire_interval
+
+
+## Firing gives the OPPOSING mortar(s) — and only the opposing mortar, not
+## every enemy unit — a chance to fire back. Shoot-and-scoot keeps that
+## chance low; holding position in one spot raises it a lot. Mortars are a
+## high-priority target for each other.
+func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
+	var opposing: Array[Unit] = player_units if firing_mortar.team == Unit.Team.ENEMY else enemy_units
+	var chance: float = GameConfig.MORTAR_COUNTER_BATTERY_SCOOT_CHANCE if firing_mortar.shoot_and_scoot else GameConfig.MORTAR_COUNTER_BATTERY_HOLD_CHANCE
+	for m in opposing:
+		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
+			continue
+		if randf() < chance:
+			var was_active := firing_mortar.state == Unit.State.ACTIVE
+			firing_mortar.take_hit(true)
+			combat_log.log_counter_battery(firing_mortar)
+			_log_hit_consequence(firing_mortar, was_active)
+
+
+## Shoot-and-scoot is now visible, not just a cooldown number — the mortar
+## actually hops a short, random distance after firing.
+func _hop_mortar(mortar: Unit) -> void:
+	var hop := Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0))
+	if hop.length() < 0.01:
+		hop = Vector2.RIGHT
+	mortar.position += hop.normalized() * GameConfig.MORTAR_SCOOT_HOP_DISTANCE
+	mortar.position.x = clamp(mortar.position.x, 20.0, 1340.0)
+	mortar.position.y = clamp(mortar.position.y, 20.0, 680.0)
+	mortar.queue_redraw()
 
 
 func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
@@ -229,16 +268,34 @@ func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
 	if unit.reported_issue and not unit.reported_issue_logged:
 		unit.reported_issue_logged = true
 		combat_log.log_reports_issue(unit)
+	if unit.sought_cover and not unit.sought_cover_logged:
+		unit.sought_cover_logged = true
+		combat_log.log_seeking_cover(unit)
+	if unit.bolted_for_cover:
+		unit.bolted_for_cover = false
+		combat_log.log_bolts_for_cover(unit)
 
 
-func _pick_target(enemies: Array[Unit]) -> Unit:
+## A SQUAD can only fire at a target within its own engagement range — direct
+## fire needs the firer's own eyes on it. A MORTAR has no such limit: it
+## fires on anything any friendly unit has spotted, anywhere on the map,
+## per the design doc's spotter-relayed indirect fire.
+func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 	var candidates: Array[Unit] = []
 	for e in enemies:
-		if e.is_targetable():
-			candidates.append(e)
+		if not e.is_targetable():
+			continue
+		if unit.kind == Unit.Kind.SQUAD \
+				and unit.global_position.distance_to(e.global_position) > GameConfig.SQUAD_ENGAGEMENT_RANGE:
+			continue
+		candidates.append(e)
 	if candidates.is_empty():
 		return null
 	return candidates[randi() % candidates.size()]
+
+
+func _prune_fire_flashes() -> void:
+	_fire_flashes = _fire_flashes.filter(func(f): return elapsed_time - f.time <= FLASH_DURATION)
 
 
 func _check_battle_end() -> void:
@@ -348,3 +405,11 @@ func _end_battle() -> void:
 
 func _draw() -> void:
 	GameConfig.draw_terrain(self)
+	for flash in _fire_flashes:
+		var age: float = elapsed_time - flash.time
+		if age > FLASH_DURATION:
+			continue
+		var alpha: float = 1.0 - (age / FLASH_DURATION)
+		var color: Color = Color(1.0, 0.85, 0.2, alpha) if flash.team == Unit.Team.ENEMY else Color(0.3, 0.85, 1.0, alpha)
+		draw_line(flash.from, flash.to, color, 2.0)
+		draw_circle(flash.from, 5.0, Color(1.0, 1.0, 0.6, alpha))
