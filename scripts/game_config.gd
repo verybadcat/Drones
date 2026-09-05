@@ -147,22 +147,22 @@ const TERRAIN_ZONES: Array[Dictionary] = [
 	{"rect": Rect2(2380.0 * PIXELS_PER_METER, 1580.0 * PIXELS_PER_METER, 55.0 * PIXELS_PER_METER, 46.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # isolated farmhouse, mid-approach
 	{"rect": Rect2(880.0 * PIXELS_PER_METER, 2480.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 50.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # isolated farmhouse, rear
 
-	{"rect": Rect2(950.0 * PIXELS_PER_METER, 1230.0 * PIXELS_PER_METER, 260.0 * PIXELS_PER_METER, 210.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # wooded slope, village hill NW
-	{"rect": Rect2(1580.0 * PIXELS_PER_METER, 1280.0 * PIXELS_PER_METER, 220.0 * PIXELS_PER_METER, 180.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # wooded slope, village hill NE
-	{"rect": Rect2(2950.0 * PIXELS_PER_METER, 1450.0 * PIXELS_PER_METER, 240.0 * PIXELS_PER_METER, 190.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse along the approach
-	{"rect": Rect2(3780.0 * PIXELS_PER_METER, 2180.0 * PIXELS_PER_METER, 300.0 * PIXELS_PER_METER, 240.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods on the enemy-side rise
-	{"rect": Rect2(2150.0 * PIXELS_PER_METER, 2750.0 * PIXELS_PER_METER, 320.0 * PIXELS_PER_METER, 260.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # southern woods, off the road
-	{"rect": Rect2(550.0 * PIXELS_PER_METER, 2150.0 * PIXELS_PER_METER, 190.0 * PIXELS_PER_METER, 160.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse near the rear
-	{"rect": Rect2(4150.0 * PIXELS_PER_METER, 850.0 * PIXELS_PER_METER, 230.0 * PIXELS_PER_METER, 190.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods near the northern rise
-	{"rect": Rect2(2700.0 * PIXELS_PER_METER, 550.0 * PIXELS_PER_METER, 210.0 * PIXELS_PER_METER, 170.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse, north side
-	{"rect": Rect2(150.0 * PIXELS_PER_METER, 750.0 * PIXELS_PER_METER, 180.0 * PIXELS_PER_METER, 150.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # slope below the western ridge
-	{"rect": Rect2(2500.0 * PIXELS_PER_METER, 650.0 * PIXELS_PER_METER, 200.0 * PIXELS_PER_METER, 170.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods above the road bend
-	{"rect": Rect2(1800.0 * PIXELS_PER_METER, 2400.0 * PIXELS_PER_METER, 220.0 * PIXELS_PER_METER, 180.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse south of the village
-	{"rect": Rect2(3900.0 * PIXELS_PER_METER, 3000.0 * PIXELS_PER_METER, 260.0 * PIXELS_PER_METER, 210.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods, far southeast
-	{"rect": Rect2(1000.0 * PIXELS_PER_METER, 400.0 * PIXELS_PER_METER, 190.0 * PIXELS_PER_METER, 150.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse, north of the village
-	{"rect": Rect2(4400.0 * PIXELS_PER_METER, 1800.0 * PIXELS_PER_METER, 210.0 * PIXELS_PER_METER, 170.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods near the enemy's rear
-	{"rect": Rect2(600.0 * PIXELS_PER_METER, 1600.0 * PIXELS_PER_METER, 170.0 * PIXELS_PER_METER, 140.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse, west-central
-	{"rect": Rect2(3200.0 * PIXELS_PER_METER, 2500.0 * PIXELS_PER_METER, 230.0 * PIXELS_PER_METER, 190.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods on the approach rise's south slope
+	{"rect": Rect2(898.0 * PIXELS_PER_METER, 1188.0 * PIXELS_PER_METER, 364.0 * PIXELS_PER_METER, 294.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # wooded slope, village hill NW
+	{"rect": Rect2(1536.0 * PIXELS_PER_METER, 1244.0 * PIXELS_PER_METER, 308.0 * PIXELS_PER_METER, 252.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # wooded slope, village hill NE
+	{"rect": Rect2(2902.0 * PIXELS_PER_METER, 1412.0 * PIXELS_PER_METER, 336.0 * PIXELS_PER_METER, 266.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse along the approach
+	{"rect": Rect2(3720.0 * PIXELS_PER_METER, 2132.0 * PIXELS_PER_METER, 420.0 * PIXELS_PER_METER, 336.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods on the enemy-side rise
+	{"rect": Rect2(2086.0 * PIXELS_PER_METER, 2698.0 * PIXELS_PER_METER, 448.0 * PIXELS_PER_METER, 364.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # southern woods, off the road
+	{"rect": Rect2(512.0 * PIXELS_PER_METER, 2118.0 * PIXELS_PER_METER, 266.0 * PIXELS_PER_METER, 224.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse near the rear
+	{"rect": Rect2(4104.0 * PIXELS_PER_METER, 812.0 * PIXELS_PER_METER, 322.0 * PIXELS_PER_METER, 266.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods near the northern rise
+	{"rect": Rect2(2658.0 * PIXELS_PER_METER, 516.0 * PIXELS_PER_METER, 294.0 * PIXELS_PER_METER, 238.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse, north side
+	{"rect": Rect2(114.0 * PIXELS_PER_METER, 720.0 * PIXELS_PER_METER, 252.0 * PIXELS_PER_METER, 210.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # slope below the western ridge
+	{"rect": Rect2(2460.0 * PIXELS_PER_METER, 616.0 * PIXELS_PER_METER, 280.0 * PIXELS_PER_METER, 238.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods above the road bend
+	{"rect": Rect2(1756.0 * PIXELS_PER_METER, 2364.0 * PIXELS_PER_METER, 308.0 * PIXELS_PER_METER, 252.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse south of the village
+	{"rect": Rect2(3848.0 * PIXELS_PER_METER, 2958.0 * PIXELS_PER_METER, 364.0 * PIXELS_PER_METER, 294.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods, far southeast
+	{"rect": Rect2(962.0 * PIXELS_PER_METER, 370.0 * PIXELS_PER_METER, 266.0 * PIXELS_PER_METER, 210.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse, north of the village
+	{"rect": Rect2(4358.0 * PIXELS_PER_METER, 1766.0 * PIXELS_PER_METER, 294.0 * PIXELS_PER_METER, 238.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods near the enemy's rear
+	{"rect": Rect2(566.0 * PIXELS_PER_METER, 1572.0 * PIXELS_PER_METER, 238.0 * PIXELS_PER_METER, 196.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse, west-central
+	{"rect": Rect2(3154.0 * PIXELS_PER_METER, 2462.0 * PIXELS_PER_METER, 322.0 * PIXELS_PER_METER, 266.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods on the approach rise's south slope
 ]
 
 # Legal area for the player to drag squads into — wider than just the
@@ -348,6 +348,13 @@ const COUNTER_BATTERY_BLAST_RADIUS: float = 150.0 * PIXELS_PER_METER # beyond th
 # A squad hit by mortar fire may bolt for nearby cover regardless of overall
 # casualties — mortar fire is disruptive even when it doesn't kill outright.
 const RELOCATE_ON_MORTAR_HIT_CHANCE: float = 0.35
+
+# Squads bunched up this close together (e.g. piled into the same patch of
+# cover) risk a stray hit spreading from whichever of them was actually
+# targeted — real militaries avoid bunching up for exactly this reason. See
+# BattleManager._resolve_fire_and_check_bunching / _bunched_ally.
+const BUNCHING_RADIUS: float = 30.0 * PIXELS_PER_METER
+const BUNCHING_SPILLOVER_CHANCE: float = 0.25
 const REPOSITION_SPEED: float = 1.8 * PIXELS_PER_METER # m/s (tactical), for any non-retreat repositioning
 
 
@@ -407,7 +414,16 @@ static func path_crosses_building(from: Vector2, to: Vector2) -> bool:
 ##
 ## `avoid_buildings` excludes BUILDING zones entirely, leaving only TREES —
 ## used by the mortar, which can never enter a building (see is_building_at).
-static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false) -> Vector2:
+##
+## `avoid_positions` (typically other same-team units' current/planned
+## positions) excludes any zone that already contains one of them, IF at
+## least one zone still qualifies without it — real squads spread out
+## across different patches of cover rather than piling into the same one,
+## which also puts all of them at risk from a single burst or shell landing
+## there (see BattleManager's bunching-spillover mechanic). Falls back to
+## the normal (unrestricted) candidate set if avoiding them would leave
+## nowhere to go — some cover, even shared, beats none.
+static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false, avoid_positions: Array[Vector2] = []) -> Vector2:
 	var candidates: Array[Dictionary] = []
 	for zone in TERRAIN_ZONES:
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
@@ -420,6 +436,20 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 		candidates.append({"rect": zone.rect, "dist": from.distance_to(center)})
 	if candidates.is_empty():
 		return from
+
+	if not avoid_positions.is_empty():
+		var unclaimed: Array[Dictionary] = []
+		for c in candidates:
+			var claimed := false
+			for p in avoid_positions:
+				if c.rect.has_point(p):
+					claimed = true
+					break
+			if not claimed:
+				unclaimed.append(c)
+		if not unclaimed.is_empty():
+			candidates = unclaimed
+
 	candidates.sort_custom(func(a, b): return a.dist < b.dist)
 
 	var pool_size: int = min(3, candidates.size())
@@ -478,6 +508,40 @@ static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vecto
 	var w: float = max(best_rect.size.x - margin * 2.0, 1.0)
 	var h: float = max(best_rect.size.y - margin * 2.0, 1.0)
 	return best_rect.position + Vector2(margin, margin) + Vector2(randf() * w, randf() * h)
+
+
+# How far out (and in how many steps) to search for a concealed spot — see
+# nearest_hidden_point. Three expanding rings, nearest checked first, so a
+# mortar prefers a short hop to cover over a long trek if both work.
+const CONCEALMENT_SEARCH_RINGS_M: Array[float] = [250.0, 450.0, 650.0]
+const CONCEALMENT_SEARCH_SAMPLES: int = 16
+
+## A nearby point with NO direct line of sight from ANY of `threat_positions`
+## — true concealment (like the reverse slope of a hill, or behind a
+## building), not just the reduced spot-chance TREES/BUILDING give as
+## "cover." Samples points in a ring around `from` at increasing radii,
+## returning the first that's fully hidden from every threat (and, if
+## `avoid_buildings`, isn't inside one or reachable only by cutting through
+## one). Falls back to `from` (no move) if there's nothing to hide from yet
+## or nothing qualifies within the search radius.
+static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false) -> Vector2:
+	if threat_positions.is_empty():
+		return from
+	for radius_m in CONCEALMENT_SEARCH_RINGS_M:
+		var radius_px: float = radius_m * PIXELS_PER_METER
+		for i in CONCEALMENT_SEARCH_SAMPLES:
+			var theta: float = TAU * float(i) / float(CONCEALMENT_SEARCH_SAMPLES)
+			var candidate: Vector2 = from + Vector2(cos(theta), sin(theta)) * radius_px
+			if avoid_buildings and (is_building_at(candidate) or path_crosses_building(from, candidate)):
+				continue
+			var hidden := true
+			for threat in threat_positions:
+				if has_direct_los(candidate, threat):
+					hidden = false
+					break
+			if hidden:
+				return candidate
+	return from
 
 
 ## True if a straight line from `from` to `to` is clear — used for both

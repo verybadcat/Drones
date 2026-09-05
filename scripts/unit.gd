@@ -125,7 +125,11 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 ## `from_mortar` — did this hit come from a mortar shell rather than direct
 ## fire? Mortar fire can rattle a squad into relocating even without heavy
 ## casualties (see RELOCATE_ON_MORTAR_HIT_CHANCE below).
-func take_hit(from_mortar: bool = false) -> void:
+##
+## `ally_positions` — other same-team units' current positions, passed
+## straight through to seek_cover() so a squad breaking for cover here
+## picks a different patch than one an ally is already using.
+func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = []) -> void:
 	if state == State.DESTROYED:
 		return
 	pips = max(pips - 1, 0)
@@ -153,9 +157,9 @@ func take_hit(from_mortar: bool = false) -> void:
 
 	if team == Team.ENEMY and not sought_cover:
 		sought_cover = true
-		seek_cover()
+		seek_cover(ally_positions)
 	elif from_mortar and randf() < GameConfig.RELOCATE_ON_MORTAR_HIT_CHANCE:
-		seek_cover()
+		seek_cover(ally_positions)
 		bolted_for_cover = true
 
 
@@ -256,8 +260,12 @@ func set_path(waypoints: Array[Vector2]) -> void:
 ## movement unpredictable: diving for cover is reactive and erratic, not a
 ## steady lead-aimable path, so a mortar should have a much harder time
 ## hitting a unit doing this than one on its own predictable road march.
-func seek_cover() -> void:
-	move_target = GameConfig.nearest_cover_point(global_position)
+##
+## `avoid_positions` — other same-team units already there or headed there —
+## steers away from a patch of cover an ally is already using, so squads
+## spread out instead of bunching up (see GameConfig.nearest_cover_point).
+func seek_cover(avoid_positions: Array[Vector2] = []) -> void:
+	move_target = GameConfig.nearest_cover_point(global_position, 0.0, false, avoid_positions)
 	has_move_target = true
 	move_queue.clear()
 	move_speed = GameConfig.REPOSITION_SPEED
