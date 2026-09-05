@@ -79,6 +79,11 @@ const ENEMY_SAFE_X: float = ENEMY_SPAWN_X + 60.0
 const PLAYER_RETREAT_SPEED: float = 50.0 # pixels/sec, only used after a general retreat order
 const PLAYER_SAFE_X: float = 20.0
 
+# How much slack a cover zone gets on the "wrong" side of a retreating
+# unit's current position before it's excluded as a detour toward the
+# front — see nearest_cover_point/safest_cover_point's retreat_dir param.
+const RETREAT_DIRECTION_TOLERANCE: float = 30.0
+
 const BATTLE_TIME_LIMIT: float = 300.0 # seconds; ends the battle if reached
 
 # Spotting.
@@ -173,12 +178,23 @@ static func is_in_cover(terrain: TerrainType) -> bool:
 ## single closest, plus a randomized point within whichever zone is chosen —
 ## so several units converging from similar positions spread across
 ## different patches of cover instead of all piling into the same one.
-static func nearest_cover_point(from: Vector2) -> Vector2:
+##
+## `retreat_dir` (-1.0 west/player, +1.0 east/enemy, 0.0 = no constraint at
+## all) excludes any zone that would require moving further in the WRONG
+## direction than `from` — a unit ordered to retreat should never detour
+## toward the front just because that happens to be the nearest cover.
+## Non-retreat callers (an enemy breaking from its road march, a squad
+## bolting under mortar fire) pass the default 0.0: any direction is fine
+## when you're not specifically trying to withdraw. Falls back to `from`
+## itself if nothing qualifies — the caller then simply skips the cover leg.
+static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0) -> Vector2:
 	var candidates: Array[Dictionary] = []
 	for zone in TERRAIN_ZONES:
 		if zone.type != TerrainType.TREES and zone.type != TerrainType.BUILDING:
 			continue
 		var center: Vector2 = zone.rect.position + zone.rect.size / 2.0
+		if retreat_dir != 0.0 and (center.x - from.x) * retreat_dir < -RETREAT_DIRECTION_TOLERANCE:
+			continue
 		candidates.append({"rect": zone.rect, "dist": from.distance_to(center)})
 	if candidates.is_empty():
 		return from
@@ -208,15 +224,21 @@ static func nearest_cover_point(from: Vector2) -> Vector2:
 ## it doesn't trek across the map for a marginal safety gain), then among
 ## those picks whichever is farthest from the nearest currently-known enemy
 ## position. With no known enemies, behaves like nearest_cover_point.
-static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vector2]) -> Vector2:
+##
+## `retreat_dir` — see nearest_cover_point — excludes cover that would mean
+## detouring toward the front first; a smarter route still has to actually
+## be a retreat.
+static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vector2], retreat_dir: float = 0.0) -> Vector2:
 	if known_enemy_positions.is_empty():
-		return nearest_cover_point(from)
+		return nearest_cover_point(from, retreat_dir)
 
 	var candidates: Array[Dictionary] = []
 	for zone in TERRAIN_ZONES:
 		if zone.type != TerrainType.TREES and zone.type != TerrainType.BUILDING:
 			continue
 		var center: Vector2 = zone.rect.position + zone.rect.size / 2.0
+		if retreat_dir != 0.0 and (center.x - from.x) * retreat_dir < -RETREAT_DIRECTION_TOLERANCE:
+			continue
 		var nearest_enemy_dist: float = INF
 		for ep in known_enemy_positions:
 			nearest_enemy_dist = min(nearest_enemy_dist, center.distance_to(ep))

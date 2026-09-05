@@ -175,21 +175,28 @@ func _check_retreat() -> void:
 ## BattleManager — Unit itself has no view of the wider battle) lets the
 ## SPOTTER specifically pick a cover zone that's farthest from the nearest
 ## known threat, not just the closest one — it has training and situational
-## awareness a rifle squad diving on instinct doesn't. Other kinds ignore it
-## and use the plain nearest-cover logic.
+## awareness a rifle squad diving on instinct doesn't. Other kinds use the
+## plain nearest-cover logic.
+##
+## Either way, the cover leg is direction-aware: it never detours toward
+## the front just because that happens to be the closest patch of cover —
+## see GameConfig's retreat_dir parameter. Without that, a mortar set up
+## well to the rear (now allowed — see design doc) could "retreat" forward
+## first if the nearest cover happened to be back toward the village.
 func order_retreat(known_enemy_positions: Array[Vector2] = []) -> void:
 	if state != State.ACTIVE:
 		return
 	state = State.RETREATING
 	movement_predictable = false # pulling out under pressure, not a calm march
 	if not GameConfig.is_in_cover(terrain_type()):
+		var retreat_dir: float = -1.0 if team == Team.PLAYER else 1.0
 		if kind == Kind.SPOTTER and not known_enemy_positions.is_empty():
-			move_target = GameConfig.safest_cover_point(global_position, known_enemy_positions)
-			has_move_target = true
-			move_queue.clear()
-			move_speed = GameConfig.REPOSITION_SPEED
+			move_target = GameConfig.safest_cover_point(global_position, known_enemy_positions, retreat_dir)
 		else:
-			seek_cover()
+			move_target = GameConfig.nearest_cover_point(global_position, retreat_dir)
+		has_move_target = true
+		move_queue.clear()
+		move_speed = GameConfig.REPOSITION_SPEED
 	else:
 		has_move_target = false
 	state_changed.emit(self)
