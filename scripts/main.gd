@@ -20,6 +20,10 @@ var restart_button: Button
 # sense of true distance at a glance.
 var _elevation_label: Label
 
+# The tactical clock (0600 + BattleManager.scenario_elapsed_time) — shown
+# before the battle starts too, frozen at the planned H-hour.
+var _clock_label: Label
+
 
 func _ready() -> void:
 	_elevation_label = Label.new()
@@ -29,6 +33,15 @@ func _ready() -> void:
 	_elevation_label.add_theme_constant_override("shadow_offset_x", 1)
 	_elevation_label.add_theme_constant_override("shadow_offset_y", 1)
 	add_child(_elevation_label)
+
+	_clock_label = Label.new()
+	_clock_label.position = Vector2(GameConfig.MAP_WIDTH_PX - 90, 4)
+	_clock_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.85))
+	_clock_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
+	_clock_label.add_theme_constant_override("shadow_offset_x", 1)
+	_clock_label.add_theme_constant_override("shadow_offset_y", 1)
+	add_child(_clock_label)
+
 	queue_redraw() # the scale bar is static; draw it once up front
 
 	_show_deployment()
@@ -38,10 +51,12 @@ func _process(_delta: float) -> void:
 	var mouse_pos := get_global_mouse_position()
 	if mouse_pos.x < 0.0 or mouse_pos.x > GameConfig.MAP_WIDTH_PX or mouse_pos.y < 0.0 or mouse_pos.y > GameConfig.MAP_HEIGHT_PX:
 		_elevation_label.visible = false
-		return
-	_elevation_label.visible = true
-	var elevation_m: float = GameConfig.elevation_m(mouse_pos)
-	_elevation_label.text = "Elevation: %dm" % int(round(elevation_m))
+	else:
+		_elevation_label.visible = true
+		var elevation_m: float = GameConfig.elevation_m(mouse_pos)
+		_elevation_label.text = "Elevation: %dm" % int(round(elevation_m))
+
+	_clock_label.text = battle_manager.clock_string() if battle_manager else "%02d:00:00" % int(GameConfig.SCENARIO_START_HOUR)
 
 
 ## A fixed 1000m reference bar, bottom-left of the map — the one thing on

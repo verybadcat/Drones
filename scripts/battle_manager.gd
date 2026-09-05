@@ -23,7 +23,17 @@ const STAGNATION_TIMEOUT: float = 15.0
 var player_units: Array[Unit] = []
 var enemy_units: Array[Unit] = []
 var combat_log: CombatLog
+# Actual, real (engine) elapsed seconds since the battle started — drives
+# only visual/animation timing (fire-tracer fade) and the stagnation
+# safeguard, both of which are about what the PLAYER is experiencing, not
+# the tactical timeline. See scenario_elapsed_time for that.
 var elapsed_time: float = 0.0
+# The in-fiction tactical clock — what movement speed, mortar flight time,
+# and counter-battery intervals are all measured against. Advances faster
+# than elapsed_time by whichever GameConfig.TIME_SCALE_* tier currently
+# applies (see _current_time_scale) each tick — see _process. Starts at
+# 0600 (see clock_string()).
+var scenario_elapsed_time: float = 0.0
 var battle_over: bool = false
 var _fire_flashes: Array[Dictionary] = []
 var _seconds_since_last_shot: float = 0.0
@@ -33,20 +43,37 @@ var _seconds_since_last_shot: float = 0.0
 # not just the one that was actually shot at. One-shot per battle.
 var enemy_alerted: bool = false
 
+# One-shot flags: has EITHER side's commander ordered a general withdrawal
+# yet? The player's is a direct command (order_general_retreat); the
+# enemy's is automatic, triggered once their situation looks hopeless (see
+# _check_enemy_commander_retreat). Either one puts the whole battle into
+# the faster general-retreat tactical-clock tier — see _current_time_scale.
+var player_general_retreat_ordered: bool = false
+var enemy_general_retreat_ordered: bool = false
+
 # Counter-battery strikes triggered but not yet landed — see
 # _resolve_mortar_counter_battery / _resolve_pending_counter_battery.
 # {"target": Unit, "impact_position": Vector2, "impact_time": float}
 var _pending_counter_battery: Array[Dictionary] = []
 
+# Mortar shots fired but not yet landed — see _launch_mortar_shot /
+# _resolve_pending_mortar_shots. {"mortar": Unit, "target": Unit,
+# "aim_point": Vector2, "impact_time": float}
+var _pending_mortar_shots: Array[Dictionary] = []
+
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	combat_log = p_combat_log
 	elapsed_time = 0.0
+	scenario_elapsed_time = 0.0
 	battle_over = false
 	_fire_flashes.clear()
 	_seconds_since_last_shot = 0.0
 	enemy_alerted = false
+	player_general_retreat_ordered = false
+	enemy_general_retreat_ordered = false
 	_pending_counter_battery.clear()
+	_pending_mortar_shots.clear()
 
 	for unit in player_units + enemy_units:
 		unit.queue_free()
@@ -57,6 +84,52 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_spawn_enemy_units()
 
 	queue_redraw()
+
+
+## HH:MM:SS tactical time-of-day, starting at GameConfig.SCENARIO_START_HOUR
+## (0600) and advancing with scenario_elapsed_time.
+func clock_string() -> String:
+	var total_seconds: int = int(GameConfig.SCENARIO_START_HOUR * 3600.0 + scenario_elapsed_time)
+	var h: int = (total_seconds / 3600) % 24
+	var m: int = (total_seconds / 60) % 60
+	var s: int = total_seconds % 60
+	return "%02d:%02d:%02d" % [h, m, s]
+
+
+## True once EITHER side's commander has ordered a general withdrawal — not
+## just some individual unit routing on its own threshold while the rest of
+## the battle carries on. Drives the tactical clock's pace: see
+## _current_time_scale. Stays true for the rest of the battle once set;
+## nobody un-orders a retreat.
+func _general_withdrawal_in_progress() -> bool:
+	return player_general_retreat_ordered or enemy_general_retreat_ordered
+
+
+## True the instant anyone on either side currently sees an enemy — firing
+## requires a visible/targetable target, so this covers "actively fighting"
+## too, not just "spotted." Drives the tactical clock's pace: see
+## _current_time_scale.
+func _any_contact() -> bool:
+	for u in player_units + enemy_units:
+		if u.is_visible:
+			return true
+	return false
+
+
+## Picks how fast the tactical clock runs this tick — realistic pace the
+## moment there's something worth watching closely (live contact, which
+## always wins even during a general withdrawal — a fighting retreat is
+## still worth watching closely), faster once a general withdrawal is under
+## way and nobody's currently in contact, fastest of all when there's
+## nothing happening at all yet (e.g. the long road march before first
+## contact, or a single unit's own quiet, isolated retreat) — see
+## GameConfig's TIME_SCALE_* constants for the reasoning.
+func _current_time_scale() -> float:
+	if _any_contact():
+		return GameConfig.TIME_SCALE_NORMAL
+	if _general_withdrawal_in_progress():
+		return GameConfig.TIME_SCALE_GENERAL_RETREAT
+	return GameConfig.TIME_SCALE_FAST_FORWARD
 
 
 func _spawn_player_units(doctrine: Dictionary) -> void:
@@ -131,6 +204,7 @@ func _make_unit(team: Unit.Team, kind: Unit.Kind, pos: Vector2) -> Unit:
 func order_general_retreat() -> void:
 	if battle_over:
 		return
+	player_general_retreat_ordered = true
 	var known_enemy_positions := _known_enemy_positions(Unit.Team.PLAYER)
 	var any_ordered := false
 	for unit in player_units:
@@ -140,6 +214,38 @@ func order_general_retreat() -> void:
 			any_ordered = true
 	if any_ordered:
 		combat_log.add_entry("--- General retreat ordered ---")
+
+
+## The enemy commander's mirror of the player's own general-retreat button —
+## except nobody presses it; it fires automatically once the attack as a
+## whole looks hopeless (see _enemy_situation_hopeless). This is a top-down,
+## whole-force judgment, distinct from a single squad's own bottom-up
+## casualty threshold (Unit._check_retreat) — a squad personally still in
+## decent shape can still get pulled back here if the attack overall has
+## clearly failed. One-shot per battle, checked every tick.
+func _check_enemy_commander_retreat() -> void:
+	if enemy_general_retreat_ordered or battle_over:
+		return
+	if not _enemy_situation_hopeless():
+		return
+	enemy_general_retreat_ordered = true
+	var known_player_positions := _known_enemy_positions(Unit.Team.ENEMY)
+	var any_ordered := false
+	for unit in enemy_units:
+		if unit.state == Unit.State.ACTIVE:
+			unit.order_retreat(known_player_positions)
+			combat_log.log_ordered_retreat(unit)
+			any_ordered = true
+	if any_ordered:
+		combat_log.add_entry("--- Enemy commander orders a general retreat: the attack has failed ---")
+
+
+## Judged against the WHOLE enemy force's casualties (pips lost across every
+## enemy squad and mortar), not any single unit's own threshold — a
+## commander sees the overall picture, not just one squad's casualty count.
+func _enemy_situation_hopeless() -> bool:
+	var stats := _compute_side_stats(enemy_units)
+	return stats.casualty_percent / 100.0 >= GameConfig.ENEMY_COMMANDER_RETREAT_THRESHOLD
 
 
 ## Currently-visible enemy positions, from `team`'s point of view — "some
@@ -163,7 +269,10 @@ func _process(delta: float) -> void:
 	elapsed_time += delta
 	_seconds_since_last_shot += delta
 
-	_tick_movement(delta)
+	var scenario_delta: float = delta * _current_time_scale()
+	scenario_elapsed_time += scenario_delta
+
+	_tick_movement(scenario_delta)
 	_update_spotting(delta)
 
 	for unit in player_units:
@@ -172,6 +281,8 @@ func _process(delta: float) -> void:
 		_tick_fire(unit, delta, player_units)
 
 	_resolve_pending_counter_battery()
+	_resolve_pending_mortar_shots()
+	_check_enemy_commander_retreat()
 	_prune_fire_flashes()
 	_check_battle_end()
 	queue_redraw() # keep fire-tracer fade-out animating smoothly
@@ -185,22 +296,26 @@ func _process(delta: float) -> void:
 ## RETREATING unit with no move_target left is on its final leg: the
 ## straight pull to its own side's safe line, marked WITHDRAWN on arrival —
 ## no longer part of the fight, but its casualties still count in the AAR.
-func _tick_movement(delta: float) -> void:
+##
+## Takes `scenario_delta`, not the actual/engine delta — move_speed values
+## are real m/s (see GameConfig), so movement must be paced against the
+## tactical clock they're realistic relative to, not real elapsed play time.
+func _tick_movement(scenario_delta: float) -> void:
 	for unit in player_units + enemy_units:
 		if unit.state == Unit.State.RETREATING:
 			if unit.has_move_target:
-				_step_toward_target(unit, delta)
+				_step_toward_target(unit, scenario_delta)
 			else:
-				_step_retreat(unit, delta)
+				_step_retreat(unit, scenario_delta)
 		elif unit.state == Unit.State.ACTIVE and unit.has_move_target:
-			_step_toward_target(unit, delta)
+			_step_toward_target(unit, scenario_delta)
 
 
-func _step_toward_target(unit: Unit, delta: float) -> void:
+func _step_toward_target(unit: Unit, scenario_delta: float) -> void:
 	unit.activity = Unit.Activity.MOVING
 	var to_target: Vector2 = unit.move_target - unit.position
 	var dist: float = to_target.length()
-	var step: float = unit.move_speed * delta
+	var step: float = unit.move_speed * scenario_delta
 	if step >= dist or dist <= Unit.MOVE_ARRIVE_RADIUS:
 		unit.position = unit.move_target
 		if not unit.move_queue.is_empty():
@@ -219,13 +334,13 @@ func _step_toward_target(unit: Unit, delta: float) -> void:
 ## scale). Since a mortar can never enter one, it sidesteps vertically,
 ## away from whatever building is blocking it, until clear, then the normal
 ## x-only dash resumes on its own — see _sidestep_building.
-func _step_retreat(unit: Unit, delta: float) -> void:
+func _step_retreat(unit: Unit, scenario_delta: float) -> void:
 	unit.activity = Unit.Activity.MOVING
 	var dir_x: float = -1.0 if unit.team == Unit.Team.PLAYER else 1.0
-	var next_pos: Vector2 = unit.position + Vector2(dir_x * unit.retreat_speed * delta, 0.0)
+	var next_pos: Vector2 = unit.position + Vector2(dir_x * unit.retreat_speed * scenario_delta, 0.0)
 
 	if unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(next_pos):
-		_sidestep_building(unit, delta, next_pos)
+		_sidestep_building(unit, scenario_delta, next_pos)
 		return
 
 	unit.position = next_pos
@@ -237,14 +352,14 @@ func _step_retreat(unit: Unit, delta: float) -> void:
 		combat_log.log_withdrawn(unit)
 
 
-func _sidestep_building(unit: Unit, delta: float, blocked_pos: Vector2) -> void:
+func _sidestep_building(unit: Unit, scenario_delta: float, blocked_pos: Vector2) -> void:
 	var building_center_y: float = unit.position.y
 	for zone in GameConfig.TERRAIN_ZONES:
 		if zone.type == GameConfig.TerrainType.BUILDING and zone.rect.has_point(blocked_pos):
 			building_center_y = zone.rect.position.y + zone.rect.size.y / 2.0
 			break
 	var dir_y: float = -1.0 if unit.position.y <= building_center_y else 1.0
-	unit.position.y += dir_y * unit.retreat_speed * delta
+	unit.position.y += dir_y * unit.retreat_speed * scenario_delta
 
 
 func _update_spotting(delta: float) -> void:
@@ -302,11 +417,22 @@ func _tick_fire(unit: Unit, delta: float, enemies: Array[Unit]) -> void:
 		unit.fire_timer = unit.fire_interval
 		return
 
-	# A squad's muzzle flash gives it away immediately; a mortar firing on
-	# spotter-relayed information does not — see CombatResolver / GameConfig
-	# for the counter-battery consequence of firing instead. Like any
-	# visibility, this can be lost again later once nobody has eyes on it.
-	if unit.kind == Unit.Kind.SQUAD and not unit.is_visible:
+	if unit.kind == Unit.Kind.MORTAR:
+		_launch_mortar_shot(unit, target)
+		if unit.shoot_and_scoot:
+			combat_log.log_relocate(unit)
+			_hop_mortar(unit)
+			unit.fire_timer = unit.relocate_cooldown + unit.reload_time
+		else:
+			unit.fire_timer = unit.reload_time
+		return
+
+	# SQUAD: direct fire resolves immediately, unlike a mortar's lobbed
+	# shell — see _launch_mortar_shot for that delayed path.
+	#
+	# A squad's muzzle flash gives it away immediately. Like any visibility,
+	# this can be lost again later once nobody has eyes on it.
+	if not unit.is_visible:
 		unit.is_visible = true
 		unit.queue_redraw()
 		combat_log.log_revealed_by_fire(unit)
@@ -321,21 +447,90 @@ func _tick_fire(unit: Unit, delta: float, enemies: Array[Unit]) -> void:
 	CombatResolver.resolve_fire(unit, target)
 	_fire_flashes.append({
 		"from": unit.global_position, "to": target.global_position, "team": unit.team,
-		"time": elapsed_time, "is_mortar": unit.kind == Unit.Kind.MORTAR,
+		"time": elapsed_time, "is_mortar": false,
 	})
 	_seconds_since_last_shot = 0.0
 	_log_hit_consequence(target, target_was_active)
+	unit.fire_timer = unit.fire_interval
 
-	if unit.kind == Unit.Kind.MORTAR:
-		_resolve_mortar_counter_battery(unit)
-		if unit.shoot_and_scoot:
-			combat_log.log_relocate(unit)
-			_hop_mortar(unit)
-			unit.fire_timer = unit.relocate_cooldown + unit.reload_time
-		else:
-			unit.fire_timer = unit.reload_time
-	else:
-		unit.fire_timer = unit.fire_interval
+
+## A mortar's shell doesn't land the instant it fires — see
+## GameConfig.MORTAR_FLIGHT_TIME (40 tactical seconds). This schedules the
+## impact rather than resolving it now; see _resolve_pending_mortar_shots
+## for what happens when it actually lands, including the enemy-alert and
+## hit-consequence logging that used to happen right here for a mortar shot
+## — that has to wait for impact too, not fire.
+##
+## Counter-battery is still triggered at the moment of firing, though (real
+## counter-battery radar tracks the outgoing round, not its impact).
+func _launch_mortar_shot(mortar: Unit, target: Unit) -> void:
+	var aim_point: Vector2 = _mortar_aim_point(target)
+	_pending_mortar_shots.append({
+		"mortar": mortar,
+		"target": target,
+		"aim_point": aim_point,
+		"impact_time": scenario_elapsed_time + GameConfig.MORTAR_FLIGHT_TIME,
+	})
+	_fire_flashes.append({
+		"from": mortar.global_position, "to": aim_point, "team": mortar.team, "time": elapsed_time, "is_mortar": true,
+	})
+	_seconds_since_last_shot = 0.0
+	_resolve_mortar_counter_battery(mortar)
+
+
+## Where the mortar aims, given what it knows about the target RIGHT NOW —
+## "the anticipated enemy position, as communicated by the spotter or
+## squad." A target on a steady, predictable course (Unit.movement_predictable
+## — the enemy's road march) can be correctly LED: aim at where it's
+## heading, not where it stands, using its current speed/direction
+## extrapolated across the shell's whole flight time. Anything else
+## (stationary, or moving erratically — diving for cover, retreating) can
+## only be aimed at its current position; if it's still there 40 seconds
+## later the shot lands true, but a target that changes course mid-flight —
+## breaking from the march for cover, changing direction — can still evade
+## a shot that started out well-aimed. See _resolve_pending_mortar_shots.
+func _mortar_aim_point(target: Unit) -> Vector2:
+	if target.movement_predictable and target.activity == Unit.Activity.MOVING and target.has_move_target:
+		var to_target: Vector2 = target.move_target - target.global_position
+		if to_target.length() > 0.01:
+			var velocity: Vector2 = to_target.normalized() * target.move_speed
+			return target.global_position + velocity * GameConfig.MORTAR_FLIGHT_TIME
+	return target.global_position
+
+
+## Resolves any mortar shots whose flight time has elapsed. A target that's
+## since been destroyed or reached safety leaves nothing for the shell to
+## hit. Otherwise, the shell lands at its aim_point regardless — if the
+## target has since moved beyond MORTAR_EVASION_RADIUS from that spot, the
+## anticipated position was simply wrong and the shot misses outright, no
+## roll needed; a target still nearby gets the normal CombatResolver roll
+## (using ITS CURRENT state at impact — cover, movement — same as any other
+## hit resolution). Enemy-alert and hit-consequence logging happen here,
+## at impact, not at launch — the target doesn't know it's been fired on
+## until the shell actually arrives.
+func _resolve_pending_mortar_shots() -> void:
+	var still_pending: Array[Dictionary] = []
+	for shot in _pending_mortar_shots:
+		if scenario_elapsed_time < shot.impact_time:
+			still_pending.append(shot)
+			continue
+		var target: Unit = shot.target
+		if target.state == Unit.State.DESTROYED or target.state == Unit.State.WITHDRAWN:
+			continue # nothing left there to hit
+
+		var drift: float = target.global_position.distance_to(shot.aim_point)
+		if drift > GameConfig.MORTAR_EVASION_RADIUS:
+			combat_log.log_mortar_shot_evaded(shot.mortar, target)
+			continue
+
+		if target.team == Unit.Team.ENEMY and target.kind == Unit.Kind.SQUAD and not enemy_alerted:
+			enemy_alerted = true
+			_alert_enemy_squads()
+
+		var target_was_active := target.state == Unit.State.ACTIVE
+		CombatResolver.resolve_fire(shot.mortar, target)
+		_log_hit_consequence(target, target_was_active)
+	_pending_mortar_shots = still_pending
 
 
 ## Word travels fast: break every still-marching enemy squad off its road
@@ -364,7 +559,10 @@ func _alert_enemy_squads() -> void:
 ## The strike isn't instant: it can only ever target where THIS mortar was
 ## standing right now, at the moment it fired (captured here, before any
 ## post-shot scoot hop) — see _resolve_pending_counter_battery for the
-## delayed impact that actually checks whether it's still nearby.
+## delayed impact that actually checks whether it's still nearby. The delay
+## itself is random — GameConfig.COUNTER_BATTERY_DELAY_MIN/MAX, 1-3 tactical
+## minutes — not a fixed interval; real counter-battery response time varies
+## with how quickly the opposing crew can get a fire mission organized.
 func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 	var opposing: Array[Unit] = player_units if firing_mortar.team == Unit.Team.ENEMY else enemy_units
 	var chance: float = GameConfig.MORTAR_COUNTER_BATTERY_SCOOT_CHANCE if firing_mortar.shoot_and_scoot else GameConfig.MORTAR_COUNTER_BATTERY_HOLD_CHANCE
@@ -372,10 +570,11 @@ func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
 			continue
 		if randf() < chance:
+			var delay: float = randf_range(GameConfig.COUNTER_BATTERY_DELAY_MIN, GameConfig.COUNTER_BATTERY_DELAY_MAX)
 			_pending_counter_battery.append({
 				"target": firing_mortar,
 				"impact_position": firing_mortar.global_position,
-				"impact_time": elapsed_time + GameConfig.COUNTER_BATTERY_DELAY,
+				"impact_time": scenario_elapsed_time + delay,
 			})
 			combat_log.log_counter_battery_incoming(firing_mortar)
 			break # one incoming strike per shot is enough, even with two enemy mortars
@@ -389,7 +588,7 @@ func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 func _resolve_pending_counter_battery() -> void:
 	var still_pending: Array[Dictionary] = []
 	for strike in _pending_counter_battery:
-		if elapsed_time < strike.impact_time:
+		if scenario_elapsed_time < strike.impact_time:
 			still_pending.append(strike)
 			continue
 		var target: Unit = strike.target
@@ -495,7 +694,7 @@ func _prune_fire_flashes() -> void:
 
 func _check_battle_end() -> void:
 	if _all_done_fighting(player_units) or _all_done_fighting(enemy_units) \
-			or elapsed_time >= GameConfig.BATTLE_TIME_LIMIT:
+			or scenario_elapsed_time >= GameConfig.BATTLE_TIME_LIMIT:
 		_end_battle()
 	elif _seconds_since_last_shot >= STAGNATION_TIMEOUT and not _anyone_moving():
 		combat_log.add_entry("--- Battle stalemated: no movement or fire for %ds ---" % int(STAGNATION_TIMEOUT))
@@ -602,7 +801,8 @@ func _end_battle() -> void:
 	lines.append("=== AFTER-ACTION REPORT ===")
 	lines.append("Verdict: %s" % verdict)
 	lines.append("Village held: %s" % ("YES" if held else "NO"))
-	lines.append("Time elapsed: %ds" % int(elapsed_time))
+	var tactical_minutes: int = int(scenario_elapsed_time / 60.0)
+	lines.append("Time elapsed: %dh %02dm (0600 to %s)" % [tactical_minutes / 60, tactical_minutes % 60, clock_string().substr(0, 5)])
 	lines.append("Player casualties: %d/%d pips (%.0f%%)" % [player_stats.pips_lost, player_stats.pips_total, player_stats.casualty_percent])
 	lines.append("Enemy casualties: %d/%d pips (%.0f%%)" % [enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent])
 	lines.append("Exchange ratio (enemy : player pips lost): %.2f : 1" % exchange_ratio)

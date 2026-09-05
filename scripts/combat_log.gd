@@ -72,6 +72,10 @@ func log_mortar_abandoned(unit: Unit) -> void:
 	])
 
 
+func log_mortar_shot_evaded(mortar: Unit, target: Unit) -> void:
+	add_entry("%s's round lands on empty ground — %s had already moved on" % [mortar.display_name(), target.display_name()])
+
+
 func log_counter_battery_incoming(unit: Unit) -> void:
 	add_entry("Counter-battery fire inbound on %s's position" % unit.display_name())
 

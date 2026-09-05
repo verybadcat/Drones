@@ -160,21 +160,59 @@ const ENEMY_SPAWN_X: float = 4950.0 * PIXELS_PER_METER
 const ENEMY_SQUAD_Y_OFFSETS_M: Array[float] = [-420.0, -250.0, -80.0, 80.0, 250.0, 420.0]
 const ENEMY_MORTAR_POSITIONS_M: Array[Vector2] = [Vector2(4700.0, 1300.0), Vector2(4700.0, 2500.0)]
 
-# Movement speeds are a deliberate GAMEPLAY abstraction, not literal
-# real-world marching pace — true infantry walking speed (~1.4 m/s) would
-# take the better part of an hour to cross a map this size, which would blow
-# out the design's "battle resolves in a few minutes" goal (see design doc
-# Constraints). These are tuned so the enemy's road march plus the ensuing
-# fight both fit comfortably inside BATTLE_TIME_LIMIT, not to be realistic.
-const ENEMY_ADVANCE_SPEED: float = 25.0 * PIXELS_PER_METER # ~139s to march the road
-const ENEMY_RETREAT_SPEED: float = 45.0 * PIXELS_PER_METER # pixels/sec-equivalent, away from the village
+# The tactical clock runs faster than the actual time you spend watching —
+# without this, a battle at real distances/speeds would take the better
+# part of an hour to play out (see the speeds and MORTAR_FLIGHT_TIME below,
+# all genuinely realistic now). Three tiers, picked each tick by
+# BattleManager._current_time_scale() — fastest whenever there's nothing
+# worth watching closely, realistic-paced the moment there is:
+#   - TIME_SCALE_FAST_FORWARD: no live contact at all (nobody on either side
+#     currently sees an enemy) — covers both the long road march before
+#     first contact AND a single unit's own isolated retreat with nobody
+#     else around; neither needs realistic-time watching.
+#   - TIME_SCALE_GENERAL_RETREAT: no live contact, but a GENERAL withdrawal
+#     is under way for either side (BattleManager.order_general_retreat, or
+#     the enemy commander's own equivalent — see
+#     _check_enemy_commander_retreat) — the battle's effectively decided,
+#     just not literally over yet; faster than normal, but a little slower
+#     than pure fast-forward since it's still worth a glance.
+#   - TIME_SCALE_NORMAL: live contact — 1 real (engine) second = 1 tactical
+#     MINUTE. This is the "realistic and worth watching" pace, and always
+#     wins over the general-retreat tier — a fighting withdrawal is still
+#     worth watching closely.
+# See BattleManager.scenario_elapsed_time.
+const TIME_SCALE_FAST_FORWARD: float = 300.0
+const TIME_SCALE_NORMAL: float = 60.0
+const TIME_SCALE_GENERAL_RETREAT: float = 180.0
+# The tactical clock shown to the player (see BattleManager.clock_string())
+# starts here — the assault kicks off at 0600.
+const SCENARIO_START_HOUR: float = 6.0
+
+# Movement speeds are genuine real-world pace now (meters per TACTICAL
+# second — see TIME_SCALE_NORMAL above for why that's still snappy to
+# actually watch): a steady infantry march, a hastened but not panicked
+# withdrawal, and a brisk dash for cover, respectively.
+const ENEMY_ADVANCE_SPEED: float = 1.4 * PIXELS_PER_METER
+const ENEMY_RETREAT_SPEED: float = 2.2 * PIXELS_PER_METER
+# A single squad's OWN casualty threshold — bottom-up, that one unit's own
+# losses only. See ENEMY_COMMANDER_RETREAT_THRESHOLD below for the
+# top-down, whole-force version the enemy commander judges by instead.
 const ENEMY_RETREAT_THRESHOLD: float = 0.5
 const ENEMY_CONCERN_THRESHOLD: float = 0.25 # logs "reports the issue", doesn't retreat
+
+# The enemy commander orders a full withdrawal (BattleManager.
+# _check_enemy_commander_retreat) once the attack AS A WHOLE looks
+# hopeless — judged against total casualties across every enemy squad and
+# mortar, not any single unit's own threshold. Set higher than a single
+# squad's own ENEMY_RETREAT_THRESHOLD (0.5): a commander keeps pressing the
+# attack with individual squads falling back here and there, and only
+# calls it off once losses are heavy across the whole force.
+const ENEMY_COMMANDER_RETREAT_THRESHOLD: float = 0.4
 
 # A RETREATING unit that reaches its own safe_x is marked WITHDRAWN — no
 # longer part of the fight, but its casualties still count in the AAR.
 const ENEMY_SAFE_X: float = ENEMY_SPAWN_X + 150.0 * PIXELS_PER_METER
-const PLAYER_RETREAT_SPEED: float = 38.0 * PIXELS_PER_METER
+const PLAYER_RETREAT_SPEED: float = 2.0 * PIXELS_PER_METER
 const PLAYER_SAFE_X: float = 60.0 * PIXELS_PER_METER
 
 # How much slack a cover zone gets on the "wrong" side of a retreating
@@ -182,7 +220,15 @@ const PLAYER_SAFE_X: float = 60.0 * PIXELS_PER_METER
 # front — see nearest_cover_point/safest_cover_point's retreat_dir param.
 const RETREAT_DIRECTION_TOLERANCE: float = 100.0 * PIXELS_PER_METER
 
-const BATTLE_TIME_LIMIT: float = 300.0 # seconds; ends the battle if reached
+# Tactical seconds (see TIME_SCALE_NORMAL) — ends the battle if reached.
+# Real infantry engagements can run for hours; the road march alone eats
+# ~2500 tactical seconds (42 min) before contact is even possible, and a
+# realistic-paced firefight — punctuated by units breaking for cover at a
+# realistic pace too, not instantly re-engaging — needs real room after
+# that to actually develop and resolve, not just time out early with both
+# sides barely scratched. 4 tactical hours, worst case, still caps actual
+# watching time at BATTLE_TIME_LIMIT / TIME_SCALE_NORMAL (240 real seconds).
+const BATTLE_TIME_LIMIT: float = 14400.0
 
 # Spotting.
 const DETECTION_BASE_RANGE: float = 900.0 * PIXELS_PER_METER
@@ -226,6 +272,16 @@ const SQUAD_ENGAGEMENT_RANGE: float = 400.0 * PIXELS_PER_METER
 # range: a real light/medium mortar tops out well short of the whole map.
 const MORTAR_MAX_RANGE: float = 3500.0 * PIXELS_PER_METER
 
+# A mortar shell doesn't land the instant it's fired — 40 tactical seconds
+# of real flight time (see BattleManager._launch_mortar_shot /
+# _resolve_pending_mortar_shots). It's aimed at the target's ANTICIPATED
+# position, not a live one — if the target moves more than this far from
+# that anticipated spot by the time the shell arrives, the round lands on
+# empty ground: an outright miss, no roll needed. Roughly a mortar's
+# effective burst radius — close enough and it's still in the beaten zone.
+const MORTAR_FLIGHT_TIME: float = 40.0 # tactical seconds
+const MORTAR_EVASION_RADIUS: float = 40.0 * PIXELS_PER_METER
+
 # It can still be picked up by the opposing mortar's counter-battery (see
 # CombatResolver / BattleManager).
 const MORTAR_COUNTER_BATTERY_HOLD_CHANCE: float = 0.22 # per shot, holding position
@@ -233,18 +289,21 @@ const MORTAR_COUNTER_BATTERY_SCOOT_CHANCE: float = 0.06 # per shot, shoot-and-sc
 const MORTAR_SCOOT_HOP_DISTANCE: float = 80.0 * PIXELS_PER_METER # visible little jump after each scoot
 
 # Counter-battery fire isn't instant: the enemy can only aim at where the
-# mortar WAS when it fired, and the shell takes time to arrive. By the time
-# it lands, a shoot-and-scoot mortar has likely moved well clear; a
-# hold-position mortar is still standing right there. If the mortar is still
-# within the blast radius when the shell lands, it can still get hit — the
-# odds just fall off with distance from the original firing spot.
-const COUNTER_BATTERY_DELAY: float = 3.0 # seconds between trigger and impact
+# mortar WAS when it fired, and it takes real time to organize and fire a
+# response — a random 1-3 tactical minutes, not a fixed interval (see
+# BattleManager._resolve_mortar_counter_battery). By the time it lands, a
+# shoot-and-scoot mortar has likely moved well clear; a hold-position
+# mortar is still standing right there. If the mortar is still within the
+# blast radius when the shell lands, it can still get hit — the odds just
+# fall off with distance from the original firing spot.
+const COUNTER_BATTERY_DELAY_MIN: float = 60.0 # tactical seconds
+const COUNTER_BATTERY_DELAY_MAX: float = 180.0 # tactical seconds
 const COUNTER_BATTERY_BLAST_RADIUS: float = 150.0 * PIXELS_PER_METER # beyond this, the old position is safe
 
 # A squad hit by mortar fire may bolt for nearby cover regardless of overall
 # casualties — mortar fire is disruptive even when it doesn't kill outright.
 const RELOCATE_ON_MORTAR_HIT_CHANCE: float = 0.35
-const REPOSITION_SPEED: float = 32.0 * PIXELS_PER_METER # pixels/sec-equivalent, for any non-retreat repositioning
+const REPOSITION_SPEED: float = 1.8 * PIXELS_PER_METER # m/s (tactical), for any non-retreat repositioning
 
 
 ## Concealment/cover terrain type at a point. BUILDING beats TREES if both
