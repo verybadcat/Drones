@@ -11,7 +11,6 @@ class_name CombatResolver
 # lands. This is the whole point of holding the village.
 const SQUAD_COVER_MULTIPLIER := {
 	GameConfig.TerrainType.OPEN: 1.3,
-	GameConfig.TerrainType.HIGH_GROUND: 1.3,
 	GameConfig.TerrainType.TREES: 0.2,
 	GameConfig.TerrainType.BUILDING: 0.1,
 }
@@ -22,7 +21,6 @@ const SQUAD_COVER_MULTIPLIER := {
 # harder too, same as direct fire does.
 const MORTAR_COVER_MULTIPLIER := {
 	GameConfig.TerrainType.OPEN: 1.3,
-	GameConfig.TerrainType.HIGH_GROUND: 1.3,
 	GameConfig.TerrainType.TREES: 0.85,
 	GameConfig.TerrainType.BUILDING: 0.7,
 }
@@ -30,7 +28,6 @@ const MORTAR_COVER_MULTIPLIER := {
 # Concealment: reduces the chance of being spotted in the first place.
 const CONCEALMENT_MULTIPLIER := {
 	GameConfig.TerrainType.OPEN: 1.0,
-	GameConfig.TerrainType.HIGH_GROUND: 1.0,
 	GameConfig.TerrainType.TREES: 0.5,
 	GameConfig.TerrainType.BUILDING: 0.7,
 }
@@ -47,7 +44,7 @@ static func effective_detection_range(observer: Unit, target: Unit) -> float:
 	var detection_range: float = GameConfig.DETECTION_BASE_RANGE
 	if observer.kind == Unit.Kind.SPOTTER:
 		detection_range += GameConfig.SPOTTER_DETECTION_RANGE_BONUS
-	if observer.elevation() > target.elevation():
+	if observer.elevation() > target.elevation() + GameConfig.ELEVATION_ADVANTAGE_THRESHOLD_M:
 		detection_range += GameConfig.DETECTION_ELEVATION_BONUS
 	return detection_range
 

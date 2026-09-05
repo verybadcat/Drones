@@ -2,97 +2,191 @@ extends RefCounted
 class_name GameConfig
 ## Shared map layout: the village, terrain, deployment zones, and enemy
 ## approach. Kept in one place so no other script can drift out of sync.
+##
+## The map is a real 5km x 3.5km battlefield (see PIXELS_PER_METER). Every
+## distance-like constant below is authored in METERS — the number you read
+## IS the real-world distance — and only converted to the pixel space Godot
+## actually draws in via a multiply by PIXELS_PER_METER, done right inline
+## since that's a compile-time constant expression (no runtime conversion,
+## no drift between "the real number" and "the number the engine uses").
+## Speeds are the one deliberate exception: they're tuned for a battle that
+## resolves in a few minutes, not literal infantry marching pace — see the
+## note above the movement constants.
 
-enum TerrainType { OPEN, TREES, BUILDING, HIGH_GROUND, ROAD }
+enum TerrainType { OPEN, TREES, BUILDING }
 
-# Each zone is a rectangle + terrain type + elevation level (0 = lowland,
-# 1 = high ground). HIGH_GROUND and ROAD contribute no concealment/cover of
-# their own (see get_terrain_type_at) — HIGH_GROUND is elevation only, ROAD
-# is a movement corridor the enemy marches down before scattering. Order
-# matters for drawing: earlier = painted first (underneath).
+## The map spans a real 5km left-to-right. The playable battle canvas is
+## MAP_WIDTH_PX wide (the rest of the window, from ~1020px on, is the sidebar
+## UI — see main.gd) and MAP_HEIGHT_PX tall (the full window height), which
+## works out to a 5000m x 3500m battlefield.
+const MAP_WIDTH_PX: float = 1000.0
+const MAP_HEIGHT_PX: float = 700.0
+const MAP_WIDTH_M: float = 5000.0
+const PIXELS_PER_METER: float = MAP_WIDTH_PX / MAP_WIDTH_M # 0.2 px/m
+const MAP_HEIGHT_M: float = MAP_HEIGHT_PX / PIXELS_PER_METER # 3500m
+
+## Runtime meters<->pixels conversion, for the few places that need to
+## convert a value that isn't known until the game is running (the mouseover
+## elevation readout's cursor position, mainly). Every constant below is
+## already pixel-space via compile-time "meters * PIXELS_PER_METER" — these
+## are NOT needed for those.
+static func px_to_m(px: float) -> float:
+	return px / PIXELS_PER_METER
+
+
+static func m_to_px(meters: float) -> float:
+	return meters * PIXELS_PER_METER
+
+
+## Terrain masking treats a unit's eye/muzzle as this high off the ground it
+## is standing on.
+const EYE_HEIGHT_M: float = 1.6
+## An observer needs to be at least this much higher than the target (not
+## just numerically greater) before elevation grants a detection bonus —
+## avoids granting it over meaningless terrain noise.
+const ELEVATION_ADVANTAGE_THRESHOLD_M: float = 8.0
+
+## Rolling hills as smooth, continuous high ground rather than a flat zone —
+## elevation at any point is the sum of each hill's Gaussian contribution, so
+## the terrain has real, continuous relief (and can be drawn as real contour
+## lines — see _draw_hills). One broad hill sits behind/around the village,
+## giving the defenders a genuine elevation advantage; the others add varied,
+## natural-looking relief across the rest of the battlefield.
+const HILLS: Array[Dictionary] = [
+	{"center_m": Vector2(1300.0, 1550.0), "radius_m": 650.0, "height_m": 35.0}, # the village's high ground
+	{"center_m": Vector2(500.0, 3200.0), "radius_m": 420.0, "height_m": 18.0}, # rear rise, south
+	{"center_m": Vector2(3500.0, 1950.0), "radius_m": 520.0, "height_m": 26.0}, # a rise on the enemy's approach
+	{"center_m": Vector2(4100.0, 700.0), "radius_m": 380.0, "height_m": 15.0}, # minor rise, north
+]
+const CONTOUR_INTERVAL_M: float = 10.0
+
+
+## Continuous ground elevation in meters at a point (given in the engine's
+## pixel space, like everything else) — the sum of every hill's Gaussian
+## contribution. Never negative; flat, open ground is 0m.
+static func elevation_m(pos_px: Vector2) -> float:
+	var pos_m: Vector2 = pos_px / PIXELS_PER_METER
+	var total := 0.0
+	for hill in HILLS:
+		var d: float = pos_m.distance_to(hill.center_m)
+		var r: float = hill.radius_m
+		total += hill.height_m * exp(-(d * d) / (2.0 * r * r))
+	return total
+
+
+## A dirt road, not a rectangle — a real bent path from the enemy's spawn
+## edge down toward the village, in meters. Both the drawn road AND the
+## enemy's actual road-march waypoints (see BattleManager._spawn_enemy_units)
+## come from this single list, so the two can never drift out of sync.
+const ROAD_WIDTH_M: float = 7.0
+const ROAD_WAYPOINTS_M: Array[Vector2] = [
+	Vector2(4950.0, 1780.0),
+	Vector2(4300.0, 1850.0),
+	Vector2(3600.0, 1680.0),
+	Vector2(2900.0, 1900.0),
+	Vector2(2200.0, 1720.0),
+	Vector2(1550.0, 1780.0),
+]
+
+
+## The road's waypoints converted to pixel space, for BattleManager to build
+## the enemy's march path from directly.
+static func road_waypoints_px() -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for wp in ROAD_WAYPOINTS_M:
+		out.append(wp * PIXELS_PER_METER)
+	return out
+
+
+# Each zone is a rectangle + terrain type (TREES/BUILDING only — elevation
+# is now the continuous heightmap above, and the road is its own waypoint
+# path, not a zone; see draw_terrain). Order matters for drawing: earlier =
+# painted first (underneath).
 #
-# The village is now a proper-sized settlement (see _draw_village, which
-# generates a grid of houses rather than a fixed handful) plus scattered
-# outlying cover — small outbuildings/walls and tree clumps between the
-# village and the enemy's approach, so a squad that breaks from the road
-# under fire has somewhere nearby to go to ground.
+# The village is a small, real settlement — a handful of buildings, not a
+# quarter of the map — plus a scatter of natural-looking woodland and a
+# couple of isolated outlying farm buildings, positioned organically rather
+# than in tidy rows.
 const TERRAIN_ZONES: Array[Dictionary] = [
-	{"rect": Rect2(90, 30, 340, 460), "type": TerrainType.HIGH_GROUND, "elevation": 1},
-	{"rect": Rect2(330, 335, 600, 24), "type": TerrainType.ROAD, "elevation": 0},
-	{"rect": Rect2(120, 60, 280, 360), "type": TerrainType.BUILDING, "elevation": 1},
-	{"rect": Rect2(480, 110, 90, 160), "type": TerrainType.TREES, "elevation": 0},
-	{"rect": Rect2(560, 400, 90, 160), "type": TerrainType.TREES, "elevation": 0},
-	{"rect": Rect2(700, 40, 70, 620), "type": TerrainType.TREES, "elevation": 0},
-	{"rect": Rect2(420, 40, 60, 60), "type": TerrainType.TREES, "elevation": 0},
-	{"rect": Rect2(420, 590, 60, 60), "type": TerrainType.TREES, "elevation": 0},
-	{"rect": Rect2(560, 230, 40, 35), "type": TerrainType.BUILDING, "elevation": 0},
-	{"rect": Rect2(600, 470, 45, 35), "type": TerrainType.BUILDING, "elevation": 0},
+	{"rect": Rect2(1175.0 * PIXELS_PER_METER, 1560.0 * PIXELS_PER_METER, 450.0 * PIXELS_PER_METER, 380.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # the village
+	{"rect": Rect2(2380.0 * PIXELS_PER_METER, 1580.0 * PIXELS_PER_METER, 55.0 * PIXELS_PER_METER, 46.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # isolated farmhouse, mid-approach
+	{"rect": Rect2(880.0 * PIXELS_PER_METER, 2480.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 50.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # isolated farmhouse, rear
+
+	{"rect": Rect2(950.0 * PIXELS_PER_METER, 1230.0 * PIXELS_PER_METER, 260.0 * PIXELS_PER_METER, 210.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # wooded slope, village hill NW
+	{"rect": Rect2(1580.0 * PIXELS_PER_METER, 1280.0 * PIXELS_PER_METER, 220.0 * PIXELS_PER_METER, 180.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # wooded slope, village hill NE
+	{"rect": Rect2(2950.0 * PIXELS_PER_METER, 1450.0 * PIXELS_PER_METER, 240.0 * PIXELS_PER_METER, 190.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse along the approach
+	{"rect": Rect2(3780.0 * PIXELS_PER_METER, 2180.0 * PIXELS_PER_METER, 300.0 * PIXELS_PER_METER, 240.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods on the enemy-side rise
+	{"rect": Rect2(2150.0 * PIXELS_PER_METER, 2750.0 * PIXELS_PER_METER, 320.0 * PIXELS_PER_METER, 260.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # southern woods, off the road
+	{"rect": Rect2(550.0 * PIXELS_PER_METER, 2150.0 * PIXELS_PER_METER, 190.0 * PIXELS_PER_METER, 160.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse near the rear
+	{"rect": Rect2(4150.0 * PIXELS_PER_METER, 850.0 * PIXELS_PER_METER, 230.0 * PIXELS_PER_METER, 190.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods near the northern rise
+	{"rect": Rect2(2700.0 * PIXELS_PER_METER, 550.0 * PIXELS_PER_METER, 210.0 * PIXELS_PER_METER, 170.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse, north side
 ]
 
 # Legal area for the player to drag squads into on the deployment screen —
-# inside the village, matching "holding the village."
-const PLAYER_DEPLOYMENT_ZONE: Rect2 = Rect2(135, 75, 250, 330)
+# in and immediately around the village, matching "holding the village."
+const PLAYER_DEPLOYMENT_ZONE: Rect2 = Rect2(1080.0 * PIXELS_PER_METER, 1450.0 * PIXELS_PER_METER, 620.0 * PIXELS_PER_METER, 590.0 * PIXELS_PER_METER)
 
-# The mortar gets its own, much larger zone — real mortars sit well back
-# from the front line, further than the squads holding the perimeter. Spans
-# from the western map edge through and a bit past the village, so it can
-# still be set up inside the village if preferred, or well to the rear.
-const PLAYER_MORTAR_DEPLOYMENT_ZONE: Rect2 = Rect2(20, 40, 400, 620)
+# The mortar gets its own, much larger deployment zone spanning from the
+# western map edge through and a bit past the village — real mortars sit
+# well back from the line, and there's real playable depth behind the
+# village for one to use now that the map is a real 5km across.
+const PLAYER_MORTAR_DEPLOYMENT_ZONE: Rect2 = Rect2(50.0 * PIXELS_PER_METER, 80.0 * PIXELS_PER_METER, 2150.0 * PIXELS_PER_METER, 3350.0 * PIXELS_PER_METER)
 
 # The spotter can deploy just about anywhere on the map — it's a
 # reconnaissance asset, not a firing position, and unlike squads/mortar
 # isn't restricted to the village. Kept a small margin off the outer edges
 # only so it can't be dropped literally off-map.
-const PLAYER_SPOTTER_DEPLOYMENT_ZONE: Rect2 = Rect2(20, 20, 1320, 660)
-const PLAYER_SPOTTER_DEFAULT_POSITION: Vector2 = Vector2(500, 240)
+const PLAYER_SPOTTER_DEPLOYMENT_ZONE: Rect2 = Rect2(50.0 * PIXELS_PER_METER, 50.0 * PIXELS_PER_METER, 4900.0 * PIXELS_PER_METER, 3400.0 * PIXELS_PER_METER)
+const PLAYER_SPOTTER_DEFAULT_POSITION: Vector2 = Vector2(1900.0 * PIXELS_PER_METER, 1750.0 * PIXELS_PER_METER)
 
 # Default starting token positions on the deployment screen, before the
 # player drags them anywhere else within their zone.
 const PLAYER_DEFAULT_POSITIONS: Array[Vector2] = [
-	Vector2(200, 120),
-	Vector2(320, 190),
-	Vector2(200, 340),
+	Vector2(1280.0 * PIXELS_PER_METER, 1670.0 * PIXELS_PER_METER),
+	Vector2(1480.0 * PIXELS_PER_METER, 1750.0 * PIXELS_PER_METER),
+	Vector2(1300.0 * PIXELS_PER_METER, 1860.0 * PIXELS_PER_METER),
 ]
-## Below the village's BUILDING footprint (y 60-420 at this x) — a mortar
-## can never be set up inside a building, so its default position must not
-## be either. Still within PLAYER_MORTAR_DEPLOYMENT_ZONE and on the high
-## ground behind the village.
-const PLAYER_MORTAR_DEFAULT_POSITION: Vector2 = Vector2(280, 460)
+# Below the village's BUILDING footprint and clear of the tree zones — a
+# mortar can never be set up inside a building or dragged into one.
+const PLAYER_MORTAR_DEFAULT_POSITION: Vector2 = Vector2(1400.0 * PIXELS_PER_METER, 2050.0 * PIXELS_PER_METER)
 
-# Enemy squads start at the map's far edge, first move onto the road (the
-# strip is Rect2(330, 335, 600, 24) -> y:335-359), then actually march DOWN
-# it toward the village — a real two-waypoint path, not a beeline to a
-# scattered point that might not even be on the road. Once they take fire
-# they break off toward the nearest cover (see BattleManager/Unit.seek_cover).
-# The enemy's two mortars deploy at fixed rear positions and never advance.
-const ENEMY_SPAWN_X: float = 950.0
-const ENEMY_SQUAD_START_Y: Array[float] = [60.0, 170.0, 280.0, 390.0, 500.0, 610.0]
-const ENEMY_ROAD_ENTRY_X: float = 920.0 # just inside the road's east end
-const ENEMY_ROAD_MARCH_TARGET_X: float = 420.0 # where the march ends and engagement begins
-const ENEMY_ROAD_Y_MIN: float = 338.0 # kept inside the road strip (335-359) with margin
-const ENEMY_ROAD_Y_MAX: float = 356.0
-const ENEMY_MORTAR_POSITIONS: Array[Vector2] = [Vector2(950.0, 250.0), Vector2(950.0, 450.0)]
-const ENEMY_ADVANCE_SPEED: float = 35.0 # pixels/sec
-const ENEMY_RETREAT_SPEED: float = 60.0 # pixels/sec, away from the village
+# Enemy squads start at the map's eastern edge, march down the winding road
+# (ROAD_WAYPOINTS_M above) in a loose spread rather than single file, then
+# break off toward cover once they take fire. The enemy's two mortars deploy
+# at fixed rear positions and never advance.
+const ENEMY_SPAWN_X: float = 4950.0 * PIXELS_PER_METER
+# Perpendicular-ish spread off the road's line, per squad — six squads
+# advancing near, not literally on top of, each other and the road.
+const ENEMY_SQUAD_Y_OFFSETS_M: Array[float] = [-420.0, -250.0, -80.0, 80.0, 250.0, 420.0]
+const ENEMY_MORTAR_POSITIONS_M: Array[Vector2] = [Vector2(4700.0, 1300.0), Vector2(4700.0, 2500.0)]
+
+# Movement speeds are a deliberate GAMEPLAY abstraction, not literal
+# real-world marching pace — true infantry walking speed (~1.4 m/s) would
+# take the better part of an hour to cross a map this size, which would blow
+# out the design's "battle resolves in a few minutes" goal (see design doc
+# Constraints). These are tuned so the enemy's road march plus the ensuing
+# fight both fit comfortably inside BATTLE_TIME_LIMIT, not to be realistic.
+const ENEMY_ADVANCE_SPEED: float = 25.0 * PIXELS_PER_METER # ~139s to march the road
+const ENEMY_RETREAT_SPEED: float = 45.0 * PIXELS_PER_METER # pixels/sec-equivalent, away from the village
 const ENEMY_RETREAT_THRESHOLD: float = 0.5
 const ENEMY_CONCERN_THRESHOLD: float = 0.25 # logs "reports the issue", doesn't retreat
 
 # A RETREATING unit that reaches its own safe_x is marked WITHDRAWN — no
-# longer part of the fight, but its casualties still count in the AAR report.
-const ENEMY_SAFE_X: float = ENEMY_SPAWN_X + 60.0
-const PLAYER_RETREAT_SPEED: float = 50.0 # pixels/sec, only used after a general retreat order
-const PLAYER_SAFE_X: float = 20.0
+# longer part of the fight, but its casualties still count in the AAR.
+const ENEMY_SAFE_X: float = ENEMY_SPAWN_X + 150.0 * PIXELS_PER_METER
+const PLAYER_RETREAT_SPEED: float = 38.0 * PIXELS_PER_METER
+const PLAYER_SAFE_X: float = 60.0 * PIXELS_PER_METER
 
 # How much slack a cover zone gets on the "wrong" side of a retreating
 # unit's current position before it's excluded as a detour toward the
 # front — see nearest_cover_point/safest_cover_point's retreat_dir param.
-const RETREAT_DIRECTION_TOLERANCE: float = 30.0
+const RETREAT_DIRECTION_TOLERANCE: float = 100.0 * PIXELS_PER_METER
 
 const BATTLE_TIME_LIMIT: float = 300.0 # seconds; ends the battle if reached
 
 # Spotting.
-const DETECTION_BASE_RANGE: float = 260.0
-const DETECTION_ELEVATION_BONUS: float = 150.0 # added when spotter is higher than target
+const DETECTION_BASE_RANGE: float = 900.0 * PIXELS_PER_METER
+const DETECTION_ELEVATION_BONUS: float = 500.0 * PIXELS_PER_METER # added when spotter is higher than target
 const SPOT_CHANCE_PER_SECOND: float = 0.15
 const MOVING_SPOT_MULTIPLIER: float = 3.0
 
@@ -103,8 +197,8 @@ const MOVING_SPOT_MULTIPLIER: float = 3.0
 # enemy effectively cannot find it beyond point-blank range — "unless they
 # get very close." Standing in the open, it's found close to normally (just
 # a small trained-to-minimize-exposure edge).
-const SPOTTER_DETECTION_RANGE_BONUS: float = 120.0 # added to its own spotting rolls
-const SPOTTER_HIDDEN_DETECTION_RANGE: float = 70.0 # replaces detection range entirely when in cover
+const SPOTTER_DETECTION_RANGE_BONUS: float = 500.0 * PIXELS_PER_METER # added to its own spotting rolls
+const SPOTTER_HIDDEN_DETECTION_RANGE: float = 250.0 * PIXELS_PER_METER # replaces detection range entirely when in cover
 const SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER: float = 0.8 # applies only when NOT in cover
 
 # A unit caught moving in the open is much easier to hit by DIRECT fire, not
@@ -123,16 +217,20 @@ const MORTAR_UNPREDICTABLE_MOVING_MULTIPLIER: float = 0.25
 
 # Direct-fire (squad) engagement range — a squad can only fire at a target
 # IT could plausibly see and reach with its own weapons, unlike a mortar
-# (see below), which fires on anything any friendly unit has spotted.
-const SQUAD_ENGAGEMENT_RANGE: float = 300.0
+# (see below).
+const SQUAD_ENGAGEMENT_RANGE: float = 400.0 * PIXELS_PER_METER
 
-# Mortars fire indirectly on spotter-relayed information — no LOS or range
-# check of their own, and firing does not automatically reveal one to enemy
-# squads the way a rifle's muzzle flash does. It can still be picked up by
-# the opposing mortar's counter-battery (see CombatResolver / BattleManager).
+# A mortar fires indirectly on spotter-relayed information — no LOS
+# requirement of its own, and firing does not automatically reveal one to
+# enemy squads the way a rifle's muzzle flash does. But it is NOT unlimited
+# range: a real light/medium mortar tops out well short of the whole map.
+const MORTAR_MAX_RANGE: float = 3500.0 * PIXELS_PER_METER
+
+# It can still be picked up by the opposing mortar's counter-battery (see
+# CombatResolver / BattleManager).
 const MORTAR_COUNTER_BATTERY_HOLD_CHANCE: float = 0.22 # per shot, holding position
 const MORTAR_COUNTER_BATTERY_SCOOT_CHANCE: float = 0.06 # per shot, shoot-and-scoot
-const MORTAR_SCOOT_HOP_DISTANCE: float = 40.0 # visible little jump after each scoot
+const MORTAR_SCOOT_HOP_DISTANCE: float = 80.0 * PIXELS_PER_METER # visible little jump after each scoot
 
 # Counter-battery fire isn't instant: the enemy can only aim at where the
 # mortar WAS when it fired, and the shell takes time to arrive. By the time
@@ -141,30 +239,19 @@ const MORTAR_SCOOT_HOP_DISTANCE: float = 40.0 # visible little jump after each s
 # within the blast radius when the shell lands, it can still get hit — the
 # odds just fall off with distance from the original firing spot.
 const COUNTER_BATTERY_DELAY: float = 3.0 # seconds between trigger and impact
-const COUNTER_BATTERY_BLAST_RADIUS: float = 60.0 # beyond this, the old position is safe
+const COUNTER_BATTERY_BLAST_RADIUS: float = 150.0 * PIXELS_PER_METER # beyond this, the old position is safe
 
 # A squad hit by mortar fire may bolt for nearby cover regardless of overall
 # casualties — mortar fire is disruptive even when it doesn't kill outright.
 const RELOCATE_ON_MORTAR_HIT_CHANCE: float = 0.35
-const REPOSITION_SPEED: float = 45.0 # pixels/sec, for any non-retreat repositioning
+const REPOSITION_SPEED: float = 32.0 * PIXELS_PER_METER # pixels/sec-equivalent, for any non-retreat repositioning
 
 
-static func get_elevation_at(pos: Vector2) -> int:
-	var elevation := 0
-	for zone in TERRAIN_ZONES:
-		if zone.rect.has_point(pos):
-			elevation = max(elevation, zone.elevation)
-	return elevation
-
-
-## Concealment/cover terrain type at a point. HIGH_GROUND and ROAD are
-## excluded — HIGH_GROUND is elevation-only, ROAD is a movement corridor.
-## BUILDING beats TREES if both overlap a point.
+## Concealment/cover terrain type at a point. BUILDING beats TREES if both
+## overlap a point.
 static func get_terrain_type_at(pos: Vector2) -> TerrainType:
 	var best := TerrainType.OPEN
 	for zone in TERRAIN_ZONES:
-		if zone.type == TerrainType.HIGH_GROUND or zone.type == TerrainType.ROAD:
-			continue
 		if zone.rect.has_point(pos):
 			if zone.type == TerrainType.BUILDING:
 				return TerrainType.BUILDING
@@ -182,6 +269,20 @@ static func is_in_cover(terrain: TerrainType) -> bool:
 ## param on the cover-point functions below.
 static func is_building_at(pos: Vector2) -> bool:
 	return get_terrain_type_at(pos) == TerrainType.BUILDING
+
+
+## True if the straight segment from `from` to `to` passes through any
+## BUILDING zone along the way — not just whether either END is inside one.
+## A mortar can't be walked/hopped straight through a house wall to reach an
+## otherwise-legal destination on the far side of it; see avoid_buildings on
+## the cover-point functions below and BattleManager._hop_mortar.
+static func path_crosses_building(from: Vector2, to: Vector2) -> bool:
+	for zone in TERRAIN_ZONES:
+		if zone.type != TerrainType.BUILDING:
+			continue
+		if _line_crosses_rect(from, to, zone.rect):
+			return true
+	return false
 
 
 ## A point inside a nearby TREES/BUILDING zone to `from` — where a unit
@@ -205,13 +306,13 @@ static func is_building_at(pos: Vector2) -> bool:
 static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false) -> Vector2:
 	var candidates: Array[Dictionary] = []
 	for zone in TERRAIN_ZONES:
-		if zone.type != TerrainType.TREES and zone.type != TerrainType.BUILDING:
-			continue
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
 			continue
 		var center: Vector2 = zone.rect.position + zone.rect.size / 2.0
 		if retreat_dir != 0.0 and (center.x - from.x) * retreat_dir < -RETREAT_DIRECTION_TOLERANCE:
 			continue
+		if avoid_buildings and path_crosses_building(from, center):
+			continue # can't walk/hop straight through a building to get here either
 		candidates.append({"rect": zone.rect, "dist": from.distance_to(center)})
 	if candidates.is_empty():
 		return from
@@ -229,7 +330,7 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 			break
 	var best_rect: Rect2 = candidates[chosen_index].rect
 
-	var margin := 10.0
+	var margin: float = min(best_rect.size.x, best_rect.size.y) * 0.15
 	var w: float = max(best_rect.size.x - margin * 2.0, 1.0)
 	var h: float = max(best_rect.size.y - margin * 2.0, 1.0)
 	return best_rect.position + Vector2(margin, margin) + Vector2(randf() * w, randf() * h)
@@ -242,23 +343,20 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 ## those picks whichever is farthest from the nearest currently-known enemy
 ## position. With no known enemies, behaves like nearest_cover_point.
 ##
-## `retreat_dir` — see nearest_cover_point — excludes cover that would mean
-## detouring toward the front first; a smarter route still has to actually
-## be a retreat. `avoid_buildings` — see nearest_cover_point — excludes
-## BUILDING zones entirely.
+## `retreat_dir` / `avoid_buildings` — see nearest_cover_point.
 static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vector2], retreat_dir: float = 0.0, avoid_buildings: bool = false) -> Vector2:
 	if known_enemy_positions.is_empty():
 		return nearest_cover_point(from, retreat_dir, avoid_buildings)
 
 	var candidates: Array[Dictionary] = []
 	for zone in TERRAIN_ZONES:
-		if zone.type != TerrainType.TREES and zone.type != TerrainType.BUILDING:
-			continue
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
 			continue
 		var center: Vector2 = zone.rect.position + zone.rect.size / 2.0
 		if retreat_dir != 0.0 and (center.x - from.x) * retreat_dir < -RETREAT_DIRECTION_TOLERANCE:
 			continue
+		if avoid_buildings and path_crosses_building(from, center):
+			continue # can't walk/hop straight through a building to get here either
 		var nearest_enemy_dist: float = INF
 		for ep in known_enemy_positions:
 			nearest_enemy_dist = min(nearest_enemy_dist, center.distance_to(ep))
@@ -272,7 +370,7 @@ static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vecto
 	pool.sort_custom(func(a, b): return a.safety > b.safety) # safest (farthest from known enemies) first
 	var best_rect: Rect2 = pool[0].rect
 
-	var margin := 10.0
+	var margin: float = min(best_rect.size.x, best_rect.size.y) * 0.15
 	var w: float = max(best_rect.size.x - margin * 2.0, 1.0)
 	var h: float = max(best_rect.size.y - margin * 2.0, 1.0)
 	return best_rect.position + Vector2(margin, margin) + Vector2(randf() * w, randf() * h)
@@ -280,31 +378,40 @@ static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vecto
 
 ## True if a straight line from `from` to `to` is clear — used for both
 ## direct (squad) fire and spotting; mortars ignore this entirely (indirect,
-## spotter-relayed fire). Two kinds of terrain block it outright, not just
+## spotter-relayed fire). Two kinds of masking block it outright, not just
 ## "harder to hit/spot" (that's what cover/concealment are for):
 ##
 ## - A BUILDING that is neither endpoint's own position — some third
 ##   building sits between attacker and target. Trees do NOT block LOS
 ##   outright — they only affect cover/concealment.
-## - A HILL (HIGH_GROUND), but only between two points that are BOTH lower
-##   than it — elevation matters: standing on the hill (or on ground at
-##   least as high) lets you see over/down its own slope just fine, in
-##   either direction. Two units in the lowland on opposite sides of a hill
-##   genuinely cannot see each other.
+## - The actual ground profile between the two points: with real, continuous
+##   elevation (see elevation_m/HILLS), a hillside genuinely can block sight
+##   between two points on opposite sides of it. Sampled along the line and
+##   compared against the straight sightline between each end's eye height
+##   (EYE_HEIGHT_M) — standing on a hill (or anywhere at least as high) lets
+##   you see over/down its own slope just fine, in either direction; two
+##   points in the lowland on opposite sides of a hill genuinely cannot see
+##   each other.
+const LOS_SAMPLE_COUNT: int = 20
+const LOS_TERRAIN_TOLERANCE_M: float = 2.0 # slack so a sample dead-level with the sightline doesn't falsely block
+
 static func has_direct_los(from: Vector2, to: Vector2) -> bool:
-	var from_elevation := get_elevation_at(from)
-	var to_elevation := get_elevation_at(to)
 	for zone in TERRAIN_ZONES:
-		if zone.type == TerrainType.BUILDING:
-			if zone.rect.has_point(from) or zone.rect.has_point(to):
-				continue # firing from/into this building doesn't block itself
-			if _line_crosses_rect(from, to, zone.rect):
-				return false
-		elif zone.type == TerrainType.HIGH_GROUND:
-			if from_elevation >= zone.elevation or to_elevation >= zone.elevation:
-				continue # at least one side is already up at (or above) this hill's height
-			if _line_crosses_rect(from, to, zone.rect):
-				return false
+		if zone.type != TerrainType.BUILDING:
+			continue
+		if zone.rect.has_point(from) or zone.rect.has_point(to):
+			continue # firing from/into this building doesn't block itself
+		if _line_crosses_rect(from, to, zone.rect):
+			return false
+
+	var from_eye: float = elevation_m(from) + EYE_HEIGHT_M
+	var to_eye: float = elevation_m(to) + EYE_HEIGHT_M
+	for i in range(1, LOS_SAMPLE_COUNT):
+		var t: float = float(i) / float(LOS_SAMPLE_COUNT)
+		var sample_pos: Vector2 = from.lerp(to, t)
+		var sightline_height: float = lerp(from_eye, to_eye, t)
+		if elevation_m(sample_pos) > sightline_height + LOS_TERRAIN_TOLERANCE_M:
+			return false
 	return true
 
 
@@ -331,12 +438,10 @@ static func _segments_intersect(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vecto
 ## screen so the map always looks the same. Call from inside a CanvasItem's
 ## own _draw().
 static func draw_terrain(ci: CanvasItem) -> void:
+	_draw_hills(ci)
+	_draw_road(ci)
 	for zone in TERRAIN_ZONES:
 		match zone.type:
-			TerrainType.HIGH_GROUND:
-				_draw_hill(ci, zone.rect)
-			TerrainType.ROAD:
-				_draw_road(ci, zone.rect)
 			TerrainType.BUILDING:
 				_draw_village(ci, zone.rect)
 			TerrainType.TREES:
@@ -353,85 +458,100 @@ static func draw_cover_ring(ci: CanvasItem, radius: float, terrain: TerrainType)
 	ci.draw_arc(Vector2.ZERO, radius + 5.0, 0.0, TAU, 24, color, width, true)
 
 
-## A hill needs to read as elevated at a glance, not just "vaguely tinted
-## ground" — a darker halo just outside its footprint gives it a raised
-## edge against the surrounding lowland, dense topographic-style contour
-## rings brightening toward the summit reinforce it, and an explicit label
-## removes any remaining ambiguity.
-static func _draw_hill(ci: CanvasItem, rect: Rect2) -> void:
-	var halo := Rect2(rect.position - Vector2(8.0, 8.0), rect.size + Vector2(16.0, 16.0))
-	ci.draw_rect(halo, Color(0.32, 0.29, 0.2, 0.4))
+## Real contour lines, not a shaded blob: each hill's isolines are circles
+## (a radial Gaussian's isoline at any level IS a circle) drawn every
+## CONTOUR_INTERVAL_M, brightening toward the summit, with the peak height
+## labeled — reads as an actual topographic map, and needs no heightmap
+## sampling/marching-squares to get there.
+static func _draw_hills(ci: CanvasItem) -> void:
+	for hill in HILLS:
+		var center_px: Vector2 = hill.center_m * PIXELS_PER_METER
+		var halo_radius_px: float = hill.radius_m * 1.4 * PIXELS_PER_METER
+		ci.draw_circle(center_px, halo_radius_px, Color(0.32, 0.29, 0.2, 0.12))
 
-	ci.draw_rect(rect, Color(0.68, 0.6, 0.38, 0.75))
+		var level := CONTOUR_INTERVAL_M
+		while level < hill.height_m:
+			var t: float = level / hill.height_m
+			var ring_radius_m: float = hill.radius_m * sqrt(-2.0 * log(t))
+			var ring_radius_px: float = ring_radius_m * PIXELS_PER_METER
+			var b: float = 0.5 + 0.35 * t # brighter toward the summit
+			ci.draw_arc(center_px, ring_radius_px, 0.0, TAU, 48, Color(b, b * 0.95, b * 0.68, 0.8), 1.5, true)
+			level += CONTOUR_INTERVAL_M
 
-	var ring_count := 5
-	var max_inset: float = min(rect.size.x, rect.size.y) / 2.0 - 10.0
-	for i in ring_count:
-		var t: float = float(i + 1) / float(ring_count)
-		var inset: float = max_inset * t
-		var r := Rect2(rect.position + Vector2(inset, inset), rect.size - Vector2(inset * 2.0, inset * 2.0))
-		if r.size.x <= 0.0 or r.size.y <= 0.0:
-			continue
-		var b: float = 0.55 + 0.35 * t # brighter toward the summit
-		ci.draw_rect(r, Color(b, b * 0.95, b * 0.68, 0.75), false, 2.5)
-
-	ci.draw_string(ThemeDB.fallback_font, rect.position + Vector2(10.0, 24.0), "HIGH GROUND",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.3, 0.26, 0.14, 0.9))
+		ci.draw_string(ThemeDB.fallback_font, center_px + Vector2(-14.0, -4.0), "%dm" % int(hill.height_m),
+			HORIZONTAL_ALIGNMENT_CENTER, 60, 12, Color(0.35, 0.3, 0.16, 0.9))
 
 
-static func _draw_road(ci: CanvasItem, rect: Rect2) -> void:
-	ci.draw_rect(rect, Color(0.55, 0.53, 0.5))
-	var y: float = rect.position.y + rect.size.y / 2.0
-	var x: float = rect.position.x + 5.0
-	while x < rect.position.x + rect.size.x - 10.0:
-		ci.draw_line(Vector2(x, y), Vector2(x + 12.0, y), Color(0.9, 0.9, 0.8), 2.0)
-		x += 24.0
+## A real bent dirt road (ROAD_WAYPOINTS_M), not a straight strip — drawn as
+## connected thick segments with dashed centerline ticks. Drawn width has a
+## small legibility floor (real roads are only a few meters wide, which at
+## this map's scale would otherwise be sub-pixel) — the road's true width
+## still governs nothing gameplay-relevant, it's purely cosmetic.
+static func _draw_road(ci: CanvasItem) -> void:
+	var width_px: float = max(ROAD_WIDTH_M * PIXELS_PER_METER, 2.5)
+	for i in ROAD_WAYPOINTS_M.size() - 1:
+		var a: Vector2 = ROAD_WAYPOINTS_M[i] * PIXELS_PER_METER
+		var b: Vector2 = ROAD_WAYPOINTS_M[i + 1] * PIXELS_PER_METER
+		ci.draw_line(a, b, Color(0.55, 0.53, 0.5), width_px)
+		var dir: Vector2 = (b - a).normalized()
+		var length: float = a.distance_to(b)
+		var t := 0.0
+		while t < length - 8.0:
+			var p: Vector2 = a + dir * t
+			ci.draw_line(p, p + dir * 8.0, Color(0.9, 0.9, 0.8), 1.0)
+			t += 18.0
 
 
 ## Small isolated BUILDING zones (outside the main village blob) render as a
 ## single low wall/ruin. The main village renders as a grid of houses,
 ## scaling with the zone's size — a bigger village automatically gets more
-## buildings, no hand-placed list to keep in sync.
+## buildings, no hand-placed list to keep in sync. All margins/gaps below
+## are PROPORTIONAL to the zone's own size rather than fixed pixel amounts,
+## so this still renders sensibly now that a "small village" can genuinely
+## be under 100px across at this map's real-world scale.
 static func _draw_village(ci: CanvasItem, rect: Rect2) -> void:
-	if rect.size.x <= 60.0:
+	if rect.size.x <= 40.0:
 		ci.draw_rect(rect, Color(0.5, 0.48, 0.45))
-		ci.draw_rect(Rect2(rect.position, Vector2(rect.size.x, 5.0)), Color(0.32, 0.3, 0.28))
+		ci.draw_rect(Rect2(rect.position, Vector2(rect.size.x, max(rect.size.y * 0.1, 1.0))), Color(0.32, 0.3, 0.28))
 		return
 
 	ci.draw_rect(rect, Color(0.65, 0.58, 0.45, 0.4))
 
 	var cols := 3
 	var rows := 4
-	var margin := 12.0
+	var margin: float = rect.size.x * 0.05
 	var cell_w: float = (rect.size.x - margin) / float(cols)
 	var cell_h: float = (rect.size.y - margin) / float(rows)
+	var gap_w: float = cell_w * 0.18
+	var gap_h: float = cell_h * 0.22
 	for row in rows:
 		for col in cols:
 			# Skip a few cells so the village reads as organic, not a grid.
 			if (row + col) % 4 == 3:
 				continue
 			var b := Rect2(
-				rect.position.x + margin + col * cell_w + 4.0,
-				rect.position.y + margin + row * cell_h + 4.0,
-				cell_w - 12.0,
-				cell_h - 14.0
+				rect.position.x + margin + col * cell_w + gap_w * 0.5,
+				rect.position.y + margin + row * cell_h + gap_h * 0.5,
+				cell_w - gap_w,
+				cell_h - gap_h
 			)
-			if b.size.x <= 0.0 or b.size.y <= 0.0:
+			if b.size.x <= 0.5 or b.size.y <= 0.5:
 				continue
 			ci.draw_rect(b, Color(0.55, 0.42, 0.3))
-			ci.draw_rect(Rect2(b.position, Vector2(b.size.x, 8.0)), Color(0.35, 0.2, 0.15))
+			ci.draw_rect(Rect2(b.position, Vector2(b.size.x, min(b.size.y * 0.35, max(b.size.y * 0.35, 1.0)))), Color(0.35, 0.2, 0.15))
 
 
 static func _draw_forest(ci: CanvasItem, rect: Rect2) -> void:
 	ci.draw_rect(rect, Color(0.3, 0.45, 0.25, 0.5))
-	var spacing := 22.0
-	var y: float = rect.position.y + 10.0
+	var spacing: float = clamp(min(rect.size.x, rect.size.y) / 4.0, 10.0, 22.0)
+	var tree_radius: float = clamp(spacing * 0.27, 2.5, 6.0)
+	var y: float = rect.position.y + spacing * 0.5
 	var row := 0
-	while y < rect.position.y + rect.size.y - 5.0:
-		var x_offset: float = 10.0 if row % 2 == 0 else 20.0
+	while y < rect.position.y + rect.size.y - spacing * 0.25:
+		var x_offset: float = spacing * 0.45 if row % 2 == 0 else spacing * 0.9
 		var x: float = rect.position.x + x_offset
-		while x < rect.position.x + rect.size.x - 5.0:
-			ci.draw_circle(Vector2(x, y), 6.0, Color(0.15, 0.35, 0.12))
+		while x < rect.position.x + rect.size.x - spacing * 0.25:
+			ci.draw_circle(Vector2(x, y), tree_radius, Color(0.15, 0.35, 0.12))
 			x += spacing
 		y += spacing * 0.85
 		row += 1

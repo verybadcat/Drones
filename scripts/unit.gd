@@ -51,7 +51,7 @@ var move_target: Vector2 = Vector2.ZERO
 var has_move_target: bool = false
 var move_queue: Array[Vector2] = []
 var move_speed: float = 40.0
-const MOVE_ARRIVE_RADIUS: float = 8.0
+const MOVE_ARRIVE_RADIUS: float = 5.0 * GameConfig.PIXELS_PER_METER # "close enough" to a move target
 
 # True only for the enemy's initial road march — a steady, known path a
 # mortar crew can lead-aim against. Anything reactive (diving for cover,
@@ -277,8 +277,10 @@ func destroyed_verb() -> String:
 	return "was destroyed"
 
 
-func elevation() -> int:
-	return GameConfig.get_elevation_at(global_position)
+## Real, continuous ground elevation in meters at this unit's position (see
+## GameConfig.elevation_m) — not a discrete "on the hill or not" flag.
+func elevation() -> float:
+	return GameConfig.elevation_m(global_position)
 
 
 func terrain_type() -> GameConfig.TerrainType:

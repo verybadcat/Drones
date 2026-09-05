@@ -78,30 +78,29 @@ func _spawn_player_units(doctrine: Dictionary) -> void:
 
 
 func _spawn_enemy_units() -> void:
-	for i in GameConfig.ENEMY_SQUAD_START_Y.size():
-		var start_y: float = GameConfig.ENEMY_SQUAD_START_Y[i]
-		var squad := _make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(GameConfig.ENEMY_SPAWN_X, start_y))
+	var road_px: Array[Vector2] = GameConfig.road_waypoints_px()
+	# A real road march down the winding road (see GameConfig.ROAD_WAYPOINTS_M),
+	# not a straight line. Each squad's whole path is the same road shifted by
+	# its own fixed y offset — a loose spread advancing near the road, not
+	# single file on top of it or on top of each other.
+	for i in GameConfig.ENEMY_SQUAD_Y_OFFSETS_M.size():
+		var y_offset: float = GameConfig.ENEMY_SQUAD_Y_OFFSETS_M[i] * GameConfig.PIXELS_PER_METER
+		var start_pos := Vector2(GameConfig.ENEMY_SPAWN_X, road_px[0].y + y_offset)
+		var squad := _make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, start_pos)
 		squad.retreat_threshold = GameConfig.ENEMY_RETREAT_THRESHOLD
 		squad.concern_threshold = GameConfig.ENEMY_CONCERN_THRESHOLD
 		squad.move_speed = GameConfig.ENEMY_ADVANCE_SPEED
-		# A real road march: first get onto the road (near-vertical from the
-		# spawn edge), then march west along it toward the village. Each
-		# squad gets a slightly different y within the road strip so they're
-		# visibly distinct, not stacked in a single-file line, but all of
-		# them stay genuinely on the road the whole way.
-		var t: float = float(i) / float(max(GameConfig.ENEMY_SQUAD_START_Y.size() - 1, 1))
-		var road_y: float = lerp(GameConfig.ENEMY_ROAD_Y_MIN, GameConfig.ENEMY_ROAD_Y_MAX, t)
-		squad.set_path([
-			Vector2(GameConfig.ENEMY_ROAD_ENTRY_X, road_y),
-			Vector2(GameConfig.ENEMY_ROAD_MARCH_TARGET_X, road_y),
-		])
+		var path: Array[Vector2] = []
+		for wp in road_px:
+			path.append(wp + Vector2(0.0, y_offset))
+		squad.set_path(path)
 		squad.movement_predictable = true # a steady, known march — lead-aimable by mortar fire
 		squad.activity = Unit.Activity.MOVING
 		_set_retreat_profile(squad, Unit.Team.ENEMY)
 		enemy_units.append(squad)
 
-	for mortar_pos in GameConfig.ENEMY_MORTAR_POSITIONS:
-		var em := _make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, mortar_pos)
+	for mortar_pos_m in GameConfig.ENEMY_MORTAR_POSITIONS_M:
+		var em := _make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, mortar_pos_m * GameConfig.PIXELS_PER_METER)
 		em.shoot_and_scoot = false
 		em.relocate_cooldown = 5.0
 		_set_retreat_profile(em, Unit.Team.ENEMY)
@@ -214,21 +213,38 @@ func _step_toward_target(unit: Unit, delta: float) -> void:
 		unit.position += to_target.normalized() * step
 
 
+## The final leg is a straight dash at constant y toward the safe line — for
+## a MORTAR, that line can happen to run straight through a building (the
+## village is a real obstacle now, not a rare edge case at this map's real
+## scale). Since a mortar can never enter one, it sidesteps vertically,
+## away from whatever building is blocking it, until clear, then the normal
+## x-only dash resumes on its own — see _sidestep_building.
 func _step_retreat(unit: Unit, delta: float) -> void:
 	unit.activity = Unit.Activity.MOVING
-	var reached: bool
-	if unit.team == Unit.Team.PLAYER:
-		unit.position.x -= unit.retreat_speed * delta
-		reached = unit.position.x <= unit.retreat_target_x
-	else:
-		unit.position.x += unit.retreat_speed * delta
-		reached = unit.position.x >= unit.retreat_target_x
+	var dir_x: float = -1.0 if unit.team == Unit.Team.PLAYER else 1.0
+	var next_pos: Vector2 = unit.position + Vector2(dir_x * unit.retreat_speed * delta, 0.0)
 
+	if unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(next_pos):
+		_sidestep_building(unit, delta, next_pos)
+		return
+
+	unit.position = next_pos
+	var reached: bool = (unit.position.x <= unit.retreat_target_x) if unit.team == Unit.Team.PLAYER else (unit.position.x >= unit.retreat_target_x)
 	if reached:
 		unit.position.x = unit.retreat_target_x
 		unit.state = Unit.State.WITHDRAWN
 		unit.queue_redraw()
 		combat_log.log_withdrawn(unit)
+
+
+func _sidestep_building(unit: Unit, delta: float, blocked_pos: Vector2) -> void:
+	var building_center_y: float = unit.position.y
+	for zone in GameConfig.TERRAIN_ZONES:
+		if zone.type == GameConfig.TerrainType.BUILDING and zone.rect.has_point(blocked_pos):
+			building_center_y = zone.rect.position.y + zone.rect.size.y / 2.0
+			break
+	var dir_y: float = -1.0 if unit.position.y <= building_center_y else 1.0
+	unit.position.y += dir_y * unit.retreat_speed * delta
 
 
 func _update_spotting(delta: float) -> void:
@@ -404,9 +420,9 @@ func _hop_mortar(mortar: Unit) -> void:
 		if hop.length() < 0.01:
 			continue
 		var candidate: Vector2 = mortar.position + hop.normalized() * GameConfig.MORTAR_SCOOT_HOP_DISTANCE
-		candidate.x = clamp(candidate.x, 20.0, 1340.0)
-		candidate.y = clamp(candidate.y, 20.0, 680.0)
-		if not GameConfig.is_building_at(candidate):
+		candidate.x = clamp(candidate.x, 10.0, GameConfig.MAP_WIDTH_PX - 10.0)
+		candidate.y = clamp(candidate.y, 10.0, GameConfig.MAP_HEIGHT_PX - 10.0)
+		if not GameConfig.is_building_at(candidate) and not GameConfig.path_crosses_building(mortar.position, candidate):
 			mortar.position = candidate
 			mortar.queue_redraw()
 			return
@@ -436,12 +452,12 @@ func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
 ## target blocks it outright, not just "harder to hit" (that's what the
 ## cover multiplier is for).
 ##
-## A MORTAR has no range or LOS limit of its own — it fires on spotter-
-## relayed information. e.is_targetable() is enough of a gate here on its
-## own: is_visible is now a LIVE fact (see _refresh_visibility), maintained
-## every tick by whether some friendly currently has line of sight — not a
-## permanent flag — so a target that broke contact behind a building has
-## already stopped being targetable by the time this runs.
+## A MORTAR has no LOS requirement of its own — it fires on spotter-relayed
+## information, so e.is_targetable() (a LIVE fact — see _refresh_visibility,
+## maintained every tick by whether some friendly currently has line of
+## sight, not a permanent flag) already covers whether anyone can see it at
+## all. It DOES have a real maximum range (GameConfig.MORTAR_MAX_RANGE) —
+## a mortar tube only throws a shell so far, regardless of who's spotting.
 ##
 ## Mortars are the highest-value target on the battlefield for both sides —
 ## if one is a legal target at all, it's always preferred over a squad or
@@ -459,6 +475,9 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 			if unit.global_position.distance_to(e.global_position) > GameConfig.SQUAD_ENGAGEMENT_RANGE:
 				continue
 			if not GameConfig.has_direct_los(unit.global_position, e.global_position):
+				continue
+		elif unit.kind == Unit.Kind.MORTAR:
+			if unit.global_position.distance_to(e.global_position) > GameConfig.MORTAR_MAX_RANGE:
 				continue
 		candidates.append(e)
 	if candidates.is_empty():

@@ -25,6 +25,12 @@ func contains_point(p: Vector2) -> bool:
 
 
 func _draw() -> void:
+	# The mortar's real max range (3500m) is a hard cutoff now, not
+	# unlimited — show it during deployment so its placement is an informed
+	# choice, not a guess.
+	if kind == Unit.Kind.MORTAR:
+		draw_arc(Vector2.ZERO, GameConfig.MORTAR_MAX_RANGE, 0.0, TAU, 64, Color(1.0, 0.55, 0.15, 0.35), 1.5, true)
+
 	var color := Color(0.25, 0.55, 1.0, 0.9)
 	if kind == Unit.Kind.SPOTTER:
 		color = Color(0.75, 0.9, 0.2, 0.9)

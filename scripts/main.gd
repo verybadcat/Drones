@@ -14,9 +14,48 @@ var retreat_button: Button
 var report_background: Control
 var restart_button: Button
 
+# Always present, in both the deployment and battle phases — not cleared by
+# _clear_all(). A real 5km map needs a frame of reference: this shows real
+# ground elevation under the cursor, and a fixed-length scale bar gives a
+# sense of true distance at a glance.
+var _elevation_label: Label
+
 
 func _ready() -> void:
+	_elevation_label = Label.new()
+	_elevation_label.position = Vector2(8, 4)
+	_elevation_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.85))
+	_elevation_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
+	_elevation_label.add_theme_constant_override("shadow_offset_x", 1)
+	_elevation_label.add_theme_constant_override("shadow_offset_y", 1)
+	add_child(_elevation_label)
+	queue_redraw() # the scale bar is static; draw it once up front
+
 	_show_deployment()
+
+
+func _process(_delta: float) -> void:
+	var mouse_pos := get_global_mouse_position()
+	if mouse_pos.x < 0.0 or mouse_pos.x > GameConfig.MAP_WIDTH_PX or mouse_pos.y < 0.0 or mouse_pos.y > GameConfig.MAP_HEIGHT_PX:
+		_elevation_label.visible = false
+		return
+	_elevation_label.visible = true
+	var elevation_m: float = GameConfig.elevation_m(mouse_pos)
+	_elevation_label.text = "Elevation: %dm" % int(round(elevation_m))
+
+
+## A fixed 1000m reference bar, bottom-left of the map — the one thing on
+## screen with a known, constant real-world length to judge everything else
+## against.
+func _draw() -> void:
+	var bar_m := 1000.0
+	var bar_px: float = bar_m * GameConfig.PIXELS_PER_METER
+	var origin := Vector2(20.0, GameConfig.MAP_HEIGHT_PX - 24.0)
+	draw_line(origin, origin + Vector2(bar_px, 0.0), Color.WHITE, 2.0)
+	draw_line(origin, origin + Vector2(0.0, -6.0), Color.WHITE, 2.0)
+	draw_line(origin + Vector2(bar_px, 0.0), origin + Vector2(bar_px, -6.0), Color.WHITE, 2.0)
+	draw_string(ThemeDB.fallback_font, origin + Vector2(0.0, -10.0), "%d m" % int(bar_m),
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
 
 
 func _clear_all() -> void:
