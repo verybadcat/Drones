@@ -1,24 +1,34 @@
 extends PanelContainer
 class_name CasualtyDashboard
-## Prominent, always-current casualty readout for both sides during a
-## battle — pips lost/total and a percentage bar, plus a mortar-specific
-## status line (its own casualty model — an exact crew headcount, not
-## percent pips — is otherwise invisible at a glance, buried in the same
-## aggregate number as the squads). Updated every frame from
-## BattleManager.casualty_stats() and its unit lists, the exact same data
-## the AAR report is built from. This is the at-a-glance element in the
-## sidebar; CombatLog below it is for scrolling back through what
-## happened, not for reading the state of the battle in one look.
+## Prominent, always-current readout for both sides during a battle — pips
+## lost/total with a percentage bar, AND a mortar status row of equal visual
+## weight (same text size, its own colored status bar) right below it. A
+## mortar's own casualty model (an exact crew headcount, abandon-the-gun-
+## on-any-hit) is otherwise invisible at a glance, buried in the same
+## aggregate pip number as the squads — it gets equal billing here, not a
+## smaller, dimmer afterthought. Updated every frame from BattleManager.
+## casualty_stats() and its unit lists, the exact same data the AAR report
+## is built from. This is the at-a-glance element in the sidebar; CombatLog
+## below it is for scrolling back through what happened, not for reading
+## the state of the battle in one look.
 
 const BAR_SIZE: Vector2 = Vector2(280.0, 16.0)
+const MAX_MORTARS_PER_SIDE: int = 2 # the enemy fields two; the player fields one
+
+const STATUS_COLOR := {
+	Unit.State.ACTIVE: Color(0.25, 0.85, 0.35),
+	Unit.State.RETREATING: Color(1.0, 0.65, 0.15),
+	Unit.State.WITHDRAWN: Color(0.6, 0.6, 0.6),
+	Unit.State.DESTROYED: Color(0.75, 0.2, 0.2),
+}
 
 var battle_manager: BattleManager
 var _player_label: Label
 var _player_bar: ColorRect
-var _player_mortar_label: Label
+var _player_mortar_rows: Array[Dictionary] = []
 var _enemy_label: Label
 var _enemy_bar: ColorRect
-var _enemy_mortar_label: Label
+var _enemy_mortar_rows: Array[Dictionary] = []
 
 
 func setup(p_battle_manager: BattleManager) -> void:
@@ -26,7 +36,7 @@ func setup(p_battle_manager: BattleManager) -> void:
 
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(320, 195) # enemy side can show two mortar status lines
+	custom_minimum_size = Vector2(320, 260) # room for the enemy's two mortar rows
 
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.07, 0.07, 0.07, 0.9)
@@ -47,16 +57,16 @@ func _ready() -> void:
 	_player_label = Label.new()
 	root.add_child(_player_label)
 	_player_bar = _build_bar(root, Color(0.3, 0.85, 1.0))
-	_player_mortar_label = _build_mortar_label(root)
+	_player_mortar_rows = _build_mortar_rows(root)
 
 	root.add_child(HSeparator.new())
 
 	_enemy_label = Label.new()
 	root.add_child(_enemy_label)
 	_enemy_bar = _build_bar(root, Color(1.0, 0.55, 0.15))
-	_enemy_mortar_label = _build_mortar_label(root)
+	_enemy_mortar_rows = _build_mortar_rows(root)
 
-	_refresh() # show correct 0% bars immediately, don't wait a frame
+	_refresh() # show correct values immediately, don't wait a frame
 
 
 func _build_bar(root: VBoxContainer, fill_color: Color) -> ColorRect:
@@ -71,12 +81,26 @@ func _build_bar(root: VBoxContainer, fill_color: Color) -> ColorRect:
 	return fill
 
 
-func _build_mortar_label(root: VBoxContainer) -> Label:
-	var label := Label.new()
-	label.add_theme_font_size_override("font_size", 12)
-	label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8))
-	root.add_child(label)
-	return label
+## One row per possible mortar on a side: a label (SAME size/weight as the
+## casualty label above it — no smaller, no dimmer) plus its own colored
+## status bar (same size as the casualty percentage bar) instead of a raw
+## percentage — green/orange/gray/red for active/fleeing/withdrawn/destroyed.
+## Pre-allocated up to MAX_MORTARS_PER_SIDE and hidden per-refresh when a
+## side has fewer than that.
+func _build_mortar_rows(root: VBoxContainer) -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	for i in MAX_MORTARS_PER_SIDE:
+		var label := Label.new()
+		root.add_child(label)
+		var bg := ColorRect.new()
+		bg.color = Color(0.2, 0.2, 0.2)
+		bg.custom_minimum_size = BAR_SIZE
+		root.add_child(bg)
+		var fill := ColorRect.new()
+		fill.size = Vector2(BAR_SIZE.x, BAR_SIZE.y)
+		bg.add_child(fill)
+		rows.append({"label": label, "bg": bg, "fill": fill})
+	return rows
 
 
 func _process(_delta: float) -> void:
@@ -87,9 +111,9 @@ func _refresh() -> void:
 	if battle_manager == null:
 		return
 	_update_side(battle_manager.casualty_stats(Unit.Team.PLAYER), _player_label, _player_bar, "Player")
-	_player_mortar_label.text = _mortar_status_text(battle_manager.player_units)
+	_update_mortar_rows(battle_manager.player_units, _player_mortar_rows)
 	_update_side(battle_manager.casualty_stats(Unit.Team.ENEMY), _enemy_label, _enemy_bar, "Enemy")
-	_enemy_mortar_label.text = _mortar_status_text(battle_manager.enemy_units)
+	_update_mortar_rows(battle_manager.enemy_units, _enemy_mortar_rows)
 
 
 func _update_side(stats: Dictionary, label: Label, bar: ColorRect, side_name: String) -> void:
@@ -98,25 +122,40 @@ func _update_side(stats: Dictionary, label: Label, bar: ColorRect, side_name: St
 	bar.size = Vector2(BAR_SIZE.x * frac, BAR_SIZE.y)
 
 
+func _update_mortar_rows(units: Array[Unit], rows: Array[Dictionary]) -> void:
+	var mortars: Array[Unit] = []
+	for u in units:
+		if u.kind == Unit.Kind.MORTAR:
+			mortars.append(u)
+
+	for i in rows.size():
+		var row: Dictionary = rows[i]
+		var label: Label = row.label
+		var bg: ColorRect = row.bg
+		if i >= mortars.size():
+			label.visible = false
+			bg.visible = false
+			continue
+		label.visible = true
+		bg.visible = true
+		var u: Unit = mortars[i]
+		label.text = "Mortar: %s" % _mortar_status_text(u)
+		var fill: ColorRect = row.fill
+		fill.color = STATUS_COLOR[u.state]
+
+
 ## A mortar's own casualty model (an exact crew headcount, abandon-the-gun-
 ## on-any-hit) doesn't show up meaningfully in the aggregate pip bar above —
 ## one hit is still just "1 pip" there whether the whole crew died or one
-## survivor fled. Called out on its own line instead, one entry per mortar
-## (the enemy has two).
-func _mortar_status_text(units: Array[Unit]) -> String:
-	var lines: Array[String] = []
-	for u in units:
-		if u.kind != Unit.Kind.MORTAR:
-			continue
-		var status: String
-		match u.state:
-			Unit.State.ACTIVE:
-				status = "in action"
-			Unit.State.RETREATING:
-				status = "abandoned, crew fleeing (%d/%d crew killed)" % [u.crew_killed, u.crew_size]
-			Unit.State.WITHDRAWN:
-				status = "withdrew safely" if u.crew_killed == 0 else "withdrew (%d/%d crew killed)" % [u.crew_killed, u.crew_size]
-			Unit.State.DESTROYED:
-				status = "destroyed (%d/%d crew killed)" % [u.crew_killed, u.crew_size]
-		lines.append("Mortar: %s" % status)
-	return "\n".join(lines)
+## survivor fled.
+func _mortar_status_text(u: Unit) -> String:
+	match u.state:
+		Unit.State.ACTIVE:
+			return "in action"
+		Unit.State.RETREATING:
+			return "abandoned, crew fleeing (%d/%d crew killed)" % [u.crew_killed, u.crew_size]
+		Unit.State.WITHDRAWN:
+			return "withdrew safely" if u.crew_killed == 0 else "withdrew (%d/%d crew killed)" % [u.crew_killed, u.crew_size]
+		Unit.State.DESTROYED:
+			return "destroyed (%d/%d crew killed)" % [u.crew_killed, u.crew_size]
+	return ""

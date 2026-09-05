@@ -61,6 +61,14 @@ var _pending_counter_battery: Array[Dictionary] = []
 # "aim_point": Vector2, "impact_time": float}
 var _pending_mortar_shots: Array[Dictionary] = []
 
+# Unit (a mortar) -> {"position": Vector2, "time": float} — where and when
+# that mortar was last DETECTED firing, via muzzle blast/trajectory rather
+# than visual spotting (real counter-battery detection doesn't need to see
+# the crew) — see _launch_mortar_shot (records it, every shot, any mortar)
+# and _known_friendly_mortar_position (consumes it, as a fallback when the
+# mortar isn't currently visible either).
+var _last_detected_mortar_fire: Dictionary = {}
+
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	combat_log = p_combat_log
@@ -72,6 +80,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	enemy_alerted = false
 	player_general_retreat_ordered = false
 	enemy_general_retreat_ordered = false
+	_last_detected_mortar_fire.clear()
 	_pending_counter_battery.clear()
 	_pending_mortar_shots.clear()
 
@@ -141,7 +150,6 @@ func _spawn_player_units(doctrine: Dictionary) -> void:
 
 	var m1 := _make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, doctrine.mortar.position)
 	m1.shoot_and_scoot = doctrine.mortar.shoot_and_scoot
-	m1.relocate_cooldown = doctrine.mortar.relocate_cooldown
 	_set_retreat_profile(m1, Unit.Team.PLAYER)
 	player_units.append(m1)
 
@@ -175,7 +183,6 @@ func _spawn_enemy_units() -> void:
 	for mortar_pos_m in GameConfig.ENEMY_MORTAR_POSITIONS_M:
 		var em := _make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, mortar_pos_m * GameConfig.PIXELS_PER_METER)
 		em.shoot_and_scoot = false
-		em.relocate_cooldown = 5.0
 		_set_retreat_profile(em, Unit.Team.ENEMY)
 		enemy_units.append(em)
 
@@ -223,6 +230,19 @@ func order_general_retreat() -> void:
 ## casualty threshold (Unit._check_retreat) — a squad personally still in
 ## decent shape can still get pulled back here if the attack overall has
 ## clearly failed. One-shot per battle, checked every tick.
+##
+## SQUADS only — mortars are deliberately left out. Calling off the infantry
+## assault doesn't mean abandoning fire support: a mortar sitting well to
+## the rear isn't at risk of being overrun the way forward squads are, and
+## a real commander keeps supporting fires going (harassing the enemy,
+## covering the withdrawal, still hunting for counter-battery range on the
+## opposing mortar) rather than pulling a perfectly good gun out of action
+## for no tactical reason. A mortar still retreats on its own if it's
+## personally hit (Unit._apply_mortar_casualties) — this just means the
+## infantry giving up doesn't automatically drag it along too.
+##
+## The log banner states the actual casualty percentage that triggered
+## this — no guessing after the fact why the retreat happened.
 func _check_enemy_commander_retreat() -> void:
 	if enemy_general_retreat_ordered or battle_over:
 		return
@@ -232,12 +252,13 @@ func _check_enemy_commander_retreat() -> void:
 	var known_player_positions := _known_enemy_positions(Unit.Team.ENEMY)
 	var any_ordered := false
 	for unit in enemy_units:
-		if unit.state == Unit.State.ACTIVE:
+		if unit.kind == Unit.Kind.SQUAD and unit.state == Unit.State.ACTIVE:
 			unit.order_retreat(known_player_positions)
 			combat_log.log_ordered_retreat(unit)
 			any_ordered = true
 	if any_ordered:
-		combat_log.add_entry("--- Enemy commander orders a general retreat: the attack has failed ---")
+		var casualty_percent: float = _compute_side_stats(enemy_units).casualty_percent
+		combat_log.add_entry("--- Enemy commander orders a general retreat: the attack has failed (%.0f%% casualties) — mortars continue the fire mission ---" % casualty_percent)
 
 
 ## Judged against the WHOLE enemy force's casualties (pips lost across every
@@ -322,35 +343,35 @@ func _bunched_ally(defender: Unit) -> Unit:
 ## mortar now that range is a real, physical requirement (see
 ## _resolve_mortar_counter_battery) — a player who digs in far enough to
 ## the rear to be out of range of both enemy tubes doesn't get permanent
-## immunity, just a head start; once the enemy spots that mortar and it's
-## out of range, they close the distance toward it (to just inside
+## immunity, just a head start; once the enemy has a fix on that mortar and
+## it's out of range, they close the distance toward it (to just inside
 ## MORTAR_MAX_RANGE, not all the way to it) rather than sitting uselessly
-## out of reach forever. Only acts on a CURRENTLY visible friendly mortar —
-## no permanent memory of where it used to be, same as everything else in
-## this game's live-visibility model.
+## out of reach forever. "Has a fix on it" — see
+## _known_friendly_mortar_position — means currently visible OR detected
+## firing recently, NOT a permanent memory of where it used to be.
 ##
 ## HIGH PRIORITY: unlike most movement decisions in this game (made once,
-## then left alone until arrival), this re-aims every single tick the
-## friendly mortar is visible and still out of range — not just when idle —
-## so a mortar already advancing keeps correcting toward the friendly
-## mortar's actual current position instead of plodding on toward a
-## possibly-stale point, and stops the INSTANT it comes into range rather
-## than finishing out a march to a farther point computed earlier.
+## then left alone until arrival), this re-aims every single tick there's a
+## fix on the friendly mortar and it's still out of range — not just when
+## idle — so a mortar already advancing keeps correcting toward the best
+## currently-known position instead of plodding on toward a possibly-stale
+## point, and stops the INSTANT it comes into range rather than finishing
+## out a march to a farther point computed earlier.
 func _update_enemy_mortar_positioning() -> void:
-	var friendly_mortar := _visible_friendly_mortar()
-	if friendly_mortar == null:
+	var target_pos: Vector2 = _known_friendly_mortar_position()
+	if is_inf(target_pos.x):
 		return
 	for m in enemy_units:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
 			continue
-		if m.global_position.distance_to(friendly_mortar.global_position) <= GameConfig.MORTAR_MAX_RANGE:
+		if m.global_position.distance_to(target_pos) <= GameConfig.MORTAR_MAX_RANGE:
 			if m.has_move_target:
 				# Now in range — stop closing and get to work, rather than
 				# finishing the walk to a farther point computed earlier.
 				m.has_move_target = false
 				m.activity = Unit.Activity.STATIONARY
 			continue
-		var target := _mortar_advance_point(m, friendly_mortar)
+		var target := _mortar_advance_point(m, target_pos)
 		if target == m.global_position:
 			continue # no safe route found this tick — try again next tick
 		m.move_target = target
@@ -360,67 +381,83 @@ func _update_enemy_mortar_positioning() -> void:
 		m.movement_predictable = false
 
 
-func _visible_friendly_mortar() -> Unit:
+## The best position the enemy currently has on the friendly mortar, or
+## Vector2.INF if they have nothing to go on at all. Two sources, live
+## visibility preferred: (1) a CURRENTLY visible friendly mortar's actual
+## position — most accurate; (2) failing that, wherever it was last
+## DETECTED FIRING (see _launch_mortar_shot), as long as that's still
+## within MORTAR_FIRE_DETECTION_EXPIRY — real counter-battery detection is
+## via the outgoing round's muzzle blast/trajectory, not needing to keep
+## the mortar in sight the whole time, so a mortar that hides itself
+## perfectly between shots (see _relocate_mortar) doesn't thereby become
+## un-huntable — it's still given away every time it actually fires.
+func _known_friendly_mortar_position() -> Vector2:
 	for u in player_units:
 		if u.kind == Unit.Kind.MORTAR and u.state != Unit.State.DESTROYED and u.is_visible:
-			return u
-	return null
+			return u.global_position
+	var best_pos := Vector2.INF
+	var best_time := -INF
+	for u in player_units:
+		if u.kind != Unit.Kind.MORTAR or u.state == Unit.State.DESTROYED:
+			continue
+		var info: Dictionary = _last_detected_mortar_fire.get(u, {})
+		if info.is_empty():
+			continue
+		if scenario_elapsed_time - info.time > GameConfig.MORTAR_FIRE_DETECTION_EXPIRY:
+			continue
+		if info.time > best_time:
+			best_time = info.time
+			best_pos = info.position
+	return best_pos
 
 
-## A point just inside MORTAR_MAX_RANGE of `friendly_mortar`, along the
-## direct line from `mortar` — nudged to a handful of nearby angles if the
-## direct line would put the mortar in or through a building, which it can
-## never do. Returns `mortar`'s own current position (a no-op move) if no
-## angle works.
-func _mortar_advance_point(mortar: Unit, friendly_mortar: Unit) -> Vector2:
-	var base_dir: Vector2 = (friendly_mortar.global_position - mortar.global_position).normalized()
+## A point just inside MORTAR_MAX_RANGE of `target_pos`, along the direct
+## line from `mortar` — nudged to a handful of nearby angles if the direct
+## line would put the mortar in or through a building, which it can never
+## do. Returns `mortar`'s own current position (a no-op move) if no angle
+## works.
+func _mortar_advance_point(mortar: Unit, target_pos: Vector2) -> Vector2:
+	var base_dir: Vector2 = (target_pos - mortar.global_position).normalized()
 	var target_distance: float = GameConfig.MORTAR_MAX_RANGE * 0.9 # comfortably in range, not right on the edge
 	for offset_deg in [0.0, -15.0, 15.0, -30.0, 30.0, -45.0, 45.0]:
 		var dir: Vector2 = base_dir.rotated(deg_to_rad(offset_deg))
-		var candidate: Vector2 = friendly_mortar.global_position - dir * target_distance
+		var candidate: Vector2 = target_pos - dir * target_distance
 		if GameConfig.is_building_at(candidate) or GameConfig.path_crosses_building(mortar.global_position, candidate):
 			continue
 		return candidate
 	return mortar.global_position
 
 
-## "Friendly mortar should always try to stay where it won't be seen" — it
-## relocates to concealment on exactly two triggers: right after it fires
-## (see _launch_mortar_shot), and the instant it's actually spotted while
-## just sitting there between shots (is_visible, a live fact — see
-## _refresh_visibility). Either way it heads for the nearest point with NO
-## direct line of sight from any currently-known enemy position: true
-## concealment like the reverse slope of a hill, not just the reduced
-## spot-chance TREES/BUILDING give as ordinary "cover." Independent of
-## shoot-and-scoot doctrine (that's a separate, smaller random hop, mainly
-## about counter-battery risk) — this is a standing survival instinct that
-## applies regardless of doctrine.
+## "Friendly mortar should always try to stay where it won't be seen" — the
+## reactive half of that: the instant it's actually spotted while just
+## sitting there between shots with NOTHING worth shooting at (is_visible,
+## a live fact — see _refresh_visibility, and not already moving for some
+## other reason), it relocates via _relocate_mortar. The other half — a
+## shoot-and-scoot mortar displacing after EVERY shot as standing
+## procedure, whether spotted or not — is handled separately in _tick_fire,
+## since that's doctrine-driven, not purely reactive; a hold-position
+## mortar relies on THIS check alone, so it stays put unless something
+## actually threatens it.
 ##
-## This "spotted between shots" check runs AFTER _tick_fire each tick, not
-## before — a mortar that's ready to fire right now gets that shot off
-## first (which itself triggers the after-firing relocation); only if it
-## DIDN'T fire this tick and is sitting there exposed does this apply.
+## Being spotted alone does NOT mean flee — if it currently HAS a target
+## (including an enemy mortar that's wandered into range), it stands and
+## fights rather than running from a fight it can win; concealment is the
+## fallback when it's exposed with nothing to show for it, not an automatic
+## reflex to being seen.
+##
+## Runs AFTER _tick_fire each tick, not before — a mortar that's ready to
+## fire right now gets that shot off first; only if it DIDN'T fire this
+## tick and is sitting there exposed does this apply.
 func _update_friendly_mortar_concealment() -> void:
 	for m in player_units:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE or m.has_move_target:
 			continue
 		if not m.is_visible:
 			continue
-		_relocate_friendly_mortar_for_concealment(m)
-
-
-## Shared by both concealment triggers — see _update_friendly_mortar_concealment
-## (spotted between shots) and _launch_mortar_shot (after firing).
-func _relocate_friendly_mortar_for_concealment(m: Unit) -> void:
-	var threats := _known_enemy_positions(Unit.Team.PLAYER)
-	var hidden_spot: Vector2 = GameConfig.nearest_hidden_point(m.global_position, threats, true)
-	if hidden_spot == m.global_position:
-		return # nothing better found nearby, or nothing known to hide from yet
-	m.move_target = hidden_spot
-	m.has_move_target = true
-	m.move_queue.clear()
-	m.move_speed = GameConfig.REPOSITION_SPEED
-	m.movement_predictable = false
+		if _pick_target(m, enemy_units) != null:
+			continue # something worth shooting at — stand and fight rather than flee
+		if _relocate_mortar(m):
+			combat_log.log_mortar_relocating_for_cover(m)
 
 
 func _process(delta: float) -> void:
@@ -436,11 +473,12 @@ func _process(delta: float) -> void:
 	_tick_movement(scenario_delta)
 	_update_spotting(delta)
 	_update_enemy_mortar_positioning()
+	_update_enemy_squad_advance()
 
 	for unit in player_units:
-		_tick_fire(unit, delta, enemy_units)
+		_tick_fire(unit, delta, scenario_delta, enemy_units)
 	for unit in enemy_units:
-		_tick_fire(unit, delta, player_units)
+		_tick_fire(unit, delta, scenario_delta, player_units)
 
 	_update_friendly_mortar_concealment()
 	_resolve_pending_counter_battery()
@@ -537,9 +575,21 @@ func _update_spotting(delta: float) -> void:
 ## invisible again, even if it was seen a moment ago. A target not currently
 ## visible has a chance each tick to be freshly noticed (CombatResolver.
 ## roll_spot — the existing probabilistic, concealment-aware roll).
+##
+## The one exception: the friendly (player) mortar is never visually
+## spotted by this at all, categorically — a well-sited, camouflaged crew
+## on a reverse slope isn't something rifle squads happen to notice by
+## scanning the horizon. The ONLY way the enemy ever gets a fix on it is by
+## detecting it actually firing (real counter-battery detection, via
+## muzzle blast/trajectory rather than eyesight — see _launch_mortar_shot's
+## _last_detected_mortar_fire and _known_friendly_mortar_position, which
+## the enemy's counter-battery-range chase already relies on for exactly
+## this case).
 func _refresh_visibility(observers: Array[Unit], targets: Array[Unit], delta: float) -> void:
 	for target in targets:
 		if target.state == Unit.State.DESTROYED:
+			continue
+		if target.kind == Unit.Kind.MORTAR and target.team == Unit.Team.PLAYER:
 			continue
 		if target.is_visible:
 			if not CombatResolver.has_live_observer(target, observers):
@@ -557,7 +607,13 @@ func _refresh_visibility(observers: Array[Unit], targets: Array[Unit], delta: fl
 				break
 
 
-func _tick_fire(unit: Unit, delta: float, enemies: Array[Unit]) -> void:
+## `scenario_delta` (tactical seconds) drives a MORTAR's reload timer — a
+## realistic lay-load-fire cycle is a real-world-time thing (see Unit.
+## reload_time), not tied to how much actual play-session time you spend
+## watching. Everything else (squad fire_interval, the has_move_target/
+## building gates below) stays on `delta` (actual/engine seconds) — those
+## were never part of this ask, just the mortar's own cycle was.
+func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[Unit]) -> void:
 	if unit.kind == Unit.Kind.SPOTTER:
 		return # the spotter never fires — it only extends detection (see roll_spot)
 	if unit.state != Unit.State.ACTIVE:
@@ -571,7 +627,7 @@ func _tick_fire(unit: Unit, delta: float, enemies: Array[Unit]) -> void:
 	if unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(unit.global_position):
 		return # no overhead clearance to lob a round from inside a building
 
-	unit.fire_timer -= delta
+	unit.fire_timer -= scenario_delta if unit.kind == Unit.Kind.MORTAR else delta
 	if unit.fire_timer > 0.0:
 		return
 
@@ -582,20 +638,18 @@ func _tick_fire(unit: Unit, delta: float, enemies: Array[Unit]) -> void:
 
 	if unit.kind == Unit.Kind.MORTAR:
 		_launch_mortar_shot(unit, target)
+		unit.fire_timer = unit.reload_time
+		# Shoot-and-scoot doctrine: displace after EVERY shot, procedurally,
+		# whether or not it's currently spotted — that's the whole point of
+		# the doctrine (see design doc). A hold-position mortar does NOT do
+		# this — it only relocates reactively, if actually spotted, which
+		# _update_friendly_mortar_concealment's per-tick check already
+		# covers (including the tick right after firing, if firing is what
+		# exposed it) — no separate trigger needed here for that case.
 		if unit.shoot_and_scoot:
-			# Its own, separate relocation (a short random hop, mainly about
-			# counter-battery risk) already moves it after every shot — no
-			# need to also walk it to concealment on top of that.
-			combat_log.log_relocate(unit)
-			_hop_mortar(unit)
-			unit.fire_timer = unit.relocate_cooldown + unit.reload_time
-		else:
-			# Holding position doesn't mean staying put in the open — a
-			# friendly mortar always tries to relocate to concealment right
-			# after firing, same as it would if merely spotted between shots.
-			if unit.team == Unit.Team.PLAYER:
-				_relocate_friendly_mortar_for_concealment(unit)
-			unit.fire_timer = unit.reload_time
+			var urgent := unit.evading_counter_battery
+			if _relocate_mortar(unit):
+				combat_log.log_relocate(unit, urgent)
 		return
 
 	# SQUAD: direct fire resolves immediately, unlike a mortar's lobbed
@@ -644,6 +698,11 @@ func _launch_mortar_shot(mortar: Unit, target: Unit) -> void:
 		"from": mortar.global_position, "to": aim_point, "team": mortar.team, "time": elapsed_time, "is_mortar": true,
 	})
 	_seconds_since_last_shot = 0.0
+	# Firing is detectable (muzzle blast/trajectory) independent of whether
+	# the mortar is otherwise visually spotted — see
+	# _known_friendly_mortar_position, which the enemy's counter-battery-range
+	# chase (_update_enemy_mortar_positioning) relies on for exactly this case.
+	_last_detected_mortar_fire[mortar] = {"position": mortar.global_position, "time": scenario_elapsed_time}
 	_resolve_mortar_counter_battery(mortar)
 
 
@@ -727,6 +786,52 @@ func _alert_enemy_squads() -> void:
 		combat_log.add_entry("--- Enemy is alerted: squads moving carefully, using cover ---")
 
 
+## An enemy squad that's broken off to cover doesn't just sit there for the
+## rest of the battle — this is a real assault, not a one-shot road march.
+## Once it's idle (arrived, not already moving) and has nothing worth
+## shooting at right now (_pick_target comes up empty — plenty of range/LOS
+## for the mortar and squad-vs-squad checks to still say no), it resumes
+## closing on the village in a bounded rush (ENEMY_ADVANCE_RUSH_DISTANCE),
+## then stops again to reassess — advance-by-bounds, not one long blind
+## sprint. Without this, a squad that breaks for cover once — now easy,
+## with cover scattered across the whole map rather than concentrated near
+## the village — could end up stalled out of engagement range permanently,
+## with nothing on either side able to close the distance again: a genuine
+## dead end that the stagnation timeout would eventually (correctly) end
+## the battle over, but only after the assault had quietly stopped being a
+## real assault.
+##
+## Only applies to squads that have already broken from the initial road
+## march (sought_cover) — one still on that scripted path is handled by its
+## own multi-waypoint set_path already.
+func _update_enemy_squad_advance() -> void:
+	for u in enemy_units:
+		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or u.has_move_target:
+			continue
+		if not u.sought_cover:
+			continue
+		if _pick_target(u, player_units) != null:
+			continue # something to shoot at right now — stay and fight
+		var rush_target := _next_advance_point(u)
+		if rush_target == u.global_position:
+			continue
+		u.move_target = rush_target
+		u.has_move_target = true
+		u.move_queue.clear()
+		u.move_speed = GameConfig.ENEMY_ADVANCE_SPEED
+		u.movement_predictable = false # a deliberate rush, not the road-bound march
+
+
+## A bounded step toward the village from `u`'s current position — the next
+## leg of an advance-by-rushes, not the whole remaining distance in one go.
+func _next_advance_point(u: Unit) -> Vector2:
+	var to_village: Vector2 = GameConfig.VILLAGE_CENTER - u.global_position
+	if to_village.length() < 10.0:
+		return u.global_position # already there
+	var rush: float = min(to_village.length(), GameConfig.ENEMY_ADVANCE_RUSH_DISTANCE)
+	return u.global_position + to_village.normalized() * rush
+
+
 ## Firing gives the OPPOSING mortar(s) — and only the opposing mortar, not
 ## every enemy unit — a chance to notice and shoot back. Shoot-and-scoot
 ## keeps that chance low; holding position in one spot raises it a lot.
@@ -781,6 +886,10 @@ func _resolve_pending_counter_battery() -> void:
 		if distance > GameConfig.COUNTER_BATTERY_BLAST_RADIUS:
 			combat_log.log_counter_battery_miss(target)
 			continue
+		# Close enough for shells to actually land near them, hit or not —
+		# the crew now knows they've been found and relocates accordingly
+		# next time (farther, faster — see Unit.evading_counter_battery).
+		target.evading_counter_battery = true
 		var impact_chance: float = clamp(1.0 - distance / GameConfig.COUNTER_BATTERY_BLAST_RADIUS, 0.0, 1.0)
 		if randf() < impact_chance:
 			target.take_hit(true, [], _known_enemy_positions(target.team))
@@ -791,23 +900,39 @@ func _resolve_pending_counter_battery() -> void:
 	_pending_counter_battery = still_pending
 
 
-## Shoot-and-scoot is now visible, not just a cooldown number — the mortar
-## actually hops a short, random distance after firing. Tries a handful of
-## random directions and skips any that would land it inside a building —
-## a mortar can never set up in one — falling back to staying put if every
-## attempt does.
-func _hop_mortar(mortar: Unit) -> void:
-	for _attempt in 8:
-		var hop := Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0))
-		if hop.length() < 0.01:
-			continue
-		var candidate: Vector2 = mortar.position + hop.normalized() * GameConfig.MORTAR_SCOOT_HOP_DISTANCE
-		candidate.x = clamp(candidate.x, 10.0, GameConfig.MAP_WIDTH_PX - 10.0)
-		candidate.y = clamp(candidate.y, 10.0, GameConfig.MAP_HEIGHT_PX - 10.0)
-		if not GameConfig.is_building_at(candidate) and not GameConfig.path_crosses_building(mortar.position, candidate):
-			mortar.position = candidate
-			mortar.queue_redraw()
-			return
+## Relocates `mortar` to wherever it now considers desirable — the nearest
+## point with no direct line of sight from any currently-known enemy (real
+## concealment, not just reduced spot-chance cover), or, with no known
+## threat to hide from, simply the nearest cover: displacing is a standing
+## procedure for a shoot-and-scoot crew regardless of whether a threat is
+## currently visible, not a purely reactive move. Walks there — real speed,
+## real distance, real travel time, no separate cooldown bolted on top (see
+## Unit.reload_time) — faster and farther if the crew has actually taken
+## counter-battery fire recently (Unit.evading_counter_battery, consumed
+## here), slower moving into trees than open ground. Returns false (no-op)
+## if there's nowhere better to go right now.
+func _relocate_mortar(mortar: Unit) -> bool:
+	var urgent: bool = mortar.evading_counter_battery
+	mortar.evading_counter_battery = false
+	var threats := _known_enemy_positions(mortar.team)
+	var destination: Vector2 = (
+		GameConfig.nearest_hidden_point(mortar.global_position, threats, true, urgent)
+		if not threats.is_empty()
+		else GameConfig.nearest_cover_point(mortar.global_position, 0.0, true)
+	)
+	if destination == mortar.global_position:
+		return false
+
+	var speed: float = GameConfig.MORTAR_RELOCATE_SPEED_URGENT if urgent else GameConfig.MORTAR_RELOCATE_SPEED
+	if GameConfig.get_terrain_type_at(destination) == GameConfig.TerrainType.TREES:
+		speed *= GameConfig.MORTAR_RELOCATE_TREES_MULTIPLIER
+
+	mortar.move_target = destination
+	mortar.has_move_target = true
+	mortar.move_queue.clear()
+	mortar.move_speed = speed
+	mortar.movement_predictable = false
+	return true
 
 
 func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:

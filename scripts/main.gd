@@ -150,7 +150,7 @@ func _on_start_pressed() -> void:
 	add_child(casualty_dashboard)
 
 	combat_log = CombatLog.new()
-	combat_log.position = Vector2(1020, 260)
+	combat_log.position = Vector2(1020, 330)
 	add_child(combat_log)
 
 	battle_manager.start_battle(doctrine, combat_log)

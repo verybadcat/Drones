@@ -12,7 +12,6 @@ class_name DoctrinePanel
 
 var _squad_thresholds: Array[HSlider] = []
 var _mortar_shoot_and_scoot: CheckBox
-var _mortar_relocate_cooldown: HSlider
 
 
 func _ready() -> void:
@@ -79,19 +78,10 @@ func _build_mortar_section() -> Control:
 	box.add_child(scoot_row)
 	_mortar_shoot_and_scoot = scoot_check
 
-	var cooldown_row := HBoxContainer.new()
-	var cooldown_label := Label.new()
-	cooldown_label.text = "Relocate cooldown (s):"
-	cooldown_row.add_child(cooldown_label)
-	var cooldown_slider := HSlider.new()
-	cooldown_slider.min_value = 1
-	cooldown_slider.max_value = 15
-	cooldown_slider.step = 1
-	cooldown_slider.value = 5
-	cooldown_slider.custom_minimum_size = Vector2(140, 0)
-	cooldown_row.add_child(cooldown_slider)
-	box.add_child(cooldown_row)
-	_mortar_relocate_cooldown = cooldown_slider
+	var scoot_note := Label.new()
+	scoot_note.text = "Relocation itself takes as long as the walk does, at a realistic pace — no separate cooldown to set."
+	scoot_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(scoot_note)
 
 	return box
 
@@ -106,5 +96,4 @@ func get_squad_retreat_thresholds() -> Array[float]:
 func get_mortar_doctrine() -> Dictionary:
 	return {
 		"shoot_and_scoot": _mortar_shoot_and_scoot.button_pressed,
-		"relocate_cooldown": _mortar_relocate_cooldown.value,
 	}

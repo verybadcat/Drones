@@ -142,6 +142,13 @@ static func road_waypoints_px() -> Array[Vector2]:
 # quarter of the map — plus a scatter of natural-looking woodland and a
 # couple of isolated outlying farm buildings, positioned organically rather
 # than in tidy rows.
+#
+# The village's own center, in meters — matches TERRAIN_ZONES[0] below.
+# Named explicitly (not derived from the zone array) so anything that needs
+# "the objective" — like an enemy squad resuming its advance after breaking
+# for cover — doesn't depend on zone ordering.
+const VILLAGE_CENTER: Vector2 = Vector2(1400.0 * PIXELS_PER_METER, 1750.0 * PIXELS_PER_METER)
+
 const TERRAIN_ZONES: Array[Dictionary] = [
 	{"rect": Rect2(1175.0 * PIXELS_PER_METER, 1560.0 * PIXELS_PER_METER, 450.0 * PIXELS_PER_METER, 380.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # the village
 	{"rect": Rect2(2380.0 * PIXELS_PER_METER, 1580.0 * PIXELS_PER_METER, 55.0 * PIXELS_PER_METER, 46.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # isolated farmhouse, mid-approach
@@ -331,7 +338,31 @@ const MORTAR_EVASION_RADIUS: float = 40.0 * PIXELS_PER_METER
 # CombatResolver / BattleManager).
 const MORTAR_COUNTER_BATTERY_HOLD_CHANCE: float = 0.22 # per shot, holding position
 const MORTAR_COUNTER_BATTERY_SCOOT_CHANCE: float = 0.06 # per shot, shoot-and-scoot
-const MORTAR_SCOOT_HOP_DISTANCE: float = 80.0 * PIXELS_PER_METER # visible little jump after each scoot
+
+# How long a mortar's firing position stays "worth pursuing" for counter-
+# battery-range-chasing purposes after being detected (see BattleManager.
+# _launch_mortar_shot / _known_friendly_mortar_position) — real counter-
+# battery detection is via the outgoing round's muzzle blast/trajectory,
+# not visual spotting, so this doesn't require the mortar to stay visually
+# exposed. Tactical seconds; roughly the upper end of the counter-battery
+# response window (COUNTER_BATTERY_DELAY_MAX) — old enough and the mortar
+# has almost certainly moved on, not worth chasing a stale fix.
+const MORTAR_FIRE_DETECTION_EXPIRY: float = 180.0
+
+# A relocating mortar crew actually walks there — real speed, real distance,
+# real time, no separate "cooldown" bolted on top (see BattleManager.
+# _relocate_mortar). MORTAR_RELOCATE_SPEED is a hustling pace, faster than
+# ordinary REPOSITION_SPEED — displacing a tube under at least the
+# THEORETICAL threat of counter-battery is more urgent than a routine
+# reposition. If the crew has actually taken counter-battery fire recently
+# (Unit.evading_counter_battery), it moves at ..._URGENT instead and, via
+# nearest_hidden_point's own urgent search rings, goes farther too — a
+# crew that's been found moves fast AND puts real distance behind it, not
+# just one or the other. Moving into trees is slower than open ground —
+# hauling a tube and base plate through undergrowth is real work.
+const MORTAR_RELOCATE_SPEED: float = 2.2 * PIXELS_PER_METER
+const MORTAR_RELOCATE_SPEED_URGENT: float = 2.6 * PIXELS_PER_METER
+const MORTAR_RELOCATE_TREES_MULTIPLIER: float = 0.8
 
 # Counter-battery fire isn't instant: the enemy can only aim at where the
 # mortar WAS when it fired, and it takes real time to organize and fire a
@@ -356,6 +387,13 @@ const RELOCATE_ON_MORTAR_HIT_CHANCE: float = 0.35
 const BUNCHING_RADIUS: float = 30.0 * PIXELS_PER_METER
 const BUNCHING_SPILLOVER_CHANCE: float = 0.25
 const REPOSITION_SPEED: float = 1.8 * PIXELS_PER_METER # m/s (tactical), for any non-retreat repositioning
+
+# How far an enemy squad advances per rush once it resumes closing on the
+# village after breaking for cover (see BattleManager._update_enemy_squad_advance)
+# — a bounded leg, not a single sprint to the objective, so it still pauses
+# to reassess (and fire, if something's now in range) between rushes rather
+# than covering the whole remaining distance blind.
+const ENEMY_ADVANCE_RUSH_DISTANCE: float = 400.0 * PIXELS_PER_METER
 
 
 ## Concealment/cover terrain type at a point. BUILDING beats TREES if both
@@ -384,9 +422,9 @@ static func is_building_at(pos: Vector2) -> bool:
 
 ## True if the straight segment from `from` to `to` passes through any
 ## BUILDING zone along the way — not just whether either END is inside one.
-## A mortar can't be walked/hopped straight through a house wall to reach an
+## A mortar can't be walked straight through a house wall to reach an
 ## otherwise-legal destination on the far side of it; see avoid_buildings on
-## the cover-point functions below and BattleManager._hop_mortar.
+## the cover-point functions below and BattleManager._relocate_mortar.
 static func path_crosses_building(from: Vector2, to: Vector2) -> bool:
 	for zone in TERRAIN_ZONES:
 		if zone.type != TerrainType.BUILDING:
@@ -552,22 +590,44 @@ static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vecto
 
 # How far out (and in how many steps) to search for a concealed spot — see
 # nearest_hidden_point. Three expanding rings, nearest checked first, so a
-# mortar prefers a short hop to cover over a long trek if both work.
+# mortar prefers a short hop to cover over a long trek if both work. The
+# URGENT set (a crew that's actually taken counter-battery fire recently —
+# see Unit.evading_counter_battery) searches noticeably farther out: real
+# distance from a position that's been found, not just the usual shuffle.
 const CONCEALMENT_SEARCH_RINGS_M: Array[float] = [250.0, 450.0, 650.0]
+const CONCEALMENT_SEARCH_RINGS_URGENT_M: Array[float] = [450.0, 700.0, 1000.0]
 const CONCEALMENT_SEARCH_SAMPLES: int = 16
+
+# How far (at most) it's worth walking to reach an actual hill's reverse
+# slope rather than settling for a closer, weaker spot — see
+# _reverse_slope_candidate. Generous, since real cover (a whole hill
+# blocking LOS, not a random point that merely tests clear right now) is
+# worth a real walk.
+const REVERSE_SLOPE_MAX_TRAVEL_M: float = 1500.0
 
 ## A nearby point with NO direct line of sight from ANY of `threat_positions`
 ## — true concealment (like the reverse slope of a hill, or behind a
 ## building), not just the reduced spot-chance TREES/BUILDING give as
-## "cover." Samples points in a ring around `from` at increasing radii,
-## returning the first that's fully hidden from every threat (and, if
+## "cover." Tries the reverse slope of an actual nearby hill FIRST (see
+## _reverse_slope_candidate) — genuine high-ground masking that stays valid
+## even if the threat shifts around somewhat, not just a point that happens
+## to test clear this instant — falling back to sampling a ring around
+## `from` at increasing radii if no hill qualifies, returning the first
+## sampled point that's fully hidden from every threat (and, if
 ## `avoid_buildings`, isn't inside one or reachable only by cutting through
 ## one). Falls back to `from` (no move) if there's nothing to hide from yet
-## or nothing qualifies within the search radius.
-static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false) -> Vector2:
+## or nothing qualifies at all. `urgent` searches farther out
+## (CONCEALMENT_SEARCH_RINGS_URGENT_M) — see Unit.evading_counter_battery.
+static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false) -> Vector2:
 	if threat_positions.is_empty():
 		return from
-	for radius_m in CONCEALMENT_SEARCH_RINGS_M:
+
+	var hill_spot := _reverse_slope_candidate(from, threat_positions, avoid_buildings)
+	if hill_spot != from:
+		return hill_spot
+
+	var rings: Array[float] = CONCEALMENT_SEARCH_RINGS_URGENT_M if urgent else CONCEALMENT_SEARCH_RINGS_M
+	for radius_m in rings:
 		var radius_px: float = radius_m * PIXELS_PER_METER
 		for i in CONCEALMENT_SEARCH_SAMPLES:
 			var theta: float = TAU * float(i) / float(CONCEALMENT_SEARCH_SAMPLES)
@@ -582,6 +642,45 @@ static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2]
 			if hidden:
 				return candidate
 	return from
+
+
+## The reverse slope of whichever nearby HILL (within REVERSE_SLOPE_MAX_TRAVEL_M)
+## gives the closest genuinely-hidden spot: a point on the far side of the
+## hill's own center from the threats, at 75% of its radius (solidly down
+## the masked slope, not right on the crest). Real elevation-based masking
+## like this tends to stay valid even if a threat shifts position somewhat
+## — the whole hill is still in the way — unlike a point chosen only
+## because it happens to test clear against today's exact threat positions.
+## Returns `from` (no better option this way) if no hill qualifies.
+static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool) -> Vector2:
+	var avg_threat := Vector2.ZERO
+	for t in threat_positions:
+		avg_threat += t
+	avg_threat /= threat_positions.size()
+
+	var best := from
+	var best_dist := INF
+	for hill in HILLS:
+		var center_px: Vector2 = hill.center_m * PIXELS_PER_METER
+		var away: Vector2 = center_px - avg_threat
+		if away.length() < 1.0:
+			continue
+		var candidate: Vector2 = center_px + away.normalized() * (hill.radius_m * PIXELS_PER_METER * 0.75)
+		var d: float = from.distance_to(candidate)
+		if d >= best_dist or d > REVERSE_SLOPE_MAX_TRAVEL_M * PIXELS_PER_METER:
+			continue
+		if avoid_buildings and (is_building_at(candidate) or path_crosses_building(from, candidate)):
+			continue
+		var hidden := true
+		for t in threat_positions:
+			if has_direct_los(candidate, t):
+				hidden = false
+				break
+		if not hidden:
+			continue
+		best = candidate
+		best_dist = d
+	return best
 
 
 ## True if a straight line from `from` to `to` is clear — used for both

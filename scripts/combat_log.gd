@@ -99,8 +99,15 @@ func log_counter_battery_miss(unit: Unit) -> void:
 	add_entry("Counter-battery fire lands near %s's old position — no hit" % unit.display_name())
 
 
-func log_relocate(unit: Unit) -> void:
-	add_entry("%s relocated after firing (shoot and scoot)" % unit.display_name())
+func log_relocate(unit: Unit, urgent: bool = false) -> void:
+	if urgent:
+		add_entry("%s relocates after firing — farther and faster, still shaking off recent counter-battery fire" % unit.display_name())
+	else:
+		add_entry("%s relocates after firing (shoot and scoot)" % unit.display_name())
+
+
+func log_mortar_relocating_for_cover(unit: Unit) -> void:
+	add_entry("%s spotted — abandons position for better cover" % unit.display_name())
 
 
 func log_spotted(unit: Unit) -> void:

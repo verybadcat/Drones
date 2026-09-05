@@ -39,8 +39,21 @@ var fire_timer: float = 0.0
 
 # Mortar-only doctrine fields (unused by SQUAD kind).
 var shoot_and_scoot: bool = false
-var relocate_cooldown: float = 5.0
-var reload_time: float = 3.0
+# Tactical seconds (see BattleManager.scenario_elapsed_time) — a realistic
+# lay-load-fire cycle for a deliberate, spotter-corrected shot, not a raw
+# mechanical rate of fire. There's no separate "relocate cooldown" on top of
+# this: a shoot-and-scoot mortar's actual walk to its next position is what
+# keeps it from firing again (see BattleManager._tick_fire's has_move_target
+# check) — real travel time IS the cooldown, not an additional number.
+var reload_time: float = 30.0
+
+# Set whenever a counter-battery strike actually lands near this mortar
+# (hit or a close miss — either way, shells landed close enough to notice)
+# and consumed the next time it relocates: that relocation goes farther and
+# faster than a routine one, reflecting a crew that knows it's been found
+# and needs real distance, not just its usual displacement. See
+# BattleManager._resolve_pending_counter_battery / _relocate_mortar.
+var evading_counter_battery: bool = false
 
 # General-purpose movement target + queue, used for: an enemy squad's
 # initial road march (a real multi-waypoint path — see set_path), either
