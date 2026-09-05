@@ -249,12 +249,30 @@ static func draw_cover_ring(ci: CanvasItem, radius: float, terrain: TerrainType)
 	ci.draw_arc(Vector2.ZERO, radius + 5.0, 0.0, TAU, 24, color, width, true)
 
 
+## A hill needs to read as elevated at a glance, not just "vaguely tinted
+## ground" — a darker halo just outside its footprint gives it a raised
+## edge against the surrounding lowland, dense topographic-style contour
+## rings brightening toward the summit reinforce it, and an explicit label
+## removes any remaining ambiguity.
 static func _draw_hill(ci: CanvasItem, rect: Rect2) -> void:
-	ci.draw_rect(rect, Color(0.62, 0.58, 0.4, 0.55))
-	for inset in [18.0, 40.0, 65.0]:
+	var halo := Rect2(rect.position - Vector2(8.0, 8.0), rect.size + Vector2(16.0, 16.0))
+	ci.draw_rect(halo, Color(0.32, 0.29, 0.2, 0.4))
+
+	ci.draw_rect(rect, Color(0.68, 0.6, 0.38, 0.75))
+
+	var ring_count := 5
+	var max_inset: float = min(rect.size.x, rect.size.y) / 2.0 - 10.0
+	for i in ring_count:
+		var t: float = float(i + 1) / float(ring_count)
+		var inset: float = max_inset * t
 		var r := Rect2(rect.position + Vector2(inset, inset), rect.size - Vector2(inset * 2.0, inset * 2.0))
-		if r.size.x > 0.0 and r.size.y > 0.0:
-			ci.draw_rect(r, Color(0.78, 0.73, 0.52, 0.6), false, 2.0)
+		if r.size.x <= 0.0 or r.size.y <= 0.0:
+			continue
+		var b: float = 0.55 + 0.35 * t # brighter toward the summit
+		ci.draw_rect(r, Color(b, b * 0.95, b * 0.68, 0.75), false, 2.5)
+
+	ci.draw_string(ThemeDB.fallback_font, rect.position + Vector2(10.0, 24.0), "HIGH GROUND",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.3, 0.26, 0.14, 0.9))
 
 
 static func _draw_road(ci: CanvasItem, rect: Rect2) -> void:

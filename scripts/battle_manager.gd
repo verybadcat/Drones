@@ -372,6 +372,11 @@ func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
 ## every tick by whether some friendly currently has line of sight — not a
 ## permanent flag — so a target that broke contact behind a building has
 ## already stopped being targetable by the time this runs.
+##
+## Mortars are the highest-value target on the battlefield for both sides —
+## if one is a legal target at all, it's always preferred over a squad or
+## the spotter, for either a squad's direct fire or another mortar's own
+## targeting.
 func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 	var candidates: Array[Unit] = []
 	for e in enemies:
@@ -385,6 +390,10 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		candidates.append(e)
 	if candidates.is_empty():
 		return null
+
+	var mortar_candidates: Array[Unit] = candidates.filter(func(c): return c.kind == Unit.Kind.MORTAR)
+	if not mortar_candidates.is_empty():
+		return mortar_candidates[randi() % mortar_candidates.size()]
 	return candidates[randi() % candidates.size()]
 
 
