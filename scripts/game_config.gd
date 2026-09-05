@@ -47,29 +47,64 @@ const EYE_HEIGHT_M: float = 1.6
 const ELEVATION_ADVANTAGE_THRESHOLD_M: float = 8.0
 
 ## Rolling hills as smooth, continuous high ground rather than a flat zone —
-## elevation at any point is the sum of each hill's Gaussian contribution, so
-## the terrain has real, continuous relief (and can be drawn as real contour
-## lines — see _draw_hills). One broad hill sits behind/around the village,
-## giving the defenders a genuine elevation advantage; the others add varied,
-## natural-looking relief across the rest of the battlefield.
+## elevation at any point is the sum of each hill's contribution, so the
+## terrain has real, continuous relief (and can be drawn as real contour
+## lines — see _draw_hills). A hill isn't a plain radially-symmetric bump,
+## either — each has a few "warp_harmonics" (frequency/amplitude/phase
+## triples) that scale its effective radius by angle from center, so its
+## footprint is an irregular, elongated blob rather than a perfect circle —
+## see _hill_radius_warp. One broad hill sits behind/around the village,
+## giving the defenders a genuine elevation advantage; the rest add varied,
+## natural-looking relief across the whole battlefield.
 const HILLS: Array[Dictionary] = [
-	{"center_m": Vector2(1300.0, 1550.0), "radius_m": 650.0, "height_m": 35.0}, # the village's high ground
-	{"center_m": Vector2(500.0, 3200.0), "radius_m": 420.0, "height_m": 18.0}, # rear rise, south
-	{"center_m": Vector2(3500.0, 1950.0), "radius_m": 520.0, "height_m": 26.0}, # a rise on the enemy's approach
-	{"center_m": Vector2(4100.0, 700.0), "radius_m": 380.0, "height_m": 15.0}, # minor rise, north
+	{"center_m": Vector2(1300.0, 1550.0), "radius_m": 650.0, "height_m": 35.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.18, "phase": 0.4}, {"frequency": 3, "amplitude": 0.12, "phase": 2.1},
+	]}, # the village's high ground
+	{"center_m": Vector2(500.0, 3200.0), "radius_m": 420.0, "height_m": 18.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.15, "phase": 1.0}, {"frequency": 4, "amplitude": 0.1, "phase": 0.5},
+	]}, # rear rise, south
+	{"center_m": Vector2(3500.0, 1950.0), "radius_m": 520.0, "height_m": 26.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.16, "phase": 1.8}, {"frequency": 2, "amplitude": 0.13, "phase": 3.0},
+	]}, # a rise on the enemy's approach
+	{"center_m": Vector2(4100.0, 700.0), "radius_m": 380.0, "height_m": 15.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.14, "phase": 2.5}, {"frequency": 5, "amplitude": 0.08, "phase": 1.2},
+	]}, # minor rise, north
+	{"center_m": Vector2(350.0, 550.0), "radius_m": 380.0, "height_m": 20.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.17, "phase": 0.9}, {"frequency": 2, "amplitude": 0.11, "phase": 2.7},
+	]}, # ridge west of the village, rear
+	{"center_m": Vector2(2400.0, 3100.0), "radius_m": 350.0, "height_m": 16.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.16, "phase": 1.5}, {"frequency": 4, "amplitude": 0.09, "phase": 0.3},
+	]}, # rise above the southern woods
+	{"center_m": Vector2(2700.0, 900.0), "radius_m": 300.0, "height_m": 14.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.15, "phase": 2.2}, {"frequency": 2, "amplitude": 0.12, "phase": 0.7},
+	]}, # rise along the road's midpoint bend
 ]
 const CONTOUR_INTERVAL_M: float = 10.0
 
 
+## How much a hill's effective radius is stretched (>1) or pinched (<1) in
+## the direction `theta` (radians from its center) — a sum of cosine
+## harmonics per hill (see HILLS), each hill's own fixed set giving it a
+## distinct, irregular, non-circular footprint instead of a perfect radial
+## Gaussian. Amplitudes are kept well under 1.0 in total so this can never
+## flip the effective radius negative.
+static func _hill_radius_warp(hill: Dictionary, theta: float) -> float:
+	var w := 1.0
+	for h in hill.warp_harmonics:
+		w += h.amplitude * cos(h.frequency * theta + h.phase)
+	return w
+
+
 ## Continuous ground elevation in meters at a point (given in the engine's
-## pixel space, like everything else) — the sum of every hill's Gaussian
-## contribution. Never negative; flat, open ground is 0m.
+## pixel space, like everything else) — the sum of every hill's (warped,
+## non-circular) contribution. Never negative; flat, open ground is 0m.
 static func elevation_m(pos_px: Vector2) -> float:
 	var pos_m: Vector2 = pos_px / PIXELS_PER_METER
 	var total := 0.0
 	for hill in HILLS:
-		var d: float = pos_m.distance_to(hill.center_m)
-		var r: float = hill.radius_m
+		var offset: Vector2 = pos_m - hill.center_m
+		var d: float = offset.length()
+		var r: float = hill.radius_m * (_hill_radius_warp(hill, offset.angle()) if d > 0.01 else 1.0)
 		total += hill.height_m * exp(-(d * d) / (2.0 * r * r))
 	return total
 
@@ -120,11 +155,21 @@ const TERRAIN_ZONES: Array[Dictionary] = [
 	{"rect": Rect2(550.0 * PIXELS_PER_METER, 2150.0 * PIXELS_PER_METER, 190.0 * PIXELS_PER_METER, 160.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse near the rear
 	{"rect": Rect2(4150.0 * PIXELS_PER_METER, 850.0 * PIXELS_PER_METER, 230.0 * PIXELS_PER_METER, 190.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods near the northern rise
 	{"rect": Rect2(2700.0 * PIXELS_PER_METER, 550.0 * PIXELS_PER_METER, 210.0 * PIXELS_PER_METER, 170.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse, north side
+	{"rect": Rect2(150.0 * PIXELS_PER_METER, 750.0 * PIXELS_PER_METER, 180.0 * PIXELS_PER_METER, 150.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # slope below the western ridge
+	{"rect": Rect2(2500.0 * PIXELS_PER_METER, 650.0 * PIXELS_PER_METER, 200.0 * PIXELS_PER_METER, 170.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods above the road bend
+	{"rect": Rect2(1800.0 * PIXELS_PER_METER, 2400.0 * PIXELS_PER_METER, 220.0 * PIXELS_PER_METER, 180.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse south of the village
+	{"rect": Rect2(3900.0 * PIXELS_PER_METER, 3000.0 * PIXELS_PER_METER, 260.0 * PIXELS_PER_METER, 210.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods, far southeast
+	{"rect": Rect2(1000.0 * PIXELS_PER_METER, 400.0 * PIXELS_PER_METER, 190.0 * PIXELS_PER_METER, 150.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse, north of the village
+	{"rect": Rect2(4400.0 * PIXELS_PER_METER, 1800.0 * PIXELS_PER_METER, 210.0 * PIXELS_PER_METER, 170.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods near the enemy's rear
+	{"rect": Rect2(600.0 * PIXELS_PER_METER, 1600.0 * PIXELS_PER_METER, 170.0 * PIXELS_PER_METER, 140.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse, west-central
+	{"rect": Rect2(3200.0 * PIXELS_PER_METER, 2500.0 * PIXELS_PER_METER, 230.0 * PIXELS_PER_METER, 190.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods on the approach rise's south slope
 ]
 
-# Legal area for the player to drag squads into on the deployment screen —
-# in and immediately around the village, matching "holding the village."
-const PLAYER_DEPLOYMENT_ZONE: Rect2 = Rect2(1080.0 * PIXELS_PER_METER, 1450.0 * PIXELS_PER_METER, 620.0 * PIXELS_PER_METER, 590.0 * PIXELS_PER_METER)
+# Legal area for the player to drag squads into — wider than just the
+# village: the defense can post squads forward in ambush/blocking positions
+# or held back in reserve, not only inside the village itself. Spans most
+# of the western half of the map, through and a good way past the village.
+const PLAYER_DEPLOYMENT_ZONE: Rect2 = Rect2(400.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 2600.0 * PIXELS_PER_METER, 3300.0 * PIXELS_PER_METER)
 
 # The mortar gets its own, much larger deployment zone spanning from the
 # western map edge through and a bit past the village — real mortars sit
@@ -517,12 +562,14 @@ static func draw_cover_ring(ci: CanvasItem, radius: float, terrain: TerrainType)
 	ci.draw_arc(Vector2.ZERO, radius + 5.0, 0.0, TAU, 24, color, width, true)
 
 
-## Real contour lines, not a shaded blob: each hill's isolines are circles
-## (a radial Gaussian's isoline at any level IS a circle) drawn every
-## CONTOUR_INTERVAL_M, brightening toward the summit, with the peak height
-## labeled — reads as an actual topographic map, and needs no heightmap
-## sampling/marching-squares to get there.
+## Real, believable contour lines, not perfect circles: each hill's isoline
+## at a given level is traced as a closed polygon whose radius at every
+## angle is warped by _hill_radius_warp — the exact isoline of the same
+## warped-Gaussian formula elevation_m uses, so what's drawn always matches
+## what actually blocks line of sight. Brightens toward the summit, with
+## the peak height labeled.
 static func _draw_hills(ci: CanvasItem) -> void:
+	const RING_SEGMENTS: int = 56
 	for hill in HILLS:
 		var center_px: Vector2 = hill.center_m * PIXELS_PER_METER
 		var halo_radius_px: float = hill.radius_m * 1.4 * PIXELS_PER_METER
@@ -531,10 +578,14 @@ static func _draw_hills(ci: CanvasItem) -> void:
 		var level := CONTOUR_INTERVAL_M
 		while level < hill.height_m:
 			var t: float = level / hill.height_m
-			var ring_radius_m: float = hill.radius_m * sqrt(-2.0 * log(t))
-			var ring_radius_px: float = ring_radius_m * PIXELS_PER_METER
+			var base_radius_m: float = hill.radius_m * sqrt(-2.0 * log(t))
+			var points := PackedVector2Array()
+			for i in RING_SEGMENTS + 1:
+				var theta: float = TAU * float(i) / float(RING_SEGMENTS)
+				var r_m: float = base_radius_m * _hill_radius_warp(hill, theta)
+				points.append(center_px + Vector2(cos(theta), sin(theta)) * r_m * PIXELS_PER_METER)
 			var b: float = 0.5 + 0.35 * t # brighter toward the summit
-			ci.draw_arc(center_px, ring_radius_px, 0.0, TAU, 48, Color(b, b * 0.95, b * 0.68, 0.8), 1.5, true)
+			ci.draw_polyline(points, Color(b, b * 0.95, b * 0.68, 0.8), 1.5, true)
 			level += CONTOUR_INTERVAL_M
 
 		ci.draw_string(ThemeDB.fallback_font, center_px + Vector2(-14.0, -4.0), "%dm" % int(hill.height_m),
