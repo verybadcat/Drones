@@ -4,20 +4,27 @@ class_name CombatLog
 ## generative text, per the design doc. No routine per-shot fire log — only
 ## the moments that actually change the picture: spotted, reveals itself,
 ## pulls back, reaches safety, goes out of action.
+##
+## Deliberately sized to a fraction of the sidebar, not the dominant
+## element on screen — the log stays fully available (scrollable, same
+## content as ever) but the CasualtyDashboard above it is the prominent,
+## at-a-glance readout now; the log is for scrolling back through what
+## happened, not for reading at a glance.
 
 var _scroll: ScrollContainer
 var _list: VBoxContainer
 
 const MAX_ENTRIES: int = 200
+const SIZE: Vector2 = Vector2(300, 340)
 
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(300, 600)
-	size = custom_minimum_size
+	custom_minimum_size = SIZE
+	size = SIZE
 
 	_scroll = ScrollContainer.new()
-	_scroll.custom_minimum_size = Vector2(300, 600)
-	_scroll.size = _scroll.custom_minimum_size
+	_scroll.custom_minimum_size = SIZE
+	_scroll.size = SIZE
 	add_child(_scroll)
 
 	_list = VBoxContainer.new()

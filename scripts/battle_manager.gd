@@ -554,7 +554,12 @@ func _alert_enemy_squads() -> void:
 ## Firing gives the OPPOSING mortar(s) — and only the opposing mortar, not
 ## every enemy unit — a chance to notice and shoot back. Shoot-and-scoot
 ## keeps that chance low; holding position in one spot raises it a lot.
-## Mortars are a high-priority target for each other.
+## Mortars are a high-priority target for each other. This isn't abstract:
+## the return fire has to physically come from an opposing mortar that
+## could actually reach this position — one beyond GameConfig.MORTAR_MAX_RANGE
+## simply can't respond, no matter how exposed the firing mortar was. A
+## mortar dug in deep enough to be out of both enemy tubes' range trades
+## away some of its own reach for genuine counter-battery immunity.
 ##
 ## The strike isn't instant: it can only ever target where THIS mortar was
 ## standing right now, at the moment it fired (captured here, before any
@@ -569,6 +574,8 @@ func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 	for m in opposing:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
 			continue
+		if m.global_position.distance_to(firing_mortar.global_position) > GameConfig.MORTAR_MAX_RANGE:
+			continue # out of range — this mortar physically cannot reach back
 		if randf() < chance:
 			var delay: float = randf_range(GameConfig.COUNTER_BATTERY_DELAY_MIN, GameConfig.COUNTER_BATTERY_DELAY_MAX)
 			_pending_counter_battery.append({
@@ -739,6 +746,13 @@ func _mortar_survivor_label(u: Unit) -> String:
 	if u.kind == Unit.Kind.MORTAR and u.crew_killed > 0:
 		return "%s (%d/%d crew killed, gun abandoned)" % [u.display_name(), u.crew_killed, u.crew_size]
 	return u.display_name()
+
+
+## Public entry point for UI (see CasualtyDashboard) to read live casualty
+## stats for one side — the exact same numbers the AAR report is built
+## from, just readable mid-battle instead of only at the end.
+func casualty_stats(team: Unit.Team) -> Dictionary:
+	return _compute_side_stats(player_units if team == Unit.Team.PLAYER else enemy_units)
 
 
 func _compute_side_stats(units: Array[Unit]) -> Dictionary:

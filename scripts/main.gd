@@ -9,6 +9,7 @@ var start_button: Button
 
 var battle_manager: BattleManager
 var combat_log: CombatLog
+var casualty_dashboard: CasualtyDashboard
 var retreat_button: Button
 
 var report_background: Control
@@ -75,7 +76,7 @@ func _draw() -> void:
 
 func _clear_all() -> void:
 	for node in [deployment_screen, doctrine_panel, start_button, battle_manager,
-			combat_log, retreat_button, report_background, restart_button]:
+			combat_log, casualty_dashboard, retreat_button, report_background, restart_button]:
 		if node:
 			node.queue_free()
 	deployment_screen = null
@@ -83,6 +84,7 @@ func _clear_all() -> void:
 	start_button = null
 	battle_manager = null
 	combat_log = null
+	casualty_dashboard = null
 	retreat_button = null
 	report_background = null
 	restart_button = null
@@ -132,10 +134,6 @@ func _on_start_pressed() -> void:
 	start_button.queue_free()
 	start_button = null
 
-	combat_log = CombatLog.new()
-	combat_log.position = Vector2(1020, 60)
-	add_child(combat_log)
-
 	retreat_button = Button.new()
 	retreat_button.text = "Order General Retreat"
 	retreat_button.position = Vector2(1020, 20)
@@ -145,6 +143,16 @@ func _on_start_pressed() -> void:
 	battle_manager = BattleManager.new()
 	battle_manager.battle_ended.connect(_on_battle_ended)
 	add_child(battle_manager)
+
+	casualty_dashboard = CasualtyDashboard.new()
+	casualty_dashboard.position = Vector2(1020, 55)
+	casualty_dashboard.setup(battle_manager)
+	add_child(casualty_dashboard)
+
+	combat_log = CombatLog.new()
+	combat_log.position = Vector2(1020, 215)
+	add_child(combat_log)
+
 	battle_manager.start_battle(doctrine, combat_log)
 
 
