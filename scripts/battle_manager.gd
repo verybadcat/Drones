@@ -274,6 +274,8 @@ func _tick_fire(unit: Unit, delta: float, enemies: Array[Unit]) -> void:
 		# (seek_cover() redirects movement right away) but invisible in
 		# practice: the unit kept trading fire the whole way there, so a
 		# dash for cover looked identical to just standing and fighting.
+	if unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(unit.global_position):
+		return # no overhead clearance to lob a round from inside a building
 
 	unit.fire_timer -= delta
 	if unit.fire_timer > 0.0:
@@ -392,22 +394,32 @@ func _resolve_pending_counter_battery() -> void:
 
 
 ## Shoot-and-scoot is now visible, not just a cooldown number — the mortar
-## actually hops a short, random distance after firing.
+## actually hops a short, random distance after firing. Tries a handful of
+## random directions and skips any that would land it inside a building —
+## a mortar can never set up in one — falling back to staying put if every
+## attempt does.
 func _hop_mortar(mortar: Unit) -> void:
-	var hop := Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0))
-	if hop.length() < 0.01:
-		hop = Vector2.RIGHT
-	mortar.position += hop.normalized() * GameConfig.MORTAR_SCOOT_HOP_DISTANCE
-	mortar.position.x = clamp(mortar.position.x, 20.0, 1340.0)
-	mortar.position.y = clamp(mortar.position.y, 20.0, 680.0)
-	mortar.queue_redraw()
+	for _attempt in 8:
+		var hop := Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0))
+		if hop.length() < 0.01:
+			continue
+		var candidate: Vector2 = mortar.position + hop.normalized() * GameConfig.MORTAR_SCOOT_HOP_DISTANCE
+		candidate.x = clamp(candidate.x, 20.0, 1340.0)
+		candidate.y = clamp(candidate.y, 20.0, 680.0)
+		if not GameConfig.is_building_at(candidate):
+			mortar.position = candidate
+			mortar.queue_redraw()
+			return
 
 
 func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
 	if unit.state == Unit.State.DESTROYED:
 		combat_log.log_destroyed(unit)
 	elif unit.state == Unit.State.RETREATING and was_active_before:
-		combat_log.log_threshold_retreat(unit)
+		if unit.kind == Unit.Kind.MORTAR:
+			combat_log.log_mortar_abandoned(unit)
+		else:
+			combat_log.log_threshold_retreat(unit)
 	if unit.reported_issue and not unit.reported_issue_logged:
 		unit.reported_issue_logged = true
 		combat_log.log_reports_issue(unit)
@@ -434,7 +446,10 @@ func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
 ## Mortars are the highest-value target on the battlefield for both sides —
 ## if one is a legal target at all, it's always preferred over a squad or
 ## the spotter, for either a squad's direct fire or another mortar's own
-## targeting.
+## targeting. Only an ACTIVE mortar earns that priority, though — one that's
+## already been hit has had its crew abandon the gun (see
+## Unit._apply_mortar_casualties), so a RETREATING mortar is just fleeing
+## survivors, no more of a threat than any other routed unit.
 func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 	var candidates: Array[Unit] = []
 	for e in enemies:
@@ -449,7 +464,7 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 	if candidates.is_empty():
 		return null
 
-	var mortar_candidates: Array[Unit] = candidates.filter(func(c): return c.kind == Unit.Kind.MORTAR)
+	var mortar_candidates: Array[Unit] = candidates.filter(func(c): return c.kind == Unit.Kind.MORTAR and c.state == Unit.State.ACTIVE)
 	if not mortar_candidates.is_empty():
 		return mortar_candidates[randi() % mortar_candidates.size()]
 	return candidates[randi() % candidates.size()]
@@ -499,6 +514,15 @@ func _has_active_units(units: Array[Unit]) -> bool:
 	return false
 
 
+## Display name for a WITHDRAWN/RETREATING unit in the AAR — a mortar whose
+## crew took casualties before abandoning the gun gets that noted, since
+## "withdrew safely" alone would hide that its crew was hurt and its gun lost.
+func _mortar_survivor_label(u: Unit) -> String:
+	if u.kind == Unit.Kind.MORTAR and u.crew_killed > 0:
+		return "%s (%d/%d crew killed, gun abandoned)" % [u.display_name(), u.crew_killed, u.crew_size]
+	return u.display_name()
+
+
 func _compute_side_stats(units: Array[Unit]) -> Dictionary:
 	var pips_total := 0
 	var pips_lost := 0
@@ -511,13 +535,13 @@ func _compute_side_stats(units: Array[Unit]) -> Dictionary:
 		match u.state:
 			Unit.State.DESTROYED:
 				if u.kind == Unit.Kind.MORTAR:
-					destroyed.append("%s (est. %d%% crew casualties)" % [u.display_name(), u.crew_casualty_percent])
+					destroyed.append("%s (%d/%d crew killed)" % [u.display_name(), u.crew_killed, u.crew_size])
 				else:
 					destroyed.append(u.display_name())
 			Unit.State.WITHDRAWN:
-				withdrawn.append(u.display_name())
+				withdrawn.append(_mortar_survivor_label(u))
 			Unit.State.RETREATING:
-				still_retreating.append(u.display_name())
+				still_retreating.append(_mortar_survivor_label(u))
 	var casualty_percent: float = (float(pips_lost) / float(pips_total) * 100.0) if pips_total > 0 else 0.0
 	return {
 		"pips_total": pips_total,

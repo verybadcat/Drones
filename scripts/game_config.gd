@@ -53,7 +53,11 @@ const PLAYER_DEFAULT_POSITIONS: Array[Vector2] = [
 	Vector2(320, 190),
 	Vector2(200, 340),
 ]
-const PLAYER_MORTAR_DEFAULT_POSITION: Vector2 = Vector2(280, 260)
+## Below the village's BUILDING footprint (y 60-420 at this x) — a mortar
+## can never be set up inside a building, so its default position must not
+## be either. Still within PLAYER_MORTAR_DEPLOYMENT_ZONE and on the high
+## ground behind the village.
+const PLAYER_MORTAR_DEFAULT_POSITION: Vector2 = Vector2(280, 460)
 
 # Enemy squads start at the map's far edge, first move onto the road (the
 # strip is Rect2(330, 335, 600, 24) -> y:335-359), then actually march DOWN
@@ -172,6 +176,14 @@ static func is_in_cover(terrain: TerrainType) -> bool:
 	return terrain == TerrainType.BUILDING or terrain == TerrainType.TREES
 
 
+## A mortar can't be fired from inside a building (no overhead clearance for
+## the round's arc) and is never allowed to set up or take cover inside one
+## — see BattleManager._tick_fire, DeploymentScreen, and the avoid_buildings
+## param on the cover-point functions below.
+static func is_building_at(pos: Vector2) -> bool:
+	return get_terrain_type_at(pos) == TerrainType.BUILDING
+
+
 ## A point inside a nearby TREES/BUILDING zone to `from` — where a unit
 ## bolting for cover heads. Weighted-random among the 2-3 nearest zones
 ## (mostly the nearest, sometimes the next one out) rather than always the
@@ -187,10 +199,15 @@ static func is_in_cover(terrain: TerrainType) -> bool:
 ## bolting under mortar fire) pass the default 0.0: any direction is fine
 ## when you're not specifically trying to withdraw. Falls back to `from`
 ## itself if nothing qualifies — the caller then simply skips the cover leg.
-static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0) -> Vector2:
+##
+## `avoid_buildings` excludes BUILDING zones entirely, leaving only TREES —
+## used by the mortar, which can never enter a building (see is_building_at).
+static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false) -> Vector2:
 	var candidates: Array[Dictionary] = []
 	for zone in TERRAIN_ZONES:
 		if zone.type != TerrainType.TREES and zone.type != TerrainType.BUILDING:
+			continue
+		if avoid_buildings and zone.type == TerrainType.BUILDING:
 			continue
 		var center: Vector2 = zone.rect.position + zone.rect.size / 2.0
 		if retreat_dir != 0.0 and (center.x - from.x) * retreat_dir < -RETREAT_DIRECTION_TOLERANCE:
@@ -227,14 +244,17 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0) -> Vect
 ##
 ## `retreat_dir` — see nearest_cover_point — excludes cover that would mean
 ## detouring toward the front first; a smarter route still has to actually
-## be a retreat.
-static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vector2], retreat_dir: float = 0.0) -> Vector2:
+## be a retreat. `avoid_buildings` — see nearest_cover_point — excludes
+## BUILDING zones entirely.
+static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vector2], retreat_dir: float = 0.0, avoid_buildings: bool = false) -> Vector2:
 	if known_enemy_positions.is_empty():
-		return nearest_cover_point(from, retreat_dir)
+		return nearest_cover_point(from, retreat_dir, avoid_buildings)
 
 	var candidates: Array[Dictionary] = []
 	for zone in TERRAIN_ZONES:
 		if zone.type != TerrainType.TREES and zone.type != TerrainType.BUILDING:
+			continue
+		if avoid_buildings and zone.type == TerrainType.BUILDING:
 			continue
 		var center: Vector2 = zone.rect.position + zone.rect.size / 2.0
 		if retreat_dir != 0.0 and (center.x - from.x) * retreat_dir < -RETREAT_DIRECTION_TOLERANCE:

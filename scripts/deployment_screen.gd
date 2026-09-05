@@ -46,10 +46,16 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion and _dragging != null:
 		var zone := _dragging.deployment_zone
 		var mouse_pos := get_global_mouse_position()
-		_dragging.position = Vector2(
+		var candidate := Vector2(
 			clamp(mouse_pos.x, zone.position.x, zone.end.x),
 			clamp(mouse_pos.y, zone.position.y, zone.end.y)
 		)
+		# A mortar can never be set up inside a building (no overhead
+		# clearance to fire from one) — the token simply stops at the
+		# building's edge instead of following the cursor inside it.
+		if _dragging.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(candidate):
+			return
+		_dragging.position = candidate
 		_dragging.queue_redraw() # cover ring must update live as it crosses terrain
 
 

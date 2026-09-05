@@ -80,10 +80,15 @@ var reported_issue: bool = false
 var reported_issue_logged: bool = false
 var concern_threshold: float = 0.25
 
-# Set once, when a MORTAR is put out of action — flavor only, for the AAR
-# report. There is no percent-casualties tracking while the mortar is active:
-# a hit either knocks it out or it does not.
-var crew_casualty_percent: int = 0
+# MORTAR only: a small crew-served weapon, CREW_SIZE people including the
+# driver. Tracked as an exact headcount, not a percent — see
+# _apply_mortar_casualties(). A hit is decisive either way: it either wipes
+# the whole crew (DESTROYED) or leaves survivors who abandon the gun on the
+# spot and retreat (see order_retreat()) — nobody keeps manning a mortar
+# after taking a hit near it.
+const MORTAR_CREW_SIZE: int = 4
+var crew_size: int = 0
+var crew_killed: int = 0
 
 signal took_hit(unit)
 signal state_changed(unit)
@@ -99,6 +104,8 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 			base_hit_chance = 0.40
 			unit_label = "Mortar"
 			fire_interval = reload_time
+			crew_size = MORTAR_CREW_SIZE
+			crew_killed = 0
 		Kind.SPOTTER:
 			max_pips = 1 # a small, fragile recon team
 			base_hit_chance = 0.0 # never fires — see BattleManager._tick_fire
@@ -121,20 +128,22 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 func take_hit(from_mortar: bool = false) -> void:
 	if state == State.DESTROYED:
 		return
-	pips -= 1
+	pips = max(pips - 1, 0)
 	took_hit.emit(self)
 	queue_redraw()
+
+	if kind == Kind.MORTAR:
+		_apply_mortar_casualties()
+		return
+
 	if pips <= 0:
-		pips = 0
 		state = State.DESTROYED
-		if kind == Kind.MORTAR:
-			crew_casualty_percent = randi_range(25, 100)
 		state_changed.emit(self)
 		return
 
-	# A mortar crew is either in action or it is not — no percent-casualties
-	# "retreat" state for a mortar. Only squads can be worn down and pull back,
-	# break from an advance toward cover, or bolt under mortar fire.
+	# Only squads can be worn down and pull back, break from an advance
+	# toward cover, or bolt under mortar fire (the spotter is one-hit-fragile
+	# and never reaches this point; see the pips <= 0 check above).
 	if kind != Kind.SQUAD:
 		return
 
@@ -160,6 +169,25 @@ func _check_retreat() -> void:
 		reported_issue = true
 
 
+## A mortar crew doesn't shrug off a hit and keep serving the gun the way a
+## rifle squad absorbs casualties — a round landing on/near a crew-served
+## weapon is decisive. Tracks exactly how many of the crew went down (an
+## honest headcount, not a vague percent) so the AAR can report a real
+## number. If anyone survives, they abandon the gun right there — it's out
+## of action for the rest of the battle either way — and retreat to try to
+## get clear (see order_retreat()); only a hit that gets the whole crew
+## actually destroys the unit.
+func _apply_mortar_casualties() -> void:
+	var remaining: int = crew_size - crew_killed
+	crew_killed += randi_range(1, remaining)
+	if crew_killed >= crew_size:
+		state = State.DESTROYED
+		state_changed.emit(self)
+		return
+	if state == State.ACTIVE:
+		order_retreat()
+
+
 ## Force this unit into a retreat regardless of its threshold — used both by
 ## the automatic threshold check above and by the player's general retreat
 ## order (see BattleManager.order_general_retreat).
@@ -183,6 +211,11 @@ func _check_retreat() -> void:
 ## see GameConfig's retreat_dir parameter. Without that, a mortar set up
 ## well to the rear (now allowed — see design doc) could "retreat" forward
 ## first if the nearest cover happened to be back toward the village.
+##
+## A MORTAR's abandoned crew never heads for a BUILDING specifically — a
+## mortar can't be fired from or set up inside one (no overhead clearance
+## for the round), so it never enters one in the first place; TREES remain
+## fair game for its fleeing crew, same as anyone else.
 func order_retreat(known_enemy_positions: Array[Vector2] = []) -> void:
 	if state != State.ACTIVE:
 		return
@@ -190,10 +223,11 @@ func order_retreat(known_enemy_positions: Array[Vector2] = []) -> void:
 	movement_predictable = false # pulling out under pressure, not a calm march
 	if not GameConfig.is_in_cover(terrain_type()):
 		var retreat_dir: float = -1.0 if team == Team.PLAYER else 1.0
+		var avoid_buildings: bool = kind == Kind.MORTAR
 		if kind == Kind.SPOTTER and not known_enemy_positions.is_empty():
-			move_target = GameConfig.safest_cover_point(global_position, known_enemy_positions, retreat_dir)
+			move_target = GameConfig.safest_cover_point(global_position, known_enemy_positions, retreat_dir, avoid_buildings)
 		else:
-			move_target = GameConfig.nearest_cover_point(global_position, retreat_dir)
+			move_target = GameConfig.nearest_cover_point(global_position, retreat_dir, avoid_buildings)
 		has_move_target = true
 		move_queue.clear()
 		move_speed = GameConfig.REPOSITION_SPEED
@@ -240,7 +274,7 @@ func display_name() -> String:
 
 
 func destroyed_verb() -> String:
-	return "was put out of action" if kind == Kind.MORTAR else "was destroyed"
+	return "was destroyed"
 
 
 func elevation() -> int:
