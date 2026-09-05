@@ -126,14 +126,29 @@ func _make_unit(team: Unit.Team, kind: Unit.Kind, pos: Vector2) -> Unit:
 func order_general_retreat() -> void:
 	if battle_over:
 		return
+	var known_enemy_positions := _known_enemy_positions(Unit.Team.PLAYER)
 	var any_ordered := false
 	for unit in player_units:
 		if unit.state == Unit.State.ACTIVE:
-			unit.order_retreat()
+			unit.order_retreat(known_enemy_positions)
 			combat_log.log_ordered_retreat(unit)
 			any_ordered = true
 	if any_ordered:
 		combat_log.add_entry("--- General retreat ordered ---")
+
+
+## Currently-visible enemy positions, from `team`'s point of view — "some
+## idea where the enemy is" for the spotter's smarter retreat routing (see
+## Unit.order_retreat). Only live-visible units count, matching the rest of
+## the game's live-visibility model — not a permanent memory of everywhere
+## the enemy has ever been seen.
+func _known_enemy_positions(team: Unit.Team) -> Array[Vector2]:
+	var opposing: Array[Unit] = enemy_units if team == Unit.Team.PLAYER else player_units
+	var positions: Array[Vector2] = []
+	for u in opposing:
+		if u.state != Unit.State.DESTROYED and u.is_visible:
+			positions.append(u.global_position)
+	return positions
 
 
 func _process(delta: float) -> void:

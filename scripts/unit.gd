@@ -165,18 +165,31 @@ func _check_retreat() -> void:
 ## order (see BattleManager.order_general_retreat).
 ##
 ## Takes a safe-ish path rather than a beeline: if not already in cover, the
-## first leg heads for the nearest cover (BattleManager._tick_movement runs
-## this leg via the normal move_target system); once there — or immediately,
-## if already in cover — the final leg is the straight pull to the safe
-## line (BattleManager._step_retreat). A unit tucked behind a building this
-## way can also break direct-fire LOS entirely (see GameConfig.has_direct_los).
-func order_retreat() -> void:
+## first leg heads for cover (BattleManager._tick_movement runs this leg via
+## the normal move_target system); once there — or immediately, if already
+## in cover — the final leg is the straight pull to the safe line
+## (BattleManager._step_retreat). A unit tucked behind a building this way
+## can also break direct-fire LOS entirely (see GameConfig.has_direct_los).
+##
+## `known_enemy_positions` (currently visible enemy units, passed in by
+## BattleManager — Unit itself has no view of the wider battle) lets the
+## SPOTTER specifically pick a cover zone that's farthest from the nearest
+## known threat, not just the closest one — it has training and situational
+## awareness a rifle squad diving on instinct doesn't. Other kinds ignore it
+## and use the plain nearest-cover logic.
+func order_retreat(known_enemy_positions: Array[Vector2] = []) -> void:
 	if state != State.ACTIVE:
 		return
 	state = State.RETREATING
 	movement_predictable = false # pulling out under pressure, not a calm march
 	if not GameConfig.is_in_cover(terrain_type()):
-		seek_cover()
+		if kind == Kind.SPOTTER and not known_enemy_positions.is_empty():
+			move_target = GameConfig.safest_cover_point(global_position, known_enemy_positions)
+			has_move_target = true
+			move_queue.clear()
+			move_speed = GameConfig.REPOSITION_SPEED
+		else:
+			seek_cover()
 	else:
 		has_move_target = false
 	state_changed.emit(self)
