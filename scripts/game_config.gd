@@ -423,7 +423,17 @@ static func path_crosses_building(from: Vector2, to: Vector2) -> bool:
 ## there (see BattleManager's bunching-spillover mechanic). Falls back to
 ## the normal (unrestricted) candidate set if avoiding them would leave
 ## nowhere to go — some cover, even shared, beats none.
-static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false, avoid_positions: Array[Vector2] = []) -> Vector2:
+##
+## `known_enemy_positions` HARD-excludes any zone within DANGER_RADIUS of
+## one, same graceful-fallback rule — a unit fleeing for cover should never
+## be routed toward, or right next to, an enemy it already knows about, on
+## top of retreat_dir's "never detour toward the front" rule above (that
+## one only checks x-direction; this one is a real distance check against
+## actual known positions, so together they rule out heading toward, or
+## landing next to, a specific enemy the unit knows is there).
+const DANGER_RADIUS: float = 250.0 * PIXELS_PER_METER
+
+static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false, avoid_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = []) -> Vector2:
 	var candidates: Array[Dictionary] = []
 	for zone in TERRAIN_ZONES:
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
@@ -436,6 +446,8 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 		candidates.append({"rect": zone.rect, "dist": from.distance_to(center)})
 	if candidates.is_empty():
 		return from
+
+	candidates = _exclude_dangerous(candidates, known_enemy_positions)
 
 	if not avoid_positions.is_empty():
 		var unclaimed: Array[Dictionary] = []
@@ -470,12 +482,35 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 	return best_rect.position + Vector2(margin, margin) + Vector2(randf() * w, randf() * h)
 
 
+## Drops any candidate within DANGER_RADIUS of a known enemy position, as
+## long as at least one candidate survives — falls back to the full set
+## otherwise (some cover, even dangerously close cover, beats none). Shared
+## by nearest_cover_point and safest_cover_point so both give the same hard
+## "never toward a known threat" guarantee.
+static func _exclude_dangerous(candidates: Array[Dictionary], known_enemy_positions: Array[Vector2]) -> Array[Dictionary]:
+	if known_enemy_positions.is_empty():
+		return candidates
+	var safe: Array[Dictionary] = []
+	for c in candidates:
+		var center: Vector2 = c.rect.position + c.rect.size / 2.0
+		var too_close := false
+		for ep in known_enemy_positions:
+			if center.distance_to(ep) < DANGER_RADIUS:
+				too_close = true
+				break
+		if not too_close:
+			safe.append(c)
+	return safe if not safe.is_empty() else candidates
+
+
 ## A cover point picked with some awareness of where the enemy actually is —
 ## used for the spotter's retreat, which can afford to be choosier than a
-## squad bolting on instinct. Restricts to the nearest few cover zones (so
-## it doesn't trek across the map for a marginal safety gain), then among
-## those picks whichever is farthest from the nearest currently-known enemy
-## position. With no known enemies, behaves like nearest_cover_point.
+## squad bolting on instinct. First applies the same hard DANGER_RADIUS
+## exclusion as nearest_cover_point, then — among whatever's left — narrows
+## to the nearest few cover zones (so it doesn't trek across the map for a
+## marginal safety gain) and picks whichever of THOSE is farthest from the
+## nearest currently-known enemy position. With no known enemies, behaves
+## like nearest_cover_point.
 ##
 ## `retreat_dir` / `avoid_buildings` — see nearest_cover_point.
 static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vector2], retreat_dir: float = 0.0, avoid_buildings: bool = false) -> Vector2:
@@ -491,12 +526,17 @@ static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vecto
 			continue
 		if avoid_buildings and path_crosses_building(from, center):
 			continue # can't walk/hop straight through a building to get here either
+		candidates.append({"rect": zone.rect, "dist_from_self": from.distance_to(center)})
+	if candidates.is_empty():
+		return from
+
+	candidates = _exclude_dangerous(candidates, known_enemy_positions)
+	for c in candidates:
+		var center: Vector2 = c.rect.position + c.rect.size / 2.0
 		var nearest_enemy_dist: float = INF
 		for ep in known_enemy_positions:
 			nearest_enemy_dist = min(nearest_enemy_dist, center.distance_to(ep))
-		candidates.append({"rect": zone.rect, "dist_from_self": from.distance_to(center), "safety": nearest_enemy_dist})
-	if candidates.is_empty():
-		return from
+		c["safety"] = nearest_enemy_dist
 
 	candidates.sort_custom(func(a, b): return a.dist_from_self < b.dist_from_self)
 	var pool_size: int = min(4, candidates.size())

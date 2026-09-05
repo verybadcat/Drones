@@ -121,11 +121,15 @@ static func has_live_observer(target: Unit, observers: Array[Unit]) -> bool:
 ## hard to lead-aim against and gets a real hit-chance PENALTY, not just "no
 ## bonus."
 ##
-## `ally_positions` is passed straight through to `defender.take_hit()` —
-## other same-team units' current positions, so a squad breaking for cover
-## after this hit picks a DIFFERENT patch than one an ally is already using
-## (see GameConfig.nearest_cover_point's avoid_positions).
-static func resolve_fire(attacker: Unit, defender: Unit, ally_positions: Array[Vector2] = []) -> bool:
+## `ally_positions` and `known_enemy_positions` are passed straight through
+## to `defender.take_hit()` — other same-team units' current positions (so
+## a squad breaking for cover after this hit picks a DIFFERENT patch than
+## one an ally is already using — see GameConfig.nearest_cover_point's
+## avoid_positions) and currently-visible enemy positions from the
+## defender's own side's point of view (so that same retreat never heads
+## toward, or lands right next to, a threat its own side already knows
+## about — see nearest_cover_point's DANGER_RADIUS exclusion).
+static func resolve_fire(attacker: Unit, defender: Unit, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = []) -> bool:
 	var moving := defender.activity == Unit.Activity.MOVING
 	var cover_table: Dictionary = MORTAR_COVER_MULTIPLIER if attacker.kind == Unit.Kind.MORTAR else SQUAD_COVER_MULTIPLIER
 	var cover_multiplier: float = 1.0 if moving else cover_table[defender.terrain_type()]
@@ -137,5 +141,5 @@ static func resolve_fire(attacker: Unit, defender: Unit, ally_positions: Array[V
 			chance *= GameConfig.MOVING_HIT_MULTIPLIER
 	var hit: bool = randf() < chance
 	if hit:
-		defender.take_hit(attacker.kind == Unit.Kind.MORTAR, ally_positions)
+		defender.take_hit(attacker.kind == Unit.Kind.MORTAR, ally_positions, known_enemy_positions)
 	return hit

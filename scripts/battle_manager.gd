@@ -291,7 +291,7 @@ func _ally_positions_for(unit: Unit) -> Array[Vector2]:
 ## GameConfig.nearest_cover_point's avoid_positions).
 func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit) -> void:
 	var target_was_active := target.state == Unit.State.ACTIVE
-	var hit := CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target))
+	var hit := CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team))
 	_log_hit_consequence(target, target_was_active)
 	if not hit or target.kind != Unit.Kind.SQUAD:
 		return
@@ -299,7 +299,7 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit) -> void:
 	if spillover == null:
 		return
 	var spillover_was_active := spillover.state == Unit.State.ACTIVE
-	spillover.take_hit(attacker.kind == Unit.Kind.MORTAR)
+	spillover.take_hit(attacker.kind == Unit.Kind.MORTAR, _ally_positions_for(spillover), _known_enemy_positions(spillover.team))
 	combat_log.log_bunching_spillover(target, spillover)
 	_log_hit_consequence(spillover, spillover_was_active)
 
@@ -783,7 +783,7 @@ func _resolve_pending_counter_battery() -> void:
 			continue
 		var impact_chance: float = clamp(1.0 - distance / GameConfig.COUNTER_BATTERY_BLAST_RADIUS, 0.0, 1.0)
 		if randf() < impact_chance:
-			target.take_hit(true)
+			target.take_hit(true, [], _known_enemy_positions(target.team))
 			combat_log.log_counter_battery(target)
 			_log_hit_consequence(target, true)
 		else:

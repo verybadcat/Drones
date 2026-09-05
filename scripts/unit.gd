@@ -129,7 +129,16 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 ## `ally_positions` — other same-team units' current positions, passed
 ## straight through to seek_cover() so a squad breaking for cover here
 ## picks a different patch than one an ally is already using.
-func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = []) -> void:
+##
+## `known_enemy_positions` — currently-visible enemy positions, from THIS
+## unit's own side's point of view. Passed straight through to whatever
+## retreat this hit might trigger (_check_retreat / _apply_mortar_casualties
+## -> order_retreat) so an automatic, threshold-triggered retreat is just as
+## enemy-aware as the player's own general-retreat command already is — a
+## retreat picked with no idea where the enemy is could otherwise head
+## straight for cover the enemy happens to be occupying, or even walk
+## toward a known enemy position outright.
+func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = []) -> void:
 	if state == State.DESTROYED:
 		return
 	pips = max(pips - 1, 0)
@@ -137,7 +146,7 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = []) ->
 	queue_redraw()
 
 	if kind == Kind.MORTAR:
-		_apply_mortar_casualties()
+		_apply_mortar_casualties(known_enemy_positions)
 		return
 
 	if pips <= 0:
@@ -151,7 +160,7 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = []) ->
 	if kind != Kind.SQUAD:
 		return
 
-	_check_retreat()
+	_check_retreat(known_enemy_positions)
 	if state != State.ACTIVE:
 		return
 
@@ -163,12 +172,12 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = []) ->
 		bolted_for_cover = true
 
 
-func _check_retreat() -> void:
+func _check_retreat(known_enemy_positions: Array[Vector2] = []) -> void:
 	if state != State.ACTIVE:
 		return
 	var fraction_lost: float = float(max_pips - pips) / float(max_pips)
 	if fraction_lost >= retreat_threshold:
-		order_retreat()
+		order_retreat(known_enemy_positions)
 	elif not reported_issue and fraction_lost >= concern_threshold:
 		reported_issue = true
 
@@ -181,7 +190,7 @@ func _check_retreat() -> void:
 ## of action for the rest of the battle either way — and retreat to try to
 ## get clear (see order_retreat()); only a hit that gets the whole crew
 ## actually destroys the unit.
-func _apply_mortar_casualties() -> void:
+func _apply_mortar_casualties(known_enemy_positions: Array[Vector2] = []) -> void:
 	var remaining: int = crew_size - crew_killed
 	crew_killed += randi_range(1, remaining)
 	if crew_killed >= crew_size:
@@ -189,7 +198,7 @@ func _apply_mortar_casualties() -> void:
 		state_changed.emit(self)
 		return
 	if state == State.ACTIVE:
-		order_retreat()
+		order_retreat(known_enemy_positions)
 
 
 ## Force this unit into a retreat regardless of its threshold — used both by
@@ -204,17 +213,23 @@ func _apply_mortar_casualties() -> void:
 ## can also break direct-fire LOS entirely (see GameConfig.has_direct_los).
 ##
 ## `known_enemy_positions` (currently visible enemy units, passed in by
-## BattleManager — Unit itself has no view of the wider battle) lets the
-## SPOTTER specifically pick a cover zone that's farthest from the nearest
-## known threat, not just the closest one — it has training and situational
-## awareness a rifle squad diving on instinct doesn't. Other kinds use the
-## plain nearest-cover logic.
+## BattleManager — Unit itself has no view of the wider battle) keeps EVERY
+## kind's cover leg from heading toward, or landing right next to, a known
+## threat — GameConfig.nearest_cover_point hard-excludes any candidate zone
+## within its DANGER_RADIUS of one, falling back to the unrestricted set
+## only if that would leave nowhere to go. The SPOTTER gets an extra step
+## on top of that floor: among whatever's left, safest_cover_point picks
+## whichever is farthest from the nearest known threat, not just the
+## closest one — it has training and situational awareness a rifle squad
+## diving on instinct doesn't.
 ##
-## Either way, the cover leg is direction-aware: it never detours toward
-## the front just because that happens to be the closest patch of cover —
-## see GameConfig's retreat_dir parameter. Without that, a mortar set up
-## well to the rear (now allowed — see design doc) could "retreat" forward
-## first if the nearest cover happened to be back toward the village.
+## Either way, the cover leg is ALSO direction-aware: it never detours
+## toward the front just because that happens to be the closest patch of
+## cover — see GameConfig's retreat_dir parameter. Without that, a mortar
+## set up well to the rear (now allowed — see design doc) could "retreat"
+## forward first if the nearest cover happened to be back toward the
+## village. The two filters together are what rule out a retreat ever
+## walking a unit toward, or right past, an enemy it already knows about.
 ##
 ## A MORTAR's abandoned crew never heads for a BUILDING specifically — a
 ## mortar can't be fired from or set up inside one (no overhead clearance
@@ -231,7 +246,7 @@ func order_retreat(known_enemy_positions: Array[Vector2] = []) -> void:
 		if kind == Kind.SPOTTER and not known_enemy_positions.is_empty():
 			move_target = GameConfig.safest_cover_point(global_position, known_enemy_positions, retreat_dir, avoid_buildings)
 		else:
-			move_target = GameConfig.nearest_cover_point(global_position, retreat_dir, avoid_buildings)
+			move_target = GameConfig.nearest_cover_point(global_position, retreat_dir, avoid_buildings, [], known_enemy_positions)
 		has_move_target = true
 		move_queue.clear()
 		move_speed = GameConfig.REPOSITION_SPEED
