@@ -22,7 +22,7 @@ func _ready() -> void:
 
 	_mortar_token = UnitToken.new()
 	add_child(_mortar_token)
-	_mortar_token.setup(Unit.Kind.MORTAR, "Mortar", GameConfig.PLAYER_MORTAR_DEFAULT_POSITION, GameConfig.PLAYER_DEPLOYMENT_ZONE)
+	_mortar_token.setup(Unit.Kind.MORTAR, "Mortar", GameConfig.PLAYER_MORTAR_DEFAULT_POSITION, GameConfig.PLAYER_MORTAR_DEPLOYMENT_ZONE)
 	_tokens.append(_mortar_token)
 
 	_spotter_token = UnitToken.new()
@@ -68,5 +68,6 @@ func get_positions() -> Dictionary:
 
 func _draw() -> void:
 	GameConfig.draw_terrain(self)
+	draw_rect(GameConfig.PLAYER_MORTAR_DEPLOYMENT_ZONE, Color(1.0, 0.55, 0.15, 0.5), false, 2.0)
 	draw_rect(GameConfig.PLAYER_DEPLOYMENT_ZONE, Color(1.0, 1.0, 0.2, 0.7), false, 2.0)
 	draw_rect(GameConfig.PLAYER_SPOTTER_DEPLOYMENT_ZONE, Color(0.3, 1.0, 1.0, 0.6), false, 2.0)

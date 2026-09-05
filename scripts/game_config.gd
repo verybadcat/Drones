@@ -29,9 +29,15 @@ const TERRAIN_ZONES: Array[Dictionary] = [
 	{"rect": Rect2(600, 470, 45, 35), "type": TerrainType.BUILDING, "elevation": 0},
 ]
 
-# Legal area for the player to drag squads/mortar into on the deployment
-# screen — inside the village, matching "holding the village."
+# Legal area for the player to drag squads into on the deployment screen —
+# inside the village, matching "holding the village."
 const PLAYER_DEPLOYMENT_ZONE: Rect2 = Rect2(135, 75, 250, 330)
+
+# The mortar gets its own, much larger zone — real mortars sit well back
+# from the front line, further than the squads holding the perimeter. Spans
+# from the western map edge through and a bit past the village, so it can
+# still be set up inside the village if preferred, or well to the rear.
+const PLAYER_MORTAR_DEPLOYMENT_ZONE: Rect2 = Rect2(20, 40, 400, 620)
 
 # The spotter can deploy just about anywhere on the map — it's a
 # reconnaissance asset, not a firing position, and unlike squads/mortar
@@ -118,6 +124,15 @@ const SQUAD_ENGAGEMENT_RANGE: float = 300.0
 const MORTAR_COUNTER_BATTERY_HOLD_CHANCE: float = 0.22 # per shot, holding position
 const MORTAR_COUNTER_BATTERY_SCOOT_CHANCE: float = 0.06 # per shot, shoot-and-scoot
 const MORTAR_SCOOT_HOP_DISTANCE: float = 40.0 # visible little jump after each scoot
+
+# Counter-battery fire isn't instant: the enemy can only aim at where the
+# mortar WAS when it fired, and the shell takes time to arrive. By the time
+# it lands, a shoot-and-scoot mortar has likely moved well clear; a
+# hold-position mortar is still standing right there. If the mortar is still
+# within the blast radius when the shell lands, it can still get hit — the
+# odds just fall off with distance from the original firing spot.
+const COUNTER_BATTERY_DELAY: float = 3.0 # seconds between trigger and impact
+const COUNTER_BATTERY_BLAST_RADIUS: float = 60.0 # beyond this, the old position is safe
 
 # A squad hit by mortar fire may bolt for nearby cover regardless of overall
 # casualties — mortar fire is disruptive even when it doesn't kill outright.
@@ -221,20 +236,33 @@ static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vecto
 	return best_rect.position + Vector2(margin, margin) + Vector2(randf() * w, randf() * h)
 
 
-## True if a straight line from `from` to `to` is blocked by a BUILDING
-## that is neither endpoint's own position — i.e. some third building sits
-## between attacker and target. Used to stop direct (squad) fire from
-## shooting straight through the village; mortars ignore this entirely
-## (indirect, spotter-relayed fire). Trees do NOT block LOS outright — they
-## only affect cover/concealment — matching the existing terrain model.
+## True if a straight line from `from` to `to` is clear — used for both
+## direct (squad) fire and spotting; mortars ignore this entirely (indirect,
+## spotter-relayed fire). Two kinds of terrain block it outright, not just
+## "harder to hit/spot" (that's what cover/concealment are for):
+##
+## - A BUILDING that is neither endpoint's own position — some third
+##   building sits between attacker and target. Trees do NOT block LOS
+##   outright — they only affect cover/concealment.
+## - A HILL (HIGH_GROUND), but only between two points that are BOTH lower
+##   than it — elevation matters: standing on the hill (or on ground at
+##   least as high) lets you see over/down its own slope just fine, in
+##   either direction. Two units in the lowland on opposite sides of a hill
+##   genuinely cannot see each other.
 static func has_direct_los(from: Vector2, to: Vector2) -> bool:
+	var from_elevation := get_elevation_at(from)
+	var to_elevation := get_elevation_at(to)
 	for zone in TERRAIN_ZONES:
-		if zone.type != TerrainType.BUILDING:
-			continue
-		if zone.rect.has_point(from) or zone.rect.has_point(to):
-			continue # firing from/into this building doesn't block itself
-		if _line_crosses_rect(from, to, zone.rect):
-			return false
+		if zone.type == TerrainType.BUILDING:
+			if zone.rect.has_point(from) or zone.rect.has_point(to):
+				continue # firing from/into this building doesn't block itself
+			if _line_crosses_rect(from, to, zone.rect):
+				return false
+		elif zone.type == TerrainType.HIGH_GROUND:
+			if from_elevation >= zone.elevation or to_elevation >= zone.elevation:
+				continue # at least one side is already up at (or above) this hill's height
+			if _line_crosses_rect(from, to, zone.rect):
+				return false
 	return true
 
 

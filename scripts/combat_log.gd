@@ -61,8 +61,16 @@ func log_destroyed(unit: Unit) -> void:
 	add_entry("%s %s" % [unit.display_name(), unit.destroyed_verb()])
 
 
+func log_counter_battery_incoming(unit: Unit) -> void:
+	add_entry("Counter-battery fire inbound on %s's position" % unit.display_name())
+
+
 func log_counter_battery(unit: Unit) -> void:
 	add_entry("Counter-battery fire found %s" % unit.display_name())
+
+
+func log_counter_battery_miss(unit: Unit) -> void:
+	add_entry("Counter-battery fire lands near %s's old position — no hit" % unit.display_name())
 
 
 func log_relocate(unit: Unit) -> void:

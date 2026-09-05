@@ -33,6 +33,11 @@ var _seconds_since_last_shot: float = 0.0
 # not just the one that was actually shot at. One-shot per battle.
 var enemy_alerted: bool = false
 
+# Counter-battery strikes triggered but not yet landed — see
+# _resolve_mortar_counter_battery / _resolve_pending_counter_battery.
+# {"target": Unit, "impact_position": Vector2, "impact_time": float}
+var _pending_counter_battery: Array[Dictionary] = []
+
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	combat_log = p_combat_log
@@ -41,6 +46,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_fire_flashes.clear()
 	_seconds_since_last_shot = 0.0
 	enemy_alerted = false
+	_pending_counter_battery.clear()
 
 	for unit in player_units + enemy_units:
 		unit.queue_free()
@@ -166,6 +172,7 @@ func _process(delta: float) -> void:
 	for unit in enemy_units:
 		_tick_fire(unit, delta, player_units)
 
+	_resolve_pending_counter_battery()
 	_prune_fire_flashes()
 	_check_battle_end()
 	queue_redraw() # keep fire-tracer fade-out animating smoothly
@@ -332,9 +339,14 @@ func _alert_enemy_squads() -> void:
 
 
 ## Firing gives the OPPOSING mortar(s) — and only the opposing mortar, not
-## every enemy unit — a chance to fire back. Shoot-and-scoot keeps that
-## chance low; holding position in one spot raises it a lot. Mortars are a
-## high-priority target for each other.
+## every enemy unit — a chance to notice and shoot back. Shoot-and-scoot
+## keeps that chance low; holding position in one spot raises it a lot.
+## Mortars are a high-priority target for each other.
+##
+## The strike isn't instant: it can only ever target where THIS mortar was
+## standing right now, at the moment it fired (captured here, before any
+## post-shot scoot hop) — see _resolve_pending_counter_battery for the
+## delayed impact that actually checks whether it's still nearby.
 func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 	var opposing: Array[Unit] = player_units if firing_mortar.team == Unit.Team.ENEMY else enemy_units
 	var chance: float = GameConfig.MORTAR_COUNTER_BATTERY_SCOOT_CHANCE if firing_mortar.shoot_and_scoot else GameConfig.MORTAR_COUNTER_BATTERY_HOLD_CHANCE
@@ -342,10 +354,41 @@ func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
 			continue
 		if randf() < chance:
-			var was_active := firing_mortar.state == Unit.State.ACTIVE
-			firing_mortar.take_hit(true)
-			combat_log.log_counter_battery(firing_mortar)
-			_log_hit_consequence(firing_mortar, was_active)
+			_pending_counter_battery.append({
+				"target": firing_mortar,
+				"impact_position": firing_mortar.global_position,
+				"impact_time": elapsed_time + GameConfig.COUNTER_BATTERY_DELAY,
+			})
+			combat_log.log_counter_battery_incoming(firing_mortar)
+			break # one incoming strike per shot is enough, even with two enemy mortars
+
+
+## Resolves any counter-battery strikes whose delay has elapsed. The target
+## is only hit if it's still within the blast radius of where it fired from
+## — a hold-position mortar never moves, so it's always caught; a
+## shoot-and-scoot mortar has usually relocated well clear by the time this
+## lands, and even if it's still nearby the odds are reduced, not certain.
+func _resolve_pending_counter_battery() -> void:
+	var still_pending: Array[Dictionary] = []
+	for strike in _pending_counter_battery:
+		if elapsed_time < strike.impact_time:
+			still_pending.append(strike)
+			continue
+		var target: Unit = strike.target
+		if target.state != Unit.State.ACTIVE:
+			continue # withdrawn/destroyed since the strike was called in — nothing to hit
+		var distance: float = target.global_position.distance_to(strike.impact_position)
+		if distance > GameConfig.COUNTER_BATTERY_BLAST_RADIUS:
+			combat_log.log_counter_battery_miss(target)
+			continue
+		var impact_chance: float = clamp(1.0 - distance / GameConfig.COUNTER_BATTERY_BLAST_RADIUS, 0.0, 1.0)
+		if randf() < impact_chance:
+			target.take_hit(true)
+			combat_log.log_counter_battery(target)
+			_log_hit_consequence(target, true)
+		else:
+			combat_log.log_counter_battery_miss(target)
+	_pending_counter_battery = still_pending
 
 
 ## Shoot-and-scoot is now visible, not just a cooldown number — the mortar
