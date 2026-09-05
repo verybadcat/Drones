@@ -540,6 +540,14 @@ func _step_retreat(unit: Unit, scenario_delta: float) -> void:
 	var dir_x: float = -1.0 if unit.team == Unit.Team.PLAYER else 1.0
 	var next_pos: Vector2 = unit.position + Vector2(dir_x * unit.retreat_speed * scenario_delta, 0.0)
 
+	if unit.zigzagging:
+		unit._zigzag_timer -= scenario_delta
+		if unit._zigzag_timer <= 0.0:
+			unit._zigzag_timer = randf_range(GameConfig.ZIGZAG_JINK_MIN_INTERVAL, GameConfig.ZIGZAG_JINK_MAX_INTERVAL)
+			var lateral_sign: float = 1.0 if randf() < 0.5 else -1.0
+			unit._zigzag_lateral_velocity = lateral_sign * unit.retreat_speed * GameConfig.ZIGZAG_LATERAL_SPEED_FRACTION
+		next_pos.y += unit._zigzag_lateral_velocity * scenario_delta
+
 	if unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(next_pos):
 		_sidestep_building(unit, scenario_delta, next_pos)
 		return
@@ -708,22 +716,40 @@ func _launch_mortar_shot(mortar: Unit, target: Unit) -> void:
 
 ## Where the mortar aims, given what it knows about the target RIGHT NOW —
 ## "the anticipated enemy position, as communicated by the spotter or
-## squad." A target on a steady, predictable course (Unit.movement_predictable
-## — the enemy's road march) can be correctly LED: aim at where it's
-## heading, not where it stands, using its current speed/direction
-## extrapolated across the shell's whole flight time. Anything else
-## (stationary, or moving erratically — diving for cover, retreating) can
-## only be aimed at its current position; if it's still there 40 seconds
-## later the shot lands true, but a target that changes course mid-flight —
-## breaking from the march for cover, changing direction — can still evade
-## a shot that started out well-aimed. See _resolve_pending_mortar_shots.
+## squad." ANY target currently moving with a known heading gets LED: aim
+## at where it's going, not where it stands, using its current
+## speed/direction extrapolated across the shell's whole flight time — this
+## covers the enemy's steady road march, a unit walking a cover leg toward
+## a specific point, AND a retreat's final straight dash at constant speed
+## toward the safe line (BattleManager._step_retreat has a fixed, known
+## heading — retreating is not "erratic," it's a determined, predictable
+## line, and a mortar crew watching it for even a moment can lead it).
+##
+## What Unit.movement_predictable actually governs is a SEPARATE thing —
+## the RESOLVE_FIRE hit-chance penalty for erratic movement (see
+## CombatResolver), i.e. how much to trust that this extrapolation will
+## still be right in 40 seconds. A retreating unit's heading is knowable
+## right now (so it gets led) even though it might still change course, or
+## juke sideways under fire (see Unit.zigzagging) — that uncertainty is
+## what the accuracy penalty and MORTAR_EVASION_RADIUS model, not whether
+## to attempt the lead at all.
 func _mortar_aim_point(target: Unit) -> Vector2:
-	if target.movement_predictable and target.activity == Unit.Activity.MOVING and target.has_move_target:
+	if target.activity != Unit.Activity.MOVING:
+		return target.global_position
+	var velocity := Vector2.ZERO
+	if target.has_move_target:
 		var to_target: Vector2 = target.move_target - target.global_position
 		if to_target.length() > 0.01:
-			var velocity: Vector2 = to_target.normalized() * target.move_speed
-			return target.global_position + velocity * GameConfig.MORTAR_FLIGHT_TIME
-	return target.global_position
+			velocity = to_target.normalized() * target.move_speed
+	elif target.state == Unit.State.RETREATING:
+		# The final leg: no move_target, just a straight dash at constant y
+		# toward the safe line (see _step_retreat) — direction is fixed by
+		# team, so this heading is exactly known even with no move_target.
+		var dir_x: float = -1.0 if target.team == Unit.Team.PLAYER else 1.0
+		velocity = Vector2(dir_x * target.retreat_speed, 0.0)
+	if velocity == Vector2.ZERO:
+		return target.global_position
+	return target.global_position + velocity * GameConfig.MORTAR_FLIGHT_TIME
 
 
 ## Resolves any mortar shots whose flight time has elapsed. A target that's
@@ -745,6 +771,9 @@ func _resolve_pending_mortar_shots() -> void:
 		var target: Unit = shot.target
 		if target.state == Unit.State.DESTROYED or target.state == Unit.State.WITHDRAWN:
 			continue # nothing left there to hit
+
+		if target.state == Unit.State.RETREATING:
+			target.zigzagging = true # once you know you're under a barrage, keep juking — see Unit.zigzagging
 
 		var drift: float = target.global_position.distance_to(shot.aim_point)
 		if drift > GameConfig.MORTAR_EVASION_RADIUS:

@@ -388,6 +388,16 @@ const BUNCHING_RADIUS: float = 30.0 * PIXELS_PER_METER
 const BUNCHING_SPILLOVER_CHANCE: float = 0.25
 const REPOSITION_SPEED: float = 1.8 * PIXELS_PER_METER # m/s (tactical), for any non-retreat repositioning
 
+# A retreating unit under actual mortar fire (Unit.zigzagging) juke
+# sideways rather than run a clean straight line — real evasive broken-
+# field running. Direction re-rolled every JINK interval (randomized within
+# this range, not a clean predictable period — a mortar that figured out a
+# steady rhythm could lead it right back) at a fraction of the unit's own
+# retreat speed, so it still makes real forward progress while dodging.
+const ZIGZAG_LATERAL_SPEED_FRACTION: float = 0.6
+const ZIGZAG_JINK_MIN_INTERVAL: float = 6.0 # tactical seconds
+const ZIGZAG_JINK_MAX_INTERVAL: float = 12.0 # tactical seconds
+
 # How far an enemy squad advances per rush once it resumes closing on the
 # village after breaking for cover (see BattleManager._update_enemy_squad_advance)
 # — a bounded leg, not a single sprint to the objective, so it still pauses

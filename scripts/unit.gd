@@ -86,6 +86,19 @@ var bolted_for_cover: bool = false
 var retreat_speed: float = 0.0
 var retreat_target_x: float = 0.0 # x that means "reached safety" while retreating
 
+# Set once a RETREATING unit has actually had a mortar round resolve against
+# it — hit or a near-miss close enough to still be evaded (see
+# BattleManager._resolve_pending_mortar_shots) — and never cleared — once you
+# know you're under a barrage, you keep juking sideways
+# for the rest of the withdrawal, not just for one lucky dodge. Only affects
+# the final retreat leg's constant-heading dash (see
+# BattleManager._step_retreat) — exactly the leg a mortar can otherwise lead
+# cleanly (see _mortar_aim_point), so this is the direct, real countermeasure
+# to being led, not just flavor.
+var zigzagging: bool = false
+var _zigzag_timer: float = 0.0 # tactical seconds until the next direction change
+var _zigzag_lateral_velocity: float = 0.0 # current sideways speed (+ or -), re-rolled periodically
+
 # ENEMY SQUAD only: set once, before the real retreat threshold, as a
 # lower-severity "this is getting bad" signal. BattleManager polls
 # reported_issue_logged to log it exactly once — not acted on mechanically.
@@ -98,7 +111,10 @@ var concern_threshold: float = 0.25
 # _apply_mortar_casualties(). A hit is decisive either way: it either wipes
 # the whole crew (DESTROYED) or leaves survivors who abandon the gun on the
 # spot and retreat (see order_retreat()) — nobody keeps manning a mortar
-# after taking a hit near it.
+# after taking a hit near it. max_pips is set to crew_size (see setup()) so
+# these casualties feed into the side's overall pips_total/pips_lost tally
+# (BattleManager._compute_side_stats) exactly like a squad's — the mortar
+# and its crew are worth just as much to lose, or to kill, as anyone else.
 const MORTAR_CREW_SIZE: int = 4
 var crew_size: int = 0
 var crew_killed: int = 0
@@ -113,12 +129,12 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 	position = p_position
 	match kind:
 		Kind.MORTAR:
-			max_pips = 1
+			crew_size = MORTAR_CREW_SIZE
+			crew_killed = 0
+			max_pips = crew_size # crew casualties count the same as squad pips — see _apply_mortar_casualties
 			base_hit_chance = 0.40
 			unit_label = "Mortar"
 			fire_interval = reload_time
-			crew_size = MORTAR_CREW_SIZE
-			crew_killed = 0
 		Kind.SPOTTER:
 			max_pips = 1 # a small, fragile recon team
 			base_hit_chance = 0.0 # never fires — see BattleManager._tick_fire
@@ -154,7 +170,6 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = []) -> void:
 	if state == State.DESTROYED:
 		return
-	pips = max(pips - 1, 0)
 	took_hit.emit(self)
 	queue_redraw()
 
@@ -162,6 +177,7 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], kn
 		_apply_mortar_casualties(known_enemy_positions)
 		return
 
+	pips = max(pips - 1, 0)
 	if pips <= 0:
 		state = State.DESTROYED
 		state_changed.emit(self)
@@ -206,6 +222,7 @@ func _check_retreat(known_enemy_positions: Array[Vector2] = []) -> void:
 func _apply_mortar_casualties(known_enemy_positions: Array[Vector2] = []) -> void:
 	var remaining: int = crew_size - crew_killed
 	crew_killed += randi_range(1, remaining)
+	pips = crew_size - crew_killed # feeds the side's overall casualty tally exactly like a squad's pips — see setup()
 	if crew_killed >= crew_size:
 		state = State.DESTROYED
 		state_changed.emit(self)
@@ -355,8 +372,9 @@ func _draw() -> void:
 	# is always readable at a glance during the battle.
 	GameConfig.draw_cover_ring(self, radius, terrain_type())
 
-	# Pip bar above the unit (mortars/spotter just show full/empty — no
-	# percent bar; both are 1 pip).
+	# Pip bar above the unit — a mortar's now tracks actual crew strength
+	# (max_pips == crew_size, see setup()) same as a squad's; the spotter
+	# alone just shows full/empty, being a single 1-pip team.
 	var bar_width := 28.0
 	var bar_y := -radius - 10.0
 	draw_rect(Rect2(-bar_width / 2.0, bar_y, bar_width, 4.0), Color(0.15, 0.15, 0.15))
