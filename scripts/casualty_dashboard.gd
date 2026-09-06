@@ -199,8 +199,10 @@ func _update_drone_row() -> void:
 		return
 	var parts: PackedStringArray = []
 	parts.append("1 airborne (%d%% charge)" % int(round(status.airborne_charge * 100.0)) if status.airborne else "NONE AIRBORNE")
-	if status.inbound:
-		parts.append("1 inbound")
+	if status.backup:
+		parts.append("1 backup (%d%% charge)" % int(round(status.backup_charge * 100.0)))
+	if status.inbound > 0:
+		parts.append("%d inbound" % status.inbound)
 	if status.ready > 0:
 		parts.append("%d ready (best %d%%)" % [status.ready, int(round(status.ready_best_charge * 100.0))])
 	else:

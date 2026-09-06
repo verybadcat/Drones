@@ -78,15 +78,23 @@ var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
 # ReconMode.DRONE_TEAM only. drone_team is the ground crew — a normal
 # player_units member, like the spotter it replaces. active_drone is the
 # currently-searching sortie, or null if the sky is momentarily empty (a
-# shoot-down with no standby ready yet). returning_drone is a SEPARATE
-# sortie that's already handed off search duty to the new active_drone but
-# is still physically flying home — it doesn't just vanish the instant a
-# replacement launches (see _update_active_drone/_update_returning_drone);
-# only these two ever exist as real Units, since anything grounded isn't
-# part of the battle in any way. See _update_drone_operations.
+# shoot-down with no standby ready yet). backup_drone is a SECOND sortie,
+# only ever launched while active_drone is watching a live, engageable
+# enemy mortar (see _visible_engageable_mortar) — it shadows the same
+# target so that if active_drone is lost, coverage continues with zero
+# gap (see _update_drone_operations's promotion step), instead of a
+# fresh launch having to fly all the way out there from scratch.
+# returning_drones is every sortie that's already handed off its role
+# (to a replacement, or to backup_drone taking over) but is still
+# physically flying home — a plain array since active_drone and
+# backup_drone can end up heading home at different times, not just
+# one at a time (see _update_returning_drones). Only these ever exist
+# as real Units; anything grounded isn't part of the battle at all. See
+# _update_drone_operations.
 var drone_team: Unit = null
 var active_drone: Unit = null
-var returning_drone: Unit = null
+var backup_drone: Unit = null
+var returning_drones: Array[Unit] = []
 
 # The fleet is 4 AIRFRAMES (DRONE_FLEET_SIZE) but 8 BATTERIES (that plus
 # DRONE_SPARE_BATTERIES). What's actually tracked is each battery's real
@@ -132,7 +140,8 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	recon_mode = doctrine.get("recon_mode", GameConfig.ReconMode.SPOTTER)
 	drone_team = null
 	active_drone = null
-	returning_drone = null
+	backup_drone = null
+	returning_drones.clear()
 	_drones_ready.clear()
 	_drones_swapping.clear()
 	_battery_pool.clear()
@@ -491,35 +500,44 @@ func _known_friendly_mortar_position() -> Vector2:
 ## Runs the whole drone-fleet rotation for one tick — ReconMode.DRONE_TEAM
 ## only, no-op otherwise. Charges every uninstalled battery a little
 ## (_battery_pool), finishes any battery-swaps whose timer has run out,
-## advances a drone already flying home (see _update_returning_drone),
-## updates the currently-searching sortie (which may hand off to a return
-## flight this tick — see _update_active_drone), then, if the sky has no
-## SEARCHING drone in it and a ready airframe exists, launches one
-## immediately. Routing BOTH "just got shot down" (via
-## _on_drone_state_changed clearing active_drone) and "hit its charge
-## budget" (via _update_active_drone clearing it) through this same single
-## launch check means a swap is never more than one tick late either way,
-## and there's exactly one place that decides when to launch — the
-## replacement flies while the old one is still genuinely inbound, not
-## after it's vanished.
+## lands anything that's arrived home (see _update_returning_drones),
+## updates the currently-searching sortie and, if one exists, the backup
+## shadowing it (see _update_active_drone/_update_backup_drone — either may
+## send itself home this tick), then:
+## 1. If active_drone was just lost (shot down or sent home) and a backup
+##    is already on-station, PROMOTE it instantly — zero coverage gap,
+##    which is the entire point of having sent it (see the request this
+##    implements: "a replacement drone should be sent to ensure continuous
+##    coverage").
+## 2. Failing that, launch a fresh one from the ready pool as usual.
+## 3. Independently, if active_drone is currently watching a live,
+##    engageable enemy mortar (see _visible_engageable_mortar) and a ready
+##    airframe exists, launch a backup the instant active_drone's own
+##    remaining time-before-RTB shrinks to about how long a fresh launch
+##    would take to reach that same spot — timed to arrive right as it's
+##    actually needed, not the moment tracking starts (which would just
+##    burn the backup's own limited flight time sitting there early) and
+##    not reactively after active_drone has already had to leave (which
+##    would leave a real gap).
 func _update_drone_operations(scenario_delta: float) -> void:
 	if recon_mode != GameConfig.ReconMode.DRONE_TEAM or drone_team == null:
 		return
 	if drone_team.state != Unit.State.ACTIVE:
 		# Team destroyed or pulled back — nobody left to fly them. Whatever's
-		# airborne (searching or inbound) is abandoned along with the ground
-		# station; no further launches for the rest of the battle. Counted as
-		# a loss (not literally shot down, but permanently gone either way)
-		# rather than just freed, so the fleet total always stays accounted
-		# for — every airframe ends the battle as exactly one of airborne,
-		# inbound, ready, swapping, or lost.
-		for d in [active_drone, returning_drone]:
+		# airborne (searching, backup, or inbound) is abandoned along with the
+		# ground station; no further launches for the rest of the battle.
+		# Counted as a loss (not literally shot down, but permanently gone
+		# either way) rather than just freed, so the fleet total always stays
+		# accounted for — every airframe ends the battle as exactly one of
+		# airborne, backup, inbound, ready, swapping, or lost.
+		for d in [active_drone, backup_drone] + returning_drones:
 			if d != null:
 				player_units.erase(d)
 				d.queue_free()
 				_drones_destroyed += 1
 		active_drone = null
-		returning_drone = null
+		backup_drone = null
+		returning_drones.clear()
 		return
 
 	# Every uninstalled battery just charges, at a fixed rate, all the time —
@@ -534,14 +552,28 @@ func _update_drone_operations(scenario_delta: float) -> void:
 			_drones_ready.append(_drones_swapping[i].charge)
 			_drones_swapping.remove_at(i)
 
-	if returning_drone != null:
-		_update_returning_drone()
+	_update_returning_drones()
 
 	if active_drone != null:
-		_update_active_drone(scenario_delta) # may hand off to returning_drone (routine RTB)
+		_update_active_drone(scenario_delta) # may send itself home, or (rarely) crash outright — see the sacrifice branch inside
+
+	if backup_drone != null:
+		_update_backup_drone(scenario_delta) # may send itself home, or get promoted below
+
+	if active_drone == null and backup_drone != null:
+		active_drone = backup_drone
+		backup_drone = null
 
 	if active_drone == null and not _drones_ready.is_empty():
 		_launch_drone()
+
+	if active_drone != null and backup_drone == null and not _drones_ready.is_empty():
+		var watched: Unit = _visible_engageable_mortar()
+		if watched != null:
+			var time_until_active_rtb: float = _drone_time_until_rtb(active_drone)
+			var backup_travel_time: float = drone_team.global_position.distance_to(watched.global_position) / GameConfig.DRONE_CRUISE_SPEED
+			if time_until_active_rtb <= backup_travel_time:
+				_launch_backup_drone(watched)
 
 
 ## Removes and returns the single highest-charge battery from `pool`
@@ -569,19 +601,42 @@ func _launch_drone() -> void:
 	combat_log.log_drone_launched(d)
 
 
+## A second sortie sent up specifically to shadow whatever active_drone is
+## currently watching (see _update_backup_drone) — launched with just
+## enough lead time to arrive as active_drone's own RTB gets close (see
+## the timing check in _update_drone_operations), not the instant tracking
+## starts, so it doesn't burn its own limited flight time sitting on
+## station early. Never becomes the search-priority decision-maker itself;
+## it just follows along until either promoted (see _update_drone_
+## operations) or sent home because it's no longer needed or is running
+## low itself.
+func _launch_backup_drone(watched: Unit) -> void:
+	var charge: float = _pop_best_battery(_drones_ready)
+	var d := _make_unit(Unit.Team.PLAYER, Unit.Kind.DRONE, drone_team.global_position)
+	d.drone_battery_charge = charge
+	d.state_changed.connect(_on_drone_state_changed)
+	player_units.append(d)
+	backup_drone = d
+	combat_log.log_drone_backup_launched(d, watched)
+
+
 ## Only ever fires for a genuine shoot-down — a routine return-to-base never
-## sets DESTROYED (it lands and is freed in _update_returning_drone once it
-## arrives). Bumps the permanent loss count (that airframe never flies again
-## this battle) and, if it was the searching drone, clears active_drone so
-## _update_drone_operations's own launch check gets the standby up — this
-## signal handler only needs to record the loss and clear the right slot.
+## sets DESTROYED (it lands and is freed in _update_returning_drones once it
+## arrives), and a sacrificed drone's battery dying is handled directly by
+## _crash_drone rather than through this signal, so its log message doesn't
+## get mislabeled as a shoot-down. Bumps the permanent loss count (that
+## airframe never flies again this battle) and clears whichever slot held
+## it — active, backup, or already inbound — so _update_drone_operations's
+## own promotion/launch checks pick up the slack next tick.
 func _on_drone_state_changed(unit: Unit) -> void:
 	if unit.state != Unit.State.DESTROYED:
 		return
 	if unit == active_drone:
 		active_drone = null
-	elif unit == returning_drone:
-		returning_drone = null
+	elif unit == backup_drone:
+		backup_drone = null
+	elif returning_drones.has(unit):
+		returning_drones.erase(unit)
 	else:
 		return
 	_drones_destroyed += 1
@@ -593,31 +648,40 @@ func _on_drone_state_changed(unit: Unit) -> void:
 ## and, if there's still enough left to be worth it, re-picks where it
 ## flies next — every tick, not set once, so it reacts immediately to a
 ## freshly-spotted mortar or a shoot-and-scoot relocation instead of
-## plodding toward a stale point (see _drone_search_target). Once the
-## remaining charge is only just enough to get home (with
-## DRONE_RTB_SAFETY_MARGIN worth to spare), it hands off search duty and
-## turns for a real, simulated flight home — see _update_returning_drone —
-## rather than simply vanishing; the very next tick's launch check (see
-## _update_drone_operations) puts the standby up in its place, matching a
-## real handoff that starts before the old one has actually touched down,
-## not after.
+## plodding toward a stale point (see _drone_search_target).
+##
+## Once the remaining charge is only just enough to get home (with
+## DRONE_RTB_SAFETY_MARGIN worth to spare), it normally hands off search
+## duty and turns for home — UNLESS it's currently watching a live,
+## engageable enemy mortar (_visible_engageable_mortar) with no backup
+## already on-station to take over: in that specific case it sacrifices
+## itself instead, deliberately ignoring the safety margin and continuing
+## to watch until the battery is genuinely empty (0.0), at which point the
+## airframe is lost (_crash_drone) rather than making it home. This is
+## re-evaluated every tick, not decided once — if a backup shows up, the
+## mortar dies/retreats/leaves range, or the friendly mortar itself is lost
+## partway through (making the target no longer engageable), the sacrifice
+## is abandoned immediately and it heads home with whatever's left.
 func _update_active_drone(scenario_delta: float) -> void:
 	var d := active_drone
 	d.drone_battery_charge -= scenario_delta / GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME
 
-	var distance_home: float = d.global_position.distance_to(drone_team.global_position)
-	var time_needed_home: float = distance_home / GameConfig.DRONE_CRUISE_SPEED
-	var margin_time: float = GameConfig.DRONE_RTB_SAFETY_MARGIN / GameConfig.DRONE_CRUISE_SPEED
-	var charge_needed_to_get_home: float = (time_needed_home + margin_time) / GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME
-
-	if d.drone_battery_charge <= charge_needed_to_get_home:
-		combat_log.log_drone_returning(d)
-		d.move_target = drone_team.global_position
-		d.has_move_target = true
-		d.move_queue.clear()
-		d.move_speed = GameConfig.DRONE_CRUISE_SPEED
-		d.movement_predictable = true # a direct beeline home now, not an erratic search
-		returning_drone = d
+	if _drone_should_rtb(d):
+		if backup_drone == null:
+			var watched: Unit = _visible_engageable_mortar()
+			if watched != null and _can_engage_position(watched.global_position):
+				if d.drone_battery_charge <= 0.0:
+					_crash_drone(d, watched)
+					active_drone = null
+				# else: sacrifice continues -- fall through to keep watching.
+				else:
+					d.move_target = _drone_search_target()
+					d.has_move_target = true
+					d.move_queue.clear()
+					d.move_speed = GameConfig.DRONE_CRUISE_SPEED
+					d.movement_predictable = false
+				return
+		_send_drone_home(d)
 		active_drone = null
 		return
 
@@ -628,47 +692,114 @@ func _update_active_drone(scenario_delta: float) -> void:
 	d.movement_predictable = false
 
 
-## A drone that's already handed off search duty (see _update_active_drone)
-## but is still physically inbound — real, visible flight time, covered by
-## the same generic movement system as everything else (_tick_movement,
-## called earlier in _process, actually steps it toward drone_team's
-## position since it's ACTIVE with has_move_target set). This just watches
-## for arrival: _step_toward_target clears has_move_target the instant it
-## reaches drone_team, which is this function's cue to land it for real —
-## free the Unit, drop whatever charge it landed with (usually just the
-## small safety-margin reserve) into the pool to recharge from there, and
-## immediately hand the airframe the best-charged battery now available
-## (which might be that very one, if the rest of the pool happens to be
-## more depleted) for a quick swap — landing never means the full
-## ~100-minute recharge for the AIRFRAME; only running the whole pool down
-## does that, and even then only to whichever battery it draws next.
-func _update_returning_drone() -> void:
-	var d := returning_drone
-	if d.has_move_target:
-		return # still en route
+## The backup never makes its own search decisions or sacrifices itself —
+## its only two jobs are shadowing whatever active_drone is currently
+## watching (so it's actually in position to be promoted with zero gap,
+## not just airborne somewhere) and coming home normally the instant either
+## it runs low itself, or its job is done because active_drone has moved on
+## / the mortar it was shadowing no longer qualifies (destroyed, retreated,
+## or otherwise stopped being what active_drone is watching).
+func _update_backup_drone(scenario_delta: float) -> void:
+	var d := backup_drone
+	d.drone_battery_charge -= scenario_delta / GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME
+
+	var watched: Unit = _visible_engageable_mortar()
+	if watched == null or _drone_should_rtb(d):
+		_send_drone_home(d)
+		backup_drone = null
+		return
+
+	d.move_target = watched.global_position
+	d.has_move_target = true
+	d.move_queue.clear()
+	d.move_speed = GameConfig.DRONE_CRUISE_SPEED
+	d.movement_predictable = false
+
+
+## True once `d`'s remaining charge is down to just enough to cover the
+## trip home plus GameConfig.DRONE_RTB_SAFETY_MARGIN worth of reserve — the
+## shared threshold both active_drone (which can choose to ignore it and
+## sacrifice itself instead) and backup_drone (which never does) check.
+func _drone_should_rtb(d: Unit) -> bool:
+	return _drone_time_until_rtb(d) <= 0.0
+
+
+## How much longer `d` can keep doing whatever it's doing right now (flight
+## time, not charge) before it hits its own RTB threshold — the time-domain
+## twin of _drone_should_rtb (which is just "is this already <= 0"), used
+## by the eager-backup-launch trigger to time a launch against, not just
+## test a yes/no. Assumes roughly its current distance from home holds
+## steady, which is exactly true while it's station-keeping over a fixed
+## target (the case this actually matters for) and a reasonable estimate
+## otherwise, re-evaluated fresh every tick regardless.
+func _drone_time_until_rtb(d: Unit) -> float:
+	var distance_home: float = d.global_position.distance_to(drone_team.global_position)
+	var time_needed_home: float = distance_home / GameConfig.DRONE_CRUISE_SPEED
+	var margin_time: float = GameConfig.DRONE_RTB_SAFETY_MARGIN / GameConfig.DRONE_CRUISE_SPEED
+	var charge_needed_to_get_home: float = (time_needed_home + margin_time) / GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME
+	var charge_to_spare: float = d.drone_battery_charge - charge_needed_to_get_home
+	return charge_to_spare * GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME
+
+
+## Hands off search/shadow duty and turns `d` for a real, simulated flight
+## home (added to returning_drones) — rather than simply vanishing, so it
+## stays a legal, visible target the whole way back, same as before.
+func _send_drone_home(d: Unit) -> void:
+	combat_log.log_drone_returning(d)
+	d.move_target = drone_team.global_position
+	d.has_move_target = true
+	d.move_queue.clear()
+	d.move_speed = GameConfig.DRONE_CRUISE_SPEED
+	d.movement_predictable = true # a direct beeline home now, not an erratic search
+	returning_drones.append(d)
+
+
+## The battery finally runs dry mid-sacrifice — the airframe is lost right
+## where it stood, not "shot down" (see _on_drone_state_changed's own
+## comment on why this bypasses that signal/log path entirely) but gone all
+## the same: no landing, no battery to recover, just a permanent loss
+## counted the same way.
+func _crash_drone(d: Unit, watched: Unit) -> void:
+	combat_log.log_drone_sacrificed(d, watched)
 	player_units.erase(d)
-	_battery_pool.append(d.drone_battery_charge)
 	d.queue_free()
-	returning_drone = null
-	_drones_swapping.append({"time_left": GameConfig.DRONE_BATTERY_SWAP_DURATION, "charge": _pop_best_battery(_battery_pool)})
+	_drones_destroyed += 1
+
+
+## Every sortie currently flying home (see _send_drone_home) — same generic
+## movement system as everything else (_tick_movement, called earlier in
+## _process) actually steps each one toward drone_team's position since
+## it's ACTIVE with has_move_target set; this just watches for arrival
+## (_step_toward_target clears has_move_target the instant one reaches
+## drone_team) and lands it for real: free the Unit, drop whatever charge
+## it landed with (usually just the small safety-margin reserve, though a
+## backup sent home early could have much more) into the pool to recharge
+## from there, and immediately hand the airframe the best-charged battery
+## now available (which might be that very one) for a quick swap — landing
+## never means the full ~100-minute recharge for the AIRFRAME; only running
+## the whole pool down does that, and even then only to whichever battery
+## it draws next.
+func _update_returning_drones() -> void:
+	for i in range(returning_drones.size() - 1, -1, -1):
+		var d: Unit = returning_drones[i]
+		if d.has_move_target:
+			continue # still en route
+		returning_drones.remove_at(i)
+		player_units.erase(d)
+		_battery_pool.append(d.drone_battery_charge)
+		d.queue_free()
+		_drones_swapping.append({"time_left": GameConfig.DRONE_BATTERY_SWAP_DURATION, "charge": _pop_best_battery(_battery_pool)})
 
 
 ## Where the airborne drone flies next, re-evaluated every tick — priority
-## order: (1) orbit a currently-visible, still-ACTIVE enemy mortar the
-## friendly mortar could actually reach right now (see
-## _in_friendly_mortar_range) — by far the highest-value thing to keep eyes
-## on, but only while it's actually still worth it: a RETREATING mortar has
-## already had its crew abandon the gun for good (Unit._apply_crew_
-## casualties — it will never fire again no matter how well it's watched),
-## and one outside GameConfig.MORTAR_MAX_RANGE of the friendly mortar can't
-## be engaged right now regardless of visibility — continuing to park on
-## either just wastes search time that could instead find (or wait for) a
-## mortar actually worth acting on; (2) failing that, the same standard
-## applied to wherever each ACTIVE, in-range enemy mortar was last DETECTED
-## FIRING — checked per mortar, not just whichever fired most recently, so
-## an older but reachable fix wins over a fresher one the friendly mortar
-## still can't act on; (3) with no actionable mortar lead at all, patrol
-## the enemy's approach corridor (_drone_sweep_target) to keep searching.
+## order: (1) orbit whatever _visible_engageable_mortar finds — by far the
+## highest-value thing to keep eyes on; (2) failing that, the same
+## in-range standard applied to wherever each ACTIVE enemy mortar was last
+## DETECTED FIRING — checked per mortar, not just whichever fired most
+## recently, so an older but reachable fix wins over a fresher one the
+## friendly mortar still can't act on; (3) with no actionable mortar lead
+## at all, patrol the enemy's approach corridor (_drone_sweep_target) to
+## keep searching.
 ##
 ## Deliberately does NOT redirect to a merely-visible enemy SQUAD once no
 ## mortar lead exists — the mission is hunting mortars, not escorting
@@ -677,9 +808,9 @@ func _update_returning_drone() -> void:
 ## squad). Without this, the drone would just permanently park over the
 ## first infantry it happened to spot instead of continuing to search.
 func _drone_search_target() -> Vector2:
-	for u in enemy_units:
-		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE and u.is_visible and _in_friendly_mortar_range(u.global_position):
-			return u.global_position
+	var watched: Unit = _visible_engageable_mortar()
+	if watched != null:
+		return watched.global_position
 
 	var best_fire_pos := Vector2.INF
 	var best_fire_time := -INF
@@ -702,19 +833,58 @@ func _drone_search_target() -> Vector2:
 	return _drone_sweep_target()
 
 
+## The single currently-visible, still-ACTIVE, in-range enemy mortar worth
+## a drone's undivided attention, or null if there isn't one — the exact
+## condition _drone_search_target's top tier checks, factored out since the
+## backup-drone and self-sacrifice logic (_update_active_drone/
+## _update_backup_drone) both need to ask "is there one right now," not
+## just "where should THIS drone fly." A RETREATING mortar has already had
+## its crew abandon the gun for good (Unit._apply_crew_casualties — it will
+## never fire again no matter how well it's watched), and one outside
+## GameConfig.MORTAR_MAX_RANGE of the friendly mortar can't be engaged
+## right now regardless of visibility — continuing to park on either just
+## wastes effort that could instead find (or wait for) a mortar actually
+## worth acting on.
+func _visible_engageable_mortar() -> Unit:
+	for u in enemy_units:
+		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE and u.is_visible and _in_friendly_mortar_range(u.global_position):
+			return u
+	return null
+
+
+## THE single point of truth for "can any friendly asset actually strike
+## `pos` right now" — currently just the friendly mortar's own range, but
+## deliberately factored out as the one place to extend if other ways to
+## hit an enemy mortar are ever added (a squad's direct fire, artillery,
+## whatever) — the self-sacrifice decision in _update_active_drone is
+## supposed to key off "can we act on this," not "does a friendly mortar
+## happen to exist," so it must not go stale the day a second way to fire
+## shows up. Unlike _in_friendly_mortar_range (which this powers), this
+## does NOT treat "no active friendly mortar at all" as "sure, don't
+## exclude it" — a real engagement decision needs the strict, honest
+## answer: with nothing able to fire, the answer is simply no.
+func _can_engage_position(pos: Vector2) -> bool:
+	for m in player_units:
+		if m.kind == Unit.Kind.MORTAR and m.state == Unit.State.ACTIVE:
+			return m.global_position.distance_to(pos) <= GameConfig.MORTAR_MAX_RANGE
+	return false
+
+
 ## Whether `pos` is within the friendly mortar's actual reach right now —
 ## used to keep the drone from wasting search time parking on an enemy
 ## mortar (or its last-known firing spot) that the friendly mortar
 ## physically cannot act on, even though it's otherwise the highest-priority
-## kind of target. With no ACTIVE friendly mortar at all there's no
-## reference point to judge range from, so this doesn't exclude anything in
-## that case — better to keep tracking mortars for general awareness than
-## to abandon the mission's whole point just because the gun is temporarily
-## down.
+## kind of target. More LENIENT than _can_engage_position on purpose: with
+## no ACTIVE friendly mortar at all there's no reference point to judge
+## range from, so mere TRACKING isn't excluded in that case — general
+## awareness of where enemy mortars are still has some value even with
+## nothing (yet) able to act on it, unlike the strict engageability
+## question _can_engage_position answers for deciding whether a drone
+## should actually sacrifice itself over one.
 func _in_friendly_mortar_range(pos: Vector2) -> bool:
 	for m in player_units:
 		if m.kind == Unit.Kind.MORTAR and m.state == Unit.State.ACTIVE:
-			return m.global_position.distance_to(pos) <= GameConfig.MORTAR_MAX_RANGE
+			return _can_engage_position(pos)
 	return true
 
 
@@ -1448,7 +1618,9 @@ func drone_fleet_status() -> Dictionary:
 		"team_crew_size": drone_team.crew_size if drone_team else 0,
 		"airborne": active_drone != null,
 		"airborne_charge": active_drone.drone_battery_charge if active_drone else -1.0,
-		"inbound": returning_drone != null,
+		"backup": backup_drone != null,
+		"backup_charge": backup_drone.drone_battery_charge if backup_drone else -1.0,
+		"inbound": returning_drones.size(),
 		"ready": _drones_ready.size(),
 		"ready_best_charge": _drones_ready.max() if not _drones_ready.is_empty() else -1.0,
 		"swapping": _drones_swapping.size(),

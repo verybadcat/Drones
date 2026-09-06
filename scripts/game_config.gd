@@ -478,14 +478,40 @@ const DRONE_RECHARGE_DURATION: float = 100.0 * 60.0 # tactical seconds
 # returns to service, as long as a charged spare is available.
 const DRONE_BATTERY_SWAP_DURATION: float = 4.0 * 60.0 # tactical seconds
 
+# A ground unit noticing a small quadcopter loitering ~DRONE_ALTITUDE_M
+# overhead, on unaided eyes/ears alone, is a fundamentally different (and
+# far rarer) event than spotting anyone on the ground — see
+# CombatResolver._roll_ground_notices_drone, which uses these two directly
+# rather than running a drone target through the normal terrain-concealment/
+# elevation/movement spotting formula (none of that describes "is anyone
+# glancing at the right patch of sky right now").
+#
+# Sourced from real drone-detection research rather than guessed: a
+# dedicated visual-detection study (Ahn et al., "Distance and Visual Angle
+# of Line-of-Sight of a Small Drone," Applied Sciences 2020) found only a
+# 50% chance of visually acquiring a Mavic-class airframe at ~307m, and
+# that's for an observer ACTIVELY SCANNING for it under good conditions —
+# unaided HEARING did worse still in the same study: most participants
+# couldn't hear the drone even once they could already see it. A mortar or
+# squad isn't scanning the sky at all — they're loading, laying, watching
+# the ground for threats — so what this models is an occasional, distracted
+# glance happening to catch something, not a deliberate search. That's why
+# DRONE_GROUND_NOTICE_CHANCE_PER_MINUTE sits roughly two orders of magnitude
+# below the study's best-case per-look figure, expressed directly as a
+# chance PER MINUTE (an occasional glance is naturally a per-minute event,
+# not a per-second one) — low enough that even several minutes spent
+# hovering over the same crew still usually goes unnoticed, same as real
+# reconnaissance-drone experience suggests. DRONE_GROUND_NOTICE_MAX_RANGE_M
+# is a hard real-world cutoff past the same study's own effective range —
+# beyond it, naked-eye/ear detection of something this small is noise, not
+# signal, no matter how long it lingers.
+const DRONE_GROUND_NOTICE_CHANCE_PER_MINUTE: float = 0.01
+const DRONE_GROUND_NOTICE_MAX_RANGE_M: float = 400.0
+
 # From 300m up, camera resolution and a small, quiet airframe make a drone
-# both hard to acquire visually AND, even once someone's looking at it, hard
-# to actually hit with small arms — two SEPARATE multipliers because
-# spotting it and hitting it are two separate rolls (see CombatResolver).
-# It doesn't stand on any terrain in a meaningful sense, so it skips the
-# normal terrain-based concealment/cover tables entirely — these replace
-# those outright rather than multiplying into them.
-const DRONE_SPOT_CHANCE_MULTIPLIER: float = 0.15
+# hard to actually hit with small arms even once someone IS looking right at
+# it. It doesn't stand on any terrain in a meaningful sense, so (unlike the
+# notice roll above) this still applies uniformly regardless of terrain.
 const DRONE_HIT_CHANCE_MULTIPLIER: float = 0.1
 
 # The drone's own view is a genuinely different (better) sensor, not just a

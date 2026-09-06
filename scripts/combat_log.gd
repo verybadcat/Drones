@@ -85,12 +85,20 @@ func log_drone_launched(unit: Unit) -> void:
 	add_entry("%s launches" % unit.display_name())
 
 
+func log_drone_backup_launched(unit: Unit, watched: Unit) -> void:
+	add_entry("%s launches as backup, shadowing %s for continuous coverage" % [unit.display_name(), watched.display_name()])
+
+
 func log_drone_shot_down(unit: Unit) -> void:
 	add_entry("%s is shot down" % unit.display_name())
 
 
 func log_drone_returning(unit: Unit) -> void:
-	add_entry("%s returns to base — standby launching" % unit.display_name())
+	add_entry("%s returns to base" % unit.display_name())
+
+
+func log_drone_sacrificed(unit: Unit, watched: Unit) -> void:
+	add_entry("%s's battery gives out while holding station over %s — the airframe is lost" % [unit.display_name(), watched.display_name()])
 
 
 func log_bunching_spillover(defender: Unit, spillover: Unit) -> void:

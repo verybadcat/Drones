@@ -78,12 +78,15 @@ static func effective_detection_range(observer: Unit, target: Unit) -> float:
 ## CONCEALMENT_MULTIPLIER table (less penalty for TREES specifically — a
 ## canopy is porous from above in a way it isn't from across open ground —
 ## more penalty for BUILDING, which fully hides what's under its roof
-## either way). A DRONE TARGET skips terrain concealment entirely — it isn't
-## standing on any of it — in favor of a flat, severe DRONE_SPOT_CHANCE_
-## MULTIPLIER: hard to pick out from the ground no matter who's looking or
-## what's under it.
+## either way). A ground observer looking for a DRONE target is an entirely
+## different question — "is anyone glancing at the right patch of sky right
+## now" — answered separately by _roll_ground_notices_drone below rather
+## than by any of this ground-spotting machinery.
 static func roll_spot(observer: Unit, target: Unit, delta: float) -> bool:
 	var observer_is_drone := observer.kind == Unit.Kind.DRONE
+	if target.kind == Unit.Kind.DRONE and not observer_is_drone:
+		return _roll_ground_notices_drone(observer, target, delta)
+
 	var has_los: bool = GameConfig.has_aerial_los(observer.global_position, target.global_position) if observer_is_drone \
 		else GameConfig.has_direct_los(observer.global_position, target.global_position)
 	if not has_los:
@@ -95,20 +98,39 @@ static func roll_spot(observer: Unit, target: Unit, delta: float) -> bool:
 		return false
 
 	var chance: float = GameConfig.SPOT_CHANCE_PER_SECOND
-	if target.kind == Unit.Kind.DRONE:
-		chance *= GameConfig.DRONE_SPOT_CHANCE_MULTIPLIER
-	else:
-		var concealment_table: Dictionary = GameConfig.DRONE_CONCEALMENT_MULTIPLIER if observer_is_drone else CONCEALMENT_MULTIPLIER
-		chance *= concealment_table[target.terrain_type()]
-		var target_hidden_spotter := target.kind == Unit.Kind.SPOTTER and GameConfig.is_in_cover(target.terrain_type())
-		if target.kind == Unit.Kind.SPOTTER and not target_hidden_spotter:
-			chance *= GameConfig.SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER
+	var concealment_table: Dictionary = GameConfig.DRONE_CONCEALMENT_MULTIPLIER if observer_is_drone else CONCEALMENT_MULTIPLIER
+	chance *= concealment_table[target.terrain_type()]
+	var target_hidden_spotter := target.kind == Unit.Kind.SPOTTER and GameConfig.is_in_cover(target.terrain_type())
+	if target.kind == Unit.Kind.SPOTTER and not target_hidden_spotter:
+		chance *= GameConfig.SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER
 	if target.activity == Unit.Activity.MOVING:
 		chance *= GameConfig.MOVING_SPOT_MULTIPLIER
 	chance *= clamp(1.0 - (distance / detection_range), 0.0, 1.0)
 	chance *= delta
 
 	return randf() < chance
+
+
+## Whether a GROUND unit's own unaided eyes/ears happen to catch a drone
+## loitering overhead this tick — see GameConfig.DRONE_GROUND_NOTICE_
+## CHANCE_PER_MINUTE for the real-world sourcing behind both constants used
+## here. Deliberately bypasses effective_detection_range/concealment/
+## MOVING_SPOT_MULTIPLIER entirely: none of that models "an occasional
+## glance at the sky," which is what this actually is. Real slant range
+## (horizontal distance plus DRONE_ALTITUDE_M, both in real meters) is what
+## a person on the ground actually judges distance by, not the flat 2D
+## ground distance everything else here uses. Only a building overhead
+## still blocks it outright (has_aerial_los) — hills don't; nothing on this
+## map's terrain is tall enough to occlude a drone flying above every hill.
+static func _roll_ground_notices_drone(observer: Unit, target: Unit, delta: float) -> bool:
+	if not GameConfig.has_aerial_los(observer.global_position, target.global_position):
+		return false
+	var horizontal_distance_m: float = observer.global_position.distance_to(target.global_position) / GameConfig.PIXELS_PER_METER
+	var slant_range_m: float = sqrt(horizontal_distance_m * horizontal_distance_m + GameConfig.DRONE_ALTITUDE_M * GameConfig.DRONE_ALTITUDE_M)
+	if slant_range_m > GameConfig.DRONE_GROUND_NOTICE_MAX_RANGE_M:
+		return false
+	var chance_per_tick: float = 1.0 - pow(1.0 - GameConfig.DRONE_GROUND_NOTICE_CHANCE_PER_MINUTE, delta / 60.0)
+	return randf() < chance_per_tick
 
 
 ## True if ANY unit in `observers` currently has clear, in-range line of
