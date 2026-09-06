@@ -147,6 +147,37 @@ static func road_waypoints_px() -> Array[Vector2]:
 	return out
 
 
+## The drone's OWN default search pattern when it has no better lead (see
+## BattleManager._drone_sweep_target) — deliberately NOT the same list as
+## ROAD_WAYPOINTS_M above. That road is where enemy SQUADS march, but a
+## real mortar deploys well back from the line, not draped over the march
+## route (see BattleManager._pick_target's own reasoning for why the two
+## get very different treatment) — sweeping only the road's own narrow
+## ~200m-tall band, as the drone used to, structurally could never pass
+## near a mortar sitting a few hundred meters off to either side, no
+## matter how much flight time it had. This is a genuine boustrophedon
+## across the SAME contested x-range as the road (ENEMY_SPAWN_X down to
+## the road's own innermost waypoint) but the map's FULL height instead —
+## still no more prior knowledge of the enemy's actual, fixed emplacements
+## than the player has (an evenly-spaced sweep, not their exact
+## coordinates), just methodical enough that DRONE_DETECTION_RANGE's own
+## 1600m reach actually gets a chance at whatever's out there instead of
+## depending on a lucky coincidence of where the road happens to run.
+const DRONE_SEARCH_WAYPOINTS_M: Array[Vector2] = [
+	Vector2(4950.0, 300.0), Vector2(1550.0, 300.0),
+	Vector2(1550.0, 1050.0), Vector2(4950.0, 1050.0),
+	Vector2(4950.0, 1750.0), Vector2(1550.0, 1750.0),
+	Vector2(1550.0, 2450.0), Vector2(4950.0, 2450.0),
+	Vector2(4950.0, 3150.0), Vector2(1550.0, 3150.0),
+]
+
+static func drone_search_waypoints_px() -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for wp in DRONE_SEARCH_WAYPOINTS_M:
+		out.append(wp * PIXELS_PER_METER)
+	return out
+
+
 # Each zone is a rectangle + terrain type (TREES/BUILDING only — elevation
 # is now the continuous heightmap above, and the road is its own waypoint
 # path, not a zone; see draw_terrain). Order matters for drawing: earlier =

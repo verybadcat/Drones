@@ -189,16 +189,35 @@ func _any_contact() -> bool:
 	return false
 
 
+## True whenever a drone is actually up hunting for contact — its own
+## flight (movement AND battery drain, both scenario_delta-based just like
+## everything else that moves — see _tick_movement/_update_active_drone)
+## is genuinely real-world-time-bound: a real Mavic 3's ~36-minute
+## endurance doesn't stretch or compress just because nothing else on the
+## ground happens to be interesting yet. Without this, an active sortie
+## launched during the pre-contact FAST_FORWARD tier (see
+## _current_time_scale) burned its ENTIRE flight budget in a handful of
+## real seconds — 2143 tactical seconds of endurance at 300x scale is only
+## ~7 real seconds, nowhere near enough real time for even a single
+## roll_spot chance (spotting runs on real `delta`, not scenario_delta) to
+## land before it was already forced to turn for home. Counts active OR
+## backup — either one airborne is "a mission in progress" — but not
+## returning_drones, whose search is already over regardless of pace.
+func _drone_actively_searching() -> bool:
+	return recon_mode == GameConfig.ReconMode.DRONE_TEAM and (active_drone != null or backup_drone != null)
+
+
 ## Picks how fast the tactical clock runs this tick — realistic pace the
 ## moment there's something worth watching closely (live contact, which
 ## always wins even during a general withdrawal — a fighting retreat is
-## still worth watching closely), faster once a general withdrawal is under
-## way and nobody's currently in contact, fastest of all when there's
-## nothing happening at all yet (e.g. the long road march before first
-## contact, or a single unit's own quiet, isolated retreat) — see
-## GameConfig's TIME_SCALE_* constants for the reasoning.
+## still worth watching closely — or a drone actively out hunting for it),
+## faster once a general withdrawal is under way and nobody's currently in
+## contact, fastest of all when there's nothing happening at all yet (e.g.
+## the long road march before first contact with no drone up yet, or a
+## single unit's own quiet, isolated retreat) — see GameConfig's
+## TIME_SCALE_* constants for the reasoning.
 func _current_time_scale() -> float:
-	if _any_contact():
+	if _any_contact() or _drone_actively_searching():
 		return GameConfig.TIME_SCALE_NORMAL
 	if _general_withdrawal_in_progress():
 		return GameConfig.TIME_SCALE_GENERAL_RETREAT
@@ -1022,9 +1041,11 @@ func _in_friendly_mortar_range(pos: Vector2) -> bool:
 	return true
 
 
-## No mortar lead at all yet: patrol back and forth across the enemy's whole
-## road corridor, advancing to the next waypoint once close enough rather
-## than flying to and sitting at one single fixed point — genuine
+## No mortar lead at all yet: patrol a methodical boustrophedon across the
+## whole contested area (GameConfig.DRONE_SEARCH_WAYPOINTS_M — the map's
+## full height, not just the road's own narrow band a mortar would never
+## actually sit on), advancing to the next waypoint once close enough
+## rather than flying to and sitting at one single fixed point — genuine
 ## progressive search coverage instead of parking somewhere and stopping.
 ## Deliberately does NOT aim at the enemy's actual (fixed) mortar
 ## emplacements — the drone has no more prior knowledge of exactly where
@@ -1034,10 +1055,10 @@ func _in_friendly_mortar_range(pos: Vector2) -> bool:
 const DRONE_SWEEP_WAYPOINT_RADIUS: float = 500.0 * GameConfig.PIXELS_PER_METER
 
 func _drone_sweep_target() -> Vector2:
-	var road: Array[Vector2] = GameConfig.road_waypoints_px()
-	if active_drone.global_position.distance_to(road[_drone_sweep_index]) <= DRONE_SWEEP_WAYPOINT_RADIUS:
-		_drone_sweep_index = (_drone_sweep_index + 1) % road.size()
-	return road[_drone_sweep_index]
+	var waypoints: Array[Vector2] = GameConfig.drone_search_waypoints_px()
+	if active_drone.global_position.distance_to(waypoints[_drone_sweep_index]) <= DRONE_SWEEP_WAYPOINT_RADIUS:
+		_drone_sweep_index = (_drone_sweep_index + 1) % waypoints.size()
+	return waypoints[_drone_sweep_index]
 
 
 ## A point just inside MORTAR_MAX_RANGE of `target_pos`, along the direct
