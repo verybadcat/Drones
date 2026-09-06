@@ -914,6 +914,10 @@ Two things, really. First, the AAR's own selectability from last round's fix (a 
 
 **Verified:** a headless regression test asserts `DoctrinePanel`'s content height never exceeds its fixed panel height and that all three squad-section labels are present and sanely sized (under 100px, not the ~760px this bug produced) — passed after the fix (measured content height 500px against a 500px panel, previously 2621px). The token label width fix has no game-logic behavior to test (a pure draw-call constant), confirmed via a clean full-project headless compile.
 
+**Follow-up, same session:** "We can remove the exchange ratio portion from the AAR. It is duplicative of other portions." Correct — with the casualty lines already spelling out each side's killed/wounded/captured breakdown, a separate "Exchange ratio (enemy : player personnel lost)" line added nothing a reader couldn't already work out, and (per the round before this one) was also prone to reading as misleadingly precise when player losses were zero. Removed the line entirely; `exchange_ratio` itself is untouched and still drives the verdict thresholds (SUCCESSFUL DEFENSE/PYRRHIC DEFENSE/TACTICAL WITHDRAWAL), it's just no longer printed.
+
+**Verified:** a direct `_end_battle()` test confirmed the report text no longer contains "Exchange ratio" anywhere, while the verdict itself (computed from the same underlying ratio) still comes out correctly.
+
 ### 2026-09-06 — v68: a surrendered unit is not a threat to anyone
 
 Bug report: "A surrendered enemy squad should not be considered a threat by anyone. In this particular case, I saw a mortar flee from it. But that is not the only application of the principle."

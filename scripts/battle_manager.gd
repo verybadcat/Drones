@@ -2587,16 +2587,10 @@ func _end_battle() -> void:
 		enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent,
 		enemy_stats.killed, enemy_stats.heavily_wounded, enemy_stats.walking_wounded, enemy_stats.captured,
 	])
-	# The verdict math above needs `exchange_ratio` as a real, always-defined
-	# number (hence the max(...,1) floor there — dividing by zero player
-	# losses would crash it) — but DISPLAYING that same floored value reads
-	# as an oddly-precise, misleading ratio (e.g. "29.00 : 1") when the
-	# truth is simpler and better news than any finite ratio: zero player
-	# losses at all. Spelled out in words for that case instead of a number.
-	if player_stats.pips_lost == 0:
-		lines.append("Exchange ratio (enemy : player personnel lost): no player casualties at all (%d enemy)" % enemy_stats.pips_lost)
-	else:
-		lines.append("Exchange ratio (enemy : player personnel lost): %.2f : 1" % (float(enemy_stats.pips_lost) / float(player_stats.pips_lost)))
+	# No separate "exchange ratio" line — it was purely duplicative of the two
+	# casualty lines just above; `exchange_ratio` itself stays, still doing
+	# real work in the verdict math above (SUCCESSFUL DEFENSE/PYRRHIC
+	# DEFENSE/TACTICAL WITHDRAWAL thresholds), just no longer printed.
 	if not player_stats.destroyed.is_empty():
 		lines.append("Player losses: %s" % ", ".join(player_stats.destroyed))
 	if not player_stats.withdrawn.is_empty():
