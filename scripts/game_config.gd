@@ -586,6 +586,48 @@ const SQUAD_ENGAGEMENT_RANGE: float = 400.0 * PIXELS_PER_METER
 # range: a real light/medium mortar tops out well short of the whole map.
 const MORTAR_MAX_RANGE: float = 3500.0 * PIXELS_PER_METER
 
+# The drone's own TARGET PRIORITY scoring (see BattleManager.
+# _drone_search_target/_squad_danger_priority/_mortar_existence_
+# confidence) — a general "how urgent is this to watch" scale, not
+# hard-coded "if it's a mortar" branching, so a future third target kind
+# only needs its own priority term added here, not a rewrite of the
+# decision logic itself. A confirmed mortar (seen live, or a fresh,
+# specific fire-detection lead) sits far above anything a squad can ever
+# reach — real mortars are simply the bigger threat — while a squad's own
+# priority is genuinely variable, scaling with how close it's gotten to
+# any friendly unit (SQUAD_DANGER_RANGE: beyond it, a squad isn't yet a
+# real threat and scores 0; within it, danger ramps up to
+# TARGET_PRIORITY_SQUAD_MAX right at contact). A live-visible mortar
+# always wins outright; a bare fire-detection lead (real evidence, but a
+# stale position estimate rather than a live one) is discounted somewhat
+# but still normally beats any squad.
+const TARGET_PRIORITY_MORTAR: float = 100.0
+const TARGET_PRIORITY_MORTAR_LEAD_DISCOUNT: float = 0.8
+const TARGET_PRIORITY_SQUAD_MAX: float = 10.0
+const SQUAD_DANGER_RANGE: float = 1200.0 * PIXELS_PER_METER
+
+# How much the drone team should still bother sweeping wide for an
+# as-yet-undiscovered enemy mortar, expressed as a genuine expected value:
+# TARGET_PRIORITY_MORTAR (what finding one would be worth) times this
+# confidence (the estimated odds one is actually still out there to find).
+# Early in the battle a mortar may simply not have had a target yet, or be
+# holding fire waiting for one — confidence starts high (see the decay
+# function's own t=0 behavior) — but the longer real tactical time passes
+# with NO mortar fire detected anywhere (_last_detected_mortar_fire, which
+# already covers a mortar never even spotted, via muzzle-flash/trajectory
+# detection), the less plausible a live one remains, and confidence decays
+# on this real time constant toward MORTAR_CONFIDENCE_FLOOR (never quite
+# zero while at least one enemy mortar is genuinely still ACTIVE somewhere
+# — see _mortar_existence_confidence for the one case that DOES go to a
+# hard, certain zero: every enemy mortar confirmed out of action). This is
+# what lets the drone naturally shift its default search effort toward
+# tracking real, dangerous squads instead of an indefinite mortar-shaped
+# sweep once mortars stop looking like a live concern — exactly the
+# "increasingly confident there are no mortars to look for" behavior asked
+# for, without hard-coding "if both mortars are dead" anywhere.
+const MORTAR_CONFIDENCE_DECAY_TAU: float = 900.0 # tactical seconds (15 tactical minutes)
+const MORTAR_CONFIDENCE_FLOOR: float = 0.05
+
 # A mortar shell doesn't land the instant it's fired — 40 tactical seconds
 # of real flight time (see BattleManager._launch_mortar_shot /
 # _resolve_pending_mortar_shots). It's aimed at the target's ANTICIPATED

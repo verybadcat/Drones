@@ -944,28 +944,81 @@ func _update_returning_drones() -> void:
 		_drones_swapping.append({"time_left": GameConfig.DRONE_BATTERY_SWAP_DURATION, "charge": _pop_best_battery(_battery_pool)})
 
 
-## Where the airborne drone flies next, re-evaluated every tick — priority
-## order: (1) orbit whatever _visible_engageable_mortar finds — by far the
-## highest-value thing to keep eyes on; (2) failing that, the same
-## in-range standard applied to wherever each ACTIVE enemy mortar was last
-## DETECTED FIRING — checked per mortar, not just whichever fired most
-## recently, so an older but reachable fix wins over a fresher one the
-## friendly mortar still can't act on; (3) with no actionable mortar lead
-## at all, patrol the enemy's approach corridor (_drone_sweep_target) to
-## keep searching.
-##
-## Deliberately does NOT redirect to a merely-visible enemy SQUAD once no
-## mortar lead exists — the mission is hunting mortars, not escorting
-## infantry, and a squad's position alone isn't a useful mortar lead (real
-## mortars sit well back from the line, not draped over the nearest rifle
-## squad). Without this, the drone would just permanently park over the
-## first infantry it happened to spot instead of continuing to search.
+## How worried the drone team should still be that an as-yet-undiscovered
+## enemy mortar exists — see GameConfig.MORTAR_CONFIDENCE_DECAY_TAU/_FLOOR
+## for the full reasoning. Two cases: a hard, certain 0.0 once every enemy
+## mortar (by kind, regardless of whether it's ever been spotted — the
+## same omniscient state read _visible_engageable_mortar and everything
+## else here already relies on) is confirmed out of action, matching a
+## real commander eventually being told "the enemy mortars are destroyed";
+## short of that certainty, a smooth decay from ~1.0 toward FLOOR as real
+## tactical time passes with no mortar fire detected anywhere at all
+## (_last_detected_mortar_fire — muzzle-flash/trajectory detection, not
+## visual spotting, so this already covers a mortar that's never been seen
+## even once).
+func _mortar_existence_confidence() -> float:
+	var any_active_enemy_mortar := false
+	var last_fire_time := 0.0 # battle start, if nothing's fired yet at all
+	for u in enemy_units:
+		if u.kind != Unit.Kind.MORTAR:
+			continue
+		if u.state == Unit.State.ACTIVE:
+			any_active_enemy_mortar = true
+		var info: Dictionary = _last_detected_mortar_fire.get(u, {})
+		if not info.is_empty():
+			last_fire_time = max(last_fire_time, info.time)
+	if not any_active_enemy_mortar:
+		return 0.0
+	var elapsed: float = scenario_elapsed_time - last_fire_time
+	return GameConfig.MORTAR_CONFIDENCE_FLOOR + (1.0 - GameConfig.MORTAR_CONFIDENCE_FLOOR) * exp(-elapsed / GameConfig.MORTAR_CONFIDENCE_DECAY_TAU)
+
+
+## A visible, ACTIVE enemy squad's own target-priority score — see
+## GameConfig.TARGET_PRIORITY_SQUAD_MAX/SQUAD_DANGER_RANGE. Danger is
+## judged by proximity to the NEAREST active friendly unit of any kind
+## (squad, mortar, or the drone team's own ground station) — the closer it
+## is to actually being able to fight someone, the more it matters,
+## ramping smoothly from 0 at SQUAD_DANGER_RANGE up to the max right at
+## contact, rather than a hard in-range/out-of-range step.
+func _squad_danger_priority(u: Unit) -> float:
+	var nearest_friendly_dist := INF
+	for f in player_units:
+		if f.state == Unit.State.ACTIVE:
+			nearest_friendly_dist = min(nearest_friendly_dist, u.global_position.distance_to(f.global_position))
+	if is_inf(nearest_friendly_dist):
+		return 0.0
+	return GameConfig.TARGET_PRIORITY_SQUAD_MAX * clamp(1.0 - nearest_friendly_dist / GameConfig.SQUAD_DANGER_RANGE, 0.0, 1.0)
+
+
+## Where the airborne drone flies next, re-evaluated every tick — a genuine
+## TARGET PRIORITY comparison (GameConfig.TARGET_PRIORITY_*), not hard-coded
+## "mortars always win": whichever candidate scores highest right now wins,
+## so a future third target kind only needs its own scoring term, not a
+## rewrite of this decision. Candidates, each mapped to an actual position:
+## (1) a currently visible, engageable mortar (_visible_engageable_mortar) —
+## practically always the winner when one exists, since TARGET_PRIORITY_
+## MORTAR sits far above anything a squad can reach; (2) the freshest
+## in-range fire-detection lead on any ACTIVE mortar, discounted somewhat
+## for being a stale position rather than a live one, but still real
+## evidence rather than speculation; (3) the single most dangerous
+## currently-visible ACTIVE enemy squad; (4) the ongoing area sweep
+## (_drone_sweep_target), valued as the genuine expected value of what it
+## might still find — TARGET_PRIORITY_MORTAR times _mortar_existence_
+## confidence(). That last term is what lets the drone's default search
+## effort shift naturally toward tracking real, visible squads instead of
+## an indefinite mortar-shaped sweep once mortar fire hasn't been detected
+## in a long while, or every known enemy mortar is confirmed out of
+## action — without ever hard-coding either condition directly here.
 func _drone_search_target() -> Vector2:
+	var best_score := -1.0
+	var best_pos := Vector2.INF
+
 	var watched: Unit = _visible_engageable_mortar()
 	if watched != null:
-		return watched.global_position
+		best_score = GameConfig.TARGET_PRIORITY_MORTAR
+		best_pos = watched.global_position
 
-	var best_fire_pos := Vector2.INF
+	var lead_pos := Vector2.INF
 	var best_fire_time := -INF
 	for u in enemy_units:
 		if u.kind != Unit.Kind.MORTAR or u.state != Unit.State.ACTIVE:
@@ -979,11 +1032,30 @@ func _drone_search_target() -> Vector2:
 			continue
 		if info.time > best_fire_time:
 			best_fire_time = info.time
-			best_fire_pos = info.position
-	if not is_inf(best_fire_pos.x):
-		return best_fire_pos
+			lead_pos = info.position
+	if not is_inf(lead_pos.x):
+		var lead_score: float = GameConfig.TARGET_PRIORITY_MORTAR * GameConfig.TARGET_PRIORITY_MORTAR_LEAD_DISCOUNT
+		if lead_score > best_score:
+			best_score = lead_score
+			best_pos = lead_pos
 
-	return _drone_sweep_target()
+	var best_squad: Unit = null
+	var best_squad_score := -1.0
+	for u in enemy_units:
+		if u.kind == Unit.Kind.SQUAD and u.state == Unit.State.ACTIVE and u.is_visible:
+			var score: float = _squad_danger_priority(u)
+			if score > best_squad_score:
+				best_squad_score = score
+				best_squad = u
+	if best_squad != null and best_squad_score > best_score:
+		best_score = best_squad_score
+		best_pos = best_squad.global_position
+
+	var sweep_score: float = GameConfig.TARGET_PRIORITY_MORTAR * _mortar_existence_confidence()
+	if sweep_score > best_score or is_inf(best_pos.x):
+		best_pos = _drone_sweep_target()
+
+	return best_pos
 
 
 ## The single currently-visible, still-ACTIVE, in-range enemy mortar worth
