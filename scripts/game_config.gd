@@ -424,7 +424,12 @@ const DRONE_CRUISE_SPEED: float = 10.0 * PIXELS_PER_METER # ~36 km/h — a real 
 const DRONE_MAX_FLIGHT_TIME: float = 21.0 * 60.0 # tactical seconds — real Mavic-class endurance
 const DRONE_ROUND_TRIP_RANGE: float = 12000.0 * PIXELS_PER_METER # real Mavic-class round-trip range
 const DRONE_RTB_SAFETY_MARGIN: float = 300.0 * PIXELS_PER_METER # turn for home this much before the budget is actually exhausted
-const DRONE_RECHARGE_DURATION: float = 45.0 * 60.0 # tactical seconds — battery swap + charge + inspection before this airframe can fly again
+# A real Mavic-class flight battery (~5000mAh) takes about 96 minutes to
+# charge from empty on a standard charger — that's the actual constraint
+# that makes a 4-airframe rotation necessary in the first place, not a
+# guessed number. Plus a few minutes for the swap/inspection itself before
+# it goes on the charger.
+const DRONE_RECHARGE_DURATION: float = 100.0 * 60.0 # tactical seconds
 
 # From 300m up, camera resolution and a small, quiet airframe make a drone
 # both hard to acquire visually AND, even once someone's looking at it, hard

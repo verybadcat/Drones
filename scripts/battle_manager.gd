@@ -77,12 +77,16 @@ var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
 
 # ReconMode.DRONE_TEAM only. drone_team is the ground crew — a normal
 # player_units member, like the spotter it replaces. active_drone is the
-# SINGLE currently-airborne sortie, or null if the sky is momentarily empty
-# (a shoot-down with no standby ready yet) — only it exists as a real Unit;
-# the rest of the 4-airframe fleet is plain bookkeeping, since a grounded
-# drone isn't part of the battle in any way. See _update_drone_operations.
+# currently-searching sortie, or null if the sky is momentarily empty (a
+# shoot-down with no standby ready yet). returning_drone is a SEPARATE
+# sortie that's already handed off search duty to the new active_drone but
+# is still physically flying home — it doesn't just vanish the instant a
+# replacement launches (see _update_active_drone/_update_returning_drone);
+# only these two ever exist as real Units, since anything grounded isn't
+# part of the battle in any way. See _update_drone_operations.
 var drone_team: Unit = null
 var active_drone: Unit = null
+var returning_drone: Unit = null
 var _drones_ready_for_launch: int = 0
 var _drone_recovering: Array[float] = [] # remaining GameConfig.DRONE_RECHARGE_DURATION, one entry per grounded drone
 var _drones_destroyed: int = 0 # airframes permanently lost (shot down) this battle
@@ -104,6 +108,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	recon_mode = doctrine.get("recon_mode", GameConfig.ReconMode.SPOTTER)
 	drone_team = null
 	active_drone = null
+	returning_drone = null
 	_drones_ready_for_launch = 0
 	_drone_recovering.clear()
 	_drones_destroyed = 0
@@ -475,25 +480,35 @@ func _known_enemy_mortar_fire_position() -> Vector2:
 
 
 ## Runs the whole drone-fleet rotation for one tick — ReconMode.DRONE_TEAM
-## only, no-op otherwise. Ticks every grounded drone's recharge timer, then
-## either updates the currently-airborne sortie (which may end its own
-## flight this tick — see _update_active_drone) or, if the sky is empty and
-## a standby is ready, launches one immediately. Routing BOTH "just got shot
-## down" (via _on_drone_state_changed clearing active_drone) and "hit its
-## flight budget" (via _update_active_drone clearing it) through this same
-## single launch check means a swap is never more than one tick late either
-## way, and there's exactly one place that decides when to launch.
+## only, no-op otherwise. Ticks every grounded drone's recharge timer,
+## advances a drone already flying home (see _update_returning_drone),
+## updates the currently-searching sortie (which may hand off to a return
+## flight this tick — see _update_active_drone), then, if the sky has no
+## SEARCHING drone in it and a standby is ready, launches one immediately.
+## Routing BOTH "just got shot down" (via _on_drone_state_changed clearing
+## active_drone) and "hit its flight budget" (via _update_active_drone
+## clearing it) through this same single launch check means a swap is never
+## more than one tick late either way, and there's exactly one place that
+## decides when to launch — the replacement flies while the old one is
+## still genuinely inbound, not after it's vanished.
 func _update_drone_operations(scenario_delta: float) -> void:
 	if recon_mode != GameConfig.ReconMode.DRONE_TEAM or drone_team == null:
 		return
 	if drone_team.state != Unit.State.ACTIVE:
-		# Team destroyed or pulled back — nobody left to fly it. Whatever's
-		# airborne is abandoned along with the ground station; no further
-		# launches for the rest of the battle.
-		if active_drone != null:
-			player_units.erase(active_drone)
-			active_drone.queue_free()
-			active_drone = null
+		# Team destroyed or pulled back — nobody left to fly them. Whatever's
+		# airborne (searching or inbound) is abandoned along with the ground
+		# station; no further launches for the rest of the battle. Counted as
+		# a loss (not literally shot down, but permanently gone either way)
+		# rather than just freed, so the fleet total always stays accounted
+		# for — every airframe ends the battle as exactly one of airborne,
+		# inbound, ready, recovering, or lost.
+		for d in [active_drone, returning_drone]:
+			if d != null:
+				player_units.erase(d)
+				d.queue_free()
+				_drones_destroyed += 1
+		active_drone = null
+		returning_drone = null
 		return
 
 	for i in range(_drone_recovering.size() - 1, -1, -1):
@@ -502,8 +517,11 @@ func _update_drone_operations(scenario_delta: float) -> void:
 			_drone_recovering.remove_at(i)
 			_drones_ready_for_launch += 1
 
+	if returning_drone != null:
+		_update_returning_drone()
+
 	if active_drone != null:
-		_update_active_drone(scenario_delta) # may clear active_drone (routine RTB)
+		_update_active_drone(scenario_delta) # may hand off to returning_drone (routine RTB)
 
 	if active_drone == null and _drones_ready_for_launch > 0:
 		_launch_drone()
@@ -519,17 +537,22 @@ func _launch_drone() -> void:
 
 
 ## Only ever fires for a genuine shoot-down — a routine return-to-base never
-## sets DESTROYED (see _update_active_drone, which clears active_drone
-## itself without touching the unit's state at all). Bumps the permanent
-## loss count (that airframe never flies again this battle) and lets
-## _update_drone_operations's own launch check handle getting the standby
-## up — this signal handler only needs to record the loss.
+## sets DESTROYED (it lands and is freed in _update_returning_drone once it
+## arrives). Bumps the permanent loss count (that airframe never flies again
+## this battle) and, if it was the searching drone, clears active_drone so
+## _update_drone_operations's own launch check gets the standby up — this
+## signal handler only needs to record the loss and clear the right slot.
 func _on_drone_state_changed(unit: Unit) -> void:
-	if unit != active_drone or unit.state != Unit.State.DESTROYED:
+	if unit.state != Unit.State.DESTROYED:
+		return
+	if unit == active_drone:
+		active_drone = null
+	elif unit == returning_drone:
+		returning_drone = null
+	else:
 		return
 	_drones_destroyed += 1
 	combat_log.log_drone_shot_down(unit)
-	active_drone = null
 
 
 ## Ticks one sortie's flight-time/range budget (see GameConfig.
@@ -538,11 +561,12 @@ func _on_drone_state_changed(unit: Unit) -> void:
 ## once, so it reacts immediately to a freshly-spotted mortar or a
 ## shoot-and-scoot relocation instead of plodding toward a stale point (see
 ## _drone_search_target). Once the remaining budget is only just enough to
-## get home (with DRONE_RTB_SAFETY_MARGIN to spare), it heads back and this
-## sortie ends right here — a real return flight isn't separately simulated;
-## the very next tick's launch check (see _update_drone_operations) puts the
-## standby up in its place, matching a real handoff that starts before the
-## old one has actually touched down.
+## get home (with DRONE_RTB_SAFETY_MARGIN to spare), it hands off search
+## duty and turns for a real, simulated flight home — see
+## _update_returning_drone — rather than simply vanishing; the very next
+## tick's launch check (see _update_drone_operations) puts the standby up in
+## its place, matching a real handoff that starts before the old one has
+## actually touched down, not after.
 func _update_active_drone(scenario_delta: float) -> void:
 	var d := active_drone
 	d.drone_flight_time += scenario_delta
@@ -555,10 +579,13 @@ func _update_active_drone(scenario_delta: float) -> void:
 
 	if remaining_time <= time_needed_home or remaining_range <= distance_home + GameConfig.DRONE_RTB_SAFETY_MARGIN:
 		combat_log.log_drone_returning(d)
-		player_units.erase(d)
-		d.queue_free()
+		d.move_target = drone_team.global_position
+		d.has_move_target = true
+		d.move_queue.clear()
+		d.move_speed = GameConfig.DRONE_CRUISE_SPEED
+		d.movement_predictable = true # a direct beeline home now, not an erratic search
+		returning_drone = d
 		active_drone = null
-		_drone_recovering.append(GameConfig.DRONE_RECHARGE_DURATION)
 		return
 
 	d.move_target = _drone_search_target()
@@ -566,6 +593,24 @@ func _update_active_drone(scenario_delta: float) -> void:
 	d.move_queue.clear()
 	d.move_speed = GameConfig.DRONE_CRUISE_SPEED
 	d.movement_predictable = false
+
+
+## A drone that's already handed off search duty (see _update_active_drone)
+## but is still physically inbound — real, visible flight time, covered by
+## the same generic movement system as everything else (_tick_movement,
+## called earlier in _process, actually steps it toward drone_team's
+## position since it's ACTIVE with has_move_target set). This just watches
+## for arrival: _step_toward_target clears has_move_target the instant it
+## reaches drone_team, which is this function's cue to land it for real —
+## free the Unit and start its recharge clock.
+func _update_returning_drone() -> void:
+	var d := returning_drone
+	if d.has_move_target:
+		return # still en route
+	player_units.erase(d)
+	d.queue_free()
+	returning_drone = null
+	_drone_recovering.append(GameConfig.DRONE_RECHARGE_DURATION)
 
 
 ## Where the airborne drone flies next, re-evaluated every tick — priority
@@ -1298,6 +1343,7 @@ func drone_fleet_status() -> Dictionary:
 		"team_crew_killed": drone_team.crew_killed if drone_team else 0,
 		"team_crew_size": drone_team.crew_size if drone_team else 0,
 		"airborne": active_drone != null,
+		"inbound": returning_drone != null,
 		"ready": _drones_ready_for_launch,
 		"recovering": _drone_recovering.size(),
 		"destroyed": _drones_destroyed,
