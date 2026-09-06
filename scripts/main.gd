@@ -1,7 +1,13 @@
 extends Node2D
-## Root scene: deployment (drag units + set doctrine), then the battle (with
-## a general retreat order the player can give at any time), then the AAR
-## report with a restart so you can change doctrine and try again.
+## Root scene: a level-select screen (spotter vs. drone team — see
+## GameConfig.ReconMode), then deployment (drag units + set doctrine), then
+## the battle (with a general retreat order the player can give at any
+## time), then the AAR report with a restart so you can change doctrine and
+## try again. Restarting keeps the recon mode chosen at the start — level
+## select only appears once, at launch.
+
+var level_select_screen: LevelSelectScreen
+var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
 
 var deployment_screen: DeploymentScreen
 var doctrine_panel: DoctrinePanel
@@ -45,7 +51,7 @@ func _ready() -> void:
 
 	queue_redraw() # the scale bar is static; draw it once up front
 
-	_show_deployment()
+	_show_level_select()
 
 
 func _process(_delta: float) -> void:
@@ -75,10 +81,11 @@ func _draw() -> void:
 
 
 func _clear_all() -> void:
-	for node in [deployment_screen, doctrine_panel, start_button, battle_manager,
+	for node in [level_select_screen, deployment_screen, doctrine_panel, start_button, battle_manager,
 			combat_log, casualty_dashboard, retreat_button, report_background, restart_button]:
 		if node:
 			node.queue_free()
+	level_select_screen = null
 	deployment_screen = null
 	doctrine_panel = null
 	start_button = null
@@ -90,10 +97,24 @@ func _clear_all() -> void:
 	restart_button = null
 
 
+func _show_level_select() -> void:
+	_clear_all()
+
+	level_select_screen = LevelSelectScreen.new()
+	level_select_screen.mode_chosen.connect(_on_recon_mode_chosen)
+	add_child(level_select_screen)
+
+
+func _on_recon_mode_chosen(mode: GameConfig.ReconMode) -> void:
+	recon_mode = mode
+	_show_deployment()
+
+
 func _show_deployment() -> void:
 	_clear_all()
 
 	deployment_screen = DeploymentScreen.new()
+	deployment_screen.recon_mode = recon_mode
 	add_child(deployment_screen)
 
 	doctrine_panel = DoctrinePanel.new()
@@ -125,6 +146,7 @@ func _on_start_pressed() -> void:
 		"squads": squads,
 		"mortar": mortar_doctrine,
 		"spotter": {"position": positions.spotter_position},
+		"recon_mode": recon_mode,
 	}
 
 	deployment_screen.queue_free()
@@ -150,7 +172,7 @@ func _on_start_pressed() -> void:
 	add_child(casualty_dashboard)
 
 	combat_log = CombatLog.new()
-	combat_log.position = Vector2(1020, 330)
+	combat_log.position = Vector2(1020, 370) # clears the dashboard's height even with the drone row shown
 	add_child(combat_log)
 
 	battle_manager.start_battle(doctrine, combat_log)

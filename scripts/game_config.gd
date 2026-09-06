@@ -15,6 +15,14 @@ class_name GameConfig
 
 enum TerrainType { OPEN, TREES, BUILDING }
 
+## The two fieldable reconnaissance/target-acquisition setups the player
+## chooses between before deployment (see main.gd's level-select screen):
+## SPOTTER is the original ground team calling in fire on what it can see
+## from wherever it's posted; DRONE_TEAM replaces it with a small crew
+## flying a rotation of scout drones — see Unit.Kind.DRONE_TEAM/DRONE and
+## the drone-specific constants below.
+enum ReconMode { SPOTTER, DRONE_TEAM }
+
 ## The map spans a real 5km left-to-right. The playable battle canvas is
 ## MAP_WIDTH_PX wide (the rest of the window, from ~1020px on, is the sidebar
 ## UI — see main.gd) and MAP_HEIGHT_PX tall (the full window height), which
@@ -274,10 +282,13 @@ const PLAYER_DEPLOYMENT_ZONE: Rect2 = Rect2(400.0 * PIXELS_PER_METER, 100.0 * PI
 # village for one to use now that the map is a real 5km across.
 const PLAYER_MORTAR_DEPLOYMENT_ZONE: Rect2 = Rect2(50.0 * PIXELS_PER_METER, 80.0 * PIXELS_PER_METER, 2150.0 * PIXELS_PER_METER, 3350.0 * PIXELS_PER_METER)
 
-# The spotter can deploy just about anywhere on the map — it's a
-# reconnaissance asset, not a firing position, and unlike squads/mortar
-# isn't restricted to the village. Kept a small margin off the outer edges
-# only so it can't be dropped literally off-map.
+# Whichever reconnaissance asset the player is fielding this battle (see
+# ReconMode) can deploy just about anywhere on the map — it's not a firing
+# position, and unlike squads/mortar isn't restricted to the village. Kept a
+# small margin off the outer edges only so it can't be dropped literally
+# off-map. Shared by both the artillery spotter and the drone team's ground
+# station: the deployment CHOICE they represent (where to post your recon
+# asset) is the same regardless of which one it physically is.
 const PLAYER_SPOTTER_DEPLOYMENT_ZONE: Rect2 = Rect2(50.0 * PIXELS_PER_METER, 50.0 * PIXELS_PER_METER, 4900.0 * PIXELS_PER_METER, 3400.0 * PIXELS_PER_METER)
 const PLAYER_SPOTTER_DEFAULT_POSITION: Vector2 = Vector2(1900.0 * PIXELS_PER_METER, 1750.0 * PIXELS_PER_METER)
 
@@ -388,6 +399,58 @@ const MOVING_SPOT_MULTIPLIER: float = 3.0
 const SPOTTER_DETECTION_RANGE_BONUS: float = 500.0 * PIXELS_PER_METER # added to its own spotting rolls
 const SPOTTER_HIDDEN_DETECTION_RANGE: float = 250.0 * PIXELS_PER_METER # replaces detection range entirely when in cover
 const SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER: float = 0.8 # applies only when NOT in cover
+
+# The drone team (ReconMode.DRONE_TEAM): a 3-person ground crew (ground-side
+# stats mirror the mortar's crew model — see Unit.Kind.DRONE_TEAM/
+# _apply_crew_casualties) operating a rotation of 4 small quadcopter scouts.
+# Real numbers, not abstractions: a Mavic-class airframe's actual specs —
+# 12km round-trip range, ~21 minutes flight time — are what actually force
+# the rotation in the first place, not a made-up "cooldown."
+#
+# Exactly one drone is airborne at a time; a second sits fully charged,
+# ready to launch the instant the flying one needs replacing — either
+# because it's been shot down (unplanned — see BattleManager's
+# _on_drone_state_changed) or because it's hit its flight-time/range budget
+# and is returning to base (planned — the standby launches immediately, not
+# after the old one physically lands, so there's no coverage gap on a
+# routine swap; see BattleManager._update_drone_operations). The other two
+# are cycling through DRONE_RECHARGE_DURATION before becoming the next
+# standby — a real, occasionally-binding constraint over a long battle, not
+# a guarantee of eternal unbroken coverage.
+const DRONE_FLEET_SIZE: int = 4
+const DRONE_TEAM_CREW_SIZE: int = 3
+const DRONE_ALTITUDE_M: float = 300.0
+const DRONE_CRUISE_SPEED: float = 10.0 * PIXELS_PER_METER # ~36 km/h — a real search-pattern cruise, not sprint speed
+const DRONE_MAX_FLIGHT_TIME: float = 21.0 * 60.0 # tactical seconds — real Mavic-class endurance
+const DRONE_ROUND_TRIP_RANGE: float = 12000.0 * PIXELS_PER_METER # real Mavic-class round-trip range
+const DRONE_RTB_SAFETY_MARGIN: float = 300.0 * PIXELS_PER_METER # turn for home this much before the budget is actually exhausted
+const DRONE_RECHARGE_DURATION: float = 45.0 * 60.0 # tactical seconds — battery swap + charge + inspection before this airframe can fly again
+
+# From 300m up, camera resolution and a small, quiet airframe make a drone
+# both hard to acquire visually AND, even once someone's looking at it, hard
+# to actually hit with small arms — two SEPARATE multipliers because
+# spotting it and hitting it are two separate rolls (see CombatResolver).
+# It doesn't stand on any terrain in a meaningful sense, so it skips the
+# normal terrain-based concealment/cover tables entirely — these replace
+# those outright rather than multiplying into them.
+const DRONE_SPOT_CHANCE_MULTIPLIER: float = 0.15
+const DRONE_HIT_CHANCE_MULTIPLIER: float = 0.1
+
+# The drone's own view is a genuinely different (better) sensor, not just a
+# bigger number bolted onto the spotter's: a wider detection range, and —
+# because it's looking mostly straight down rather than across open ground —
+# concealment that works at ground level (a treeline breaking up a rifle
+# squad's sightline, a building's wall blocking a ground observer) is much
+# less effective against it. A solid roof still fully hides what's under it
+# from directly overhead, though, so BUILDING stays real cover — more
+# effective against the drone than TREES is, the reverse of the ground-level
+# table (see CombatResolver.CONCEALMENT_MULTIPLIER).
+const DRONE_DETECTION_RANGE: float = 1600.0 * PIXELS_PER_METER
+const DRONE_CONCEALMENT_MULTIPLIER := {
+	TerrainType.OPEN: 1.0,
+	TerrainType.TREES: 0.8,
+	TerrainType.BUILDING: 0.5,
+}
 
 # A unit caught moving in the open is much easier to hit by DIRECT fire, not
 # just to spot — it has broken cover to advance (or to retreat). See
@@ -880,6 +943,24 @@ static func has_direct_los(from: Vector2, to: Vector2) -> bool:
 		var sample_pos: Vector2 = from.lerp(to, t)
 		var sightline_height: float = lerp(from_eye, to_eye, t)
 		if elevation_m(sample_pos) > sightline_height + LOS_TERRAIN_TOLERANCE_M:
+			return false
+	return true
+
+
+## The same BUILDING-blocking rule as has_direct_los, but with NO ground-
+## elevation masking at all — a drone loitering at DRONE_ALTITUDE_M (300m)
+## is well above every hill on this map (the tallest is 35m), so terrain
+## that would block a ground-level sightline simply doesn't block a look
+## straight down from up there. A solid roof still hides what's directly
+## under it, though — that's a real obstruction regardless of viewing
+## angle — so BUILDING blocking is kept exactly as-is.
+static func has_aerial_los(from: Vector2, to: Vector2) -> bool:
+	for zone in TERRAIN_ZONES:
+		if zone.type != TerrainType.BUILDING:
+			continue
+		if zone.rect.has_point(from) or zone.rect.has_point(to):
+			continue
+		if _line_crosses_rect(from, to, zone.rect):
 			return false
 	return true
 

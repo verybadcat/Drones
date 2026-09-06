@@ -41,6 +41,12 @@ const CONCEALMENT_MULTIPLIER := {
 static func effective_detection_range(observer: Unit, target: Unit) -> float:
 	if target.kind == Unit.Kind.SPOTTER and GameConfig.is_in_cover(target.terrain_type()):
 		return GameConfig.SPOTTER_HIDDEN_DETECTION_RANGE
+	# A drone's camera at DRONE_ALTITUDE_M is a wholly different sensor, not
+	# the ground-based one with a bonus bolted on — it replaces the whole
+	# calculation, including the elevation-advantage bonus below (a drone is
+	# always far higher than literally any point on this map already).
+	if observer.kind == Unit.Kind.DRONE:
+		return GameConfig.DRONE_DETECTION_RANGE
 	var detection_range: float = GameConfig.DETECTION_BASE_RANGE
 	if observer.kind == Unit.Kind.SPOTTER:
 		detection_range += GameConfig.SPOTTER_DETECTION_RANGE_BONUS
@@ -65,8 +71,22 @@ static func effective_detection_range(observer: Unit, target: Unit) -> float:
 ## job). Its OWN concealment is two very different stories: hidden in cover,
 ## the enemy effectively can't find it beyond point-blank range; standing in
 ## the open, it's found close to normally.
+##
+## A DRONE observer uses has_aerial_los instead of has_direct_los (see
+## GameConfig — no ground-elevation blocking, since it's flying well above
+## every hill) and DRONE_CONCEALMENT_MULTIPLIER instead of the ground-level
+## CONCEALMENT_MULTIPLIER table (less penalty for TREES specifically — a
+## canopy is porous from above in a way it isn't from across open ground —
+## more penalty for BUILDING, which fully hides what's under its roof
+## either way). A DRONE TARGET skips terrain concealment entirely — it isn't
+## standing on any of it — in favor of a flat, severe DRONE_SPOT_CHANCE_
+## MULTIPLIER: hard to pick out from the ground no matter who's looking or
+## what's under it.
 static func roll_spot(observer: Unit, target: Unit, delta: float) -> bool:
-	if not GameConfig.has_direct_los(observer.global_position, target.global_position):
+	var observer_is_drone := observer.kind == Unit.Kind.DRONE
+	var has_los: bool = GameConfig.has_aerial_los(observer.global_position, target.global_position) if observer_is_drone \
+		else GameConfig.has_direct_los(observer.global_position, target.global_position)
+	if not has_los:
 		return false
 
 	var distance: float = observer.global_position.distance_to(target.global_position)
@@ -74,11 +94,15 @@ static func roll_spot(observer: Unit, target: Unit, delta: float) -> bool:
 	if distance > detection_range:
 		return false
 
-	var target_hidden_spotter := target.kind == Unit.Kind.SPOTTER and GameConfig.is_in_cover(target.terrain_type())
 	var chance: float = GameConfig.SPOT_CHANCE_PER_SECOND
-	chance *= CONCEALMENT_MULTIPLIER[target.terrain_type()]
-	if target.kind == Unit.Kind.SPOTTER and not target_hidden_spotter:
-		chance *= GameConfig.SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER
+	if target.kind == Unit.Kind.DRONE:
+		chance *= GameConfig.DRONE_SPOT_CHANCE_MULTIPLIER
+	else:
+		var concealment_table: Dictionary = GameConfig.DRONE_CONCEALMENT_MULTIPLIER if observer_is_drone else CONCEALMENT_MULTIPLIER
+		chance *= concealment_table[target.terrain_type()]
+		var target_hidden_spotter := target.kind == Unit.Kind.SPOTTER and GameConfig.is_in_cover(target.terrain_type())
+		if target.kind == Unit.Kind.SPOTTER and not target_hidden_spotter:
+			chance *= GameConfig.SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER
 	if target.activity == Unit.Activity.MOVING:
 		chance *= GameConfig.MOVING_SPOT_MULTIPLIER
 	chance *= clamp(1.0 - (distance / detection_range), 0.0, 1.0)
@@ -101,7 +125,9 @@ static func has_live_observer(target: Unit, observers: Array[Unit]) -> bool:
 		var distance: float = observer.global_position.distance_to(target.global_position)
 		if distance > effective_detection_range(observer, target):
 			continue
-		if GameConfig.has_direct_los(observer.global_position, target.global_position):
+		var has_los: bool = GameConfig.has_aerial_los(observer.global_position, target.global_position) if observer.kind == Unit.Kind.DRONE \
+			else GameConfig.has_direct_los(observer.global_position, target.global_position)
+		if has_los:
 			return true
 	return false
 
@@ -129,16 +155,24 @@ static func has_live_observer(target: Unit, observers: Array[Unit]) -> bool:
 ## defender's own side's point of view (so that same retreat never heads
 ## toward, or lands right next to, a threat its own side already knows
 ## about — see nearest_cover_point's DANGER_RADIUS exclusion).
+## A DRONE defender skips the terrain-based cover table entirely — it isn't
+## standing on any ground to take cover in — in favor of a flat, severe
+## DRONE_HIT_CHANCE_MULTIPLIER: altitude, not a foxhole, is what protects it,
+## and that protection doesn't depend on whether it happens to be moving.
 static func resolve_fire(attacker: Unit, defender: Unit, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = []) -> bool:
-	var moving := defender.activity == Unit.Activity.MOVING
-	var cover_table: Dictionary = MORTAR_COVER_MULTIPLIER if attacker.kind == Unit.Kind.MORTAR else SQUAD_COVER_MULTIPLIER
-	var cover_multiplier: float = 1.0 if moving else cover_table[defender.terrain_type()]
-	var chance: float = attacker.base_hit_chance * cover_multiplier
-	if moving:
-		if attacker.kind == Unit.Kind.MORTAR:
-			chance *= GameConfig.MORTAR_PREDICTABLE_MOVING_MULTIPLIER if defender.movement_predictable else GameConfig.MORTAR_UNPREDICTABLE_MOVING_MULTIPLIER
-		else:
-			chance *= GameConfig.MOVING_HIT_MULTIPLIER
+	var chance: float
+	if defender.kind == Unit.Kind.DRONE:
+		chance = attacker.base_hit_chance * GameConfig.DRONE_HIT_CHANCE_MULTIPLIER
+	else:
+		var moving := defender.activity == Unit.Activity.MOVING
+		var cover_table: Dictionary = MORTAR_COVER_MULTIPLIER if attacker.kind == Unit.Kind.MORTAR else SQUAD_COVER_MULTIPLIER
+		var cover_multiplier: float = 1.0 if moving else cover_table[defender.terrain_type()]
+		chance = attacker.base_hit_chance * cover_multiplier
+		if moving:
+			if attacker.kind == Unit.Kind.MORTAR:
+				chance *= GameConfig.MORTAR_PREDICTABLE_MOVING_MULTIPLIER if defender.movement_predictable else GameConfig.MORTAR_UNPREDICTABLE_MOVING_MULTIPLIER
+			else:
+				chance *= GameConfig.MOVING_HIT_MULTIPLIER
 	var hit: bool = randf() < chance
 	if hit:
 		defender.take_hit(attacker.kind == Unit.Kind.MORTAR, ally_positions, known_enemy_positions)

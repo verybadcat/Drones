@@ -1,9 +1,12 @@
 extends Node2D
 class_name DeploymentScreen
 ## Pre-battle map view: shows the actual terrain and lets the player drag
-## their 3 squads, mortar, and artillery spotter to starting positions
-## before the battle begins. Uses _unhandled_input so clicks over the
-## sidebar's Controls (sliders, buttons) never start a drag.
+## their 3 squads, mortar, and recon asset (artillery spotter or drone
+## team — see recon_mode) to starting positions before the battle begins.
+## Uses _unhandled_input so clicks over the sidebar's Controls (sliders,
+## buttons) never start a drag.
+
+var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
 
 var _tokens: Array[UnitToken] = []
 var _squad_tokens: Array[UnitToken] = []
@@ -25,9 +28,13 @@ func _ready() -> void:
 	_mortar_token.setup(Unit.Kind.MORTAR, "Mortar", GameConfig.PLAYER_MORTAR_DEFAULT_POSITION, GameConfig.PLAYER_MORTAR_DEPLOYMENT_ZONE)
 	_tokens.append(_mortar_token)
 
+	# Same deployment zone/default position either way — see GameConfig.
+	# PLAYER_SPOTTER_DEPLOYMENT_ZONE's comment.
 	_spotter_token = UnitToken.new()
 	add_child(_spotter_token)
-	_spotter_token.setup(Unit.Kind.SPOTTER, "Spotter", GameConfig.PLAYER_SPOTTER_DEFAULT_POSITION, GameConfig.PLAYER_SPOTTER_DEPLOYMENT_ZONE)
+	var recon_kind: Unit.Kind = Unit.Kind.DRONE_TEAM if recon_mode == GameConfig.ReconMode.DRONE_TEAM else Unit.Kind.SPOTTER
+	var recon_label: String = "Drone Team" if recon_mode == GameConfig.ReconMode.DRONE_TEAM else "Spotter"
+	_spotter_token.setup(recon_kind, recon_label, GameConfig.PLAYER_SPOTTER_DEFAULT_POSITION, GameConfig.PLAYER_SPOTTER_DEPLOYMENT_ZONE)
 	_tokens.append(_spotter_token)
 
 	queue_redraw()

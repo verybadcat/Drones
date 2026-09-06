@@ -65,18 +65,32 @@ func log_reports_issue(unit: Unit) -> void:
 
 
 func log_destroyed(unit: Unit) -> void:
-	if unit.kind == Unit.Kind.MORTAR:
-		add_entry("%s's entire crew is down (%d/%d killed) — the gun is lost" % [
-			unit.display_name(), unit.crew_killed, unit.crew_size
+	if unit.kind == Unit.Kind.MORTAR or unit.kind == Unit.Kind.DRONE_TEAM:
+		var what := "the gun" if unit.kind == Unit.Kind.MORTAR else "the operation"
+		add_entry("%s's entire crew is down (%d/%d killed) — %s is lost" % [
+			unit.display_name(), unit.crew_killed, unit.crew_size, what
 		])
 	else:
 		add_entry("%s %s" % [unit.display_name(), unit.destroyed_verb()])
 
 
-func log_mortar_abandoned(unit: Unit) -> void:
-	add_entry("%s takes a hit — %d/%d crew down, survivors abandon the gun and flee" % [
-		unit.display_name(), unit.crew_killed, unit.crew_size
+func log_crew_abandoned(unit: Unit) -> void:
+	var what := "the gun" if unit.kind == Unit.Kind.MORTAR else "operations"
+	add_entry("%s takes a hit — %d/%d crew down, survivors abandon %s and flee" % [
+		unit.display_name(), unit.crew_killed, unit.crew_size, what
 	])
+
+
+func log_drone_launched(unit: Unit) -> void:
+	add_entry("%s launches" % unit.display_name())
+
+
+func log_drone_shot_down(unit: Unit) -> void:
+	add_entry("%s is shot down" % unit.display_name())
+
+
+func log_drone_returning(unit: Unit) -> void:
+	add_entry("%s returns to base — standby launching" % unit.display_name())
 
 
 func log_bunching_spillover(defender: Unit, spillover: Unit) -> void:

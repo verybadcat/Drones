@@ -69,6 +69,24 @@ var _pending_mortar_shots: Array[Dictionary] = []
 # mortar isn't currently visible either).
 var _last_detected_mortar_fire: Dictionary = {}
 
+# Which reconnaissance setup this battle is using (see GameConfig.ReconMode)
+# — set from the doctrine dict in start_battle. DRONE_TEAM fields below are
+# only ever populated/consumed when this is DRONE_TEAM; harmless no-ops
+# otherwise (every function that touches them checks this first).
+var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
+
+# ReconMode.DRONE_TEAM only. drone_team is the ground crew — a normal
+# player_units member, like the spotter it replaces. active_drone is the
+# SINGLE currently-airborne sortie, or null if the sky is momentarily empty
+# (a shoot-down with no standby ready yet) — only it exists as a real Unit;
+# the rest of the 4-airframe fleet is plain bookkeeping, since a grounded
+# drone isn't part of the battle in any way. See _update_drone_operations.
+var drone_team: Unit = null
+var active_drone: Unit = null
+var _drones_ready_for_launch: int = 0
+var _drone_recovering: Array[float] = [] # remaining GameConfig.DRONE_RECHARGE_DURATION, one entry per grounded drone
+var _drones_destroyed: int = 0 # airframes permanently lost (shot down) this battle
+
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	combat_log = p_combat_log
@@ -83,6 +101,12 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_last_detected_mortar_fire.clear()
 	_pending_counter_battery.clear()
 	_pending_mortar_shots.clear()
+	recon_mode = doctrine.get("recon_mode", GameConfig.ReconMode.SPOTTER)
+	drone_team = null
+	active_drone = null
+	_drones_ready_for_launch = 0
+	_drone_recovering.clear()
+	_drones_destroyed = 0
 
 	for unit in player_units + enemy_units:
 		unit.queue_free()
@@ -153,9 +177,26 @@ func _spawn_player_units(doctrine: Dictionary) -> void:
 	_set_retreat_profile(m1, Unit.Team.PLAYER)
 	player_units.append(m1)
 
-	var spotter := _make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, doctrine.spotter.position)
-	_set_retreat_profile(spotter, Unit.Team.PLAYER)
-	player_units.append(spotter)
+	# `doctrine.spotter.position` is the deployment CHOICE (see
+	# GameConfig.PLAYER_SPOTTER_DEPLOYMENT_ZONE) — reused as-is for the drone
+	# team's ground-station position too, regardless of which recon mode was
+	# actually picked (see main.gd).
+	if recon_mode == GameConfig.ReconMode.DRONE_TEAM:
+		drone_team = _make_unit(Unit.Team.PLAYER, Unit.Kind.DRONE_TEAM, doctrine.spotter.position)
+		_set_retreat_profile(drone_team, Unit.Team.PLAYER)
+		player_units.append(drone_team)
+		# Steady-state rotation from H-hour: one launches immediately (below,
+		# consuming one of these two), one sits fully charged as standby, the
+		# remaining two start a full recharge cycle — see GameConfig's
+		# DRONE_* constants.
+		_drones_ready_for_launch = 2
+		for i in GameConfig.DRONE_FLEET_SIZE - 2:
+			_drone_recovering.append(GameConfig.DRONE_RECHARGE_DURATION)
+		_launch_drone()
+	else:
+		var spotter := _make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, doctrine.spotter.position)
+		_set_retreat_profile(spotter, Unit.Team.PLAYER)
+		player_units.append(spotter)
 
 
 func _spawn_enemy_units() -> void:
@@ -238,7 +279,7 @@ func order_general_retreat() -> void:
 ## covering the withdrawal, still hunting for counter-battery range on the
 ## opposing mortar) rather than pulling a perfectly good gun out of action
 ## for no tactical reason. A mortar still retreats on its own if it's
-## personally hit (Unit._apply_mortar_casualties) — this just means the
+## personally hit (Unit._apply_crew_casualties) — this just means the
 ## infantry giving up doesn't automatically drag it along too.
 ##
 ## The log banner states the actual casualty percentage that triggered
@@ -411,6 +452,147 @@ func _known_friendly_mortar_position() -> Vector2:
 	return best_pos
 
 
+## Mirror of _known_friendly_mortar_position, read the other way: the best
+## fix the DRONE currently has on an ENEMY mortar via detected firing (live
+## sight is checked separately, first, in _drone_search_target — this is
+## only the fallback for reacquiring one that's gone quiet, e.g. after
+## shoot-and-scoot). Vector2.INF if nothing's fired recently enough to go on.
+func _known_enemy_mortar_fire_position() -> Vector2:
+	var best_pos := Vector2.INF
+	var best_time := -INF
+	for u in enemy_units:
+		if u.kind != Unit.Kind.MORTAR or u.state == Unit.State.DESTROYED:
+			continue
+		var info: Dictionary = _last_detected_mortar_fire.get(u, {})
+		if info.is_empty():
+			continue
+		if scenario_elapsed_time - info.time > GameConfig.MORTAR_FIRE_DETECTION_EXPIRY:
+			continue
+		if info.time > best_time:
+			best_time = info.time
+			best_pos = info.position
+	return best_pos
+
+
+## Runs the whole drone-fleet rotation for one tick — ReconMode.DRONE_TEAM
+## only, no-op otherwise. Ticks every grounded drone's recharge timer, then
+## either updates the currently-airborne sortie (which may end its own
+## flight this tick — see _update_active_drone) or, if the sky is empty and
+## a standby is ready, launches one immediately. Routing BOTH "just got shot
+## down" (via _on_drone_state_changed clearing active_drone) and "hit its
+## flight budget" (via _update_active_drone clearing it) through this same
+## single launch check means a swap is never more than one tick late either
+## way, and there's exactly one place that decides when to launch.
+func _update_drone_operations(scenario_delta: float) -> void:
+	if recon_mode != GameConfig.ReconMode.DRONE_TEAM or drone_team == null:
+		return
+	if drone_team.state != Unit.State.ACTIVE:
+		# Team destroyed or pulled back — nobody left to fly it. Whatever's
+		# airborne is abandoned along with the ground station; no further
+		# launches for the rest of the battle.
+		if active_drone != null:
+			player_units.erase(active_drone)
+			active_drone.queue_free()
+			active_drone = null
+		return
+
+	for i in range(_drone_recovering.size() - 1, -1, -1):
+		_drone_recovering[i] -= scenario_delta
+		if _drone_recovering[i] <= 0.0:
+			_drone_recovering.remove_at(i)
+			_drones_ready_for_launch += 1
+
+	if active_drone != null:
+		_update_active_drone(scenario_delta) # may clear active_drone (routine RTB)
+
+	if active_drone == null and _drones_ready_for_launch > 0:
+		_launch_drone()
+
+
+func _launch_drone() -> void:
+	_drones_ready_for_launch -= 1
+	var d := _make_unit(Unit.Team.PLAYER, Unit.Kind.DRONE, drone_team.global_position)
+	d.state_changed.connect(_on_drone_state_changed)
+	player_units.append(d)
+	active_drone = d
+	combat_log.log_drone_launched(d)
+
+
+## Only ever fires for a genuine shoot-down — a routine return-to-base never
+## sets DESTROYED (see _update_active_drone, which clears active_drone
+## itself without touching the unit's state at all). Bumps the permanent
+## loss count (that airframe never flies again this battle) and lets
+## _update_drone_operations's own launch check handle getting the standby
+## up — this signal handler only needs to record the loss.
+func _on_drone_state_changed(unit: Unit) -> void:
+	if unit != active_drone or unit.state != Unit.State.DESTROYED:
+		return
+	_drones_destroyed += 1
+	combat_log.log_drone_shot_down(unit)
+	active_drone = null
+
+
+## Ticks one sortie's flight-time/range budget (see GameConfig.
+## DRONE_MAX_FLIGHT_TIME/DRONE_ROUND_TRIP_RANGE) and, if it's still good for
+## more time in the air, re-picks where it flies next — every tick, not set
+## once, so it reacts immediately to a freshly-spotted mortar or a
+## shoot-and-scoot relocation instead of plodding toward a stale point (see
+## _drone_search_target). Once the remaining budget is only just enough to
+## get home (with DRONE_RTB_SAFETY_MARGIN to spare), it heads back and this
+## sortie ends right here — a real return flight isn't separately simulated;
+## the very next tick's launch check (see _update_drone_operations) puts the
+## standby up in its place, matching a real handoff that starts before the
+## old one has actually touched down.
+func _update_active_drone(scenario_delta: float) -> void:
+	var d := active_drone
+	d.drone_flight_time += scenario_delta
+	d.drone_distance_flown += GameConfig.DRONE_CRUISE_SPEED * scenario_delta
+
+	var remaining_time: float = GameConfig.DRONE_MAX_FLIGHT_TIME - d.drone_flight_time
+	var remaining_range: float = GameConfig.DRONE_ROUND_TRIP_RANGE - d.drone_distance_flown
+	var distance_home: float = d.global_position.distance_to(drone_team.global_position)
+	var time_needed_home: float = distance_home / GameConfig.DRONE_CRUISE_SPEED
+
+	if remaining_time <= time_needed_home or remaining_range <= distance_home + GameConfig.DRONE_RTB_SAFETY_MARGIN:
+		combat_log.log_drone_returning(d)
+		player_units.erase(d)
+		d.queue_free()
+		active_drone = null
+		_drone_recovering.append(GameConfig.DRONE_RECHARGE_DURATION)
+		return
+
+	d.move_target = _drone_search_target()
+	d.has_move_target = true
+	d.move_queue.clear()
+	d.move_speed = GameConfig.DRONE_CRUISE_SPEED
+	d.movement_predictable = false
+
+
+## Where the airborne drone flies next, re-evaluated every tick — priority
+## order: (1) orbit a currently-visible enemy mortar, by far the
+## highest-value thing to keep eyes on (staying close means a nearby
+## shoot-and-scoot relocation is still well within DRONE_DETECTION_RANGE —
+## this is the mechanism behind "sees where they moved to," not anything
+## more special than a big, persistent detection radius aimed at the right
+## spot); (2) failing that, wherever an enemy mortar was last DETECTED
+## FIRING (_known_enemy_mortar_fire_position), to try to reacquire one
+## that's gone quiet; (3) failing that, any other currently-visible enemy
+## unit, since a mortar is often nearby; (4) with no lead at all yet, sweep
+## toward the enemy's approach corridor to establish first contact.
+func _drone_search_target() -> Vector2:
+	for u in enemy_units:
+		if u.kind == Unit.Kind.MORTAR and u.state != Unit.State.DESTROYED and u.is_visible:
+			return u.global_position
+	var last_fire_pos: Vector2 = _known_enemy_mortar_fire_position()
+	if not is_inf(last_fire_pos.x):
+		return last_fire_pos
+	for u in enemy_units:
+		if u.state != Unit.State.DESTROYED and u.is_visible:
+			return u.global_position
+	var road: Array[Vector2] = GameConfig.road_waypoints_px()
+	return road[road.size() / 2]
+
+
 ## A point just inside MORTAR_MAX_RANGE of `target_pos`, along the direct
 ## line from `mortar` — nudged to a handful of nearby angles if the direct
 ## line would put the mortar in or through a building, which it can never
@@ -474,6 +656,7 @@ func _process(delta: float) -> void:
 	_update_spotting(delta)
 	_update_enemy_mortar_positioning()
 	_update_enemy_squad_advance()
+	_update_drone_operations(scenario_delta)
 
 	for unit in player_units:
 		_tick_fire(unit, delta, scenario_delta, enemy_units)
@@ -622,8 +805,8 @@ func _refresh_visibility(observers: Array[Unit], targets: Array[Unit], delta: fl
 ## building gates below) stays on `delta` (actual/engine seconds) — those
 ## were never part of this ask, just the mortar's own cycle was.
 func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[Unit]) -> void:
-	if unit.kind == Unit.Kind.SPOTTER:
-		return # the spotter never fires — it only extends detection (see roll_spot)
+	if unit.kind == Unit.Kind.SPOTTER or unit.kind == Unit.Kind.DRONE_TEAM or unit.kind == Unit.Kind.DRONE:
+		return # pure reconnaissance — extends detection only, never fires (see roll_spot)
 	if unit.state != Unit.State.ACTIVE:
 		return # destroyed/withdrawn/retreating units don't fire
 	if unit.has_move_target:
@@ -968,8 +1151,8 @@ func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
 	if unit.state == Unit.State.DESTROYED:
 		combat_log.log_destroyed(unit)
 	elif unit.state == Unit.State.RETREATING and was_active_before:
-		if unit.kind == Unit.Kind.MORTAR:
-			combat_log.log_mortar_abandoned(unit)
+		if unit.kind == Unit.Kind.MORTAR or unit.kind == Unit.Kind.DRONE_TEAM:
+			combat_log.log_crew_abandoned(unit)
 		else:
 			combat_log.log_threshold_retreat(unit)
 	if unit.reported_issue and not unit.reported_issue_logged:
@@ -1000,7 +1183,7 @@ func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
 ## the spotter, for either a squad's direct fire or another mortar's own
 ## targeting. Only an ACTIVE mortar earns that priority, though — one that's
 ## already been hit has had its crew abandon the gun (see
-## Unit._apply_mortar_casualties), so a RETREATING mortar is just fleeing
+## Unit._apply_crew_casualties), so a RETREATING mortar is just fleeing
 ## survivors, no more of a threat than any other routed unit.
 func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 	var candidates: Array[Unit] = []
@@ -1043,8 +1226,16 @@ func _check_battle_end() -> void:
 ## Used to detect a genuine stalemate: if nobody is moving and nobody has
 ## fired in a while, nothing is ever going to change before the time limit,
 ## so there is no reason to make the player sit through the rest of it.
+##
+## DRONE excluded: it's ALWAYS "moving with intent" while airborne (see
+## _update_active_drone, re-picking a search target every tick) — background
+## reconnaissance, not the kind of tactical movement that means the ground
+## battle is still developing. Without this, an idle drone alone would keep
+## the stalemate timeout from ever firing.
 func _anyone_moving() -> bool:
 	for u in player_units + enemy_units:
+		if u.kind == Unit.Kind.DRONE:
+			continue
 		if u.state == Unit.State.RETREATING:
 			return true
 		if u.state == Unit.State.ACTIVE and u.has_move_target:
@@ -1055,26 +1246,37 @@ func _anyone_moving() -> bool:
 ## True once nobody in `units` is still ACTIVE or mid-RETREAT — everyone left
 ## is either WITHDRAWN or DESTROYED. Battle end waits for this so a retreat
 ## actually finishes before the report is generated.
+##
+## DRONE excluded, same reasoning as _anyone_moving — a lone flying camera
+## shouldn't be able to keep a side's fight "not done."
 func _all_done_fighting(units: Array[Unit]) -> bool:
 	for u in units:
+		if u.kind == Unit.Kind.DRONE:
+			continue
 		if u.state == Unit.State.ACTIVE or u.state == Unit.State.RETREATING:
 			return false
 	return true
 
 
+## DRONE excluded — a surviving drone alone shouldn't count as "the village
+## is held," any more than it should block _all_done_fighting above.
 func _has_active_units(units: Array[Unit]) -> bool:
 	for u in units:
+		if u.kind == Unit.Kind.DRONE:
+			continue
 		if u.state == Unit.State.ACTIVE:
 			return true
 	return false
 
 
-## Display name for a WITHDRAWN/RETREATING unit in the AAR — a mortar whose
-## crew took casualties before abandoning the gun gets that noted, since
-## "withdrew safely" alone would hide that its crew was hurt and its gun lost.
-func _mortar_survivor_label(u: Unit) -> String:
-	if u.kind == Unit.Kind.MORTAR and u.crew_killed > 0:
-		return "%s (%d/%d crew killed, gun abandoned)" % [u.display_name(), u.crew_killed, u.crew_size]
+## Display name for a WITHDRAWN/RETREATING unit in the AAR — a mortar or
+## drone team whose crew took casualties before abandoning their position
+## gets that noted, since "withdrew safely" alone would hide that its crew
+## was hurt.
+func _crew_survivor_label(u: Unit) -> String:
+	if u.crew_killed > 0 and (u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM):
+		var what := "gun abandoned" if u.kind == Unit.Kind.MORTAR else "operations abandoned"
+		return "%s (%d/%d crew killed, %s)" % [u.display_name(), u.crew_killed, u.crew_size, what]
 	return u.display_name()
 
 
@@ -1085,6 +1287,24 @@ func casualty_stats(team: Unit.Team) -> Dictionary:
 	return _compute_side_stats(player_units if team == Unit.Team.PLAYER else enemy_units)
 
 
+## Public read for UI (see CasualtyDashboard) — a snapshot of the drone
+## fleet's rotation state, for the same "just as prominent as casualties"
+## treatment the mortar already gets. Only meaningful when recon_mode is
+## DRONE_TEAM; harmless (all-zero/inactive) otherwise.
+func drone_fleet_status() -> Dictionary:
+	return {
+		"team_active": drone_team != null and drone_team.state == Unit.State.ACTIVE,
+		"team_state": drone_team.state if drone_team else Unit.State.DESTROYED,
+		"team_crew_killed": drone_team.crew_killed if drone_team else 0,
+		"team_crew_size": drone_team.crew_size if drone_team else 0,
+		"airborne": active_drone != null,
+		"ready": _drones_ready_for_launch,
+		"recovering": _drone_recovering.size(),
+		"destroyed": _drones_destroyed,
+		"next_ready_in": _drone_recovering.min() if not _drone_recovering.is_empty() else -1.0,
+	}
+
+
 func _compute_side_stats(units: Array[Unit]) -> Dictionary:
 	var pips_total := 0
 	var pips_lost := 0
@@ -1092,18 +1312,22 @@ func _compute_side_stats(units: Array[Unit]) -> Dictionary:
 	var withdrawn: PackedStringArray = []
 	var still_retreating: PackedStringArray = []
 	for u in units:
-		pips_total += u.max_pips
-		pips_lost += (u.max_pips - u.pips)
+		# A drone is equipment, not personnel — losing one doesn't hurt the
+		# 3-person crew, so it never counts toward the human casualty tally
+		# (it still shows up below if destroyed, just not in the pip count).
+		if u.kind != Unit.Kind.DRONE:
+			pips_total += u.max_pips
+			pips_lost += (u.max_pips - u.pips)
 		match u.state:
 			Unit.State.DESTROYED:
-				if u.kind == Unit.Kind.MORTAR:
+				if u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM:
 					destroyed.append("%s (%d/%d crew killed)" % [u.display_name(), u.crew_killed, u.crew_size])
 				else:
 					destroyed.append(u.display_name())
 			Unit.State.WITHDRAWN:
-				withdrawn.append(_mortar_survivor_label(u))
+				withdrawn.append(_crew_survivor_label(u))
 			Unit.State.RETREATING:
-				still_retreating.append(_mortar_survivor_label(u))
+				still_retreating.append(_crew_survivor_label(u))
 	var casualty_percent: float = (float(pips_lost) / float(pips_total) * 100.0) if pips_total > 0 else 0.0
 	return {
 		"pips_total": pips_total,

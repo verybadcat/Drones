@@ -32,12 +32,12 @@ func _draw() -> void:
 		draw_arc(Vector2.ZERO, GameConfig.MORTAR_MAX_RANGE, 0.0, TAU, 64, Color(1.0, 0.55, 0.15, 0.35), 1.5, true)
 
 	var color := Color(0.25, 0.55, 1.0, 0.9)
-	if kind == Unit.Kind.SPOTTER:
+	if kind == Unit.Kind.SPOTTER or kind == Unit.Kind.DRONE_TEAM:
 		color = Color(0.75, 0.9, 0.2, 0.9)
 	draw_circle(Vector2.ZERO, RADIUS, color)
 	if kind == Unit.Kind.MORTAR:
 		draw_circle(Vector2.ZERO, RADIUS * 0.45, Color.BLACK)
-	elif kind == Unit.Kind.SPOTTER:
+	elif kind == Unit.Kind.SPOTTER or kind == Unit.Kind.DRONE_TEAM:
 		draw_circle(Vector2.ZERO, RADIUS * 0.4, Color(0.1, 0.1, 0.1))
 		draw_circle(Vector2.ZERO, RADIUS * 0.18, Color.WHITE)
 

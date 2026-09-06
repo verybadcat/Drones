@@ -9,7 +9,12 @@ class_name Unit
 ## battle.
 
 enum Team { PLAYER, ENEMY }
-enum Kind { SQUAD, MORTAR, SPOTTER }
+## DRONE_TEAM is the player-deployed ground crew (ReconMode.DRONE_TEAM's
+## counterpart to SPOTTER) — never itself airborne, never itself an
+## observer. DRONE is the single currently-airborne scout it operates;
+## BattleManager creates/frees a DRONE Unit per sortie rather than keeping
+## one around for the whole battle — see BattleManager's drone-fleet fields.
+enum Kind { SQUAD, MORTAR, SPOTTER, DRONE_TEAM, DRONE }
 ## ACTIVE: fighting (possibly moving toward move_target). RETREATING: pulling
 ## back off the field entirely, still on the field and can still take fire.
 ## WITHDRAWN: reached safety, no longer part of the fight. DESTROYED: out of
@@ -106,9 +111,17 @@ var reported_issue: bool = false
 var reported_issue_logged: bool = false
 var concern_threshold: float = 0.25
 
+# DRONE only: how long this specific sortie has been airborne (tactical
+# seconds) and how far it's actually flown (path length, not straight-line
+# displacement) since launch — both checked against GameConfig.
+# DRONE_MAX_FLIGHT_TIME / DRONE_ROUND_TRIP_RANGE each tick by
+# BattleManager._update_active_drone to decide when it must turn for home.
+var drone_flight_time: float = 0.0
+var drone_distance_flown: float = 0.0
+
 # MORTAR only: a small crew-served weapon, CREW_SIZE people including the
 # driver. Tracked as an exact headcount, not a percent — see
-# _apply_mortar_casualties(). A hit is decisive either way: it either wipes
+# _apply_crew_casualties(). A hit is decisive either way: it either wipes
 # the whole crew (DESTROYED) or leaves survivors who abandon the gun on the
 # spot and retreat (see order_retreat()) — nobody keeps manning a mortar
 # after taking a hit near it. max_pips is set to crew_size (see setup()) so
@@ -131,7 +144,7 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 		Kind.MORTAR:
 			crew_size = MORTAR_CREW_SIZE
 			crew_killed = 0
-			max_pips = crew_size # crew casualties count the same as squad pips — see _apply_mortar_casualties
+			max_pips = crew_size # crew casualties count the same as squad pips — see _apply_crew_casualties
 			base_hit_chance = 0.40
 			unit_label = "Mortar"
 			fire_interval = reload_time
@@ -139,6 +152,18 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 			max_pips = 1 # a small, fragile recon team
 			base_hit_chance = 0.0 # never fires — see BattleManager._tick_fire
 			unit_label = "Spotter"
+			fire_interval = 0.0
+		Kind.DRONE_TEAM:
+			crew_size = GameConfig.DRONE_TEAM_CREW_SIZE
+			crew_killed = 0
+			max_pips = crew_size # same crew-casualty accounting as the mortar — see _apply_crew_casualties
+			base_hit_chance = 0.0 # never fires — see BattleManager._tick_fire
+			unit_label = "Drone Team"
+			fire_interval = 0.0
+		Kind.DRONE:
+			max_pips = 1 # unmanned — one hit shoots it down outright, no crew to lose
+			base_hit_chance = 0.0 # never fires — pure reconnaissance, see BattleManager._tick_fire
+			unit_label = "Drone"
 			fire_interval = 0.0
 		_:
 			max_pips = 4
@@ -161,7 +186,7 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 ##
 ## `known_enemy_positions` — currently-visible enemy positions, from THIS
 ## unit's own side's point of view. Passed straight through to whatever
-## retreat this hit might trigger (_check_retreat / _apply_mortar_casualties
+## retreat this hit might trigger (_check_retreat / _apply_crew_casualties
 ## -> order_retreat) so an automatic, threshold-triggered retreat is just as
 ## enemy-aware as the player's own general-retreat command already is — a
 ## retreat picked with no idea where the enemy is could otherwise head
@@ -173,8 +198,8 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], kn
 	took_hit.emit(self)
 	queue_redraw()
 
-	if kind == Kind.MORTAR:
-		_apply_mortar_casualties(known_enemy_positions)
+	if kind == Kind.MORTAR or kind == Kind.DRONE_TEAM:
+		_apply_crew_casualties(known_enemy_positions)
 		return
 
 	pips = max(pips - 1, 0)
@@ -211,15 +236,15 @@ func _check_retreat(known_enemy_positions: Array[Vector2] = []) -> void:
 		reported_issue = true
 
 
-## A mortar crew doesn't shrug off a hit and keep serving the gun the way a
-## rifle squad absorbs casualties — a round landing on/near a crew-served
-## weapon is decisive. Tracks exactly how many of the crew went down (an
+## A mortar crew (or a drone team's ground crew) doesn't shrug off a hit and
+## keep working the way a rifle squad absorbs casualties — a round landing
+## on/near a small crew is decisive. Tracks exactly how many went down (an
 ## honest headcount, not a vague percent) so the AAR can report a real
-## number. If anyone survives, they abandon the gun right there — it's out
-## of action for the rest of the battle either way — and retreat to try to
-## get clear (see order_retreat()); only a hit that gets the whole crew
+## number. If anyone survives, they abandon the position right there — it's
+## out of action for the rest of the battle either way — and retreat to try
+## to get clear (see order_retreat()); only a hit that gets the whole crew
 ## actually destroys the unit.
-func _apply_mortar_casualties(known_enemy_positions: Array[Vector2] = []) -> void:
+func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = []) -> void:
 	var remaining: int = crew_size - crew_killed
 	crew_killed += randi_range(1, remaining)
 	pips = crew_size - crew_killed # feeds the side's overall casualty tally exactly like a squad's pips — see setup()
@@ -265,7 +290,14 @@ func _apply_mortar_casualties(known_enemy_positions: Array[Vector2] = []) -> voi
 ## mortar can't be fired from or set up inside one (no overhead clearance
 ## for the round), so it never enters one in the first place; TREES remain
 ## fair game for its fleeing crew, same as anyone else.
+##
+## A DRONE never retreats through here at all — it has no "safe line" to
+## walk to; its whole lifecycle (search, return-to-base, being freed) is
+## driven directly by BattleManager's drone-fleet logic instead (see
+## BattleManager._update_drone_operations).
 func order_retreat(known_enemy_positions: Array[Vector2] = []) -> void:
+	if kind == Kind.DRONE:
+		return
 	if state != State.ACTIVE:
 		return
 	state = State.RETREATING
@@ -273,7 +305,7 @@ func order_retreat(known_enemy_positions: Array[Vector2] = []) -> void:
 	if not GameConfig.is_in_cover(terrain_type()):
 		var retreat_dir: float = -1.0 if team == Team.PLAYER else 1.0
 		var avoid_buildings: bool = kind == Kind.MORTAR
-		if kind == Kind.SPOTTER and not known_enemy_positions.is_empty():
+		if (kind == Kind.SPOTTER or kind == Kind.DRONE_TEAM) and not known_enemy_positions.is_empty():
 			move_target = GameConfig.safest_cover_point(global_position, known_enemy_positions, retreat_dir, avoid_buildings)
 		else:
 			move_target = GameConfig.nearest_cover_point(global_position, retreat_dir, avoid_buildings, [], known_enemy_positions)
@@ -342,8 +374,10 @@ func terrain_type() -> GameConfig.TerrainType:
 
 func _draw() -> void:
 	var color := Color(0.25, 0.55, 1.0) if team == Team.PLAYER else Color(1.0, 0.35, 0.25)
-	if kind == Kind.SPOTTER:
+	if kind == Kind.SPOTTER or kind == Kind.DRONE_TEAM:
 		color = Color(0.75, 0.9, 0.2) if team == Team.PLAYER else Color(0.9, 0.7, 0.15)
+	elif kind == Kind.DRONE:
+		color = Color(0.9, 0.97, 1.0) if team == Team.PLAYER else Color(1.0, 0.55, 0.55)
 	if not is_visible and state != State.DESTROYED:
 		color.a = 0.0 if team == Team.ENEMY else 1.0 # not-currently-visible enemies are hidden; player is always drawn
 	if state == State.RETREATING:
@@ -356,14 +390,19 @@ func _draw() -> void:
 	if color.a <= 0.0:
 		return
 
-	var radius := 14.0 if kind == Kind.SQUAD else (8.0 if kind == Kind.SPOTTER else 10.0)
+	var radius := 14.0 if kind == Kind.SQUAD else (8.0 if (kind == Kind.SPOTTER or kind == Kind.DRONE_TEAM) else (5.0 if kind == Kind.DRONE else 10.0))
 	draw_circle(Vector2.ZERO, radius, color)
 
 	if kind == Kind.MORTAR:
 		draw_circle(Vector2.ZERO, radius * 0.45, Color.BLACK)
-	elif kind == Kind.SPOTTER:
+	elif kind == Kind.SPOTTER or kind == Kind.DRONE_TEAM:
 		draw_circle(Vector2.ZERO, radius * 0.4, Color(0.1, 0.1, 0.1))
 		draw_circle(Vector2.ZERO, radius * 0.18, Color.WHITE)
+	elif kind == Kind.DRONE:
+		# A small quadcopter "X," distinct from every ground unit's icon —
+		# reads instantly as airborne even at a glance.
+		draw_line(Vector2(-radius, -radius), Vector2(radius, radius), Color(0.15, 0.15, 0.15), 1.5)
+		draw_line(Vector2(-radius, radius), Vector2(radius, -radius), Color(0.15, 0.15, 0.15), 1.5)
 
 	if state == State.WITHDRAWN or state == State.DESTROYED:
 		return # no pip bar or cover ring for a unit that's left the fight one way or another
