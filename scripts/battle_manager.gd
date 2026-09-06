@@ -85,6 +85,16 @@ var _last_detected_mortar_fire: Dictionary = {}
 var _joint_mortar_hunt_target: Unit = null
 var _joint_mortar_hunt_start_time: float = 0.0
 
+# Where the friendly mortar was actually deployed this battle (the
+# player's own doctrine choice, wherever in PLAYER_MORTAR_DEPLOYMENT_ZONE
+# that was) — captured once in _spawn_player_units and never touched
+# again. This is what "safe territory" means for GameConfig.MORTAR_HUNT_
+# MAX_RANGE_FROM_HOME: hunting is good, but not unbounded — the crew
+# still won't range farther than that from wherever they were actually
+# set up, no matter how good the intel on a target is or how far away
+# known enemy squads happen to be.
+var _friendly_mortar_home_position: Vector2 = Vector2.ZERO
+
 # Which reconnaissance setup this battle is using (see GameConfig.ReconMode)
 # — set from the doctrine dict in start_battle. DRONE_TEAM fields below are
 # only ever populated/consumed when this is DRONE_TEAM; harmless no-ops
@@ -253,6 +263,7 @@ func _spawn_player_units(doctrine: Dictionary) -> void:
 	m1.shoot_and_scoot = doctrine.mortar.shoot_and_scoot
 	_set_retreat_profile(m1, Unit.Team.PLAYER)
 	player_units.append(m1)
+	_friendly_mortar_home_position = doctrine.mortar.position
 
 	# `doctrine.spotter.position` is the deployment CHOICE (see
 	# GameConfig.PLAYER_SPOTTER_DEPLOYMENT_ZONE) — reused as-is for the drone
@@ -610,6 +621,17 @@ func _joint_mortar_hunt_known_position() -> Vector2:
 	return Vector2.INF
 
 
+## The player's single mortar, or null if it's been lost — there's only
+## ever one (see MAX_MORTARS_PER_SIDE's own comment: "the player fields
+## one; the enemy fields two"), so this is just a lookup, not a priority
+## decision the way the enemy's multi-mortar equivalents need to be.
+func _friendly_mortar() -> Unit:
+	for u in player_units:
+		if u.kind == Unit.Kind.MORTAR:
+			return u
+	return null
+
+
 ## Forms and maintains the mortar/drone team's SHARED commitment to
 ## hunting one specific enemy mortar together — consulted by both
 ## _update_friendly_mortar_hunting (where to walk) and _drone_search_target
@@ -624,10 +646,14 @@ func _joint_mortar_hunt_known_position() -> Vector2:
 ##
 ## Formed the instant _known_enemy_mortar_lead reports a TRUSTED fix (live,
 ## or a drone already closing on it) that no active friendly mortar can
-## engage yet. An untrusted, bare fire-detection lead never forms a
-## commitment — that stays the mortar's own solo, distance-capped gamble
-## (see below), since there's no drone coverage to actually coordinate
-## with.
+## engage yet, AND the resulting hunt destination would still fall within
+## GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME of the mortar's own actual
+## deployment position — hunting is good, but there are limits, and it's
+## not worth the drone committing its own top-priority attention to
+## escorting a hunt the mortar will never actually be allowed to complete.
+## An untrusted, bare fire-detection lead never forms a commitment at all
+## — that stays the mortar's own solo, distance-capped gamble (see below),
+## since there's no drone coverage to actually coordinate with.
 ##
 ## Held regardless of how _known_enemy_mortar_lead's own trust/expiry
 ## re-evaluates on LATER ticks — only let go of when the objective itself
@@ -652,6 +678,13 @@ func _update_joint_mortar_hunt() -> void:
 	if _can_engage_position(lead.position):
 		return # already in range — no coordination needed, normal engagement tiers take it from here
 
+	var fm := _friendly_mortar()
+	if fm == null:
+		return
+	var dest := _friendly_mortar_hunt_point(fm, lead.position)
+	if dest == fm.global_position or dest.distance_to(_friendly_mortar_home_position) > GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME:
+		return # outside what the crew considers safe territory — not worth the drone escorting a hunt that will never actually happen
+
 	_joint_mortar_hunt_target = lead.unit
 	_joint_mortar_hunt_start_time = scenario_elapsed_time
 	combat_log.log_joint_mortar_hunt(lead.unit)
@@ -668,7 +701,12 @@ func _update_joint_mortar_hunt() -> void:
 ## no longer decided here at all — it's the team's shared joint commitment
 ## (_update_joint_mortar_hunt, which runs first each tick) that this just
 ## walks toward for as long as that commitment holds, unconditional on
-## distance, same as the enemy's own unconditional chase. Only a bare,
+## distance from the CURRENT position (same as the enemy's own
+## unconditional chase) — but every candidate destination, trusted or not,
+## still has to fall within GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME of
+## home, full stop; _update_joint_mortar_hunt already screens for this
+## before a commitment ever forms, but a fresh, still-untrusted lead never
+## gets that upfront check, so it's re-verified here too. Only a bare,
 ## uncovered fire-detection lead — no active joint commitment at all — is
 ## still this function's OWN call to make: a solo gamble, worth at most a
 ## modest walk (MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE), since there's no drone
@@ -703,6 +741,8 @@ func _update_friendly_mortar_hunting() -> void:
 		var dest := _friendly_mortar_hunt_point(m, target_pos)
 		if dest == m.global_position:
 			continue # no safe route found this tick — try again next tick
+		if dest.distance_to(_friendly_mortar_home_position) > GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME:
+			continue # too far from what the crew considers safe territory, trusted lead or not
 		if not trusted and m.global_position.distance_to(dest) > GameConfig.MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE:
 			continue # too big a gamble on a lead nobody's actually watching
 
@@ -1737,16 +1777,19 @@ func _resolve_pending_mortar_shots() -> void:
 ## `claimed` tracks where each squad processed so far in THIS event is
 ## already headed, on top of any other active squad's current position, so
 ## each successive squad prefers a different one (see Unit.seek_cover /
-## GameConfig.nearest_cover_point's avoid_positions).
+## GameConfig.nearest_cover_point's avoid_positions). Also steered away
+## from cover near a known player position — bolting for cover shouldn't
+## mean running toward a threat it already knows is right there.
 func _alert_enemy_squads() -> void:
 	var alerted_any := false
 	var claimed: Array[Vector2] = []
+	var known_player_positions := _known_enemy_positions(Unit.Team.ENEMY)
 	for u in enemy_units:
 		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or u.sought_cover:
 			continue
 		u.sought_cover = true
 		u.sought_cover_logged = true # logged once, right here, not via _log_hit_consequence
-		u.seek_cover(_ally_positions_for(u) + claimed)
+		u.seek_cover(_ally_positions_for(u) + claimed, known_player_positions)
 		claimed.append(u.move_target)
 		combat_log.log_seeking_cover(u)
 		alerted_any = true

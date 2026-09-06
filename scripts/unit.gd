@@ -230,9 +230,9 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], kn
 
 	if team == Team.ENEMY and not sought_cover:
 		sought_cover = true
-		seek_cover(ally_positions)
+		seek_cover(ally_positions, known_enemy_positions)
 	elif from_mortar and randf() < GameConfig.RELOCATE_ON_MORTAR_HIT_CHANCE:
-		seek_cover(ally_positions)
+		seek_cover(ally_positions, known_enemy_positions)
 		bolted_for_cover = true
 
 
@@ -367,8 +367,16 @@ func set_path(waypoints: Array[Vector2]) -> void:
 ## `avoid_positions` — other same-team units already there or headed there —
 ## steers away from a patch of cover an ally is already using, so squads
 ## spread out instead of bunching up (see GameConfig.nearest_cover_point).
-func seek_cover(avoid_positions: Array[Vector2] = []) -> void:
-	move_target = GameConfig.nearest_cover_point(global_position, 0.0, false, avoid_positions)
+##
+## `known_enemy_positions` — currently-visible enemy positions, from THIS
+## unit's own side's point of view — steers away from cover within
+## GameConfig.DANGER_RADIUS of a known threat, same as order_retreat
+## already does. Without this, a squad bolting for cover under fire could
+## dive for whatever patch is nearest with no regard for who's actually
+## standing near it — including, in the worst case, running straight
+## toward a cluster of enemy squads it already knows are right there.
+func seek_cover(avoid_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = []) -> void:
+	move_target = GameConfig.nearest_cover_point(global_position, 0.0, false, avoid_positions, known_enemy_positions)
 	has_move_target = true
 	move_queue.clear()
 	move_speed = GameConfig.REPOSITION_SPEED
