@@ -459,35 +459,6 @@ func _known_friendly_mortar_position() -> Vector2:
 	return best_pos
 
 
-## Mirror of _known_friendly_mortar_position, read the other way: the best
-## fix on an ENEMY mortar via detected firing (live sight is checked
-## separately, first, in _drone_search_target — this is only the fallback
-## for reacquiring one that's gone quiet, e.g. after shoot-and-scoot).
-## Vector2.INF if nothing's fired recently enough to go on.
-##
-## `expiry` defaults to MORTAR_FIRE_DETECTION_EXPIRY (the enemy's own quick
-## ground-based counter-battery reaction window) but the drone's search
-## (see _drone_search_target) passes GameConfig.DRONE_MORTAR_FIRE_LEAD_EXPIRY
-## instead — a real, if approximate, muzzle-flash/trajectory fix is exactly
-## the "pretty good idea where to look" a drone team would actually have,
-## and it needs a much longer window to actually act on it: it may be
-## anywhere on the map when the shot fires and has to physically fly there,
-## unlike the enemy's own mortars reacting from nearby.
-func _known_enemy_mortar_fire_position(expiry: float = GameConfig.MORTAR_FIRE_DETECTION_EXPIRY) -> Vector2:
-	var best_pos := Vector2.INF
-	var best_time := -INF
-	for u in enemy_units:
-		if u.kind != Unit.Kind.MORTAR or u.state == Unit.State.DESTROYED:
-			continue
-		var info: Dictionary = _last_detected_mortar_fire.get(u, {})
-		if info.is_empty():
-			continue
-		if scenario_elapsed_time - info.time > expiry:
-			continue
-		if info.time > best_time:
-			best_time = info.time
-			best_pos = info.position
-	return best_pos
 
 
 ## Runs the whole drone-fleet rotation for one tick — ReconMode.DRONE_TEAM
@@ -625,15 +596,21 @@ func _update_returning_drone() -> void:
 
 
 ## Where the airborne drone flies next, re-evaluated every tick — priority
-## order: (1) orbit a currently-visible enemy mortar, by far the
-## highest-value thing to keep eyes on (staying close means a nearby
-## shoot-and-scoot relocation is still well within DRONE_DETECTION_RANGE —
-## this is the mechanism behind "sees where they moved to," not anything
-## more special than a big, persistent detection radius aimed at the right
-## spot); (2) failing that, wherever an enemy mortar was last DETECTED
-## FIRING (_known_enemy_mortar_fire_position), to try to reacquire one
-## that's gone quiet; (3) with no mortar lead at all, patrol the enemy's
-## approach corridor (_drone_sweep_target) to keep actually searching.
+## order: (1) orbit a currently-visible, still-ACTIVE enemy mortar the
+## friendly mortar could actually reach right now (see
+## _in_friendly_mortar_range) — by far the highest-value thing to keep eyes
+## on, but only while it's actually still worth it: a RETREATING mortar has
+## already had its crew abandon the gun for good (Unit._apply_crew_
+## casualties — it will never fire again no matter how well it's watched),
+## and one outside GameConfig.MORTAR_MAX_RANGE of the friendly mortar can't
+## be engaged right now regardless of visibility — continuing to park on
+## either just wastes search time that could instead find (or wait for) a
+## mortar actually worth acting on; (2) failing that, the same standard
+## applied to wherever each ACTIVE, in-range enemy mortar was last DETECTED
+## FIRING — checked per mortar, not just whichever fired most recently, so
+## an older but reachable fix wins over a fresher one the friendly mortar
+## still can't act on; (3) with no actionable mortar lead at all, patrol
+## the enemy's approach corridor (_drone_sweep_target) to keep searching.
 ##
 ## Deliberately does NOT redirect to a merely-visible enemy SQUAD once no
 ## mortar lead exists — the mission is hunting mortars, not escorting
@@ -643,12 +620,44 @@ func _update_returning_drone() -> void:
 ## first infantry it happened to spot instead of continuing to search.
 func _drone_search_target() -> Vector2:
 	for u in enemy_units:
-		if u.kind == Unit.Kind.MORTAR and u.state != Unit.State.DESTROYED and u.is_visible:
+		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE and u.is_visible and _in_friendly_mortar_range(u.global_position):
 			return u.global_position
-	var last_fire_pos: Vector2 = _known_enemy_mortar_fire_position(GameConfig.DRONE_MORTAR_FIRE_LEAD_EXPIRY)
-	if not is_inf(last_fire_pos.x):
-		return last_fire_pos
+
+	var best_fire_pos := Vector2.INF
+	var best_fire_time := -INF
+	for u in enemy_units:
+		if u.kind != Unit.Kind.MORTAR or u.state != Unit.State.ACTIVE:
+			continue
+		var info: Dictionary = _last_detected_mortar_fire.get(u, {})
+		if info.is_empty():
+			continue
+		if scenario_elapsed_time - info.time > GameConfig.DRONE_MORTAR_FIRE_LEAD_EXPIRY:
+			continue
+		if not _in_friendly_mortar_range(info.position):
+			continue
+		if info.time > best_fire_time:
+			best_fire_time = info.time
+			best_fire_pos = info.position
+	if not is_inf(best_fire_pos.x):
+		return best_fire_pos
+
 	return _drone_sweep_target()
+
+
+## Whether `pos` is within the friendly mortar's actual reach right now —
+## used to keep the drone from wasting search time parking on an enemy
+## mortar (or its last-known firing spot) that the friendly mortar
+## physically cannot act on, even though it's otherwise the highest-priority
+## kind of target. With no ACTIVE friendly mortar at all there's no
+## reference point to judge range from, so this doesn't exclude anything in
+## that case — better to keep tracking mortars for general awareness than
+## to abandon the mission's whole point just because the gun is temporarily
+## down.
+func _in_friendly_mortar_range(pos: Vector2) -> bool:
+	for m in player_units:
+		if m.kind == Unit.Kind.MORTAR and m.state == Unit.State.ACTIVE:
+			return m.global_position.distance_to(pos) <= GameConfig.MORTAR_MAX_RANGE
+	return true
 
 
 ## No mortar lead at all yet: patrol back and forth across the enemy's whole
@@ -1454,9 +1463,9 @@ func _end_battle() -> void:
 	lines.append("Village held: %s" % ("YES" if held else "NO"))
 	var tactical_minutes: int = int(scenario_elapsed_time / 60.0)
 	lines.append("Time elapsed: %dh %02dm (0600 to %s)" % [tactical_minutes / 60, tactical_minutes % 60, clock_string().substr(0, 5)])
-	lines.append("Player casualties: %d/%d pips (%.0f%%)" % [player_stats.pips_lost, player_stats.pips_total, player_stats.casualty_percent])
-	lines.append("Enemy casualties: %d/%d pips (%.0f%%)" % [enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent])
-	lines.append("Exchange ratio (enemy : player pips lost): %.2f : 1" % exchange_ratio)
+	lines.append("Player casualties: %d/%d personnel (%.0f%%)" % [player_stats.pips_lost, player_stats.pips_total, player_stats.casualty_percent])
+	lines.append("Enemy casualties: %d/%d personnel (%.0f%%)" % [enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent])
+	lines.append("Exchange ratio (enemy : player personnel lost): %.2f : 1" % exchange_ratio)
 	if not player_stats.destroyed.is_empty():
 		lines.append("Player losses: %s" % ", ".join(player_stats.destroyed))
 	if not player_stats.withdrawn.is_empty():

@@ -133,7 +133,7 @@ func _refresh() -> void:
 
 
 func _update_side(stats: Dictionary, label: Label, bar: ColorRect, side_name: String) -> void:
-	label.text = "%s: %d/%d pips lost (%.0f%%)" % [side_name, stats.pips_lost, stats.pips_total, stats.casualty_percent]
+	label.text = "%s: %d/%d personnel lost (%.0f%%)" % [side_name, stats.pips_lost, stats.pips_total, stats.casualty_percent]
 	var frac: float = clamp(stats.casualty_percent / 100.0, 0.0, 1.0)
 	bar.size = Vector2(BAR_SIZE.x * frac, BAR_SIZE.y)
 

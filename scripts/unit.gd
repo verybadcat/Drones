@@ -132,6 +132,14 @@ const MORTAR_CREW_SIZE: int = 4
 var crew_size: int = 0
 var crew_killed: int = 0
 
+# SQUAD only: a real 9-person infantry squad, for both sides. Unlike the
+# mortar/drone team's crew_size/crew_killed model (a hit is decisive, killing
+# a random handful of a small crew at once), a squad takes casualties one
+# soldier at a time per hit (see take_hit's generic `pips = max(pips-1, 0)`)
+# — pips already WAS a literal headcount in that sense, just scaled to a
+# max of 4; this only changes the number to the real one.
+const SQUAD_SIZE: int = 9
+
 signal took_hit(unit)
 signal state_changed(unit)
 
@@ -166,7 +174,7 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 			unit_label = "Drone"
 			fire_interval = 0.0
 		_:
-			max_pips = 4
+			max_pips = SQUAD_SIZE
 			# Defenders fight from prepared, pre-ranged positions — their first
 			# shots land far more often than an attacker's do.
 			base_hit_chance = 0.32 if team == Team.PLAYER else 0.20
