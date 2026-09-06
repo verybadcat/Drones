@@ -199,20 +199,23 @@ static func drone_search_waypoints_px() -> Array[Vector2]:
 	return out
 
 
-## Which DRONE_SEARCH_GRID row's waypoint indices make up the CENTER row —
-## the same y-band as the road, the single most operationally relevant
-## strip since that's where the enemy squads actually march — and how
-## often a fresh battle's sweep should start there rather than at a
-## genuinely random point elsewhere (see BattleManager._random_initial_
-## drone_sweep_index). Always starting at index 0 (the map's top edge)
-## made the very first thing a player watches identical and predictable
-## every single game; weighting toward the center without fixing it there
-## every time keeps the common case sensible while keeping every game's
-## opening genuinely different. Indices 10-14 are the grid's middle row
-## (row index 2 of 5, each row holding DRONE_SEARCH_GRID_COLUMNS_M.size()
-## == 5 waypoints).
-const DRONE_INITIAL_SWEEP_MIDDLE_INDICES: Array[int] = [10, 11, 12, 13, 14]
-const DRONE_INITIAL_SWEEP_MIDDLE_CHANCE: float = 0.55
+## How much search effort DRONE_SEARCH_GRID_ROWS_M's 5 rows each get, from
+## the map's far north edge (index 0) to its far south edge (index 4) —
+## see BattleManager._weighted_random_sweep_index, used both for where a
+## fresh battle's sweep starts and every subsequent re-roll once it's
+## underway. Row 2 is the same y-band as the road: the single most
+## operationally relevant strip, since that's where the enemy squads
+## actually march and where whatever's supporting them is most likely to
+## be within reach of. Weighting toward it isn't the same thing as knowing
+## exact enemy coordinates — the road's existence is public knowledge, not
+## secret intelligence — it just reflects that real activity concentrates
+## near a known approach route rather than spreading evenly across the
+## whole map. Always starting at (and endlessly cycling through) a fixed,
+## uniform sequence made the sweep both identical every single game AND
+## indifferent to how likely any given spot actually was; this fixes both
+## at once. The two edge rows are never ruled out entirely (5% each) —
+## just correctly treated as far less likely than the middle of the map.
+const DRONE_SWEEP_ROW_WEIGHTS: Array[float] = [0.05, 0.15, 0.6, 0.15, 0.05]
 
 
 # Each zone is a rectangle + terrain type (TREES/BUILDING only — elevation

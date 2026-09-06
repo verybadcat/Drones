@@ -175,7 +175,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drones_swapping.clear()
 	_battery_pool.clear()
 	_drones_destroyed = 0
-	_drone_sweep_index = _random_initial_drone_sweep_index()
+	_drone_sweep_index = _weighted_random_sweep_index()
 	_drone_vicinity_search_angle = 0.0
 
 	for unit in player_units + enemy_units:
@@ -1289,8 +1289,14 @@ func _drone_vicinity_search_point(center: Vector2) -> Vector2:
 ## "mortars always win": whichever candidate scores highest right now wins,
 ## so a future third target kind only needs its own scoring term, not a
 ## rewrite of this decision. Candidates, each mapped to an actual position:
-## (1) a currently visible, engageable mortar (_visible_engageable_mortar) —
-## practically always the winner when one exists, since TARGET_PRIORITY_
+## (1) any currently visible, still-ACTIVE enemy mortar at all
+## (_visible_active_enemy_mortar) — deliberately NOT gated on whether it's
+## currently engageable (that stricter question is _visible_engageable_
+## mortar's own, used only by the backup/self-sacrifice decisions): losing
+## contact on a confirmed live mortar just because the friendly mortar
+## can't reach it THIS INSTANT would waste the one asset actually watching
+## it, and the situation can change (either mortar can reposition).
+## Practically always the winner when one exists, since TARGET_PRIORITY_
 ## MORTAR sits far above anything else; (2) the freshest in-range fire-
 ## detection lead on any ACTIVE mortar, discounted somewhat for being a
 ## stale position rather than a live one, but still real evidence rather
@@ -1337,7 +1343,7 @@ func _drone_search_target() -> Vector2:
 	var best_score := -1.0
 	var best_pos := Vector2.INF
 
-	var watched: Unit = _visible_engageable_mortar()
+	var watched: Unit = _visible_active_enemy_mortar()
 	if watched != null:
 		best_score = GameConfig.TARGET_PRIORITY_MORTAR
 		best_pos = watched.global_position
@@ -1427,20 +1433,41 @@ func _drone_search_target() -> Vector2:
 
 
 ## The single currently-visible, still-ACTIVE, in-range enemy mortar worth
-## a drone's undivided attention, or null if there isn't one — the exact
-## condition _drone_search_target's top tier checks, factored out since the
-## backup-drone and self-sacrifice logic (_update_active_drone/
-## _update_backup_drone) both need to ask "is there one right now," not
-## just "where should THIS drone fly." A RETREATING mortar has already had
-## its crew abandon the gun for good (Unit._apply_crew_casualties — it will
-## never fire again no matter how well it's watched), and one outside
+## the backup-drone/self-sacrifice decisions actually acting on — used by
+## _update_active_drone/_update_backup_drone/the backup-launch trigger in
+## _update_drone_operations, all of which are asking "is there one right
+## now we can actually DO something about," not just "is there one worth
+## watching" (see _visible_active_enemy_mortar for that, weaker, question
+## — _drone_search_target's own top tier). A RETREATING mortar has already
+## had its crew abandon the gun for good (Unit._apply_crew_casualties — it
+## will never fire again no matter how well it's watched), and one outside
 ## GameConfig.MORTAR_MAX_RANGE of the friendly mortar can't be engaged
-## right now regardless of visibility — continuing to park on either just
-## wastes effort that could instead find (or wait for) a mortar actually
-## worth acting on.
+## right now regardless of visibility — sacrificing a drone, or spending a
+## backup's own limited flight time, over either just wastes an asset that
+## could instead find (or wait for) a mortar actually worth acting on.
 func _visible_engageable_mortar() -> Unit:
 	for u in enemy_units:
 		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE and u.is_visible and _in_friendly_mortar_range(u.global_position):
+			return u
+	return null
+
+
+## Any currently visible, still-ACTIVE enemy mortar at all — unlike
+## _visible_engageable_mortar, NOT gated on whether it's currently in
+## range of friendly fire. This is _drone_search_target's own top tier:
+## the question there is simply "is this worth the drone's attention,"
+## and a live enemy mortar always is, regardless of whether it happens to
+## be engageable this exact instant — the friendly mortar can reposition
+## too, and simply maintaining contact on a confirmed, live mortar has
+## real value on its own (an early-warning asset that's found the enemy's
+## fire support and then wandered off the moment engaging it wasn't
+## IMMEDIATELY feasible was the actual bug this fixes: the range-gate in
+## _visible_engageable_mortar only ever belonged to the backup/self-
+## sacrifice decisions above, which really do need "can we act on this
+## right now," not to the much more basic "should we keep watching it."
+func _visible_active_enemy_mortar() -> Unit:
+	for u in enemy_units:
+		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE and u.is_visible:
 			return u
 	return null
 
@@ -1481,17 +1508,22 @@ func _in_friendly_mortar_range(pos: Vector2) -> bool:
 	return true
 
 
-## No mortar lead at all yet: patrol a methodical boustrophedon across the
-## whole contested area (GameConfig.DRONE_SEARCH_GRID_COLUMNS_M/ROWS_M —
-## the map's full height, not just the road's own narrow band a mortar
-## would never actually sit on), advancing to the next waypoint once close
-## enough rather than flying to and sitting at one single fixed point —
-## genuine progressive search coverage instead of parking somewhere and
-## stopping. Deliberately does NOT aim at the enemy's actual (fixed)
-## mortar emplacements — the drone has no more prior knowledge of exactly
-## where they are than the player does; it only acts on what it can
-## currently see or has recently detected firing (the two checks in
-## _drone_search_target above it).
+## No mortar lead at all yet: search the whole contested area
+## (GameConfig.DRONE_SEARCH_GRID_COLUMNS_M/ROWS_M — the map's full height,
+## not just the road's own narrow band a mortar would never actually sit
+## on), but not uniformly — see _weighted_random_sweep_index, which
+## focuses this on the rows closest to the road (the enemy's own, openly
+## visible approach — real activity concentrates near it, not evenly
+## across the whole map) far more often than the map's own far edges,
+## without ever ruling the edges out completely. Deliberately does NOT aim
+## at the enemy's actual (fixed) mortar emplacements — the drone has no
+## more prior knowledge of exactly where they are than the player does;
+## the road's existence is public knowledge (it's drawn on the map), not
+## secret intelligence, so weighting toward it isn't the same thing as
+## knowing exact coordinates. Advances to a freshly re-rolled point once
+## close enough to the current one rather than flying to and sitting at a
+## single fixed spot — genuine progressive search coverage, not parking
+## somewhere and stopping.
 ##
 ## Scaled down from an earlier version's 500m: with the grid's own
 ## individual legs only ~750-850m long (see GameConfig's own reasoning for
@@ -1501,26 +1533,33 @@ func _in_friendly_mortar_range(pos: Vector2) -> bool:
 ## fraction of a leg's own length instead.
 const DRONE_SWEEP_WAYPOINT_RADIUS: float = 200.0 * GameConfig.PIXELS_PER_METER
 
-## Where a fresh battle's sweep index starts — see GameConfig.
-## DRONE_INITIAL_SWEEP_MIDDLE_INDICES/_CHANCE. Weighted, not fixed: the
-## center leg (the road's own y-band) most of the time, but genuinely any
-## other leg the rest of the time, so the very first thing a player
-## watches isn't identical — and predictable — every single game.
-func _random_initial_drone_sweep_index() -> int:
-	if randf() < GameConfig.DRONE_INITIAL_SWEEP_MIDDLE_CHANCE:
-		return GameConfig.DRONE_INITIAL_SWEEP_MIDDLE_INDICES.pick_random()
-	var waypoints: Array[Vector2] = GameConfig.drone_search_waypoints_px()
-	var other_indices: Array[int] = []
-	for i in waypoints.size():
-		if not GameConfig.DRONE_INITIAL_SWEEP_MIDDLE_INDICES.has(i):
-			other_indices.append(i)
-	return other_indices.pick_random()
+## A grid index chosen with GameConfig.DRONE_SWEEP_ROW_WEIGHTS bias toward
+## the rows nearest the road (see _drone_sweep_target's own reasoning) —
+## shared by the initial pick at battle start (see start_battle) and every
+## subsequent re-roll on arrival, so "where the drone starts" and "where
+## it keeps going" are the same underlying bias instead of two separate,
+## potentially inconsistent mechanisms. Column (x) is picked uniformly
+## within whichever row wins — the whole road's length is equally
+## plausible, only how far off its y-band matters.
+func _weighted_random_sweep_index() -> int:
+	var row_count: int = GameConfig.DRONE_SEARCH_GRID_ROWS_M.size()
+	var columns_per_row: int = GameConfig.DRONE_SEARCH_GRID_COLUMNS_M.size()
+	var roll := randf()
+	var cumulative := 0.0
+	var chosen_row := row_count - 1
+	for row_i in row_count:
+		cumulative += GameConfig.DRONE_SWEEP_ROW_WEIGHTS[row_i]
+		if roll <= cumulative:
+			chosen_row = row_i
+			break
+	var chosen_column := randi() % columns_per_row
+	return chosen_row * columns_per_row + chosen_column
 
 
 func _drone_sweep_target() -> Vector2:
 	var waypoints: Array[Vector2] = GameConfig.drone_search_waypoints_px()
 	if active_drone.global_position.distance_to(waypoints[_drone_sweep_index]) <= DRONE_SWEEP_WAYPOINT_RADIUS:
-		_drone_sweep_index = (_drone_sweep_index + 1) % waypoints.size()
+		_drone_sweep_index = _weighted_random_sweep_index()
 	return waypoints[_drone_sweep_index]
 
 
