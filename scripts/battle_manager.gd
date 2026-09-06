@@ -1237,15 +1237,18 @@ func _mortar_existence_confidence() -> float:
 	return GameConfig.MORTAR_CONFIDENCE_FLOOR + (1.0 - GameConfig.MORTAR_CONFIDENCE_FLOOR) * exp(-elapsed / GameConfig.MORTAR_CONFIDENCE_DECAY_TAU)
 
 
-## Distance from `pos` to the nearest ACTIVE friendly unit of any kind
-## (squad, mortar, or the drone team's own ground station), or INF if
-## none remain — shared by _squad_danger_priority (how threatening an
-## advancing enemy is) and _drone_search_target's own tie-break among
-## multiple visible retreating enemies (which one's actually closest to
-## being able to fight, or be fought, right now).
-func _nearest_active_friendly_distance(pos: Vector2) -> float:
+## Distance from `pos` to the nearest ACTIVE unit of `team` (PLAYER, the
+## default, unless told otherwise), or INF if none remain — shared by
+## _squad_danger_priority (how threatening an advancing enemy is — to the
+## drone's own PLAYER side by default, or to whichever side is doing the
+## judging when _mortar_target_value asks on a MORTAR's behalf) and
+## _drone_search_target's own tie-break among multiple visible retreating
+## enemies (which one's actually closest to being able to fight, or be
+## fought, right now).
+func _nearest_active_friendly_distance(pos: Vector2, team: Unit.Team = Unit.Team.PLAYER) -> float:
+	var units: Array[Unit] = player_units if team == Unit.Team.PLAYER else enemy_units
 	var nearest := INF
-	for f in player_units:
+	for f in units:
 		if f.state == Unit.State.ACTIVE:
 			nearest = min(nearest, pos.distance_to(f.global_position))
 	return nearest
@@ -1253,12 +1256,16 @@ func _nearest_active_friendly_distance(pos: Vector2) -> float:
 
 ## A visible, ACTIVE enemy squad's own target-priority score — see
 ## GameConfig.TARGET_PRIORITY_SQUAD_MAX/SQUAD_DANGER_RANGE. Danger is
-## judged by proximity to the nearest active friendly unit — the closer it
-## is to actually being able to fight someone, the more it matters,
-## ramping smoothly from 0 at SQUAD_DANGER_RANGE up to the max right at
-## contact, rather than a hard in-range/out-of-range step.
-func _squad_danger_priority(u: Unit) -> float:
-	var nearest_friendly_dist: float = _nearest_active_friendly_distance(u.global_position)
+## judged by proximity to the nearest ACTIVE unit of `threatened_team`
+## (PLAYER by default, matching the drone's own — always PLAYER-side —
+## use of this; _mortar_target_value passes the firing mortar's own team
+## instead, since a mortar judges danger to ITS side, not unconditionally
+## the player's) — the closer `u` is to actually being able to fight
+## someone, the more it matters, ramping smoothly from 0 at
+## SQUAD_DANGER_RANGE up to the max right at contact, rather than a hard
+## in-range/out-of-range step.
+func _squad_danger_priority(u: Unit, threatened_team: Unit.Team = Unit.Team.PLAYER) -> float:
+	var nearest_friendly_dist: float = _nearest_active_friendly_distance(u.global_position, threatened_team)
 	if is_inf(nearest_friendly_dist):
 		return 0.0
 	return GameConfig.TARGET_PRIORITY_SQUAD_MAX * clamp(1.0 - nearest_friendly_dist / GameConfig.SQUAD_DANGER_RANGE, 0.0, 1.0)
@@ -2166,6 +2173,17 @@ func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
 ## already been hit has had its crew abandon the gun (see
 ## Unit._apply_crew_casualties), so a RETREATING mortar is just fleeing
 ## survivors, no more of a threat than any other routed unit.
+##
+## Among non-mortar candidates, a SQUAD's own direct fire still just picks
+## uniformly at random (a rifle squad isn't out here doing fire-support
+## math) — but a MORTAR's choice among them is a genuine weighted pick via
+## _mortar_target_value, not uniform: a fuller unit is a juicier target
+## (more casualties per hit — see Unit.take_hit's own from_mortar
+## scaling), and a target currently dangerous to the mortar's own side
+## matters too, whether or not it happens to also be full-strength. Both
+## real considerations, weighted rather than either one deciding outright
+## — a damaged-but-threatening squad can still outweigh an
+## undamaged-but-harmless one.
 func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 	var candidates: Array[Unit] = []
 	for e in enemies:
@@ -2186,7 +2204,51 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 	var mortar_candidates: Array[Unit] = candidates.filter(func(c): return c.kind == Unit.Kind.MORTAR and c.state == Unit.State.ACTIVE)
 	if not mortar_candidates.is_empty():
 		return mortar_candidates[randi() % mortar_candidates.size()]
+	if unit.kind == Unit.Kind.MORTAR:
+		return _weighted_mortar_target_pick(unit, candidates)
 	return candidates[randi() % candidates.size()]
+
+
+## How much a MORTAR would value firing on `target` right now — see
+## _pick_target's own doc comment for the two factors this weighs.
+## Casualty potential is just the target's own current pip count (more
+## people actually there to hit); danger is _squad_danger_priority judged
+## against `unit`'s OWN side (not unconditionally the player's — an enemy
+## mortar weighing this cares about danger to the ENEMY side), zero for
+## anything that isn't a squad (a spotter or an already-fleeing mortar
+## crew poses no real danger to anyone). Both terms land on roughly the
+## same 0-10ish scale by construction (max pips 9, TARGET_PRIORITY_
+## SQUAD_MAX 10), so equal weights (GameConfig.MORTAR_TARGET_CASUALTY_
+## WEIGHT/_DANGER_WEIGHT) already balance them reasonably without needing
+## wildly different magnitudes.
+func _mortar_target_value(unit: Unit, target: Unit) -> float:
+	var casualty_value: float = float(target.pips)
+	var danger_value: float = _squad_danger_priority(target, unit.team) if target.kind == Unit.Kind.SQUAD else 0.0
+	return GameConfig.MORTAR_TARGET_CASUALTY_WEIGHT * casualty_value + GameConfig.MORTAR_TARGET_DANGER_WEIGHT * danger_value
+
+
+## A genuine weighted-random choice among `candidates` (each one's own
+## _mortar_target_value as its weight), not a deterministic "always the
+## single best one" — real fire-mission targeting isn't perfectly
+## rational, and this keeps the mortar's target choice from being
+## trivially predictable the way always picking the objective maximum
+## would be. Every candidate's value is guaranteed positive (a targetable
+## unit always has at least 1 pip), so no separate floor is needed to keep
+## every weight meaningfully positive.
+func _weighted_mortar_target_pick(unit: Unit, candidates: Array[Unit]) -> Unit:
+	var weights: Array[float] = []
+	var total := 0.0
+	for c in candidates:
+		var w: float = _mortar_target_value(unit, c)
+		weights.append(w)
+		total += w
+	var roll: float = randf() * total
+	var cumulative := 0.0
+	for i in candidates.size():
+		cumulative += weights[i]
+		if roll <= cumulative:
+			return candidates[i]
+	return candidates[candidates.size() - 1]
 
 
 func _prune_fire_flashes() -> void:

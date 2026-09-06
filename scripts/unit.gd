@@ -215,7 +215,17 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], kn
 		_apply_crew_casualties(known_enemy_positions, ally_positions)
 		return
 
-	pips = max(pips - 1, 0)
+	# A rifle round is aimed at one person; a mortar round's fragmentation
+	# covers an area — the more people currently in that area, the more it
+	# actually costs, not a flat one-for-one regardless of how full the
+	# unit still is. Direct fire stays a flat single casualty; only
+	# from_mortar scales with the unit's own current strength (see
+	# GameConfig.MORTAR_CASUALTY_FRACTION) — a full 9-person squad is a
+	# genuinely costlier hit to take than a squad already worn down to a
+	# handful, which is exactly why it's also a more attractive TARGET in
+	# the first place (see BattleManager._mortar_target_value).
+	var casualties: int = GameConfig.mortar_casualty_count(pips) if from_mortar else 1
+	pips = max(pips - casualties, 0)
 	if pips <= 0:
 		state = State.DESTROYED
 		state_changed.emit(self)

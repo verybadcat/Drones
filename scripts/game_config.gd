@@ -714,6 +714,17 @@ const TARGET_PRIORITY_MORTAR_LEAD_DISCOUNT: float = 0.8
 const TARGET_PRIORITY_SQUAD_MAX: float = 10.0
 const SQUAD_DANGER_RANGE: float = 1200.0 * PIXELS_PER_METER
 
+# How a MORTAR weighs which non-mortar candidate to actually fire on — see
+# BattleManager._mortar_target_value/_pick_target's own doc comment. Equal
+# weights on purpose: casualty potential (a target's own current pips,
+# capped at 9) and danger (_squad_danger_priority, capped at
+# TARGET_PRIORITY_SQUAD_MAX = 10) already land on comparable scales by
+# construction, so 1.0/1.0 already balances "a fuller unit is a juicier
+# target" against "a dangerous unit is worth hitting even if it's already
+# been worn down" without either one dominating outright.
+const MORTAR_TARGET_CASUALTY_WEIGHT: float = 1.0
+const MORTAR_TARGET_DANGER_WEIGHT: float = 1.0
+
 # A safety valve on the mortar/drone team's shared commitment to hunting
 # one specific enemy mortar together (see BattleManager.
 # _update_joint_mortar_hunt) — a generous ceiling, not a normal expiry.
@@ -872,6 +883,20 @@ const COUNTER_BATTERY_BLAST_RADIUS: float = 150.0 * PIXELS_PER_METER # beyond th
 # A squad hit by mortar fire may bolt for nearby cover regardless of overall
 # casualties — mortar fire is disruptive even when it doesn't kill outright.
 const RELOCATE_ON_MORTAR_HIT_CHANCE: float = 0.35
+
+# A mortar round's fragmentation covers an area, not one aimed person —
+# see Unit.take_hit's own from_mortar branch, and BattleManager.
+# _mortar_target_value, which is why a fuller unit is also a more
+# attractive target in the first place. 20% of a unit's CURRENT strength,
+# rounded, floored at 1 (a "hit" that costs nothing would read as a
+# non-event) and never more than what's actually there to lose. A full
+# 9-person squad loses 2 per hit (round(9*0.2)=2); anything at 6 or below
+# is back to losing 1, same as the old flat model — the scaling only
+# really shows up while a unit is still close to full strength.
+const MORTAR_CASUALTY_FRACTION: float = 0.2
+
+static func mortar_casualty_count(current_pips: int) -> int:
+	return clampi(int(round(float(current_pips) * MORTAR_CASUALTY_FRACTION)), 1, current_pips)
 
 # Squads bunched up this close together (e.g. piled into the same patch of
 # cover) risk a stray hit spreading from whichever of them was actually
