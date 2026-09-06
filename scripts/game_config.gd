@@ -606,6 +606,31 @@ const TARGET_PRIORITY_MORTAR_LEAD_DISCOUNT: float = 0.8
 const TARGET_PRIORITY_SQUAD_MAX: float = 10.0
 const SQUAD_DANGER_RANGE: float = 1200.0 * PIXELS_PER_METER
 
+# A visible RETREATING enemy (squad or mortar crew) is a kill already in
+# progress, not a hypothetical one — once it's actually broken and running,
+# finishing it off outweighs either an advancing squad's mere danger or the
+# speculative value of continuing to search for a fresh one (see
+# BattleManager._drone_search_target). Flat rather than distance-scaled
+# like TARGET_PRIORITY_SQUAD_MAX — the urgency here is "it's getting away,"
+# not "how close is it to a fight" — but still far below
+# TARGET_PRIORITY_MORTAR: a live, still-functioning mortar overhead is
+# always the bigger threat regardless of what else is running.
+const TARGET_PRIORITY_RETREATING_ENEMY: float = 25.0
+
+# Once the enemy commander has ordered a general retreat, there's little
+# reason left to keep sweeping wide for a NEW enemy — every ACTIVE squad
+# was just pulled into RETREATING in that same instant (see BattleManager.
+# _check_enemy_commander_retreat), so the "fresh squad might be arriving"
+# half of the sweep's value is simply gone, and even the standing worry
+# about an undiscovered mortar is heavily discounted here: a mortar that's
+# actually still covering the withdrawal will show up live or via a fresh
+# fire-detection lead and win outright regardless of this discount (see
+# BattleManager._drone_search_target's tiers 1/2) — this only affects the
+# speculative "nothing detected yet, but maybe" component of the sweep,
+# which should now lose to a real, already-broken kill in progress
+# (TARGET_PRIORITY_RETREATING_ENEMY) rather than keep competing with it.
+const SWEEP_DISCOUNT_DURING_ENEMY_RETREAT: float = 0.2
+
 # How much the drone team should still bother sweeping wide for an
 # as-yet-undiscovered enemy mortar, expressed as a genuine expected value:
 # TARGET_PRIORITY_MORTAR (what finding one would be worth) times this

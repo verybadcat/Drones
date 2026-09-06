@@ -973,18 +973,28 @@ func _mortar_existence_confidence() -> float:
 	return GameConfig.MORTAR_CONFIDENCE_FLOOR + (1.0 - GameConfig.MORTAR_CONFIDENCE_FLOOR) * exp(-elapsed / GameConfig.MORTAR_CONFIDENCE_DECAY_TAU)
 
 
+## Distance from `pos` to the nearest ACTIVE friendly unit of any kind
+## (squad, mortar, or the drone team's own ground station), or INF if
+## none remain — shared by _squad_danger_priority (how threatening an
+## advancing enemy is) and _drone_search_target's own tie-break among
+## multiple visible retreating enemies (which one's actually closest to
+## being able to fight, or be fought, right now).
+func _nearest_active_friendly_distance(pos: Vector2) -> float:
+	var nearest := INF
+	for f in player_units:
+		if f.state == Unit.State.ACTIVE:
+			nearest = min(nearest, pos.distance_to(f.global_position))
+	return nearest
+
+
 ## A visible, ACTIVE enemy squad's own target-priority score — see
 ## GameConfig.TARGET_PRIORITY_SQUAD_MAX/SQUAD_DANGER_RANGE. Danger is
-## judged by proximity to the NEAREST active friendly unit of any kind
-## (squad, mortar, or the drone team's own ground station) — the closer it
+## judged by proximity to the nearest active friendly unit — the closer it
 ## is to actually being able to fight someone, the more it matters,
 ## ramping smoothly from 0 at SQUAD_DANGER_RANGE up to the max right at
 ## contact, rather than a hard in-range/out-of-range step.
 func _squad_danger_priority(u: Unit) -> float:
-	var nearest_friendly_dist := INF
-	for f in player_units:
-		if f.state == Unit.State.ACTIVE:
-			nearest_friendly_dist = min(nearest_friendly_dist, u.global_position.distance_to(f.global_position))
+	var nearest_friendly_dist: float = _nearest_active_friendly_distance(u.global_position)
 	if is_inf(nearest_friendly_dist):
 		return 0.0
 	return GameConfig.TARGET_PRIORITY_SQUAD_MAX * clamp(1.0 - nearest_friendly_dist / GameConfig.SQUAD_DANGER_RANGE, 0.0, 1.0)
@@ -997,18 +1007,33 @@ func _squad_danger_priority(u: Unit) -> float:
 ## rewrite of this decision. Candidates, each mapped to an actual position:
 ## (1) a currently visible, engageable mortar (_visible_engageable_mortar) —
 ## practically always the winner when one exists, since TARGET_PRIORITY_
-## MORTAR sits far above anything a squad can reach; (2) the freshest
-## in-range fire-detection lead on any ACTIVE mortar, discounted somewhat
-## for being a stale position rather than a live one, but still real
-## evidence rather than speculation; (3) the single most dangerous
-## currently-visible ACTIVE enemy squad; (4) the ongoing area sweep
-## (_drone_sweep_target), valued as the genuine expected value of what it
-## might still find — TARGET_PRIORITY_MORTAR times _mortar_existence_
-## confidence(). That last term is what lets the drone's default search
-## effort shift naturally toward tracking real, visible squads instead of
-## an indefinite mortar-shaped sweep once mortar fire hasn't been detected
-## in a long while, or every known enemy mortar is confirmed out of
-## action — without ever hard-coding either condition directly here.
+## MORTAR sits far above anything else; (2) the freshest in-range fire-
+## detection lead on any ACTIVE mortar, discounted somewhat for being a
+## stale position rather than a live one, but still real evidence rather
+## than speculation; (3) the single most dangerous currently-visible ACTIVE
+## enemy squad; (4) the nearest currently-visible RETREATING enemy (squad
+## or mortar) — a real, already-broken kill in progress, worth more than
+## either an advancing squad's mere danger or the speculative sweep, on the
+## reasoning that once an enemy has actually turned to run, finishing it
+## off outweighs continuing to watch for fresh ones; (5) the ongoing area
+## sweep (_drone_sweep_target), valued as the genuine expected value of
+## what it might still find — TARGET_PRIORITY_MORTAR times
+## _mortar_existence_confidence(). That last term is what lets the drone's
+## default search effort shift naturally toward tracking real, visible
+## squads (advancing OR retreating) instead of an indefinite mortar-shaped
+## sweep once mortar fire hasn't been detected in a long while, or every
+## known enemy mortar is confirmed out of action — without ever
+## hard-coding either condition directly here. Tier (3)'s own candidate
+## pool empties out on its own once the enemy commander orders a general
+## retreat (every ACTIVE squad is pulled into RETREATING in that same
+## instant — see _check_enemy_commander_retreat) — there's usually nothing
+## left "advancing" to search for at that point. Tier (5) is ALSO directly
+## discounted (GameConfig.SWEEP_DISCOUNT_DURING_ENEMY_RETREAT) the instant
+## that same general retreat is ordered, on top of whatever the slower,
+## generic confidence decay has already done — a commander who's just
+## called off the attack has little reason left to keep searching broadly
+## for new arrivals, and this makes that immediate rather than waiting on
+## the same decay curve built for "no mortar fire in a while."
 func _drone_search_target() -> Vector2:
 	var best_score := -1.0
 	var best_pos := Vector2.INF
@@ -1051,7 +1076,30 @@ func _drone_search_target() -> Vector2:
 		best_score = best_squad_score
 		best_pos = best_squad.global_position
 
+	var best_retreating: Unit = null
+	var best_retreating_dist := INF
+	for u in enemy_units:
+		if u.state == Unit.State.RETREATING and u.is_visible:
+			var d: float = _nearest_active_friendly_distance(u.global_position)
+			if d < best_retreating_dist:
+				best_retreating_dist = d
+				best_retreating = u
+	if best_retreating != null and GameConfig.TARGET_PRIORITY_RETREATING_ENEMY > best_score:
+		best_score = GameConfig.TARGET_PRIORITY_RETREATING_ENEMY
+		best_pos = best_retreating.global_position
+
 	var sweep_score: float = GameConfig.TARGET_PRIORITY_MORTAR * _mortar_existence_confidence()
+	if enemy_general_retreat_ordered:
+		# The enemy commander has already called off the attack — the whole
+		# reason to blindly sweep wide (a fresh SQUAD might be arriving) is
+		# gone, and even the standing worry about an undiscovered mortar is
+		# heavily discounted: if one really is still covering the withdrawal
+		# (see _check_enemy_commander_retreat's "mortars continue the fire
+		# mission"), it'll show up live or via a fresh lead and win via tier
+		# (1)/(2) above regardless of this discount, unconditionally. What's
+		# actually left to weigh the sweep against here is real, already-
+		# broken kills in progress (tier 4) — those should win.
+		sweep_score *= GameConfig.SWEEP_DISCOUNT_DURING_ENEMY_RETREAT
 	if sweep_score > best_score or is_inf(best_pos.x):
 		best_pos = _drone_sweep_target()
 
