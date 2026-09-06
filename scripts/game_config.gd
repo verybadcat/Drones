@@ -1667,3 +1667,28 @@ static func _draw_forest_patch(ci: CanvasItem, patch: Dictionary) -> void:
 			x_m += spacing_m
 		y_m += spacing_m * 0.85
 		row += 1
+
+
+## A RichTextLabel configured to behave like a plain Label for layout
+## purposes -- no bbcode (bbcode_enabled stays off, the default, so literal
+## text with "%", ":", "=" etc. never gets parsed as markup), no scrollbar
+## of its own (scroll_active off, fit_content on, so it sizes to its full
+## content and leaves any actual scrolling to a wrapping Container, exactly
+## like a Label would) -- but with real text selection: click-drag to select,
+## Ctrl+C to copy, AND a right-click "Select All"/"Copy" context menu that
+## works regardless of scroll position. That last part matters more than it
+## sounds: a plain click-drag selection can't extend past whatever's
+## currently visible inside a ScrollContainer, so without the context menu
+## there'd be no way to select, say, an AAR report's header line together
+## with everything below it once the report is taller than its scroll box.
+## Used everywhere a Label previously showed real text worth reading back or
+## copying -- see call sites (combat log entries, the AAR report, on-screen
+## descriptive text, live casualty readouts).
+static func make_selectable_label(text: String = "") -> RichTextLabel:
+	var label := RichTextLabel.new()
+	label.text = text
+	label.selection_enabled = true
+	label.context_menu_enabled = true
+	label.scroll_active = false
+	label.fit_content = true
+	return label

@@ -33,8 +33,7 @@ func _ready() -> void:
 
 
 func add_entry(text: String) -> void:
-	var label := Label.new()
-	label.text = text
+	var label := GameConfig.make_selectable_label(text)
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_list.add_child(label)
 	_list.move_child(label, 0)

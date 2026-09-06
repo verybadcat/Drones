@@ -209,20 +209,16 @@ func _on_battle_ended(report_text: String) -> void:
 	report_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	report_background.add_child(report_scroll)
 
-	# RichTextLabel instead of a plain Label so the report can actually be
-	# selected and copied (click-drag to select, Ctrl+C to copy) rather than
-	# needing a screenshot — bbcode_enabled stays off (the default) so the
-	# report's own "===", "%", ":" etc. render as literal text, never parsed
-	# as markup. scroll_active is off and fit_content is on so this sizes
-	# itself to its full content and leaves the actual scrolling to the
-	# wrapping ScrollContainer above, exactly like the Label it replaces did.
-	var report_label := RichTextLabel.new()
-	report_label.text = report_text
+	# GameConfig.make_selectable_label instead of a plain Label so the report
+	# can actually be selected and copied rather than needing a screenshot.
+	# Its own context menu (right-click → Select All → Copy) is what actually
+	# lets the header get copied together with everything below it — a plain
+	# click-drag selection can't extend past whatever's currently visible in
+	# the wrapping ScrollContainer, so once a report is tall enough to need
+	# scrolling, drag-selection alone could never span the whole thing.
+	var report_label := GameConfig.make_selectable_label(report_text)
 	report_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	report_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	report_label.selection_enabled = true
-	report_label.scroll_active = false
-	report_label.fit_content = true
 	report_scroll.add_child(report_label)
 
 	restart_button = Button.new()

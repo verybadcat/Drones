@@ -44,5 +44,7 @@ func _draw() -> void:
 	# Cover status is visible during setup too, not just once the battle starts.
 	GameConfig.draw_cover_ring(self, RADIUS, GameConfig.get_terrain_type_at(position))
 
-	draw_string(ThemeDB.fallback_font, Vector2(-30, -RADIUS - 6), label_text,
-		HORIZONTAL_ALIGNMENT_CENTER, 60, 13, Color.WHITE)
+	# Wide enough for the longest label actually used ("Drone Team") at this
+	# font size without clipping — 60px cut it off mid-word.
+	draw_string(ThemeDB.fallback_font, Vector2(-45, -RADIUS - 6), label_text,
+		HORIZONTAL_ALIGNMENT_CENTER, 90, 13, Color.WHITE)

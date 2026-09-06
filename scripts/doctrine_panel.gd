@@ -23,8 +23,7 @@ func _ready() -> void:
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(root)
 
-	var title := Label.new()
-	title.text = "Holding the village. Drag your units into position on the map, set doctrine below, then start the battle."
+	var title := GameConfig.make_selectable_label("Holding the village. Drag your units into position on the map, set doctrine below, then start the battle.")
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(title)
 
@@ -38,13 +37,22 @@ func _ready() -> void:
 func _build_squad_section(label_text: String) -> Control:
 	var box := VBoxContainer.new()
 
-	var label := Label.new()
-	label.text = label_text
+	var label := GameConfig.make_selectable_label(label_text)
 	box.add_child(label)
 
 	var threshold_row := HBoxContainer.new()
-	var threshold_label := Label.new()
-	threshold_label.text = "Retreat threshold (%% casualties):"
+	var threshold_label := GameConfig.make_selectable_label("Retreat threshold (%% casualties):")
+	# Sitting in an HBoxContainer (the horizontal/main axis, unlike every
+	# other converted label here which stretches to a VBoxContainer's full
+	# width on the cross axis), this RichTextLabel never gets a real width to
+	# wrap against before computing its own minimum size — with autowrap
+	# left on, that produced a wildly inflated height (~760px measured,
+	# wrapped as if against a near-zero-width column), pushing every section
+	# below it off the visible panel. This label was never meant to wrap
+	# anyway — it's a short inline caption next to a slider — so turning
+	# autowrap off restores exactly the single-line sizing the plain Label
+	# it replaced always had.
+	threshold_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	threshold_row.add_child(threshold_label)
 	var threshold_slider := HSlider.new()
 	threshold_slider.min_value = 10
@@ -62,12 +70,10 @@ func _build_squad_section(label_text: String) -> Control:
 func _build_mortar_section() -> Control:
 	var box := VBoxContainer.new()
 
-	var label := Label.new()
-	label.text = "Mortar"
+	var label := GameConfig.make_selectable_label("Mortar")
 	box.add_child(label)
 
-	var note := Label.new()
-	note.text = "A mortar crew is either in action or knocked out by a hit — no retreat threshold to set."
+	var note := GameConfig.make_selectable_label("A mortar crew is either in action or knocked out by a hit — no retreat threshold to set.")
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(note)
 
@@ -78,8 +84,7 @@ func _build_mortar_section() -> Control:
 	box.add_child(scoot_row)
 	_mortar_shoot_and_scoot = scoot_check
 
-	var scoot_note := Label.new()
-	scoot_note.text = "Relocation itself takes as long as the walk does, at a realistic pace — no separate cooldown to set."
+	var scoot_note := GameConfig.make_selectable_label("Relocation itself takes as long as the walk does, at a realistic pace — no separate cooldown to set.")
 	scoot_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(scoot_note)
 

@@ -17,9 +17,8 @@ func _ready() -> void:
 	root.add_theme_constant_override("separation", 20)
 	add_child(root)
 
-	var title := Label.new()
-	title.text = "Choose your reconnaissance setup"
-	title.add_theme_font_size_override("font_size", 22)
+	var title := GameConfig.make_selectable_label("Choose your reconnaissance setup")
+	title.add_theme_font_size_override("normal_font_size", 22)
 	root.add_child(title)
 
 	root.add_child(_build_option(
@@ -28,7 +27,7 @@ func _ready() -> void:
 		GameConfig.ReconMode.SPOTTER
 	))
 	root.add_child(_build_option(
-		"Level 1 — Drone team",
+		"Level 1 — Drone recon",
 		"Replaces the spotter with a 3-person team equipped with four Mavic-3 scout drones, plus spare batteries",
 		GameConfig.ReconMode.DRONE_TEAM
 	))
@@ -47,13 +46,11 @@ func _build_option(title_text: String, body_text: String, mode: GameConfig.Recon
 	inner.add_theme_constant_override("separation", 10)
 	box.add_child(inner)
 
-	var option_title := Label.new()
-	option_title.text = title_text
-	option_title.add_theme_font_size_override("font_size", 17)
+	var option_title := GameConfig.make_selectable_label(title_text)
+	option_title.add_theme_font_size_override("normal_font_size", 17)
 	inner.add_child(option_title)
 
-	var body := Label.new()
-	body.text = body_text
+	var body := GameConfig.make_selectable_label(body_text)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.custom_minimum_size = Vector2(780, 0)
 	inner.add_child(body)

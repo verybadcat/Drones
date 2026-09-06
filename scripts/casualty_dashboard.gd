@@ -26,13 +26,13 @@ const STATUS_COLOR := {
 }
 
 var battle_manager: BattleManager
-var _player_label: Label
+var _player_label: RichTextLabel
 var _player_bar: ColorRect
 var _player_mortar_rows: Array[Dictionary] = []
-var _drone_label: Label
+var _drone_label: RichTextLabel
 var _drone_bg: ColorRect
 var _drone_fill: ColorRect
-var _enemy_label: Label
+var _enemy_label: RichTextLabel
 var _enemy_bar: ColorRect
 var _enemy_mortar_rows: Array[Dictionary] = []
 
@@ -54,18 +54,17 @@ func _ready() -> void:
 	root.add_theme_constant_override("separation", 4)
 	add_child(root)
 
-	var title := Label.new()
-	title.text = "CASUALTIES"
-	title.add_theme_font_size_override("font_size", 15)
+	var title := GameConfig.make_selectable_label("CASUALTIES")
+	title.add_theme_font_size_override("normal_font_size", 15)
 	root.add_child(title)
 	root.add_child(HSeparator.new())
 
-	_player_label = Label.new()
+	_player_label = GameConfig.make_selectable_label()
 	root.add_child(_player_label)
 	_player_bar = _build_bar(root, Color(0.3, 0.85, 1.0))
 	_player_mortar_rows = _build_mortar_rows(root)
 
-	_drone_label = Label.new()
+	_drone_label = GameConfig.make_selectable_label()
 	root.add_child(_drone_label)
 	_drone_bg = ColorRect.new()
 	_drone_bg.color = Color(0.2, 0.2, 0.2)
@@ -77,7 +76,7 @@ func _ready() -> void:
 
 	root.add_child(HSeparator.new())
 
-	_enemy_label = Label.new()
+	_enemy_label = GameConfig.make_selectable_label()
 	root.add_child(_enemy_label)
 	_enemy_bar = _build_bar(root, Color(1.0, 0.55, 0.15))
 	_enemy_mortar_rows = _build_mortar_rows(root)
@@ -106,7 +105,7 @@ func _build_bar(root: VBoxContainer, fill_color: Color) -> ColorRect:
 func _build_mortar_rows(root: VBoxContainer) -> Array[Dictionary]:
 	var rows: Array[Dictionary] = []
 	for i in MAX_MORTARS_PER_SIDE:
-		var label := Label.new()
+		var label := GameConfig.make_selectable_label()
 		root.add_child(label)
 		var bg := ColorRect.new()
 		bg.color = Color(0.2, 0.2, 0.2)
@@ -133,7 +132,7 @@ func _refresh() -> void:
 	_update_mortar_rows(battle_manager.enemy_units, _enemy_mortar_rows)
 
 
-func _update_side(stats: Dictionary, label: Label, bar: ColorRect, side_name: String) -> void:
+func _update_side(stats: Dictionary, label: RichTextLabel, bar: ColorRect, side_name: String) -> void:
 	label.text = "%s: %d/%d personnel lost (%.0f%%)" % [side_name, stats.pips_lost, stats.pips_total, stats.casualty_percent]
 	var frac: float = clamp(stats.casualty_percent / 100.0, 0.0, 1.0)
 	bar.size = Vector2(BAR_SIZE.x * frac, BAR_SIZE.y)
@@ -147,7 +146,7 @@ func _update_mortar_rows(units: Array[Unit], rows: Array[Dictionary]) -> void:
 
 	for i in rows.size():
 		var row: Dictionary = rows[i]
-		var label: Label = row.label
+		var label: RichTextLabel = row.label
 		var bg: ColorRect = row.bg
 		if i >= mortars.size():
 			label.visible = false
