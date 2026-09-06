@@ -172,13 +172,26 @@ func _on_battle_ended(report_text: String) -> void:
 	report_background.size = Vector2(560, 500)
 	add_child(report_background)
 
+	# A bare Label outside any Container never actually respects a width
+	# smaller than its own natural (unwrapped) content size — custom_min_size
+	# can only raise a control's minimum, never cap it below that, so the
+	# report's longest line (e.g. a full "Enemy withdrew: ..." list) forced
+	# the label wider than this box regardless of autowrap_mode. A
+	# ScrollContainer is a real Container: it assigns the label's width from
+	# the outside and clips anything that still doesn't fit, exactly like
+	# CombatLog already does — so wrapping actually takes effect here too.
+	var report_scroll := ScrollContainer.new()
+	report_scroll.position = Vector2(10, 10)
+	report_scroll.custom_minimum_size = Vector2(540, 480)
+	report_scroll.size = report_scroll.custom_minimum_size
+	report_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	report_background.add_child(report_scroll)
+
 	var report_label := Label.new()
 	report_label.text = report_text
-	report_label.position = Vector2(10, 10)
-	report_label.custom_minimum_size = Vector2(540, 480)
-	report_label.size = report_label.custom_minimum_size
+	report_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	report_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	report_background.add_child(report_label)
+	report_scroll.add_child(report_label)
 
 	restart_button = Button.new()
 	restart_button.text = "Set new doctrine and try again"
