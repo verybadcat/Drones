@@ -881,29 +881,41 @@ func _update_friendly_mortar_hunting() -> void:
 ## position (_known_enemy_positions) — the whole point of this function
 ## existing separately is that the enemy's version doesn't need to care
 ## whether ITS mortar gets spotted closing the distance, and this one very
-## much does. Falls back to the first building-clear candidate (what
-## _mortar_advance_point would have picked) if none of them are actually
-## hidden — some progress toward the shot beats none.
+## much does. A candidate with NO known threat able to see it is also,
+## automatically, one no known SQUAD can actually fire on either — squad
+## direct fire itself requires has_direct_los (see _pick_target) — so
+## "hidden" already is the genuinely safe case, not just a heuristic.
 ##
-## The mortar being hunted itself is excluded from that threat check —
-## every candidate sits close to it by construction (that's the whole
-## point), so treating it as a threat to hide from would reject every
-## angle equally, for no real gain: closing to indirect-fire range doesn't
-## require mutual line of sight the way direct fire would, and the actual
-## exposure risk this guards against is everyone ELSE near the route, not
-## the one target the mortar is already committed to engaging.
+## When NONE of the candidates are fully hidden (a known squad screening the
+## target can plausibly see every angle around it), this used to fall back
+## to whichever building-clear candidate happened to be checked first,
+## regardless of how exposed it actually was — which could walk the mortar
+## into full view AND direct-fire range of a known enemy squad just because
+## that candidate's angle was tried first. Now picks whichever building-clear
+## candidate keeps the most distance from its single nearest known threat
+## instead — real standoff, not full concealment, but a meaningful, and
+## sometimes decisive, difference: standing off far enough still puts it
+## outside SQUAD_ENGAGEMENT_RANGE of that threat even without breaking LOS.
+##
+## The mortar being hunted itself is excluded from the threat list — every
+## candidate sits close to it by construction (that's the whole point), so
+## treating it as a threat to hide from would reject every angle equally,
+## for no real gain: closing to indirect-fire range doesn't require mutual
+## line of sight the way direct fire would, and the actual exposure risk
+## this guards against is everyone ELSE near the route, not the one target
+## the mortar is already committed to engaging.
 func _friendly_mortar_hunt_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 	var threats := _known_enemy_positions(mortar.team).filter(func(p): return p.distance_to(target_pos) > 1.0)
 	var base_dir: Vector2 = (target_pos - mortar.global_position).normalized()
 	var target_distance: float = GameConfig.MORTAR_MAX_RANGE * 0.9 # comfortably in range, not right on the edge
-	var fallback: Vector2 = mortar.global_position
+
+	var valid_candidates: Array[Vector2] = []
 	for offset_deg in [0.0, -15.0, 15.0, -30.0, 30.0, -45.0, 45.0]:
 		var dir: Vector2 = base_dir.rotated(deg_to_rad(offset_deg))
 		var candidate: Vector2 = target_pos - dir * target_distance
 		if GameConfig.is_building_at(candidate) or GameConfig.path_crosses_building(mortar.global_position, candidate):
 			continue
-		if fallback == mortar.global_position:
-			fallback = candidate # first building-clear candidate, kept as a last resort
+		valid_candidates.append(candidate)
 		var hidden := true
 		for threat in threats:
 			if GameConfig.has_direct_los(candidate, threat):
@@ -911,7 +923,20 @@ func _friendly_mortar_hunt_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 				break
 		if hidden:
 			return candidate
-	return fallback
+
+	if valid_candidates.is_empty():
+		return mortar.global_position # no safe-to-walk-to route at all this tick
+
+	var safest: Vector2 = valid_candidates[0]
+	var safest_margin := -1.0
+	for candidate in valid_candidates:
+		var nearest_threat_dist := INF
+		for threat in threats:
+			nearest_threat_dist = min(nearest_threat_dist, candidate.distance_to(threat))
+		if nearest_threat_dist > safest_margin:
+			safest_margin = nearest_threat_dist
+			safest = candidate
+	return safest
 
 
 ## Runs the whole drone-fleet rotation for one tick — ReconMode.DRONE_TEAM
