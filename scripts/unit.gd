@@ -254,6 +254,12 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], kn
 	var casualties: int = GameConfig.mortar_casualty_count(pips) if from_mortar else 1
 	if kind == Kind.SQUAD:
 		_categorize_casualties(casualties)
+	else:
+		# SPOTTER: one-hit-fragile (max_pips == 1), no graduated wounded
+		# split for a single person — counts as killed, same reasoning as
+		# _apply_crew_casualties. Also keeps the side-wide breakdown exactly
+		# reconciling with pips actually lost for every kind, not just squads.
+		killed_count += casualties
 	pips = max(pips - casualties, 0)
 	if pips <= 0:
 		state = State.DESTROYED
@@ -313,9 +319,19 @@ func _check_retreat(known_enemy_positions: Array[Vector2] = [], ally_positions: 
 ## out of action for the rest of the battle either way — and retreat to try
 ## to get clear (see order_retreat()); only a hit that gets the whole crew
 ## actually destroys the unit.
+##
+## Every one of these counts as killed_count too, not just crew_killed — the
+## model has no separate "wounded crew" concept (a decisive hit either takes
+## someone down for good or doesn't touch them at all), so folding straight
+## into killed_count is exactly right, not a simplification. This is what
+## keeps _compute_side_stats's killed/heavily_wounded/walking_wounded/
+## wounded_left_behind breakdown always summing to the side's actual total
+## personnel lost, mortars and drone-team crews included, not just squads.
 func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_positions: Array[Vector2] = []) -> void:
 	var remaining: int = crew_size - crew_killed
-	crew_killed += randi_range(1, remaining)
+	var newly_killed: int = randi_range(1, remaining)
+	crew_killed += newly_killed
+	killed_count += newly_killed
 	pips = crew_size - crew_killed # feeds the side's overall casualty tally exactly like a squad's pips — see setup()
 	if crew_killed >= crew_size:
 		state = State.DESTROYED

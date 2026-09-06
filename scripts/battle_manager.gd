@@ -2472,7 +2472,7 @@ func _compute_side_stats(units: Array[Unit]) -> Dictionary:
 	var killed := 0
 	var heavily_wounded := 0
 	var walking_wounded := 0
-	var wounded_captured := 0
+	var captured := 0
 	var destroyed: PackedStringArray = []
 	var withdrawn: PackedStringArray = []
 	var still_retreating: PackedStringArray = []
@@ -2484,11 +2484,32 @@ func _compute_side_stats(units: Array[Unit]) -> Dictionary:
 		if u.kind != Unit.Kind.DRONE:
 			pips_total += u.max_pips
 			pips_lost += (u.max_pips - u.pips)
-		if u.kind == Unit.Kind.SQUAD:
+			# killed_count/heavily_wounded_count/walking_wounded_count/
+			# wounded_left_behind_count are populated for every personnel
+			# kind (SQUAD's graduated split, and a flat killed_count
+			# increment for SPOTTER/MORTAR/DRONE_TEAM crew — see
+			# Unit.take_hit/_apply_crew_casualties), so summing them
+			# unconditionally here is what keeps this always reconciling
+			# exactly with pips_lost above, not just for squads.
 			killed += u.killed_count
 			heavily_wounded += u.heavily_wounded_count
 			walking_wounded += u.walking_wounded_count
-			wounded_captured += u.wounded_left_behind_count
+			captured += u.wounded_left_behind_count
+			# Captured is captured regardless of the reason: an individually
+			# abandoned HEAVILY_WOUNDED soldier (wounded_left_behind_count
+			# above) and a whole squad's remaining personnel at the moment
+			# it surrenders are the same fact from the losing side's own
+			# accounting — no longer available to the fight, alive, in the
+			# other side's hands. A SURRENDERED unit's own `pips` were never
+			# reduced by combat (state changes, pips doesn't), so they're
+			# folded in here as an explicit extra loss — bringing pips_lost
+			# up to the unit's full max_pips (whatever it had already lost
+			# to killed/wounded, plus everyone captured at the surrender
+			# itself) — not left sitting there uncounted as if those people
+			# were still an active part of the fight.
+			if u.state == Unit.State.SURRENDERED:
+				pips_lost += u.pips
+				captured += u.pips
 		match u.state:
 			Unit.State.DESTROYED:
 				if u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM:
@@ -2500,7 +2521,11 @@ func _compute_side_stats(units: Array[Unit]) -> Dictionary:
 			Unit.State.RETREATING:
 				still_retreating.append(_crew_survivor_label(u))
 			Unit.State.SURRENDERED:
-				surrendered.append(u.display_name())
+				# Its remaining `pips` are already folded into `captured`
+				# (and `pips_lost`) above — this line just names WHICH unit
+				# they came from and how many, as narrative detail on top of
+				# the aggregate count, not a second place that count lives.
+				surrendered.append("%s (%d personnel)" % [u.display_name(), u.pips])
 	var casualty_percent: float = (float(pips_lost) / float(pips_total) * 100.0) if pips_total > 0 else 0.0
 	return {
 		"pips_total": pips_total,
@@ -2509,7 +2534,7 @@ func _compute_side_stats(units: Array[Unit]) -> Dictionary:
 		"killed": killed,
 		"heavily_wounded": heavily_wounded,
 		"walking_wounded": walking_wounded,
-		"wounded_captured": wounded_captured,
+		"captured": captured,
 		"destroyed": destroyed,
 		"withdrawn": withdrawn,
 		"still_retreating": still_retreating,
@@ -2549,19 +2574,29 @@ func _end_battle() -> void:
 	lines.append("Village held: %s" % ("YES" if held else "NO"))
 	var tactical_minutes: int = int(scenario_elapsed_time / 60.0)
 	lines.append("Time elapsed: %dh %02dm (0600 to %s)" % [tactical_minutes / 60, tactical_minutes % 60, clock_string().substr(0, 5)])
-	lines.append("Player casualties: %d/%d personnel (%.0f%%) — %d killed, %d wounded" % [
+	# Captured is included right in this line, not a separate conditional
+	# one, specifically so killed + heavily wounded + walking wounded +
+	# captured always visibly sums to the personnel-lost total on the left —
+	# every one of those four is tracked for every personnel kind now (see
+	# _compute_side_stats), so this is a real identity, not just usually true.
+	lines.append("Player casualties: %d/%d personnel (%.0f%%) — %d killed, %d heavily wounded, %d walking wounded, %d captured" % [
 		player_stats.pips_lost, player_stats.pips_total, player_stats.casualty_percent,
-		player_stats.killed, player_stats.heavily_wounded + player_stats.walking_wounded,
+		player_stats.killed, player_stats.heavily_wounded, player_stats.walking_wounded, player_stats.captured,
 	])
-	lines.append("Enemy casualties: %d/%d personnel (%.0f%%) — %d killed, %d wounded" % [
+	lines.append("Enemy casualties: %d/%d personnel (%.0f%%) — %d killed, %d heavily wounded, %d walking wounded, %d captured" % [
 		enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent,
-		enemy_stats.killed, enemy_stats.heavily_wounded + enemy_stats.walking_wounded,
+		enemy_stats.killed, enemy_stats.heavily_wounded, enemy_stats.walking_wounded, enemy_stats.captured,
 	])
-	lines.append("Exchange ratio (enemy : player personnel lost): %.2f : 1" % exchange_ratio)
-	if player_stats.wounded_captured > 0:
-		lines.append("Player wounded left behind, captured: %d" % player_stats.wounded_captured)
-	if enemy_stats.wounded_captured > 0:
-		lines.append("Enemy wounded left behind, captured: %d" % enemy_stats.wounded_captured)
+	# The verdict math above needs `exchange_ratio` as a real, always-defined
+	# number (hence the max(...,1) floor there — dividing by zero player
+	# losses would crash it) — but DISPLAYING that same floored value reads
+	# as an oddly-precise, misleading ratio (e.g. "29.00 : 1") when the
+	# truth is simpler and better news than any finite ratio: zero player
+	# losses at all. Spelled out in words for that case instead of a number.
+	if player_stats.pips_lost == 0:
+		lines.append("Exchange ratio (enemy : player personnel lost): no player casualties at all (%d enemy)" % enemy_stats.pips_lost)
+	else:
+		lines.append("Exchange ratio (enemy : player personnel lost): %.2f : 1" % (float(enemy_stats.pips_lost) / float(player_stats.pips_lost)))
 	if not player_stats.destroyed.is_empty():
 		lines.append("Player losses: %s" % ", ".join(player_stats.destroyed))
 	if not player_stats.withdrawn.is_empty():
