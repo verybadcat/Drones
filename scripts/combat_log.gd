@@ -139,6 +139,10 @@ func log_mortar_hunting(unit: Unit, trusted: bool) -> void:
 		add_entry("%s repositions, gambling on a stale fix on the enemy mortar" % unit.display_name())
 
 
+func log_joint_mortar_hunt(target: Unit) -> void:
+	add_entry("Mortar and drone team commit to a coordinated hunt for %s" % target.display_name())
+
+
 func log_spotted(unit: Unit) -> void:
 	add_entry("%s was spotted" % unit.display_name())
 

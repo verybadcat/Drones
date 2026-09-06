@@ -69,6 +69,22 @@ var _pending_mortar_shots: Array[Dictionary] = []
 # mortar isn't currently visible either).
 var _last_detected_mortar_fire: Dictionary = {}
 
+# The single enemy mortar the friendly mortar and the drone/spotter are
+# CURRENTLY, JOINTLY committed to running down together, or null if
+# nothing's being hunted right now — see _update_joint_mortar_hunt. Exists
+# because the mortar's own hunt decision (_update_friendly_mortar_hunting)
+# and the drone's own search-target priority (_drone_search_target) used
+# to each independently re-derive "is this still worth it" every tick from
+# the same raw signals (_known_enemy_mortar_lead) with slightly different
+# math (a moving mortar's own range check, a fire-lead's own expiry) — the
+# two could and did drift out of agreement mid-hunt, so the mortar kept
+# walking toward a position the drone had already stopped bothering to
+# watch. A single shared commitment, formed once and consulted by both
+# instead of independently re-decided by each, is what actually keeps them
+# working the same goal for as long as it's still worth pursuing.
+var _joint_mortar_hunt_target: Unit = null
+var _joint_mortar_hunt_start_time: float = 0.0
+
 # Which reconnaissance setup this battle is using (see GameConfig.ReconMode)
 # — set from the doctrine dict in start_battle. DRONE_TEAM fields below are
 # only ever populated/consumed when this is DRONE_TEAM; harmless no-ops
@@ -135,6 +151,8 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	player_general_retreat_ordered = false
 	enemy_general_retreat_ordered = false
 	_last_detected_mortar_fire.clear()
+	_joint_mortar_hunt_target = null
+	_joint_mortar_hunt_start_time = 0.0
 	_pending_counter_battery.clear()
 	_pending_mortar_shots.clear()
 	recon_mode = doctrine.get("recon_mode", GameConfig.ReconMode.SPOTTER)
@@ -146,7 +164,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drones_swapping.clear()
 	_battery_pool.clear()
 	_drones_destroyed = 0
-	_drone_sweep_index = 0
+	_drone_sweep_index = _random_initial_drone_sweep_index()
 
 	for unit in player_units + enemy_units:
 		unit.queue_free()
@@ -311,15 +329,25 @@ func _make_unit(team: Unit.Team, kind: Unit.Kind, pos: Vector2) -> Unit:
 ## immediately, to the best of their ability — they can still take casualties
 ## while withdrawing (see CombatResolver's moving-target rule). Not gated on
 ## a threshold; this is a direct command.
+##
+## `claimed` tracks where each unit processed so far in THIS order is
+## already headed, on top of any other active unit's current position, so
+## each successive one prefers a different patch of cover instead of every
+## unit independently computing the same "nearest cover point" from a
+## similar starting position — see Unit.order_retreat's own avoid_positions
+## and _alert_enemy_squads, which needs the identical trick for the exact
+## same reason (a whole side breaking at once).
 func order_general_retreat() -> void:
 	if battle_over:
 		return
 	player_general_retreat_ordered = true
 	var known_enemy_positions := _known_enemy_positions(Unit.Team.PLAYER)
 	var any_ordered := false
+	var claimed: Array[Vector2] = []
 	for unit in player_units:
 		if unit.state == Unit.State.ACTIVE:
-			unit.order_retreat(known_enemy_positions)
+			unit.order_retreat(known_enemy_positions, _ally_positions_for(unit) + claimed)
+			claimed.append(unit.move_target if unit.has_move_target else unit.global_position)
 			combat_log.log_ordered_retreat(unit)
 			any_ordered = true
 	if any_ordered:
@@ -354,9 +382,11 @@ func _check_enemy_commander_retreat() -> void:
 	enemy_general_retreat_ordered = true
 	var known_player_positions := _known_enemy_positions(Unit.Team.ENEMY)
 	var any_ordered := false
+	var claimed: Array[Vector2] = []
 	for unit in enemy_units:
 		if unit.kind == Unit.Kind.SQUAD and unit.state == Unit.State.ACTIVE:
-			unit.order_retreat(known_player_positions)
+			unit.order_retreat(known_player_positions, _ally_positions_for(unit) + claimed)
+			claimed.append(unit.move_target if unit.has_move_target else unit.global_position)
 			combat_log.log_ordered_retreat(unit)
 			any_ordered = true
 	if any_ordered:
@@ -530,11 +560,11 @@ func _known_friendly_mortar_position() -> Vector2:
 func _known_enemy_mortar_lead() -> Dictionary:
 	for u in enemy_units:
 		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE and u.is_visible:
-			return {"position": u.global_position, "trusted": true}
+			return {"position": u.global_position, "trusted": true, "unit": u}
 
 	var best_pos := Vector2.INF
 	var best_time := -INF
-	var found := false
+	var best_unit: Unit = null
 	for u in enemy_units:
 		if u.kind != Unit.Kind.MORTAR or u.state != Unit.State.ACTIVE:
 			continue
@@ -544,8 +574,8 @@ func _known_enemy_mortar_lead() -> Dictionary:
 		if info.time > best_time:
 			best_time = info.time
 			best_pos = info.position
-			found = true
-	if not found:
+			best_unit = u
+	if best_unit == null:
 		return {}
 
 	var drone_covering_it := false
@@ -558,30 +588,106 @@ func _known_enemy_mortar_lead() -> Dictionary:
 	if scenario_elapsed_time - best_time > expiry:
 		return {}
 
-	return {"position": best_pos, "trusted": drone_covering_it}
+	return {"position": best_pos, "trusted": drone_covering_it, "unit": best_unit}
+
+
+## The single position the mortar/drone team's current joint commitment
+## (_joint_mortar_hunt_target) is actually built around, or Vector2.INF if
+## nothing usable is known about it THIS tick — live position if currently
+## visible, else its last DETECTED fire position (same source
+## _known_enemy_mortar_lead uses), never the raw omniscient global_position
+## directly: the commitment persists by unit IDENTITY across ticks, but the
+## actual position acted on stays exactly as fog-of-war-respecting as
+## everything else here.
+func _joint_mortar_hunt_known_position() -> Vector2:
+	if _joint_mortar_hunt_target == null:
+		return Vector2.INF
+	if _joint_mortar_hunt_target.is_visible:
+		return _joint_mortar_hunt_target.global_position
+	var info: Dictionary = _last_detected_mortar_fire.get(_joint_mortar_hunt_target, {})
+	if not info.is_empty():
+		return info.position
+	return Vector2.INF
+
+
+## Forms and maintains the mortar/drone team's SHARED commitment to
+## hunting one specific enemy mortar together — consulted by both
+## _update_friendly_mortar_hunting (where to walk) and _drone_search_target
+## (where to fly), instead of each independently re-deriving "is this
+## still worth it" every tick from the same raw signal
+## (_known_enemy_mortar_lead) with slightly different math of its own (a
+## moving mortar's own range check here, a fire-lead's own expiry there).
+## That's what actually let the mortar keep walking toward a position the
+## drone had already quietly stopped bothering to watch — this exists so
+## there's one shared decision instead of two that only coincidentally
+## agree.
+##
+## Formed the instant _known_enemy_mortar_lead reports a TRUSTED fix (live,
+## or a drone already closing on it) that no active friendly mortar can
+## engage yet. An untrusted, bare fire-detection lead never forms a
+## commitment — that stays the mortar's own solo, distance-capped gamble
+## (see below), since there's no drone coverage to actually coordinate
+## with.
+##
+## Held regardless of how _known_enemy_mortar_lead's own trust/expiry
+## re-evaluates on LATER ticks — only let go of when the objective itself
+## resolves: the target's no longer a real target (not ACTIVE), some
+## friendly mortar can now actually engage it (mission handed off to the
+## normal engagement tiers), or GameConfig.JOINT_MORTAR_HUNT_MAX_DURATION
+## has simply run out on it (a safety valve, not a normal expiry).
+func _update_joint_mortar_hunt() -> void:
+	if _joint_mortar_hunt_target != null:
+		var still_active: bool = _joint_mortar_hunt_target.state == Unit.State.ACTIVE
+		var known_pos: Vector2 = _joint_mortar_hunt_known_position()
+		var now_engageable: bool = still_active and not is_inf(known_pos.x) and _can_engage_position(known_pos)
+		var timed_out: bool = scenario_elapsed_time - _joint_mortar_hunt_start_time > GameConfig.JOINT_MORTAR_HUNT_MAX_DURATION
+		if not still_active or now_engageable or timed_out:
+			_joint_mortar_hunt_target = null
+		else:
+			return # commitment holds — nothing more to decide this tick
+
+	var lead: Dictionary = _known_enemy_mortar_lead()
+	if lead.is_empty() or not lead.trusted:
+		return
+	if _can_engage_position(lead.position):
+		return # already in range — no coordination needed, normal engagement tiers take it from here
+
+	_joint_mortar_hunt_target = lead.unit
+	_joint_mortar_hunt_start_time = scenario_elapsed_time
+	combat_log.log_joint_mortar_hunt(lead.unit)
 
 
 ## The friendly mirror of _update_enemy_mortar_positioning — closing the
 ## distance on a known enemy mortar to bring it into range, re-aiming every
 ## tick there's still a fix and it's still out of range, same as that
 ## function — but with two things the enemy's simpler version doesn't need
-## to weigh: the friendly mortar's own drone/spotter recon means "known"
-## comes in trusted and untrusted flavors (see _known_enemy_mortar_lead),
-## and unlike the enemy just running down a fix on us, this crew still very
-## much does NOT want to be spotted while doing it — see
-## _friendly_mortar_hunt_point, which is chosen with that in mind, unlike
-## _mortar_advance_point's plain building-avoidance. An untrusted (bare
-## fire-detection-only) lead is only worth a modest walk
-## (MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE) — real cover is worth more than a
-## long march chasing a guess; a trusted one (live, or a drone already
-## closing on it) is worth going after regardless of distance, same as the
-## enemy's own unconditional chase.
+## to weigh: unlike the enemy just running down a fix on us, this crew
+## still very much does NOT want to be spotted while doing it (see
+## _friendly_mortar_hunt_point, chosen with that in mind, unlike
+## _mortar_advance_point's plain building-avoidance), and a TRUSTED lead is
+## no longer decided here at all — it's the team's shared joint commitment
+## (_update_joint_mortar_hunt, which runs first each tick) that this just
+## walks toward for as long as that commitment holds, unconditional on
+## distance, same as the enemy's own unconditional chase. Only a bare,
+## uncovered fire-detection lead — no active joint commitment at all — is
+## still this function's OWN call to make: a solo gamble, worth at most a
+## modest walk (MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE), since there's no drone
+## coverage backing it up.
 func _update_friendly_mortar_hunting() -> void:
-	var lead: Dictionary = _known_enemy_mortar_lead()
-	if lead.is_empty():
-		return
-	var target_pos: Vector2 = lead.position
-	var trusted: bool = lead.trusted
+	var target_pos: Vector2
+	var trusted: bool
+
+	if _joint_mortar_hunt_target != null:
+		target_pos = _joint_mortar_hunt_known_position()
+		if is_inf(target_pos.x):
+			return # the commitment holds, but nothing usable is known this exact tick
+		trusted = true
+	else:
+		var lead: Dictionary = _known_enemy_mortar_lead()
+		if lead.is_empty() or lead.trusted:
+			return # a trusted lead is entirely the joint commitment's business, handled above
+		target_pos = lead.position
+		trusted = false
 
 	for m in player_units:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
@@ -1010,8 +1116,14 @@ func _squad_danger_priority(u: Unit) -> float:
 ## MORTAR sits far above anything else; (2) the freshest in-range fire-
 ## detection lead on any ACTIVE mortar, discounted somewhat for being a
 ## stale position rather than a live one, but still real evidence rather
-## than speculation; (3) the single most dangerous currently-visible ACTIVE
-## enemy squad; (4) the nearest currently-visible RETREATING enemy (squad,
+## than speculation; (3) the mortar/drone team's own shared joint hunting
+## commitment (_joint_mortar_hunt_target, formed and held by
+## _update_joint_mortar_hunt — see its own doc comment), at full mortar
+## priority and deliberately NOT range-gated the way (1)/(2) are, since
+## its entire purpose is keeping the drone on-station over a target the
+## friendly mortar is still walking toward and hasn't reached range of
+## yet; (4) the single most dangerous currently-visible ACTIVE enemy
+## squad; (5) the nearest currently-visible RETREATING enemy (squad,
 ## or a mortar crew that's abandoned its gun for good — that counts as
 ## "retreating," not "the mortar priority," the instant it happens) —
 ## scored one of two very different ways depending on whether the battle
@@ -1019,7 +1131,7 @@ func _squad_danger_priority(u: Unit) -> float:
 ## kill worth finishing) once the enemy's own general retreat means little
 ## else is left to search for; low (TARGET_PRIORITY_RETREATING_ENEMY_LOW)
 ## while the fight is still on, so one broken straggler doesn't distract
-## from whatever's still actually fighting; (5) the ongoing area
+## from whatever's still actually fighting; (6) the ongoing area
 ## sweep (_drone_sweep_target), valued as the genuine expected value of
 ## what it might still find — TARGET_PRIORITY_MORTAR times
 ## _mortar_existence_confidence(). That last term is what lets the drone's
@@ -1027,11 +1139,11 @@ func _squad_danger_priority(u: Unit) -> float:
 ## squads (advancing OR retreating) instead of an indefinite mortar-shaped
 ## sweep once mortar fire hasn't been detected in a long while, or every
 ## known enemy mortar is confirmed out of action — without ever
-## hard-coding either condition directly here. Tier (3)'s own candidate
+## hard-coding either condition directly here. Tier (4)'s own candidate
 ## pool empties out on its own once the enemy commander orders a general
 ## retreat (every ACTIVE squad is pulled into RETREATING in that same
 ## instant — see _check_enemy_commander_retreat) — there's usually nothing
-## left "advancing" to search for at that point. Tier (5) is ALSO directly
+## left "advancing" to search for at that point. Tier (6) is ALSO directly
 ## discounted (GameConfig.SWEEP_DISCOUNT_DURING_ENEMY_RETREAT) the instant
 ## that same general retreat is ordered, on top of whatever the slower,
 ## generic confidence decay has already done — a commander who's just
@@ -1067,6 +1179,20 @@ func _drone_search_target() -> Vector2:
 		if lead_score > best_score:
 			best_score = lead_score
 			best_pos = lead_pos
+
+	# The team's shared joint commitment (_update_joint_mortar_hunt, run
+	# earlier this same tick) — full mortar priority, and deliberately NOT
+	# gated by _in_friendly_mortar_range the way tiers (1)/(2) above are:
+	# the whole reason this commitment exists is to keep the drone right
+	# where the friendly mortar needs it WHILE that mortar is still closing
+	# the distance and thus still out of range. Losing that coverage mid-
+	# hunt, because the ordinary range-gated tiers had nothing to say about
+	# a target that isn't in range YET, was the actual bug.
+	if _joint_mortar_hunt_target != null:
+		var joint_pos: Vector2 = _joint_mortar_hunt_known_position()
+		if not is_inf(joint_pos.x) and GameConfig.TARGET_PRIORITY_MORTAR > best_score:
+			best_score = GameConfig.TARGET_PRIORITY_MORTAR
+			best_pos = joint_pos
 
 	var best_squad: Unit = null
 	var best_squad_score := -1.0
@@ -1173,17 +1299,40 @@ func _in_friendly_mortar_range(pos: Vector2) -> bool:
 
 
 ## No mortar lead at all yet: patrol a methodical boustrophedon across the
-## whole contested area (GameConfig.DRONE_SEARCH_WAYPOINTS_M — the map's
-## full height, not just the road's own narrow band a mortar would never
-## actually sit on), advancing to the next waypoint once close enough
-## rather than flying to and sitting at one single fixed point — genuine
-## progressive search coverage instead of parking somewhere and stopping.
-## Deliberately does NOT aim at the enemy's actual (fixed) mortar
-## emplacements — the drone has no more prior knowledge of exactly where
-## they are than the player does; it only acts on what it can currently see
-## or has recently detected firing (the two checks in _drone_search_target
-## above it).
-const DRONE_SWEEP_WAYPOINT_RADIUS: float = 500.0 * GameConfig.PIXELS_PER_METER
+## whole contested area (GameConfig.DRONE_SEARCH_GRID_COLUMNS_M/ROWS_M —
+## the map's full height, not just the road's own narrow band a mortar
+## would never actually sit on), advancing to the next waypoint once close
+## enough rather than flying to and sitting at one single fixed point —
+## genuine progressive search coverage instead of parking somewhere and
+## stopping. Deliberately does NOT aim at the enemy's actual (fixed)
+## mortar emplacements — the drone has no more prior knowledge of exactly
+## where they are than the player does; it only acts on what it can
+## currently see or has recently detected firing (the two checks in
+## _drone_search_target above it).
+##
+## Scaled down from an earlier version's 500m: with the grid's own
+## individual legs only ~750-850m long (see GameConfig's own reasoning for
+## why they're that short rather than a handful of full-width rows), a
+## 500m arrival radius would let the drone "arrive" over half of every leg
+## early, cutting each one badly short — this stays a comfortably smaller
+## fraction of a leg's own length instead.
+const DRONE_SWEEP_WAYPOINT_RADIUS: float = 200.0 * GameConfig.PIXELS_PER_METER
+
+## Where a fresh battle's sweep index starts — see GameConfig.
+## DRONE_INITIAL_SWEEP_MIDDLE_INDICES/_CHANCE. Weighted, not fixed: the
+## center leg (the road's own y-band) most of the time, but genuinely any
+## other leg the rest of the time, so the very first thing a player
+## watches isn't identical — and predictable — every single game.
+func _random_initial_drone_sweep_index() -> int:
+	if randf() < GameConfig.DRONE_INITIAL_SWEEP_MIDDLE_CHANCE:
+		return GameConfig.DRONE_INITIAL_SWEEP_MIDDLE_INDICES.pick_random()
+	var waypoints: Array[Vector2] = GameConfig.drone_search_waypoints_px()
+	var other_indices: Array[int] = []
+	for i in waypoints.size():
+		if not GameConfig.DRONE_INITIAL_SWEEP_MIDDLE_INDICES.has(i):
+			other_indices.append(i)
+	return other_indices.pick_random()
+
 
 func _drone_sweep_target() -> Vector2:
 	var waypoints: Array[Vector2] = GameConfig.drone_search_waypoints_px()
@@ -1254,6 +1403,7 @@ func _process(delta: float) -> void:
 	_tick_movement(scenario_delta)
 	_update_spotting(delta)
 	_update_enemy_mortar_positioning()
+	_update_joint_mortar_hunt()
 	_update_friendly_mortar_hunting()
 	_update_enemy_squad_advance()
 	_update_drone_operations(scenario_delta)

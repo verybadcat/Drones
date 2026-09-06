@@ -155,27 +155,64 @@ static func road_waypoints_px() -> Array[Vector2]:
 ## get very different treatment) — sweeping only the road's own narrow
 ## ~200m-tall band, as the drone used to, structurally could never pass
 ## near a mortar sitting a few hundred meters off to either side, no
-## matter how much flight time it had. This is a genuine boustrophedon
-## across the SAME contested x-range as the road (ENEMY_SPAWN_X down to
-## the road's own innermost waypoint) but the map's FULL height instead —
-## still no more prior knowledge of the enemy's actual, fixed emplacements
-## than the player has (an evenly-spaced sweep, not their exact
-## coordinates), just methodical enough that DRONE_DETECTION_RANGE's own
-## 1600m reach actually gets a chance at whatever's out there instead of
-## depending on a lucky coincidence of where the road happens to run.
-const DRONE_SEARCH_WAYPOINTS_M: Array[Vector2] = [
-	Vector2(4950.0, 300.0), Vector2(1550.0, 300.0),
-	Vector2(1550.0, 1050.0), Vector2(4950.0, 1050.0),
-	Vector2(4950.0, 1750.0), Vector2(1550.0, 1750.0),
-	Vector2(1550.0, 2450.0), Vector2(4950.0, 2450.0),
-	Vector2(4950.0, 3150.0), Vector2(1550.0, 3150.0),
-]
+## matter how much flight time it had.
+##
+## A genuine 5x5 GRID (columns spaced ~850m apart across the same
+## contested x-range as the road — ENEMY_SPAWN_X down to the road's own
+## innermost waypoint — rows spaced 750m apart across the map's FULL
+## height), visited in boustrophedon order (each row alternating
+## direction) — still no more prior knowledge of the enemy's actual, fixed
+## emplacements than the player has (an evenly-spaced sweep, not their
+## exact coordinates), just methodical enough that DRONE_DETECTION_RANGE's
+## own 1600m reach actually gets a chance at whatever's out there instead
+## of depending on a lucky coincidence of where the road happens to run.
+##
+## Deliberately a fine grid rather than 5 long full-width rows (an earlier
+## version of this pattern): a single row spanning the entire 3400m width
+## meant the drone's actual in-area searching, not just getting there, was
+## one long, uninterrupted dash along the enemy's own east-west axis of
+## attack the whole time it was "searching" at all. With comparable
+## ~750-850m leg lengths in both directions, a drone conducting a local
+## search alternates between horizontal and vertical motion constantly
+## instead of favoring either axis — it can still cross a good distance to
+## reach a given part of the grid first (that transit is real and
+## unavoidable), but once actually working an area, the search itself no
+## longer prefers the attack axis over the perpendicular one.
+const DRONE_SEARCH_GRID_COLUMNS_M: Array[float] = [1550.0, 2400.0, 3250.0, 4100.0, 4950.0]
+const DRONE_SEARCH_GRID_ROWS_M: Array[float] = [300.0, 1050.0, 1750.0, 2450.0, 3150.0]
+
+static func _drone_search_waypoints_m() -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for row_i in DRONE_SEARCH_GRID_ROWS_M.size():
+		var y: float = DRONE_SEARCH_GRID_ROWS_M[row_i]
+		var columns: Array[float] = DRONE_SEARCH_GRID_COLUMNS_M.duplicate()
+		if row_i % 2 == 1: # alternate direction each row — a real boustrophedon
+			columns.reverse()
+		for x in columns:
+			out.append(Vector2(x, y))
+	return out
 
 static func drone_search_waypoints_px() -> Array[Vector2]:
 	var out: Array[Vector2] = []
-	for wp in DRONE_SEARCH_WAYPOINTS_M:
+	for wp in _drone_search_waypoints_m():
 		out.append(wp * PIXELS_PER_METER)
 	return out
+
+
+## Which DRONE_SEARCH_GRID row's waypoint indices make up the CENTER row —
+## the same y-band as the road, the single most operationally relevant
+## strip since that's where the enemy squads actually march — and how
+## often a fresh battle's sweep should start there rather than at a
+## genuinely random point elsewhere (see BattleManager._random_initial_
+## drone_sweep_index). Always starting at index 0 (the map's top edge)
+## made the very first thing a player watches identical and predictable
+## every single game; weighting toward the center without fixing it there
+## every time keeps the common case sensible while keeping every game's
+## opening genuinely different. Indices 10-14 are the grid's middle row
+## (row index 2 of 5, each row holding DRONE_SEARCH_GRID_COLUMNS_M.size()
+## == 5 waypoints).
+const DRONE_INITIAL_SWEEP_MIDDLE_INDICES: Array[int] = [10, 11, 12, 13, 14]
+const DRONE_INITIAL_SWEEP_MIDDLE_CHANCE: float = 0.55
 
 
 # Each zone is a rectangle + terrain type (TREES/BUILDING only — elevation
@@ -605,6 +642,16 @@ const TARGET_PRIORITY_MORTAR: float = 100.0
 const TARGET_PRIORITY_MORTAR_LEAD_DISCOUNT: float = 0.8
 const TARGET_PRIORITY_SQUAD_MAX: float = 10.0
 const SQUAD_DANGER_RANGE: float = 1200.0 * PIXELS_PER_METER
+
+# A safety valve on the mortar/drone team's shared commitment to hunting
+# one specific enemy mortar together (see BattleManager.
+# _update_joint_mortar_hunt) — a generous ceiling, not a normal expiry.
+# MORTAR_RELOCATE_SPEED is a walking pace, so closing even a middling gap
+# can legitimately take a while; this only exists to eventually let go of
+# a commitment that's stopped making sense (geography blocking every
+# route, the target having effectively gone to ground) rather than
+# holding onto it forever.
+const JOINT_MORTAR_HUNT_MAX_DURATION: float = 1800.0 # tactical seconds (30 min)
 
 # A visible RETREATING enemy (squad or mortar crew — a mortar crew that's
 # abandoned its gun can never fire it again, so it counts as "retreating,"

@@ -209,7 +209,7 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], kn
 	queue_redraw()
 
 	if kind == Kind.MORTAR or kind == Kind.DRONE_TEAM:
-		_apply_crew_casualties(known_enemy_positions)
+		_apply_crew_casualties(known_enemy_positions, ally_positions)
 		return
 
 	pips = max(pips - 1, 0)
@@ -224,7 +224,7 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], kn
 	if kind != Kind.SQUAD:
 		return
 
-	_check_retreat(known_enemy_positions)
+	_check_retreat(known_enemy_positions, ally_positions)
 	if state != State.ACTIVE:
 		return
 
@@ -236,12 +236,12 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], kn
 		bolted_for_cover = true
 
 
-func _check_retreat(known_enemy_positions: Array[Vector2] = []) -> void:
+func _check_retreat(known_enemy_positions: Array[Vector2] = [], ally_positions: Array[Vector2] = []) -> void:
 	if state != State.ACTIVE:
 		return
 	var fraction_lost: float = float(max_pips - pips) / float(max_pips)
 	if fraction_lost >= retreat_threshold:
-		order_retreat(known_enemy_positions)
+		order_retreat(known_enemy_positions, ally_positions)
 	elif not reported_issue and fraction_lost >= concern_threshold:
 		reported_issue = true
 
@@ -254,7 +254,7 @@ func _check_retreat(known_enemy_positions: Array[Vector2] = []) -> void:
 ## out of action for the rest of the battle either way — and retreat to try
 ## to get clear (see order_retreat()); only a hit that gets the whole crew
 ## actually destroys the unit.
-func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = []) -> void:
+func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_positions: Array[Vector2] = []) -> void:
 	var remaining: int = crew_size - crew_killed
 	crew_killed += randi_range(1, remaining)
 	pips = crew_size - crew_killed # feeds the side's overall casualty tally exactly like a squad's pips — see setup()
@@ -263,7 +263,7 @@ func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = []) -> void:
 		state_changed.emit(self)
 		return
 	if state == State.ACTIVE:
-		order_retreat(known_enemy_positions)
+		order_retreat(known_enemy_positions, ally_positions)
 
 
 ## Force this unit into a retreat regardless of its threshold — used both by
@@ -305,7 +305,23 @@ func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = []) -> void:
 ## walk to; its whole lifecycle (search, return-to-base, being freed) is
 ## driven directly by BattleManager's drone-fleet logic instead (see
 ## BattleManager._update_drone_operations).
-func order_retreat(known_enemy_positions: Array[Vector2] = []) -> void:
+##
+## `avoid_positions` — other same-team units already at, or already headed
+## to, a patch of cover — steers this unit's own cover leg away from
+## piling into the exact same spot, same as Unit.seek_cover's own
+## avoid_positions. Matters most when several units retreat in the SAME
+## instant (a general retreat order processes every active unit on a side
+## in one pass) — without a caller threading positions/targets through
+## here as each one is ordered, every one of them independently computes
+## "nearest cover point" from a similar starting position and reliably
+## picks the same one, which is exactly what real retreating soldiers
+## would NOT do (and exactly what already-visible-elsewhere bunching
+## consequences, like BattleManager's spillover-fire mechanic, are named
+## for). A single, individually-triggered retreat (one squad's own
+## threshold, one mortar crew abandoning its gun) still passes this
+## through — see take_hit — since even then there's no reason not to
+## avoid an ally's already-current position.
+func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: Array[Vector2] = []) -> void:
 	if kind == Kind.DRONE:
 		return
 	if state != State.ACTIVE:
@@ -318,7 +334,7 @@ func order_retreat(known_enemy_positions: Array[Vector2] = []) -> void:
 		if (kind == Kind.SPOTTER or kind == Kind.DRONE_TEAM) and not known_enemy_positions.is_empty():
 			move_target = GameConfig.safest_cover_point(global_position, known_enemy_positions, retreat_dir, avoid_buildings)
 		else:
-			move_target = GameConfig.nearest_cover_point(global_position, retreat_dir, avoid_buildings, [], known_enemy_positions)
+			move_target = GameConfig.nearest_cover_point(global_position, retreat_dir, avoid_buildings, avoid_positions, known_enemy_positions)
 		has_move_target = true
 		move_queue.clear()
 		move_speed = GameConfig.REPOSITION_SPEED
