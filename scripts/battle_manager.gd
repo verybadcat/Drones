@@ -1027,6 +1027,12 @@ func _resolve_pending_mortar_shots() -> void:
 		if scenario_elapsed_time < shot.impact_time:
 			still_pending.append(shot)
 			continue
+		# Checked on the raw Variant, BEFORE assigning to a typed `Unit`
+		# variable — assigning an already-freed instance to a typed var is
+		# itself what throws "Trying to assign invalid previously freed
+		# instance," so is_instance_valid has to run first, not after.
+		if not is_instance_valid(shot.target):
+			continue # the target (a drone, almost certainly — see BattleManager's queue_free calls) has since landed/been freed; nothing left there to hit
 		var target: Unit = shot.target
 		if target.state == Unit.State.DESTROYED or target.state == Unit.State.WITHDRAWN:
 			continue # nothing left there to hit
