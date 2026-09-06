@@ -495,6 +495,140 @@ func _known_friendly_mortar_position() -> Vector2:
 	return best_pos
 
 
+## The best current fix on the highest-priority known ACTIVE enemy mortar,
+## for the friendly mortar's OWN cat-and-mouse hunting (see
+## _update_friendly_mortar_hunting) — Vector2.INF / not `trusted` at all if
+## nothing is known. Mirrors _known_friendly_mortar_position's two sources
+## (live visibility first, then the same muzzle-flash fire-detection lead
+## used everywhere else), but ALSO reports whether that fix is `trusted`:
+## true for a currently live-visible mortar, or for a fire-detection lead
+## that a friendly drone is already flying toward (about to cover it, even
+## before actually arriving) — either way, real confidence the position is
+## still good. A bare, uncovered fire-detection lead is reported untrusted
+## and aged out on the much shorter MORTAR_FIRE_DETECTION_EXPIRY window
+## instead of DRONE_MORTAR_FIRE_LEAD_EXPIRY, since nothing is keeping it
+## current the way a live drone (or eyes) would.
+func _known_enemy_mortar_lead() -> Dictionary:
+	for u in enemy_units:
+		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE and u.is_visible:
+			return {"position": u.global_position, "trusted": true}
+
+	var best_pos := Vector2.INF
+	var best_time := -INF
+	var found := false
+	for u in enemy_units:
+		if u.kind != Unit.Kind.MORTAR or u.state != Unit.State.ACTIVE:
+			continue
+		var info: Dictionary = _last_detected_mortar_fire.get(u, {})
+		if info.is_empty():
+			continue
+		if info.time > best_time:
+			best_time = info.time
+			best_pos = info.position
+			found = true
+	if not found:
+		return {}
+
+	var drone_covering_it := false
+	for d in [active_drone, backup_drone]:
+		if d != null and d.has_move_target and d.move_target.distance_to(best_pos) < 1.0:
+			drone_covering_it = true
+			break
+
+	var expiry: float = GameConfig.DRONE_MORTAR_FIRE_LEAD_EXPIRY if drone_covering_it else GameConfig.MORTAR_FIRE_DETECTION_EXPIRY
+	if scenario_elapsed_time - best_time > expiry:
+		return {}
+
+	return {"position": best_pos, "trusted": drone_covering_it}
+
+
+## The friendly mirror of _update_enemy_mortar_positioning — closing the
+## distance on a known enemy mortar to bring it into range, re-aiming every
+## tick there's still a fix and it's still out of range, same as that
+## function — but with two things the enemy's simpler version doesn't need
+## to weigh: the friendly mortar's own drone/spotter recon means "known"
+## comes in trusted and untrusted flavors (see _known_enemy_mortar_lead),
+## and unlike the enemy just running down a fix on us, this crew still very
+## much does NOT want to be spotted while doing it — see
+## _friendly_mortar_hunt_point, which is chosen with that in mind, unlike
+## _mortar_advance_point's plain building-avoidance. An untrusted (bare
+## fire-detection-only) lead is only worth a modest walk
+## (MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE) — real cover is worth more than a
+## long march chasing a guess; a trusted one (live, or a drone already
+## closing on it) is worth going after regardless of distance, same as the
+## enemy's own unconditional chase.
+func _update_friendly_mortar_hunting() -> void:
+	var lead: Dictionary = _known_enemy_mortar_lead()
+	if lead.is_empty():
+		return
+	var target_pos: Vector2 = lead.position
+	var trusted: bool = lead.trusted
+
+	for m in player_units:
+		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
+			continue
+		if m.global_position.distance_to(target_pos) <= GameConfig.MORTAR_MAX_RANGE:
+			if m.has_move_target:
+				# Now in range — stop closing and get to work, rather than
+				# finishing the walk to a farther point computed earlier.
+				m.has_move_target = false
+				m.activity = Unit.Activity.STATIONARY
+			continue
+
+		var dest := _friendly_mortar_hunt_point(m, target_pos)
+		if dest == m.global_position:
+			continue # no safe route found this tick — try again next tick
+		if not trusted and m.global_position.distance_to(dest) > GameConfig.MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE:
+			continue # too big a gamble on a lead nobody's actually watching
+
+		var was_already_hunting := m.has_move_target
+		m.move_target = dest
+		m.has_move_target = true
+		m.move_queue.clear()
+		m.move_speed = GameConfig.MORTAR_RELOCATE_SPEED
+		m.movement_predictable = false
+		if not was_already_hunting:
+			combat_log.log_mortar_hunting(m, trusted)
+
+
+## Like _mortar_advance_point (a point just inside MORTAR_MAX_RANGE of
+## `target_pos`, nudged across a handful of angles to avoid buildings), but
+## for the friendly mortar's own hunting move: among the same candidate
+## angles, prefers one that ISN'T currently visible from any known enemy
+## position (_known_enemy_positions) — the whole point of this function
+## existing separately is that the enemy's version doesn't need to care
+## whether ITS mortar gets spotted closing the distance, and this one very
+## much does. Falls back to the first building-clear candidate (what
+## _mortar_advance_point would have picked) if none of them are actually
+## hidden — some progress toward the shot beats none.
+##
+## The mortar being hunted itself is excluded from that threat check —
+## every candidate sits close to it by construction (that's the whole
+## point), so treating it as a threat to hide from would reject every
+## angle equally, for no real gain: closing to indirect-fire range doesn't
+## require mutual line of sight the way direct fire would, and the actual
+## exposure risk this guards against is everyone ELSE near the route, not
+## the one target the mortar is already committed to engaging.
+func _friendly_mortar_hunt_point(mortar: Unit, target_pos: Vector2) -> Vector2:
+	var threats := _known_enemy_positions(mortar.team).filter(func(p): return p.distance_to(target_pos) > 1.0)
+	var base_dir: Vector2 = (target_pos - mortar.global_position).normalized()
+	var target_distance: float = GameConfig.MORTAR_MAX_RANGE * 0.9 # comfortably in range, not right on the edge
+	var fallback: Vector2 = mortar.global_position
+	for offset_deg in [0.0, -15.0, 15.0, -30.0, 30.0, -45.0, 45.0]:
+		var dir: Vector2 = base_dir.rotated(deg_to_rad(offset_deg))
+		var candidate: Vector2 = target_pos - dir * target_distance
+		if GameConfig.is_building_at(candidate) or GameConfig.path_crosses_building(mortar.global_position, candidate):
+			continue
+		if fallback == mortar.global_position:
+			fallback = candidate # first building-clear candidate, kept as a last resort
+		var hidden := true
+		for threat in threats:
+			if GameConfig.has_direct_los(candidate, threat):
+				hidden = false
+				break
+		if hidden:
+			return candidate
+	return fallback
 
 
 ## Runs the whole drone-fleet rotation for one tick — ReconMode.DRONE_TEAM
@@ -968,6 +1102,7 @@ func _process(delta: float) -> void:
 	_tick_movement(scenario_delta)
 	_update_spotting(delta)
 	_update_enemy_mortar_positioning()
+	_update_friendly_mortar_hunting()
 	_update_enemy_squad_advance()
 	_update_drone_operations(scenario_delta)
 

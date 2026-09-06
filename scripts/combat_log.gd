@@ -132,6 +132,13 @@ func log_mortar_relocating_for_cover(unit: Unit) -> void:
 	add_entry("%s spotted — abandons position for better cover" % unit.display_name())
 
 
+func log_mortar_hunting(unit: Unit, trusted: bool) -> void:
+	if trusted:
+		add_entry("%s repositions for a tracked shot at the enemy mortar" % unit.display_name())
+	else:
+		add_entry("%s repositions, gambling on a stale fix on the enemy mortar" % unit.display_name())
+
+
 func log_spotted(unit: Unit) -> void:
 	add_entry("%s was spotted" % unit.display_name())
 

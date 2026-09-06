@@ -589,6 +589,19 @@ const MORTAR_FIRE_DETECTION_EXPIRY: float = 180.0
 # across most of the map's real diagonal at that speed.
 const DRONE_MORTAR_FIRE_LEAD_EXPIRY: float = 600.0
 
+# The friendly mortar's OWN willingness to relocate toward a KNOWN enemy
+# mortar that's currently out of range — see BattleManager.
+# _known_enemy_mortar_lead / _update_friendly_mortar_hunting. A live-visible
+# mortar, or one a friendly drone is already en route to cover, is trusted
+# enough to be worth chasing at real distance and given the same generous
+# DRONE_MORTAR_FIRE_LEAD_EXPIRY window above; a bare, uncovered fire-
+# detection lead gets the enemy's own quick MORTAR_FIRE_DETECTION_EXPIRY
+# window instead (it's no more likely to still be good than the enemy's
+# own equivalent read on the friendly mortar), and even within that window
+# is only worth a modest repositioning, not abandoning good cover for a
+# long march on a guess.
+const MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE: float = 1000.0 * PIXELS_PER_METER
+
 # A relocating mortar crew actually walks there — real speed, real distance,
 # real time, no separate "cooldown" bolted on top (see BattleManager.
 # _relocate_mortar). MORTAR_RELOCATE_SPEED is a hustling pace, faster than
