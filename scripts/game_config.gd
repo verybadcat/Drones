@@ -648,6 +648,24 @@ const DRONE_CONCEALMENT_MULTIPLIER := {
 	TerrainType.BUILDING: 0.5,
 }
 
+# A spotted enemy squad rarely travels alone — a real reconnaissance asset
+# that's just made contact works the surrounding ground for more of them
+# (and whatever might be supporting them) instead of just parking directly
+# overhead the one unit it already has eyes on. See BattleManager.
+# _drone_vicinity_search_point, which the squad-tracking priority tier
+# (_drone_search_target) uses instead of the squad's own exact position —
+# a slow circle at this radius, comfortably inside DRONE_DETECTION_RANGE so
+# the original contact never actually drops out of view while the drone
+# works the area around it. Re-centers on the current highest-priority
+# visible squad every tick, so the circle follows if that squad moves (or
+# hands off cleanly to a different one that becomes more dangerous).
+const DRONE_VICINITY_SEARCH_RADIUS: float = 600.0 * PIXELS_PER_METER
+const DRONE_VICINITY_SEARCH_ARRIVAL_RADIUS: float = 150.0 * PIXELS_PER_METER
+# Not a clean fraction of 360 on purpose — a step that evenly divided the
+# circle would eventually retrace the exact same handful of points forever;
+# this keeps sweeping fresh ground around the contact instead.
+const DRONE_VICINITY_SEARCH_ANGLE_STEP_DEG: float = 70.0
+
 # A unit caught moving in the open is much easier to hit by DIRECT fire, not
 # just to spot — it has broken cover to advance (or to retreat). See
 # CombatResolver.

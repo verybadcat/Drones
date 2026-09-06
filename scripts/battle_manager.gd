@@ -148,6 +148,7 @@ var _drones_swapping: Array[Dictionary] = [] # [{"time_left": float, "charge": f
 var _battery_pool: Array[float] = [] # charge level of every battery not currently installed in any airframe
 var _drones_destroyed: int = 0 # airframes permanently lost (shot down, battery and all) this battle
 var _drone_sweep_index: int = 0 # which road waypoint the blind search patrol is currently headed for — see _drone_sweep_target
+var _drone_vicinity_search_angle: float = 0.0 # current angle around a spotted squad the drone is circling to — see _drone_vicinity_search_point
 
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
@@ -175,6 +176,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_battery_pool.clear()
 	_drones_destroyed = 0
 	_drone_sweep_index = _random_initial_drone_sweep_index()
+	_drone_vicinity_search_angle = 0.0
 
 	for unit in player_units + enemy_units:
 		unit.queue_free()
@@ -713,6 +715,34 @@ func _friendly_mortar() -> Unit:
 	return null
 
 
+## Whether a candidate hunt destination would put the mortar somewhere no
+## real crew would ever go: AHEAD of its own infantry screen. A mortar is
+## fire support — it stays BEHIND the friendly squads holding the line,
+## never advances past the frontmost one (`dest.x` beyond the highest x
+## among active friendly squads — "in front of" the line) and never drifts
+## outside the vertical band those squads actually occupy either (above
+## the northmost or below the southmost one) — either way, wandering out
+## from under its own infantry's protection is reckless regardless of how
+## good the intel on the target is, or how far MORTAR_HUNT_MAX_RANGE_FROM_
+## HOME would otherwise allow. With no active friendly squad left at all
+## to judge a "line" against, there's nothing to violate — the home-radius
+## cap is left to do the only judging left possible in that case.
+func _friendly_mortar_hunt_destination_is_reckless(dest: Vector2) -> bool:
+	var frontmost_x := -INF
+	var min_y := INF
+	var max_y := -INF
+	var found := false
+	for u in player_units:
+		if u.kind == Unit.Kind.SQUAD and u.state == Unit.State.ACTIVE:
+			found = true
+			frontmost_x = max(frontmost_x, u.global_position.x)
+			min_y = min(min_y, u.global_position.y)
+			max_y = max(max_y, u.global_position.y)
+	if not found:
+		return false
+	return dest.x > frontmost_x or dest.y < min_y or dest.y > max_y
+
+
 ## Forms and maintains the mortar/drone team's SHARED commitment to
 ## hunting one specific enemy mortar together — consulted by both
 ## _update_friendly_mortar_hunting (where to walk) and _drone_search_target
@@ -765,6 +795,8 @@ func _update_joint_mortar_hunt() -> void:
 	var dest := _friendly_mortar_hunt_point(fm, lead.position)
 	if dest == fm.global_position or dest.distance_to(_friendly_mortar_home_position) > GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME:
 		return # outside what the crew considers safe territory — not worth the drone escorting a hunt that will never actually happen
+	if _friendly_mortar_hunt_destination_is_reckless(dest):
+		return # would put the mortar ahead of, or outside the band held by, its own infantry screen
 
 	_joint_mortar_hunt_target = lead.unit
 	_joint_mortar_hunt_start_time = scenario_elapsed_time
@@ -785,9 +817,12 @@ func _update_joint_mortar_hunt() -> void:
 ## distance from the CURRENT position (same as the enemy's own
 ## unconditional chase) — but every candidate destination, trusted or not,
 ## still has to fall within GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME of
-## home, full stop; _update_joint_mortar_hunt already screens for this
+## home, AND still has to stay behind its own infantry screen (see
+## _friendly_mortar_hunt_destination_is_reckless — never ahead of the
+## frontmost friendly squad, never outside the band those squads actually
+## occupy), full stop; _update_joint_mortar_hunt already screens for both
 ## before a commitment ever forms, but a fresh, still-untrusted lead never
-## gets that upfront check, so it's re-verified here too. Only a bare,
+## gets that upfront check, so both are re-verified here too. Only a bare,
 ## uncovered fire-detection lead — no active joint commitment at all — is
 ## still this function's OWN call to make: a solo gamble, worth at most a
 ## modest walk (MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE), since there's no drone
@@ -824,6 +859,8 @@ func _update_friendly_mortar_hunting() -> void:
 			continue # no safe route found this tick — try again next tick
 		if dest.distance_to(_friendly_mortar_home_position) > GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME:
 			continue # too far from what the crew considers safe territory, trusted lead or not
+		if _friendly_mortar_hunt_destination_is_reckless(dest):
+			continue # would put the mortar ahead of, or outside the band held by, its own infantry screen
 		if not trusted and m.global_position.distance_to(dest) > GameConfig.MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE:
 			continue # too big a gamble on a lead nobody's actually watching
 
@@ -1227,6 +1264,26 @@ func _squad_danger_priority(u: Unit) -> float:
 	return GameConfig.TARGET_PRIORITY_SQUAD_MAX * clamp(1.0 - nearest_friendly_dist / GameConfig.SQUAD_DANGER_RANGE, 0.0, 1.0)
 
 
+## Where the drone actually flies once a visible squad is the highest
+## priority thing going — NOT that squad's own exact position. A spotted
+## squad is rarely alone; working the ground around it (are there more
+## squads nearby? a mortar sitting just off to one side?) is worth more
+## than parking directly overhead the one unit already confirmed. Circles
+## `center` at GameConfig.DRONE_VICINITY_SEARCH_RADIUS, advancing to the
+## next point around the circle once close enough — same
+## arrival-then-advance shape as _drone_sweep_target, just anchored to a
+## live contact instead of a fixed map grid. Re-centers on `center` fresh
+## every call, so if the squad itself moves (or a different, now more
+## dangerous squad takes over the tier), the circle follows without
+## needing to be reset.
+func _drone_vicinity_search_point(center: Vector2) -> Vector2:
+	var candidate := center + Vector2.RIGHT.rotated(_drone_vicinity_search_angle) * GameConfig.DRONE_VICINITY_SEARCH_RADIUS
+	if active_drone.global_position.distance_to(candidate) <= GameConfig.DRONE_VICINITY_SEARCH_ARRIVAL_RADIUS:
+		_drone_vicinity_search_angle = wrapf(_drone_vicinity_search_angle + deg_to_rad(GameConfig.DRONE_VICINITY_SEARCH_ANGLE_STEP_DEG), 0.0, TAU)
+		candidate = center + Vector2.RIGHT.rotated(_drone_vicinity_search_angle) * GameConfig.DRONE_VICINITY_SEARCH_RADIUS
+	return candidate
+
+
 ## Where the airborne drone flies next, re-evaluated every tick — a genuine
 ## TARGET PRIORITY comparison (GameConfig.TARGET_PRIORITY_*), not hard-coded
 ## "mortars always win": whichever candidate scores highest right now wins,
@@ -1244,7 +1301,12 @@ func _squad_danger_priority(u: Unit) -> float:
 ## its entire purpose is keeping the drone on-station over a target the
 ## friendly mortar is still walking toward and hasn't reached range of
 ## yet; (4) the single most dangerous currently-visible ACTIVE enemy
-## squad; (5) the nearest currently-visible RETREATING enemy (squad,
+## squad — scored at that squad's own position (_squad_danger_priority),
+## but actually FLOWN at a point circling it instead
+## (_drone_vicinity_search_point): a spotted squad rarely travels alone,
+## so working the surrounding ground for more of them (or whatever's
+## supporting them) beats parking directly overhead the one already
+## confirmed; (5) the nearest currently-visible RETREATING enemy (squad,
 ## or a mortar crew that's abandoned its gun for good — that counts as
 ## "retreating," not "the mortar priority," the instant it happens) —
 ## scored one of two very different ways depending on whether the battle
@@ -1325,7 +1387,7 @@ func _drone_search_target() -> Vector2:
 				best_squad = u
 	if best_squad != null and best_squad_score > best_score:
 		best_score = best_squad_score
-		best_pos = best_squad.global_position
+		best_pos = _drone_vicinity_search_point(best_squad.global_position)
 
 	var best_retreating: Unit = null
 	var best_retreating_dist := INF
