@@ -440,17 +440,20 @@ func _check_enemy_commander_retreat() -> void:
 ## _check_enemy_commander_retreat) — "opposing" and "own side" below just
 ## flip based on `squad.team`.
 ##
-## Two independent factors feed the base chance, each a real judgment a
-## squad leader would actually weigh: how deep in danger it already is
-## (proximity to the nearest active OPPOSING unit — SURRENDER_POSITION_
-## RANGE) and how isolated it is (proximity to the nearest other active
-## SQUAD on its OWN side specifically — SURRENDER_ISOLATION_RANGE; a
-## supporting mortar well to the rear doesn't help a squad that's about to
-## be overrun). No opposing units left at all, or no other own-side squad
-## left anywhere, both count as maximum badness on their own axis rather
-## than an undefined/lucky case.
+## MULTIPLICATIVE, not additive: how deep in danger the squad already is
+## (proximity to the nearest active OPPOSING unit, on the deliberately
+## tight GameConfig.SURRENDER_POSITION_RANGE) is the real gate — with no
+## genuine proximate threat, the chance is exactly zero, full stop, no
+## matter how isolated the squad is. Isolation (proximity to the nearest
+## other active SQUAD on its OWN side specifically — a supporting mortar
+## well to the rear doesn't help a squad about to be overrun) only
+## AMPLIFIES that danger once it's real: "surrounded" is what actually
+## pushes a squad over the edge, not merely "alone." No opposing units
+## left at all counts as zero danger (not a lucky escape from an
+## undefined case); no other own-side squad left anywhere counts as
+## maximum isolation.
 ##
-## That base chance is then scaled by GameConfig.SURRENDER_WILLINGNESS_
+## The result is then scaled by GameConfig.SURRENDER_WILLINGNESS_
 ## MULTIPLIER_PLAYER/_ENEMY before the shared SURRENDER_MAX_CHANCE cap —
 ## deliberately NOT the same multiplier for both sides. This is the war in
 ## Ukraine: credible, extensively documented reporting (UN and Human
@@ -477,7 +480,8 @@ func _squad_surrender_chance(squad: Unit) -> float:
 	var isolation_badness: float = 1.0 if is_inf(nearest_ally_dist) \
 		else clamp(nearest_ally_dist / GameConfig.SURRENDER_ISOLATION_RANGE, 0.0, 1.0)
 
-	var chance: float = GameConfig.SURRENDER_POSITION_WEIGHT * position_badness + GameConfig.SURRENDER_ISOLATION_WEIGHT * isolation_badness
+	var isolation_multiplier: float = GameConfig.SURRENDER_ISOLATION_BASE_FACTOR + GameConfig.SURRENDER_ISOLATION_AMPLIFIER * isolation_badness
+	var chance: float = position_badness * isolation_multiplier
 	var willingness: float = GameConfig.SURRENDER_WILLINGNESS_MULTIPLIER_PLAYER if squad.team == Unit.Team.PLAYER else GameConfig.SURRENDER_WILLINGNESS_MULTIPLIER_ENEMY
 	return clamp(chance * willingness, 0.0, GameConfig.SURRENDER_MAX_CHANCE)
 

@@ -435,22 +435,35 @@ const ENEMY_COMMANDER_RETREAT_THRESHOLD: float = 0.4
 # automatically attempt the retreat — a squad in a genuinely poor position
 # for it might reasonably decide surrender is the safer bet, and might
 # just as reasonably decide to try its luck anyway; either way it's a
-# random roll, not a fixed rule. Two independent factors feed the chance,
-# both real judgments a real squad leader would actually make in the
-# moment: how deep in danger it already is (SURRENDER_POSITION_RANGE —
-# proximity to the nearest active player unit; a squad already right on
-# top of the enemy has little real hope of disengaging cleanly) and how
-# isolated it is (SURRENDER_ISOLATION_RANGE — proximity to the nearest
-# other active enemy SQUAD specifically, since mutual infantry support
-# during a withdrawal is what actually matters here, not a supporting
-# mortar well to the rear). Each maps to a 0-1 "badness" score, weighted
-# and summed, then capped at SURRENDER_MAX_CHANCE — deliberately well
-# short of certainty even in the worst case a squad might still choose to
-# run for it.
-const SURRENDER_POSITION_RANGE: float = 1200.0 * PIXELS_PER_METER
+# random roll, not a fixed rule.
+#
+# MULTIPLICATIVE, not additive — isolation on its own, with no enemy
+# actually close, is not a reason to surrender (nobody gives up just
+# because their friends are elsewhere; the original additive version let
+# isolation alone contribute a real chance even with the enemy nowhere
+# near, which is exactly what let a squad 600m out, with a clear line
+# home, surrender — that shouldn't happen). Isolation instead AMPLIFIES
+# genuine proximate danger: SURRENDER_ISOLATION_BASE_FACTOR is the
+# multiplier even with an ally right there, rising to
+# SURRENDER_ISOLATION_BASE_FACTOR + SURRENDER_ISOLATION_AMPLIFIER (1.0)
+# when fully alone — "surrounded," not just "isolated," is what actually
+# pushes a squad over the edge.
+#
+# SURRENDER_POSITION_RANGE is deliberately tight — 300m, not the 1200m a
+# squad's own ADVANCING danger score (SQUAD_DANGER_RANGE) uses for a very
+# different question. This is close-quarters/no-realistic-way-out
+# territory: ~100m out still reads as genuinely dangerous (badness ~0.67),
+# but by 300m it's already zero, and anything beyond that (600m, with room
+# to actually retreat) contributes nothing from this term at all,
+# regardless of isolation, since the two factors multiply rather than add.
+#
+# The result is capped at SURRENDER_MAX_CHANCE — deliberately well short
+# of certainty even in the single worst case (point-blank AND surrounded)
+# a squad might still choose to run for it.
+const SURRENDER_POSITION_RANGE: float = 300.0 * PIXELS_PER_METER
 const SURRENDER_ISOLATION_RANGE: float = 1000.0 * PIXELS_PER_METER
-const SURRENDER_POSITION_WEIGHT: float = 0.5
-const SURRENDER_ISOLATION_WEIGHT: float = 0.3
+const SURRENDER_ISOLATION_BASE_FACTOR: float = 0.3
+const SURRENDER_ISOLATION_AMPLIFIER: float = 0.7
 const SURRENDER_MAX_CHANCE: float = 0.6
 
 # Applied on top of the position/isolation math above, per side, before
