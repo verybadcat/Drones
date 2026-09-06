@@ -22,6 +22,7 @@ const STATUS_COLOR := {
 	Unit.State.RETREATING: Color(1.0, 0.65, 0.15),
 	Unit.State.WITHDRAWN: Color(0.6, 0.6, 0.6),
 	Unit.State.DESTROYED: Color(0.75, 0.2, 0.2),
+	Unit.State.SURRENDERED: Color(0.9, 0.9, 0.9),
 }
 
 var battle_manager: BattleManager

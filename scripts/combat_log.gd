@@ -60,6 +60,10 @@ func log_withdrawn(unit: Unit) -> void:
 	add_entry("%s has withdrawn from the battle" % unit.display_name())
 
 
+func log_squad_surrendered(unit: Unit) -> void:
+	add_entry("%s lays down arms rather than risk the retreat — surrendered" % unit.display_name())
+
+
 func log_reports_issue(unit: Unit) -> void:
 	add_entry("%s reports heavy resistance" % unit.display_name())
 

@@ -430,6 +430,43 @@ const ENEMY_CONCERN_THRESHOLD: float = 0.25 # logs "reports the issue", doesn't 
 # calls it off once losses are heavy across the whole force.
 const ENEMY_COMMANDER_RETREAT_THRESHOLD: float = 0.4
 
+# When the enemy commander's general retreat order reaches a given squad
+# (see BattleManager._squad_surrender_chance), that squad doesn't
+# automatically attempt the retreat — a squad in a genuinely poor position
+# for it might reasonably decide surrender is the safer bet, and might
+# just as reasonably decide to try its luck anyway; either way it's a
+# random roll, not a fixed rule. Two independent factors feed the chance,
+# both real judgments a real squad leader would actually make in the
+# moment: how deep in danger it already is (SURRENDER_POSITION_RANGE —
+# proximity to the nearest active player unit; a squad already right on
+# top of the enemy has little real hope of disengaging cleanly) and how
+# isolated it is (SURRENDER_ISOLATION_RANGE — proximity to the nearest
+# other active enemy SQUAD specifically, since mutual infantry support
+# during a withdrawal is what actually matters here, not a supporting
+# mortar well to the rear). Each maps to a 0-1 "badness" score, weighted
+# and summed, then capped at SURRENDER_MAX_CHANCE — deliberately well
+# short of certainty even in the worst case a squad might still choose to
+# run for it.
+const SURRENDER_POSITION_RANGE: float = 1200.0 * PIXELS_PER_METER
+const SURRENDER_ISOLATION_RANGE: float = 1000.0 * PIXELS_PER_METER
+const SURRENDER_POSITION_WEIGHT: float = 0.5
+const SURRENDER_ISOLATION_WEIGHT: float = 0.3
+const SURRENDER_MAX_CHANCE: float = 0.6
+
+# Applied on top of the position/isolation math above, per side, before
+# the shared SURRENDER_MAX_CHANCE cap (see BattleManager.
+# _squad_surrender_chance) — deliberately NOT the same value for both
+# sides. This game's setting is the Russian invasion of Ukraine;
+# credible, extensively documented reporting (UN and Human Rights Watch
+# monitoring among it) describes systematic mistreatment of Ukrainian
+# POWs in Russian custody. A Ukrainian squad in a hopeless position has
+# real, well-founded reasons the enemy simply doesn't share to keep
+# fighting or trying to get out rather than lay down arms, so the
+# player's own side surrenders far less readily than the same
+# position/isolation math would otherwise predict.
+const SURRENDER_WILLINGNESS_MULTIPLIER_PLAYER: float = 0.15
+const SURRENDER_WILLINGNESS_MULTIPLIER_ENEMY: float = 1.0
+
 # A RETREATING unit that reaches its own safe_x is marked WITHDRAWN — no
 # longer part of the fight, but its casualties still count in the AAR.
 const ENEMY_SAFE_X: float = ENEMY_SPAWN_X + 150.0 * PIXELS_PER_METER

@@ -348,6 +348,14 @@ func _make_unit(team: Unit.Team, kind: Unit.Kind, pos: Vector2) -> Unit:
 ## similar starting position — see Unit.order_retreat's own avoid_positions
 ## and _alert_enemy_squads, which needs the identical trick for the exact
 ## same reason (a whole side breaking at once).
+##
+## A squad (not the mortar or spotter/drone team — same restriction as the
+## enemy commander's own version below) can surrender instead of actually
+## attempting the retreat it's just been ordered into — see
+## _squad_surrender_chance, which already weighs this far more heavily
+## against a Ukrainian squad choosing to surrender to Russian forces than
+## the reverse; this is the order actually landing on a friendly squad,
+## not just the enemy's mirror of it.
 func order_general_retreat() -> void:
 	if battle_over:
 		return
@@ -357,6 +365,12 @@ func order_general_retreat() -> void:
 	var claimed: Array[Vector2] = []
 	for unit in player_units:
 		if unit.state == Unit.State.ACTIVE:
+			if unit.kind == Unit.Kind.SQUAD and randf() < _squad_surrender_chance(unit):
+				unit.state = Unit.State.SURRENDERED
+				unit.state_changed.emit(unit)
+				combat_log.log_squad_surrendered(unit)
+				any_ordered = true
+				continue
 			unit.order_retreat(known_enemy_positions, _ally_positions_for(unit) + claimed)
 			claimed.append(unit.move_target if unit.has_move_target else unit.global_position)
 			combat_log.log_ordered_retreat(unit)
@@ -385,6 +399,13 @@ func order_general_retreat() -> void:
 ##
 ## The log banner states the actual casualty percentage that triggered
 ## this — no guessing after the fact why the retreat happened.
+##
+## Not every squad actually attempts the retreat it's just been ordered
+## into — see _squad_surrender_chance. A squad that rolls to surrender
+## instead never gets an order_retreat call at all (so it's excluded from
+## `claimed`/_ally_positions_for going forward, same as any other unit no
+## longer ACTIVE) and counts toward the log banner just as much as one
+## that actually pulls back does.
 func _check_enemy_commander_retreat() -> void:
 	if enemy_general_retreat_ordered or battle_over:
 		return
@@ -396,6 +417,12 @@ func _check_enemy_commander_retreat() -> void:
 	var claimed: Array[Vector2] = []
 	for unit in enemy_units:
 		if unit.kind == Unit.Kind.SQUAD and unit.state == Unit.State.ACTIVE:
+			if randf() < _squad_surrender_chance(unit):
+				unit.state = Unit.State.SURRENDERED
+				unit.state_changed.emit(unit)
+				combat_log.log_squad_surrendered(unit)
+				any_ordered = true
+				continue
 			unit.order_retreat(known_player_positions, _ally_positions_for(unit) + claimed)
 			claimed.append(unit.move_target if unit.has_move_target else unit.global_position)
 			combat_log.log_ordered_retreat(unit)
@@ -403,6 +430,56 @@ func _check_enemy_commander_retreat() -> void:
 	if any_ordered:
 		var casualty_percent: float = _compute_side_stats(enemy_units).casualty_percent
 		combat_log.add_entry("--- Enemy commander orders a general retreat: the attack has failed (%.0f%% casualties) — mortars continue the fire mission ---" % casualty_percent)
+
+
+## Whether a squad just ordered to retreat surrenders in place instead —
+## a random roll, not a fixed rule (a squad in a bad spot might still try
+## its luck; one in a decent spot might still lose its nerve, just less
+## often). Works for either side's squads, since either commander's general
+## retreat can now trigger this (order_general_retreat /
+## _check_enemy_commander_retreat) — "opposing" and "own side" below just
+## flip based on `squad.team`.
+##
+## Two independent factors feed the base chance, each a real judgment a
+## squad leader would actually weigh: how deep in danger it already is
+## (proximity to the nearest active OPPOSING unit — SURRENDER_POSITION_
+## RANGE) and how isolated it is (proximity to the nearest other active
+## SQUAD on its OWN side specifically — SURRENDER_ISOLATION_RANGE; a
+## supporting mortar well to the rear doesn't help a squad that's about to
+## be overrun). No opposing units left at all, or no other own-side squad
+## left anywhere, both count as maximum badness on their own axis rather
+## than an undefined/lucky case.
+##
+## That base chance is then scaled by GameConfig.SURRENDER_WILLINGNESS_
+## MULTIPLIER_PLAYER/_ENEMY before the shared SURRENDER_MAX_CHANCE cap —
+## deliberately NOT the same multiplier for both sides. This is the war in
+## Ukraine: credible, extensively documented reporting (UN and Human
+## Rights Watch monitoring among it) describes systematic mistreatment of
+## Ukrainian POWs in Russian custody. A Ukrainian squad in a hopeless spot
+## has real, well-founded reasons the enemy simply doesn't share to keep
+## fighting or trying to get out rather than lay down arms — this isn't
+## modeled as ordinary, symmetric battlefield reluctance.
+func _squad_surrender_chance(squad: Unit) -> float:
+	var opposing: Array[Unit] = enemy_units if squad.team == Unit.Team.PLAYER else player_units
+	var own_side: Array[Unit] = player_units if squad.team == Unit.Team.PLAYER else enemy_units
+
+	var nearest_opposing_dist := INF
+	for o in opposing:
+		if o.state == Unit.State.ACTIVE:
+			nearest_opposing_dist = min(nearest_opposing_dist, squad.global_position.distance_to(o.global_position))
+	var position_badness: float = 0.0 if is_inf(nearest_opposing_dist) \
+		else clamp(1.0 - nearest_opposing_dist / GameConfig.SURRENDER_POSITION_RANGE, 0.0, 1.0)
+
+	var nearest_ally_dist := INF
+	for u in own_side:
+		if u != squad and u.kind == Unit.Kind.SQUAD and u.state == Unit.State.ACTIVE:
+			nearest_ally_dist = min(nearest_ally_dist, squad.global_position.distance_to(u.global_position))
+	var isolation_badness: float = 1.0 if is_inf(nearest_ally_dist) \
+		else clamp(nearest_ally_dist / GameConfig.SURRENDER_ISOLATION_RANGE, 0.0, 1.0)
+
+	var chance: float = GameConfig.SURRENDER_POSITION_WEIGHT * position_badness + GameConfig.SURRENDER_ISOLATION_WEIGHT * isolation_badness
+	var willingness: float = GameConfig.SURRENDER_WILLINGNESS_MULTIPLIER_PLAYER if squad.team == Unit.Team.PLAYER else GameConfig.SURRENDER_WILLINGNESS_MULTIPLIER_ENEMY
+	return clamp(chance * willingness, 0.0, GameConfig.SURRENDER_MAX_CHANCE)
 
 
 ## Judged against the WHOLE enemy force's casualties (pips lost across every
@@ -1568,7 +1645,7 @@ func _update_spotting(delta: float) -> void:
 ## this case).
 func _refresh_visibility(observers: Array[Unit], targets: Array[Unit], delta: float) -> void:
 	for target in targets:
-		if target.state == Unit.State.DESTROYED:
+		if target.state == Unit.State.DESTROYED or target.state == Unit.State.SURRENDERED:
 			continue
 		if target.kind == Unit.Kind.MORTAR and target.team == Unit.Team.PLAYER:
 			continue
@@ -1748,7 +1825,7 @@ func _resolve_pending_mortar_shots() -> void:
 		if not is_instance_valid(shot.target):
 			continue # the target (a drone, almost certainly — see BattleManager's queue_free calls) has since landed/been freed; nothing left there to hit
 		var target: Unit = shot.target
-		if target.state == Unit.State.DESTROYED or target.state == Unit.State.WITHDRAWN:
+		if target.state == Unit.State.DESTROYED or target.state == Unit.State.WITHDRAWN or target.state == Unit.State.SURRENDERED:
 			continue # nothing left there to hit
 
 		if target.state == Unit.State.RETREATING:
@@ -2116,6 +2193,7 @@ func _compute_side_stats(units: Array[Unit]) -> Dictionary:
 	var destroyed: PackedStringArray = []
 	var withdrawn: PackedStringArray = []
 	var still_retreating: PackedStringArray = []
+	var surrendered: PackedStringArray = []
 	for u in units:
 		# A drone is equipment, not personnel — losing one doesn't hurt the
 		# 3-person crew, so it never counts toward the human casualty tally
@@ -2133,6 +2211,8 @@ func _compute_side_stats(units: Array[Unit]) -> Dictionary:
 				withdrawn.append(_crew_survivor_label(u))
 			Unit.State.RETREATING:
 				still_retreating.append(_crew_survivor_label(u))
+			Unit.State.SURRENDERED:
+				surrendered.append(u.display_name())
 	var casualty_percent: float = (float(pips_lost) / float(pips_total) * 100.0) if pips_total > 0 else 0.0
 	return {
 		"pips_total": pips_total,
@@ -2141,6 +2221,7 @@ func _compute_side_stats(units: Array[Unit]) -> Dictionary:
 		"destroyed": destroyed,
 		"withdrawn": withdrawn,
 		"still_retreating": still_retreating,
+		"surrendered": surrendered,
 	}
 
 
@@ -2191,6 +2272,10 @@ func _end_battle() -> void:
 		lines.append("Enemy withdrew: %s" % ", ".join(enemy_stats.withdrawn))
 	if not enemy_stats.still_retreating.is_empty():
 		lines.append("Enemy still pulling back when the battle ended: %s" % ", ".join(enemy_stats.still_retreating))
+	if not player_stats.surrendered.is_empty():
+		lines.append("Player surrendered: %s" % ", ".join(player_stats.surrendered))
+	if not enemy_stats.surrendered.is_empty():
+		lines.append("Enemy surrendered: %s" % ", ".join(enemy_stats.surrendered))
 
 	var report_text := "\n".join(lines)
 	combat_log.log_battle_end(report_text)

@@ -17,9 +17,12 @@ enum Team { PLAYER, ENEMY }
 enum Kind { SQUAD, MORTAR, SPOTTER, DRONE_TEAM, DRONE }
 ## ACTIVE: fighting (possibly moving toward move_target). RETREATING: pulling
 ## back off the field entirely, still on the field and can still take fire.
-## WITHDRAWN: reached safety, no longer part of the fight. DESTROYED: out of
-## action for good.
-enum State { ACTIVE, RETREATING, WITHDRAWN, DESTROYED }
+## WITHDRAWN: reached safety, no longer part of the fight. SURRENDERED: laid
+## down arms in place rather than attempting a retreat it judged too risky
+## (see BattleManager._squad_surrender_chance) — alive and unharmed, same as
+## WITHDRAWN, but a distinct outcome worth reporting separately rather than
+## folding into "withdrew safely." DESTROYED: out of action for good.
+enum State { ACTIVE, RETREATING, WITHDRAWN, DESTROYED, SURRENDERED }
 enum Activity { STATIONARY, MOVING }
 
 var team: Team = Team.PLAYER
@@ -384,7 +387,7 @@ func seek_cover(avoid_positions: Array[Vector2] = [], known_enemy_positions: Arr
 
 
 func is_targetable() -> bool:
-	return state != State.DESTROYED and state != State.WITHDRAWN and is_visible
+	return state != State.DESTROYED and state != State.WITHDRAWN and state != State.SURRENDERED and is_visible
 
 
 func display_name() -> String:
@@ -418,6 +421,9 @@ func _draw() -> void:
 		color = color.darkened(0.55)
 	if state == State.WITHDRAWN:
 		color.a = 0.3
+	if state == State.SURRENDERED:
+		color = Color.WHITE
+		color.a = 0.5
 	if state == State.DESTROYED:
 		color = Color(0.25, 0.25, 0.25)
 
@@ -438,7 +444,7 @@ func _draw() -> void:
 		draw_line(Vector2(-radius, -radius), Vector2(radius, radius), Color(0.15, 0.15, 0.15), 1.5)
 		draw_line(Vector2(-radius, radius), Vector2(radius, -radius), Color(0.15, 0.15, 0.15), 1.5)
 
-	if state == State.WITHDRAWN or state == State.DESTROYED:
+	if state == State.WITHDRAWN or state == State.DESTROYED or state == State.SURRENDERED:
 		return # no pip bar or cover ring for a unit that's left the fight one way or another
 
 	# Cover ring — visible any time the unit is on the field, so cover status
