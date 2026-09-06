@@ -606,16 +606,25 @@ const TARGET_PRIORITY_MORTAR_LEAD_DISCOUNT: float = 0.8
 const TARGET_PRIORITY_SQUAD_MAX: float = 10.0
 const SQUAD_DANGER_RANGE: float = 1200.0 * PIXELS_PER_METER
 
-# A visible RETREATING enemy (squad or mortar crew) is a kill already in
-# progress, not a hypothetical one — once it's actually broken and running,
-# finishing it off outweighs either an advancing squad's mere danger or the
-# speculative value of continuing to search for a fresh one (see
-# BattleManager._drone_search_target). Flat rather than distance-scaled
-# like TARGET_PRIORITY_SQUAD_MAX — the urgency here is "it's getting away,"
-# not "how close is it to a fight" — but still far below
-# TARGET_PRIORITY_MORTAR: a live, still-functioning mortar overhead is
-# always the bigger threat regardless of what else is running.
+# A visible RETREATING enemy (squad or mortar crew — a mortar crew that's
+# abandoned its gun can never fire it again, so it counts as "retreating,"
+# not "the mortar priority," the instant that happens) is worth two very
+# different things depending on whether the battle is still actually going
+# on. Once the enemy commander has ordered a general retreat — the fight
+# is effectively over, just not literally finished — it's a kill already
+# in progress and worth finishing: TARGET_PRIORITY_RETREATING_ENEMY, well
+# above an advancing squad's own max and second only to an actual live
+# mortar. But while the battle is STILL CONTINUING (no general retreat —
+# other real threats, especially an active mortar, could still be out
+# there), one broken, defanged unit already running away is a distraction,
+# not a priority: TARGET_PRIORITY_RETREATING_ENEMY_LOW instead, low enough
+# to lose to the sweep or any genuinely dangerous advancing squad, so the
+# drone stays on the actual fight instead of babysitting one straggler.
+# Both flat rather than distance-scaled like TARGET_PRIORITY_SQUAD_MAX —
+# the question here is "is it worth finishing off right now," not "how
+# close is it to a fight."
 const TARGET_PRIORITY_RETREATING_ENEMY: float = 25.0
+const TARGET_PRIORITY_RETREATING_ENEMY_LOW: float = 2.0
 
 # Once the enemy commander has ordered a general retreat, there's little
 # reason left to keep sweeping wide for a NEW enemy — every ACTIVE squad

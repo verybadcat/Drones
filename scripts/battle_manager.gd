@@ -1011,11 +1011,15 @@ func _squad_danger_priority(u: Unit) -> float:
 ## detection lead on any ACTIVE mortar, discounted somewhat for being a
 ## stale position rather than a live one, but still real evidence rather
 ## than speculation; (3) the single most dangerous currently-visible ACTIVE
-## enemy squad; (4) the nearest currently-visible RETREATING enemy (squad
-## or mortar) — a real, already-broken kill in progress, worth more than
-## either an advancing squad's mere danger or the speculative sweep, on the
-## reasoning that once an enemy has actually turned to run, finishing it
-## off outweighs continuing to watch for fresh ones; (5) the ongoing area
+## enemy squad; (4) the nearest currently-visible RETREATING enemy (squad,
+## or a mortar crew that's abandoned its gun for good — that counts as
+## "retreating," not "the mortar priority," the instant it happens) —
+## scored one of two very different ways depending on whether the battle
+## is actually still going: high (TARGET_PRIORITY_RETREATING_ENEMY, a real
+## kill worth finishing) once the enemy's own general retreat means little
+## else is left to search for; low (TARGET_PRIORITY_RETREATING_ENEMY_LOW)
+## while the fight is still on, so one broken straggler doesn't distract
+## from whatever's still actually fighting; (5) the ongoing area
 ## sweep (_drone_sweep_target), valued as the genuine expected value of
 ## what it might still find — TARGET_PRIORITY_MORTAR times
 ## _mortar_existence_confidence(). That last term is what lets the drone's
@@ -1084,9 +1088,16 @@ func _drone_search_target() -> Vector2:
 			if d < best_retreating_dist:
 				best_retreating_dist = d
 				best_retreating = u
-	if best_retreating != null and GameConfig.TARGET_PRIORITY_RETREATING_ENEMY > best_score:
-		best_score = GameConfig.TARGET_PRIORITY_RETREATING_ENEMY
-		best_pos = best_retreating.global_position
+	if best_retreating != null:
+		# High priority once the fight's effectively over (the enemy's own
+		# general retreat) — but while the battle is still actually going,
+		# one broken, defanged straggler (a mortar crew that's abandoned its
+		# gun counts here too, not as "the mortar priority") is a low-
+		# priority distraction next to whatever's still actually fighting.
+		var retreating_score: float = GameConfig.TARGET_PRIORITY_RETREATING_ENEMY if enemy_general_retreat_ordered else GameConfig.TARGET_PRIORITY_RETREATING_ENEMY_LOW
+		if retreating_score > best_score:
+			best_score = retreating_score
+			best_pos = best_retreating.global_position
 
 	var sweep_score: float = GameConfig.TARGET_PRIORITY_MORTAR * _mortar_existence_confidence()
 	if enemy_general_retreat_ordered:
