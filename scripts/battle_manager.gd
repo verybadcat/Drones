@@ -358,6 +358,22 @@ func _make_unit(team: Unit.Team, kind: Unit.Kind, pos: Vector2) -> Unit:
 ## against a Ukrainian squad choosing to surrender to Russian forces than
 ## the reverse; this is the order actually landing on a friendly squad,
 ## not just the enemy's mirror of it.
+## Polls + clears the one-shot wounded-evacuation flags order_retreat sets
+## (see Unit._resolve_wounded_evacuation) and logs whichever one just
+## happened — same established pattern as _log_hit_consequence's own
+## sought_cover_logged/bolted_for_cover handling. Called right after every
+## order_retreat() call site in this file, not just the threshold one,
+## since a general-retreat order can trigger this exactly as much as an
+## individual squad's own threshold can.
+func _log_wounded_evacuation_outcome(unit: Unit) -> void:
+	if unit.just_carried_wounded:
+		unit.just_carried_wounded = false
+		combat_log.log_wounded_carried(unit, unit.heavily_wounded_count)
+	elif unit.just_abandoned_wounded:
+		unit.just_abandoned_wounded = false
+		combat_log.log_wounded_abandoned(unit, unit.wounded_left_behind_count)
+
+
 func order_general_retreat() -> void:
 	if battle_over:
 		return
@@ -376,6 +392,7 @@ func order_general_retreat() -> void:
 			unit.order_retreat(known_enemy_positions, _ally_positions_for(unit) + claimed)
 			claimed.append(unit.move_target if unit.has_move_target else unit.global_position)
 			combat_log.log_ordered_retreat(unit)
+			_log_wounded_evacuation_outcome(unit)
 			any_ordered = true
 	if any_ordered:
 		combat_log.add_entry("--- General retreat ordered ---")
@@ -428,6 +445,7 @@ func _check_enemy_commander_retreat() -> void:
 			unit.order_retreat(known_player_positions, _ally_positions_for(unit) + claimed)
 			claimed.append(unit.move_target if unit.has_move_target else unit.global_position)
 			combat_log.log_ordered_retreat(unit)
+			_log_wounded_evacuation_outcome(unit)
 			any_ordered = true
 	if any_ordered:
 		var casualty_percent: float = _compute_side_stats(enemy_units).casualty_percent
@@ -498,14 +516,22 @@ func _enemy_situation_hopeless() -> bool:
 
 ## Currently-visible enemy positions, from `team`'s point of view — "some
 ## idea where the enemy is" for the spotter's smarter retreat routing (see
-## Unit.order_retreat). Only live-visible units count, matching the rest of
-## the game's live-visibility model — not a permanent memory of everywhere
-## the enemy has ever been seen.
+## Unit.order_retreat), and for every other threat-avoidance decision that
+## consumes this (cover-point selection, the friendly mortar's hunt-route
+## concealment, an advancing enemy squad's own concealment/danger scoring —
+## see _friendly_mortar_hunt_point, _score_advance_candidate). Only live-
+## visible units count, matching the rest of the game's live-visibility
+## model — not a permanent memory of everywhere the enemy has ever been
+## seen. ACTIVE or RETREATING only — a SURRENDERED unit has laid down its
+## arms in place and a WITHDRAWN one has left the field entirely; neither
+## poses any actual threat any more, so nothing should route around, hide
+## from, or flee one the way it would a real, still-armed contact.
 func _known_enemy_positions(team: Unit.Team) -> Array[Vector2]:
 	var opposing: Array[Unit] = enemy_units if team == Unit.Team.PLAYER else player_units
 	var positions: Array[Vector2] = []
 	for u in opposing:
-		if u.state != Unit.State.DESTROYED and u.is_visible:
+		var still_a_threat: bool = u.state == Unit.State.ACTIVE or u.state == Unit.State.RETREATING
+		if still_a_threat and u.is_visible:
 			positions.append(u.global_position)
 	return positions
 
@@ -2223,6 +2249,7 @@ func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
 			combat_log.log_crew_abandoned(unit)
 		else:
 			combat_log.log_threshold_retreat(unit)
+			_log_wounded_evacuation_outcome(unit)
 	if unit.reported_issue and not unit.reported_issue_logged:
 		unit.reported_issue_logged = true
 		combat_log.log_reports_issue(unit)
@@ -2442,6 +2469,10 @@ func drone_fleet_status() -> Dictionary:
 func _compute_side_stats(units: Array[Unit]) -> Dictionary:
 	var pips_total := 0
 	var pips_lost := 0
+	var killed := 0
+	var heavily_wounded := 0
+	var walking_wounded := 0
+	var wounded_captured := 0
 	var destroyed: PackedStringArray = []
 	var withdrawn: PackedStringArray = []
 	var still_retreating: PackedStringArray = []
@@ -2453,6 +2484,11 @@ func _compute_side_stats(units: Array[Unit]) -> Dictionary:
 		if u.kind != Unit.Kind.DRONE:
 			pips_total += u.max_pips
 			pips_lost += (u.max_pips - u.pips)
+		if u.kind == Unit.Kind.SQUAD:
+			killed += u.killed_count
+			heavily_wounded += u.heavily_wounded_count
+			walking_wounded += u.walking_wounded_count
+			wounded_captured += u.wounded_left_behind_count
 		match u.state:
 			Unit.State.DESTROYED:
 				if u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM:
@@ -2470,6 +2506,10 @@ func _compute_side_stats(units: Array[Unit]) -> Dictionary:
 		"pips_total": pips_total,
 		"pips_lost": pips_lost,
 		"casualty_percent": casualty_percent,
+		"killed": killed,
+		"heavily_wounded": heavily_wounded,
+		"walking_wounded": walking_wounded,
+		"wounded_captured": wounded_captured,
 		"destroyed": destroyed,
 		"withdrawn": withdrawn,
 		"still_retreating": still_retreating,
@@ -2509,9 +2549,19 @@ func _end_battle() -> void:
 	lines.append("Village held: %s" % ("YES" if held else "NO"))
 	var tactical_minutes: int = int(scenario_elapsed_time / 60.0)
 	lines.append("Time elapsed: %dh %02dm (0600 to %s)" % [tactical_minutes / 60, tactical_minutes % 60, clock_string().substr(0, 5)])
-	lines.append("Player casualties: %d/%d personnel (%.0f%%)" % [player_stats.pips_lost, player_stats.pips_total, player_stats.casualty_percent])
-	lines.append("Enemy casualties: %d/%d personnel (%.0f%%)" % [enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent])
+	lines.append("Player casualties: %d/%d personnel (%.0f%%) — %d killed, %d wounded" % [
+		player_stats.pips_lost, player_stats.pips_total, player_stats.casualty_percent,
+		player_stats.killed, player_stats.heavily_wounded + player_stats.walking_wounded,
+	])
+	lines.append("Enemy casualties: %d/%d personnel (%.0f%%) — %d killed, %d wounded" % [
+		enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent,
+		enemy_stats.killed, enemy_stats.heavily_wounded + enemy_stats.walking_wounded,
+	])
 	lines.append("Exchange ratio (enemy : player personnel lost): %.2f : 1" % exchange_ratio)
+	if player_stats.wounded_captured > 0:
+		lines.append("Player wounded left behind, captured: %d" % player_stats.wounded_captured)
+	if enemy_stats.wounded_captured > 0:
+		lines.append("Enemy wounded left behind, captured: %d" % enemy_stats.wounded_captured)
 	if not player_stats.destroyed.is_empty():
 		lines.append("Player losses: %s" % ", ".join(player_stats.destroyed))
 	if not player_stats.withdrawn.is_empty():

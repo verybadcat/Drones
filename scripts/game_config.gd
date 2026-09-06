@@ -398,16 +398,18 @@ const ENEMY_MORTAR_POSITIONS_M: Array[Vector2] = [Vector2(4700.0, 1300.0), Vecto
 #     is under way for either side (BattleManager.order_general_retreat, or
 #     the enemy commander's own equivalent — see
 #     _check_enemy_commander_retreat) — the battle's effectively decided,
-#     just not literally over yet; faster than normal, but a little slower
-#     than pure fast-forward since it's still worth a glance.
+#     just not literally over yet. Exactly double TIME_SCALE_NORMAL: the
+#     same "nothing left to watch closely" withdrawal sequence as always,
+#     just shown twice as fast.
 #   - TIME_SCALE_NORMAL: live contact — 1 real (engine) second = 1 tactical
 #     MINUTE. This is the "realistic and worth watching" pace, and always
-#     wins over the general-retreat tier — a fighting withdrawal is still
-#     worth watching closely.
+#     wins over the general-retreat tier — a fighting withdrawal (some
+#     units still retreating, but contact remains elsewhere) is still worth
+#     watching closely, same as before this tier's speed was doubled.
 # See BattleManager.scenario_elapsed_time.
 const TIME_SCALE_FAST_FORWARD: float = 300.0
 const TIME_SCALE_NORMAL: float = 60.0
-const TIME_SCALE_GENERAL_RETREAT: float = 180.0
+const TIME_SCALE_GENERAL_RETREAT: float = TIME_SCALE_NORMAL * 2.0
 # The tactical clock shown to the player (see BattleManager.clock_string())
 # starts here — the assault kicks off at 0600.
 const SCENARIO_START_HOUR: float = 6.0
@@ -897,6 +899,38 @@ const MORTAR_CASUALTY_FRACTION: float = 0.2
 
 static func mortar_casualty_count(current_pips: int) -> int:
 	return clampi(int(round(float(current_pips) * MORTAR_CASUALTY_FRACTION)), 1, current_pips)
+
+# Every pip a SQUAD actually loses (see Unit._categorize_casualties) is
+# sorted into killed / heavily wounded (immobile — needs carrying, see
+# Unit._resolve_wounded_evacuation) / walking wounded (mobile, no retreat
+# cost) by independent weighted rolls. Fractions must sum to 1.0; walking
+# wounded is deliberately left as "whatever's left" below rather than its
+# own named constant, so the three can never drift out of sync. First-pass
+# estimates, not validated against actual play — see doctrine doc.
+const CASUALTY_KILLED_FRACTION: float = 0.3
+const CASUALTY_HEAVILY_WOUNDED_FRACTION: float = 0.35
+# (walking wounded = 1.0 - CASUALTY_KILLED_FRACTION - CASUALTY_HEAVILY_WOUNDED_FRACTION = 0.35)
+
+# How much slower a retreat is per HEAVILY_WOUNDED person actually carried
+# along (see Unit._resolve_wounded_evacuation) — a real cost for "we want to
+# take the wounded with us," not just flavor. Floored so even a badly mauled
+# squad carrying several still makes SOME progress rather than effectively
+# stopping.
+const HEAVILY_WOUNDED_SLOWDOWN_PER_PERSON: float = 0.12
+const HEAVILY_WOUNDED_MIN_RETREAT_SPEED_FRACTION: float = 0.4
+
+# The enemy-only choice to leave heavily wounded behind instead of carrying
+# them (see Unit._resolve_wounded_evacuation) — a genuine risk-weighted roll,
+# not a hard cutoff. DANGER_RANGE mirrors the scale of DANGER_RADIUS/
+# SQUAD_DANGER_RANGE elsewhere: inside it, a known threat reads as
+# realistically able to catch a slowed column; beyond it, carrying wounded
+# is essentially free. CHANCE_PER_PERSON scales with how many are actually
+# being carried (a bigger encumbrance is a bigger risk to accept), capped at
+# MAX_CHANCE so even a large, close threat doesn't make abandonment an
+# absolute certainty.
+const WOUNDED_ABANDON_DANGER_RANGE: float = 600.0 * PIXELS_PER_METER
+const WOUNDED_ABANDON_CHANCE_PER_PERSON: float = 0.25
+const WOUNDED_ABANDON_MAX_CHANCE: float = 0.85
 
 # Squads bunched up this close together (e.g. piled into the same patch of
 # cover) risk a stray hit spreading from whichever of them was actually

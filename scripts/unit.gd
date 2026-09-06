@@ -94,6 +94,33 @@ var bolted_for_cover: bool = false
 var retreat_speed: float = 0.0
 var retreat_target_x: float = 0.0 # x that means "reached safety" while retreating
 
+# SQUAD only — every pip actually lost (see take_hit) is sorted into exactly
+# one of these three (GameConfig.CASUALTY_*_FRACTION) instead of just
+# vanishing from `pips` as an undifferentiated loss. KILLED needs nothing
+# further. HEAVILY_WOUNDED is alive but immobile — still physically with the
+# unit, and the whole reason order_retreat now has a real decision to make
+# (see _resolve_wounded_evacuation): bring them (real retreat-speed cost) or
+# leave them. WALKING_WOUNDED can move under their own power — no retreat
+# cost either way, they just don't shoot as well, which is why some of them
+# no longer count toward `pips` even though they were never in danger of
+# being left behind.
+var killed_count: int = 0
+var heavily_wounded_count: int = 0
+var walking_wounded_count: int = 0
+
+# Tallies HEAVILY_WOUNDED casualties this unit chose to leave behind rather
+# than carry (see _resolve_wounded_evacuation) — reported in the AAR as
+# captured/surrendered, not counted among the unit's own ongoing casualties
+# any more. Never happens for the player side (see _resolve_wounded_evacuation's
+# own doc comment for why this is enemy-only).
+var wounded_left_behind_count: int = 0
+
+# One-shot flags, set the instant a retreat's wounded-evacuation decision is
+# made and consumed+cleared by BattleManager's own logging pass — same
+# established pattern as bolted_for_cover/sought_cover_logged above.
+var just_carried_wounded: bool = false
+var just_abandoned_wounded: bool = false
+
 # Set once a RETREATING unit has actually had a mortar round resolve against
 # it — hit or a near-miss close enough to still be evaded (see
 # BattleManager._resolve_pending_mortar_shots) — and never cleared — once you
@@ -225,6 +252,8 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], kn
 	# handful, which is exactly why it's also a more attractive TARGET in
 	# the first place (see BattleManager._mortar_target_value).
 	var casualties: int = GameConfig.mortar_casualty_count(pips) if from_mortar else 1
+	if kind == Kind.SQUAD:
+		_categorize_casualties(casualties)
 	pips = max(pips - casualties, 0)
 	if pips <= 0:
 		state = State.DESTROYED
@@ -247,6 +276,23 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], kn
 	elif from_mortar and randf() < GameConfig.RELOCATE_ON_MORTAR_HIT_CHANCE:
 		seek_cover(ally_positions, known_enemy_positions)
 		bolted_for_cover = true
+
+
+## Sorts `count` newly-lost pips into killed/heavily-wounded/walking-wounded
+## (see the fields' own doc comments) via GameConfig's CASUALTY_*_FRACTION
+## weights — one independent roll per person lost, not a single roll for the
+## whole hit, so a multi-casualty mortar hit (see GameConfig.
+## mortar_casualty_count) naturally produces a believable mix rather than
+## every person from the same hit landing in the same bucket.
+func _categorize_casualties(count: int) -> void:
+	for i in count:
+		var roll := randf()
+		if roll < GameConfig.CASUALTY_KILLED_FRACTION:
+			killed_count += 1
+		elif roll < GameConfig.CASUALTY_KILLED_FRACTION + GameConfig.CASUALTY_HEAVILY_WOUNDED_FRACTION:
+			heavily_wounded_count += 1
+		else:
+			walking_wounded_count += 1
 
 
 func _check_retreat(known_enemy_positions: Array[Vector2] = [], ally_positions: Array[Vector2] = []) -> void:
@@ -341,6 +387,12 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 		return
 	state = State.RETREATING
 	movement_predictable = false # pulling out under pressure, not a calm march
+
+	var speed_multiplier := 1.0
+	if kind == Kind.SQUAD and heavily_wounded_count > 0:
+		speed_multiplier = _resolve_wounded_evacuation(known_enemy_positions)
+		retreat_speed *= speed_multiplier # permanent for the rest of this (one-way) retreat
+
 	if not GameConfig.is_in_cover(terrain_type()):
 		var retreat_dir: float = -1.0 if team == Team.PLAYER else 1.0
 		var avoid_buildings: bool = kind == Kind.MORTAR
@@ -350,10 +402,52 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 			move_target = GameConfig.nearest_cover_point(global_position, retreat_dir, avoid_buildings, avoid_positions, known_enemy_positions)
 		has_move_target = true
 		move_queue.clear()
-		move_speed = GameConfig.REPOSITION_SPEED
+		move_speed = GameConfig.REPOSITION_SPEED * speed_multiplier
 	else:
 		has_move_target = false
 	state_changed.emit(self)
+
+
+## The one real decision this feature adds: what happens to this SQUAD's own
+## HEAVILY_WOUNDED (immobile — see the field's own doc comment) the moment it
+## actually starts retreating. "We want to take the wounded with us if
+## possible" is the default for BOTH sides — returns a retreat-speed
+## multiplier (GameConfig.HEAVILY_WOUNDED_SLOWDOWN_PER_PERSON per person
+## carried, floored at HEAVILY_WOUNDED_MIN_RETREAT_SPEED_FRACTION so a badly
+## mauled squad doesn't grind to a near-halt) and sets just_carried_wounded
+## for BattleManager to log once.
+##
+## The ENEMY side alone actually WEIGHS this instead of just accepting it —
+## "may choose to leave their wounded behind, especially if taking them along
+## entails more risk" is an enemy-commander-style judgment call, the same
+## flavor as _squad_surrender_chance already being asymmetric between sides;
+## the player's own doctrine has no such abandon option today. Risk is judged
+## the simple way every other threat-aware routine here does: proximity to
+## the nearest KNOWN enemy (here, player) position — closer means a slowed
+## column is more likely to actually get caught by it, and more wounded to
+## carry (a bigger speed penalty to accept) raises the odds of leaving them
+## further still. A genuine roll, not a hard cutoff, matching this game's
+## general "real decisions aren't perfectly rational" idiom (see
+## _weighted_mortar_target_pick, _weighted_advance_point_pick). Abandoned
+## wounded are moved to wounded_left_behind_count (see its own doc comment —
+## reported in the AAR as captured, matching "left-behind enemy wounded would
+## surrender") and the unit retreats at full, unencumbered speed instead.
+func _resolve_wounded_evacuation(known_enemy_positions: Array[Vector2]) -> float:
+	if team == Team.ENEMY:
+		var nearest_known_dist := INF
+		for p in known_enemy_positions:
+			nearest_known_dist = min(nearest_known_dist, global_position.distance_to(p))
+		if not is_inf(nearest_known_dist):
+			var proximity_risk: float = clamp(1.0 - nearest_known_dist / GameConfig.WOUNDED_ABANDON_DANGER_RANGE, 0.0, 1.0)
+			var abandon_chance: float = clamp(proximity_risk * GameConfig.WOUNDED_ABANDON_CHANCE_PER_PERSON * heavily_wounded_count, 0.0, GameConfig.WOUNDED_ABANDON_MAX_CHANCE)
+			if randf() < abandon_chance:
+				wounded_left_behind_count += heavily_wounded_count
+				heavily_wounded_count = 0
+				just_abandoned_wounded = true
+				return 1.0
+
+	just_carried_wounded = true
+	return max(1.0 - GameConfig.HEAVILY_WOUNDED_SLOWDOWN_PER_PERSON * heavily_wounded_count, GameConfig.HEAVILY_WOUNDED_MIN_RETREAT_SPEED_FRACTION)
 
 
 ## Walk a real multi-waypoint path (e.g. "get onto the road, then march down

@@ -64,6 +64,14 @@ func log_squad_surrendered(unit: Unit) -> void:
 	add_entry("%s lays down arms rather than risk the retreat — surrendered" % unit.display_name())
 
 
+func log_wounded_carried(unit: Unit, count: int) -> void:
+	add_entry("%s pulls back slowed, carrying %d wounded" % [unit.display_name(), count])
+
+
+func log_wounded_abandoned(unit: Unit, count: int) -> void:
+	add_entry("%s leaves %d wounded behind rather than risk a slower retreat" % [unit.display_name(), count])
+
+
 func log_reports_issue(unit: Unit) -> void:
 	add_entry("%s reports heavy resistance" % unit.display_name())
 
