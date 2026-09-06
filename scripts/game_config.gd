@@ -420,15 +420,28 @@ const SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER: float = 0.8 # applies only when NO
 const DRONE_FLEET_SIZE: int = 4
 const DRONE_TEAM_CREW_SIZE: int = 3
 const DRONE_ALTITUDE_M: float = 300.0
-const DRONE_CRUISE_SPEED: float = 10.0 * PIXELS_PER_METER # ~36 km/h — a real search-pattern cruise, not sprint speed
-const DRONE_MAX_FLIGHT_TIME: float = 21.0 * 60.0 # tactical seconds — real Mavic-class endurance
-const DRONE_ROUND_TRIP_RANGE: float = 12000.0 * PIXELS_PER_METER # real Mavic-class round-trip range
+# DJI's own published Mavic 3 specs, not a guess: 46-minute max flight time
+# (rated), and a 30km max flight distance rated for a sustained 50.4 kph
+# cruise (both figures are DJI's own lab numbers, not battlefield-derated —
+# see the design doc's revision log for sourcing). DRONE_CRUISE_SPEED uses
+# that exact 50.4kph, the speed DJI's own range figure was measured at, so
+# the two aren't silently mismatched: sustained flight at this speed covers
+# the full 30km around the 35-36 minute mark — genuinely a bit before the
+# separately-rated 46-minute figure (that rating reflects the lowest-power
+# hover condition, not continuous directional flight, so this gap is real,
+# not a modeling error). On this map (a 5-6km diagonal) neither number is
+# normally tight; a sortie generally ends on whichever of the two a
+# particular flight path happens to use up first.
+const DRONE_CRUISE_SPEED: float = 14.0 * PIXELS_PER_METER # 50.4 km/h — DJI's own tested speed for the range figure below
+const DRONE_MAX_FLIGHT_TIME: float = 46.0 * 60.0 # tactical seconds — DJI's rated Mavic 3 max flight time
+const DRONE_ROUND_TRIP_RANGE: float = 30000.0 * PIXELS_PER_METER # DJI's rated Mavic 3 max flight distance
 const DRONE_RTB_SAFETY_MARGIN: float = 300.0 * PIXELS_PER_METER # turn for home this much before the budget is actually exhausted
-# A real Mavic-class flight battery (~5000mAh) takes about 96 minutes to
-# charge from empty on a standard charger — that's the actual constraint
-# that makes a 4-airframe rotation necessary in the first place, not a
-# guessed number. Plus a few minutes for the swap/inspection itself before
-# it goes on the charger.
+# DJI's own published Mavic 3 charging spec: 1h36m (96 minutes) from empty
+# on the standard 65W charger — that's the actual constraint that makes a
+# 4-airframe rotation necessary in the first place. Plus a few minutes for
+# the physical battery swap/inspection itself before it goes on the
+# charger. (A fast 100W charger/hub can do it in ~70-80 minutes instead, but
+# that's not assumed here — treat this as the more conservative field case.)
 const DRONE_RECHARGE_DURATION: float = 100.0 * 60.0 # tactical seconds
 
 # From 300m up, camera resolution and a small, quiet airframe make a drone
@@ -506,6 +519,15 @@ const MORTAR_COUNTER_BATTERY_SCOOT_CHANCE: float = 0.06 # per shot, shoot-and-sc
 # response window (COUNTER_BATTERY_DELAY_MAX) — old enough and the mortar
 # has almost certainly moved on, not worth chasing a stale fix.
 const MORTAR_FIRE_DETECTION_EXPIRY: float = 180.0
+
+# The drone's OWN use of the same muzzle-flash/trajectory detection (see
+# BattleManager._known_enemy_mortar_fire_position) needs a much longer
+# window than the enemy's quick ground-based counter-battery reaction
+# above: it can be anywhere on the map when the shot fires and has to
+# physically fly there at DRONE_CRUISE_SPEED before the lead is any good to
+# it, unlike a mortar reacting from nearby. ~10 minutes covers a flight
+# across most of the map's real diagonal at that speed.
+const DRONE_MORTAR_FIRE_LEAD_EXPIRY: float = 600.0
 
 # A relocating mortar crew actually walks there — real speed, real distance,
 # real time, no separate "cooldown" bolted on top (see BattleManager.
@@ -1018,28 +1040,136 @@ static func draw_cover_ring(ci: CanvasItem, radius: float, terrain: TerrainType)
 ## warped-Gaussian formula elevation_m uses, so what's drawn always matches
 ## what actually blocks line of sight. Brightens toward the summit, with
 ## the peak height labeled.
+## Real contour lines of the ACTUAL combined elevation field (elevation_m —
+## the sum of every hill's contribution at a point), traced via marching
+## squares over a sampled grid, not each hill's own isolated Gaussian drawn
+## independently. The old approach drew every hill's own isoline in
+## isolation; wherever two hills' footprints came close enough to overlap
+## (e.g. the village hill and the ridge west of it), their separately-drawn
+## rings could visually cross each other — genuinely impossible for real
+## contour lines, which by definition can never cross (a point has exactly
+## one elevation). Gameplay (elevation_m, has_direct_los) was never affected
+## by this — only the drawing was — but the drawing should still show the
+## same field it's claiming to.
+##
+## Terrain never changes at runtime, so the whole grid + traced segments are
+## computed once (cached in _contour_segments_cache) and just replayed every
+## frame after that, not re-traced per draw call.
+const CONTOUR_GRID_STEP_M: float = 40.0
+static var _contour_segments_cache: Array[Dictionary] = [] # [{"level": float, "a": Vector2, "b": Vector2}] in px
+static var _contour_cache_built: bool = false
+
+
 static func _draw_hills(ci: CanvasItem) -> void:
-	const RING_SEGMENTS: int = 56
 	for hill in HILLS:
 		var center_px: Vector2 = hill.center_m * PIXELS_PER_METER
 		var halo_radius_px: float = hill.radius_m * 1.4 * PIXELS_PER_METER
 		ci.draw_circle(center_px, halo_radius_px, Color(0.32, 0.29, 0.2, 0.12))
 
-		var level := CONTOUR_INTERVAL_M
-		while level < hill.height_m:
-			var t: float = level / hill.height_m
-			var base_radius_m: float = hill.radius_m * sqrt(-2.0 * log(t))
-			var points := PackedVector2Array()
-			for i in RING_SEGMENTS + 1:
-				var theta: float = TAU * float(i) / float(RING_SEGMENTS)
-				var r_m: float = base_radius_m * _hill_radius_warp(hill, theta)
-				points.append(center_px + Vector2(cos(theta), sin(theta)) * r_m * PIXELS_PER_METER)
-			var b: float = 0.5 + 0.35 * t # brighter toward the summit
-			ci.draw_polyline(points, Color(b, b * 0.95, b * 0.68, 0.8), 1.5, true)
-			level += CONTOUR_INTERVAL_M
+	_build_contour_cache()
+	var max_height := 0.0
+	for hill in HILLS:
+		max_height = max(max_height, hill.height_m)
+	for seg in _contour_segments_cache:
+		var t: float = seg.level / max_height
+		var b: float = 0.5 + 0.35 * t # brighter toward the highest terrain
+		ci.draw_line(seg.a, seg.b, Color(b, b * 0.95, b * 0.68, 0.8), 1.5)
 
+	for hill in HILLS:
+		var center_px: Vector2 = hill.center_m * PIXELS_PER_METER
 		ci.draw_string(ThemeDB.fallback_font, center_px + Vector2(-14.0, -4.0), "%dm" % int(hill.height_m),
 			HORIZONTAL_ALIGNMENT_CENTER, 60, 12, Color(0.35, 0.3, 0.16, 0.9))
+
+
+static func _build_contour_cache() -> void:
+	if _contour_cache_built:
+		return
+	_contour_cache_built = true
+
+	var cols: int = int(MAP_WIDTH_M / CONTOUR_GRID_STEP_M) + 2
+	var rows: int = int(MAP_HEIGHT_M / CONTOUR_GRID_STEP_M) + 2
+	var grid: Array[PackedFloat32Array] = []
+	for row in rows:
+		var line := PackedFloat32Array()
+		line.resize(cols)
+		for col in cols:
+			var pos_m := Vector2(col, row) * CONTOUR_GRID_STEP_M
+			line[col] = elevation_m(pos_m * PIXELS_PER_METER)
+		grid.append(line)
+
+	var max_height := 0.0
+	for hill in HILLS:
+		max_height = max(max_height, hill.height_m)
+
+	var level := CONTOUR_INTERVAL_M
+	while level < max_height:
+		for row in rows - 1:
+			for col in cols - 1:
+				_marching_squares_cell(grid, row, col, level)
+		level += CONTOUR_INTERVAL_M
+
+
+## One cell of the standard marching-squares algorithm: 4 corners (TL, TR,
+## BR, BL — matching the grid's row/col layout), a 4-bit case from which
+## corners are above `level`, and a fixed table of which of the cell's 4
+## (interpolated) edge crossings to connect for each case. Cases 0 and 15
+## (fully below/above) have no crossing. Cases 5 and 10 are the classic
+## "saddle" ambiguity (opposite corners above, the other two below) — two
+## segments either way; which diagonal resolution is picked doesn't matter
+## for how this looks (correct real contour maps have the exact same
+## textbook ambiguity at true saddle points).
+static func _marching_squares_cell(grid: Array[PackedFloat32Array], row: int, col: int, level: float) -> void:
+	var v_tl: float = grid[row][col]
+	var v_tr: float = grid[row][col + 1]
+	var v_br: float = grid[row + 1][col + 1]
+	var v_bl: float = grid[row + 1][col]
+
+	var case_index := 0
+	if v_tl > level: case_index |= 1
+	if v_tr > level: case_index |= 2
+	if v_br > level: case_index |= 4
+	if v_bl > level: case_index |= 8
+	if case_index == 0 or case_index == 15:
+		return
+
+	var p_tl := Vector2(col, row) * CONTOUR_GRID_STEP_M
+	var p_tr := Vector2(col + 1, row) * CONTOUR_GRID_STEP_M
+	var p_br := Vector2(col + 1, row + 1) * CONTOUR_GRID_STEP_M
+	var p_bl := Vector2(col, row + 1) * CONTOUR_GRID_STEP_M
+
+	var e_top: Vector2 = _lerp_edge(p_tl, p_tr, v_tl, v_tr, level)
+	var e_right: Vector2 = _lerp_edge(p_tr, p_br, v_tr, v_br, level)
+	var e_bottom: Vector2 = _lerp_edge(p_bl, p_br, v_bl, v_br, level)
+	var e_left: Vector2 = _lerp_edge(p_tl, p_bl, v_tl, v_bl, level)
+
+	match case_index:
+		1, 14:
+			_add_segment(level, e_left, e_top)
+		2, 13:
+			_add_segment(level, e_top, e_right)
+		3, 12:
+			_add_segment(level, e_left, e_right)
+		4, 11:
+			_add_segment(level, e_right, e_bottom)
+		6, 9:
+			_add_segment(level, e_top, e_bottom)
+		7, 8:
+			_add_segment(level, e_left, e_bottom)
+		5:
+			_add_segment(level, e_left, e_top)
+			_add_segment(level, e_right, e_bottom)
+		10:
+			_add_segment(level, e_top, e_right)
+			_add_segment(level, e_left, e_bottom)
+
+
+static func _lerp_edge(pa: Vector2, pb: Vector2, va: float, vb: float, level: float) -> Vector2:
+	var t: float = 0.5 if is_equal_approx(va, vb) else (level - va) / (vb - va)
+	return pa.lerp(pb, clamp(t, 0.0, 1.0))
+
+
+static func _add_segment(level: float, a_m: Vector2, b_m: Vector2) -> void:
+	_contour_segments_cache.append({"level": level, "a": a_m * PIXELS_PER_METER, "b": b_m * PIXELS_PER_METER})
 
 
 ## A real bent dirt road (ROAD_WAYPOINTS_M), not a straight strip — drawn as
@@ -1103,8 +1233,11 @@ static func _draw_village(ci: CanvasItem, rect: Rect2) -> void:
 
 ## Fills the patch's actual irregular footprint (the same warped-radius
 ## outline _point_in_forest_patch tests against, drawn as a closed polygon —
-## same technique as _draw_hills' contour rings), then scatters tree symbols
-## across it. The tree grid itself is a fixed, deterministic offset pattern
+## the same single-shape polar-ring technique _draw_hills used before it
+## switched to tracing the true combined field; a lone, non-overlapping
+## forest patch has no other patch's field to conflict with, so it's still
+## exactly right here), then scatters tree symbols across it. The tree grid
+## itself is a fixed, deterministic offset pattern
 ## (no per-frame randomness — this redraws every frame via queue_redraw, so
 ## anything randomized here would visibly shimmer); each candidate point is
 ## kept only if _forest_patch_contains_offset_m says it actually falls

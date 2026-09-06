@@ -90,6 +90,7 @@ var returning_drone: Unit = null
 var _drones_ready_for_launch: int = 0
 var _drone_recovering: Array[float] = [] # remaining GameConfig.DRONE_RECHARGE_DURATION, one entry per grounded drone
 var _drones_destroyed: int = 0 # airframes permanently lost (shot down) this battle
+var _drone_sweep_index: int = 0 # which road waypoint the blind search patrol is currently headed for — see _drone_sweep_target
 
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
@@ -112,6 +113,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drones_ready_for_launch = 0
 	_drone_recovering.clear()
 	_drones_destroyed = 0
+	_drone_sweep_index = 0
 
 	for unit in player_units + enemy_units:
 		unit.queue_free()
@@ -458,11 +460,20 @@ func _known_friendly_mortar_position() -> Vector2:
 
 
 ## Mirror of _known_friendly_mortar_position, read the other way: the best
-## fix the DRONE currently has on an ENEMY mortar via detected firing (live
-## sight is checked separately, first, in _drone_search_target — this is
-## only the fallback for reacquiring one that's gone quiet, e.g. after
-## shoot-and-scoot). Vector2.INF if nothing's fired recently enough to go on.
-func _known_enemy_mortar_fire_position() -> Vector2:
+## fix on an ENEMY mortar via detected firing (live sight is checked
+## separately, first, in _drone_search_target — this is only the fallback
+## for reacquiring one that's gone quiet, e.g. after shoot-and-scoot).
+## Vector2.INF if nothing's fired recently enough to go on.
+##
+## `expiry` defaults to MORTAR_FIRE_DETECTION_EXPIRY (the enemy's own quick
+## ground-based counter-battery reaction window) but the drone's search
+## (see _drone_search_target) passes GameConfig.DRONE_MORTAR_FIRE_LEAD_EXPIRY
+## instead — a real, if approximate, muzzle-flash/trajectory fix is exactly
+## the "pretty good idea where to look" a drone team would actually have,
+## and it needs a much longer window to actually act on it: it may be
+## anywhere on the map when the shot fires and has to physically fly there,
+## unlike the enemy's own mortars reacting from nearby.
+func _known_enemy_mortar_fire_position(expiry: float = GameConfig.MORTAR_FIRE_DETECTION_EXPIRY) -> Vector2:
 	var best_pos := Vector2.INF
 	var best_time := -INF
 	for u in enemy_units:
@@ -471,7 +482,7 @@ func _known_enemy_mortar_fire_position() -> Vector2:
 		var info: Dictionary = _last_detected_mortar_fire.get(u, {})
 		if info.is_empty():
 			continue
-		if scenario_elapsed_time - info.time > GameConfig.MORTAR_FIRE_DETECTION_EXPIRY:
+		if scenario_elapsed_time - info.time > expiry:
 			continue
 		if info.time > best_time:
 			best_time = info.time
@@ -621,21 +632,41 @@ func _update_returning_drone() -> void:
 ## more special than a big, persistent detection radius aimed at the right
 ## spot); (2) failing that, wherever an enemy mortar was last DETECTED
 ## FIRING (_known_enemy_mortar_fire_position), to try to reacquire one
-## that's gone quiet; (3) failing that, any other currently-visible enemy
-## unit, since a mortar is often nearby; (4) with no lead at all yet, sweep
-## toward the enemy's approach corridor to establish first contact.
+## that's gone quiet; (3) with no mortar lead at all, patrol the enemy's
+## approach corridor (_drone_sweep_target) to keep actually searching.
+##
+## Deliberately does NOT redirect to a merely-visible enemy SQUAD once no
+## mortar lead exists — the mission is hunting mortars, not escorting
+## infantry, and a squad's position alone isn't a useful mortar lead (real
+## mortars sit well back from the line, not draped over the nearest rifle
+## squad). Without this, the drone would just permanently park over the
+## first infantry it happened to spot instead of continuing to search.
 func _drone_search_target() -> Vector2:
 	for u in enemy_units:
 		if u.kind == Unit.Kind.MORTAR and u.state != Unit.State.DESTROYED and u.is_visible:
 			return u.global_position
-	var last_fire_pos: Vector2 = _known_enemy_mortar_fire_position()
+	var last_fire_pos: Vector2 = _known_enemy_mortar_fire_position(GameConfig.DRONE_MORTAR_FIRE_LEAD_EXPIRY)
 	if not is_inf(last_fire_pos.x):
 		return last_fire_pos
-	for u in enemy_units:
-		if u.state != Unit.State.DESTROYED and u.is_visible:
-			return u.global_position
+	return _drone_sweep_target()
+
+
+## No mortar lead at all yet: patrol back and forth across the enemy's whole
+## road corridor, advancing to the next waypoint once close enough rather
+## than flying to and sitting at one single fixed point — genuine
+## progressive search coverage instead of parking somewhere and stopping.
+## Deliberately does NOT aim at the enemy's actual (fixed) mortar
+## emplacements — the drone has no more prior knowledge of exactly where
+## they are than the player does; it only acts on what it can currently see
+## or has recently detected firing (the two checks in _drone_search_target
+## above it).
+const DRONE_SWEEP_WAYPOINT_RADIUS: float = 500.0 * GameConfig.PIXELS_PER_METER
+
+func _drone_sweep_target() -> Vector2:
 	var road: Array[Vector2] = GameConfig.road_waypoints_px()
-	return road[road.size() / 2]
+	if active_drone.global_position.distance_to(road[_drone_sweep_index]) <= DRONE_SWEEP_WAYPOINT_RADIUS:
+		_drone_sweep_index = (_drone_sweep_index + 1) % road.size()
+	return road[_drone_sweep_index]
 
 
 ## A point just inside MORTAR_MAX_RANGE of `target_pos`, along the direct
