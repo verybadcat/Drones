@@ -82,17 +82,23 @@ const HILLS: Array[Dictionary] = [
 const CONTOUR_INTERVAL_M: float = 10.0
 
 
-## How much a hill's effective radius is stretched (>1) or pinched (<1) in
+## How much a blob's effective radius is stretched (>1) or pinched (<1) in
 ## the direction `theta` (radians from its center) — a sum of cosine
-## harmonics per hill (see HILLS), each hill's own fixed set giving it a
-## distinct, irregular, non-circular footprint instead of a perfect radial
-## Gaussian. Amplitudes are kept well under 1.0 in total so this can never
-## flip the effective radius negative.
-static func _hill_radius_warp(hill: Dictionary, theta: float) -> float:
+## harmonics, each blob's own fixed set giving it a distinct, irregular,
+## non-circular footprint instead of a perfect circle/radial Gaussian.
+## Amplitudes are kept well under 1.0 in total so this can never flip the
+## effective radius negative. Shared by HILLS (see _hill_radius_warp,
+## elevation_m) and FOREST_PATCHES (see _forest_radius_at) — same technique,
+## two different uses of "irregular blob."
+static func _radius_warp(warp_harmonics: Array, theta: float) -> float:
 	var w := 1.0
-	for h in hill.warp_harmonics:
+	for h in warp_harmonics:
 		w += h.amplitude * cos(h.frequency * theta + h.phase)
 	return w
+
+
+static func _hill_radius_warp(hill: Dictionary, theta: float) -> float:
+	return _radius_warp(hill.warp_harmonics, theta)
 
 
 ## Continuous ground elevation in meters at a point (given in the engine's
@@ -153,23 +159,107 @@ const TERRAIN_ZONES: Array[Dictionary] = [
 	{"rect": Rect2(1175.0 * PIXELS_PER_METER, 1560.0 * PIXELS_PER_METER, 450.0 * PIXELS_PER_METER, 380.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # the village
 	{"rect": Rect2(2380.0 * PIXELS_PER_METER, 1580.0 * PIXELS_PER_METER, 55.0 * PIXELS_PER_METER, 46.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # isolated farmhouse, mid-approach
 	{"rect": Rect2(880.0 * PIXELS_PER_METER, 2480.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 50.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # isolated farmhouse, rear
+]
 
-	{"rect": Rect2(898.0 * PIXELS_PER_METER, 1188.0 * PIXELS_PER_METER, 364.0 * PIXELS_PER_METER, 294.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # wooded slope, village hill NW
-	{"rect": Rect2(1536.0 * PIXELS_PER_METER, 1244.0 * PIXELS_PER_METER, 308.0 * PIXELS_PER_METER, 252.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # wooded slope, village hill NE
-	{"rect": Rect2(2902.0 * PIXELS_PER_METER, 1412.0 * PIXELS_PER_METER, 336.0 * PIXELS_PER_METER, 266.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse along the approach
-	{"rect": Rect2(3720.0 * PIXELS_PER_METER, 2132.0 * PIXELS_PER_METER, 420.0 * PIXELS_PER_METER, 336.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods on the enemy-side rise
-	{"rect": Rect2(2086.0 * PIXELS_PER_METER, 2698.0 * PIXELS_PER_METER, 448.0 * PIXELS_PER_METER, 364.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # southern woods, off the road
-	{"rect": Rect2(512.0 * PIXELS_PER_METER, 2118.0 * PIXELS_PER_METER, 266.0 * PIXELS_PER_METER, 224.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse near the rear
-	{"rect": Rect2(4104.0 * PIXELS_PER_METER, 812.0 * PIXELS_PER_METER, 322.0 * PIXELS_PER_METER, 266.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods near the northern rise
-	{"rect": Rect2(2658.0 * PIXELS_PER_METER, 516.0 * PIXELS_PER_METER, 294.0 * PIXELS_PER_METER, 238.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse, north side
-	{"rect": Rect2(114.0 * PIXELS_PER_METER, 720.0 * PIXELS_PER_METER, 252.0 * PIXELS_PER_METER, 210.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # slope below the western ridge
-	{"rect": Rect2(2460.0 * PIXELS_PER_METER, 616.0 * PIXELS_PER_METER, 280.0 * PIXELS_PER_METER, 238.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods above the road bend
-	{"rect": Rect2(1756.0 * PIXELS_PER_METER, 2364.0 * PIXELS_PER_METER, 308.0 * PIXELS_PER_METER, 252.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse south of the village
-	{"rect": Rect2(3848.0 * PIXELS_PER_METER, 2958.0 * PIXELS_PER_METER, 364.0 * PIXELS_PER_METER, 294.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods, far southeast
-	{"rect": Rect2(962.0 * PIXELS_PER_METER, 370.0 * PIXELS_PER_METER, 266.0 * PIXELS_PER_METER, 210.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse, north of the village
-	{"rect": Rect2(4358.0 * PIXELS_PER_METER, 1766.0 * PIXELS_PER_METER, 294.0 * PIXELS_PER_METER, 238.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods near the enemy's rear
-	{"rect": Rect2(566.0 * PIXELS_PER_METER, 1572.0 * PIXELS_PER_METER, 238.0 * PIXELS_PER_METER, 196.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # copse, west-central
-	{"rect": Rect2(3154.0 * PIXELS_PER_METER, 2462.0 * PIXELS_PER_METER, 322.0 * PIXELS_PER_METER, 266.0 * PIXELS_PER_METER), "type": TerrainType.TREES}, # woods on the approach rise's south slope
+## Forested areas, as irregular blobs rather than rectangles — same technique
+## as HILLS (see _radius_warp): each patch's actual footprint at any angle
+## `theta` from its `center_m` is `radius_m * _radius_warp(warp_harmonics,
+## theta)`, so real woodland has ragged, elongated, natural-looking edges
+## instead of a boxy outline (see _forest_radius_at / _point_in_forest_patch,
+## and _draw_forest_patch for the matching filled-polygon rendering). A real
+## forest doesn't come in one size either, so patches range from small
+## copses to substantial woods.
+const FOREST_PATCHES: Array[Dictionary] = [
+	{"center_m": Vector2(1080.0, 1335.0), "radius_m": 145.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.2, "phase": 0.6}, {"frequency": 3, "amplitude": 0.12, "phase": 2.4},
+	]}, # wooded slope, village hill NW — kept clear of the village's own BUILDING zone (nearest corner ~244m away)
+	{"center_m": Vector2(1690.0, 1370.0), "radius_m": 125.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.16, "phase": 1.1}, {"frequency": 2, "amplitude": 0.14, "phase": 3.4},
+	]}, # wooded slope, village hill NE — kept clear of the village's own BUILDING zone (nearest corner ~201m away)
+	{"center_m": Vector2(3070.0, 1545.0), "radius_m": 175.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.18, "phase": 2.0}, {"frequency": 4, "amplitude": 0.1, "phase": 0.8},
+	]}, # copse along the approach
+	{"center_m": Vector2(3930.0, 2300.0), "radius_m": 220.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.17, "phase": 0.3}, {"frequency": 2, "amplitude": 0.15, "phase": 2.9},
+	]}, # woods on the enemy-side rise
+	{"center_m": Vector2(2310.0, 2880.0), "radius_m": 230.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.19, "phase": 1.4}, {"frequency": 3, "amplitude": 0.11, "phase": 3.6},
+	]}, # southern woods, off the road
+	{"center_m": Vector2(645.0, 2230.0), "radius_m": 145.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.15, "phase": 2.6}, {"frequency": 2, "amplitude": 0.13, "phase": 0.5},
+	]}, # copse near the rear
+	{"center_m": Vector2(4265.0, 945.0), "radius_m": 175.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.16, "phase": 0.9}, {"frequency": 4, "amplitude": 0.09, "phase": 2.2},
+	]}, # woods near the northern rise
+	{"center_m": Vector2(2805.0, 635.0), "radius_m": 160.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.14, "phase": 1.7}, {"frequency": 2, "amplitude": 0.12, "phase": 3.1},
+	]}, # copse, north side
+	{"center_m": Vector2(240.0, 825.0), "radius_m": 140.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.17, "phase": 2.8}, {"frequency": 3, "amplitude": 0.1, "phase": 0.4},
+	]}, # slope below the western ridge
+	{"center_m": Vector2(2600.0, 735.0), "radius_m": 155.0, "warp_harmonics": [
+		{"frequency": 4, "amplitude": 0.1, "phase": 1.3}, {"frequency": 2, "amplitude": 0.15, "phase": 3.5},
+	]}, # woods above the road bend
+	{"center_m": Vector2(1910.0, 2490.0), "radius_m": 165.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.16, "phase": 0.2}, {"frequency": 2, "amplitude": 0.13, "phase": 2.5},
+	]}, # copse south of the village
+	{"center_m": Vector2(4030.0, 3105.0), "radius_m": 195.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.18, "phase": 1.9}, {"frequency": 3, "amplitude": 0.12, "phase": 3.8},
+	]}, # woods, far southeast
+	{"center_m": Vector2(1095.0, 475.0), "radius_m": 145.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.15, "phase": 3.0}, {"frequency": 2, "amplitude": 0.11, "phase": 0.7},
+	]}, # copse, north of the village
+	{"center_m": Vector2(4505.0, 1885.0), "radius_m": 160.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.14, "phase": 0.1}, {"frequency": 4, "amplitude": 0.09, "phase": 2.3},
+	]}, # woods near the enemy's rear
+	{"center_m": Vector2(685.0, 1670.0), "radius_m": 130.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.13, "phase": 1.6}, {"frequency": 2, "amplitude": 0.16, "phase": 3.3},
+	]}, # copse, west-central
+	{"center_m": Vector2(3315.0, 2595.0), "radius_m": 180.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.17, "phase": 2.1}, {"frequency": 3, "amplitude": 0.1, "phase": 0.6},
+	]}, # woods on the approach rise's south slope
+	{"center_m": Vector2(2000.0, 1020.0), "radius_m": 170.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.15, "phase": 0.5}, {"frequency": 2, "amplitude": 0.12, "phase": 2.7},
+	]}, # north-central woods
+	{"center_m": Vector2(3300.0, 3200.0), "radius_m": 200.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.19, "phase": 1.2}, {"frequency": 4, "amplitude": 0.09, "phase": 3.2},
+	]}, # deep southeast forest
+	{"center_m": Vector2(700.0, 3300.0), "radius_m": 160.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.14, "phase": 2.4}, {"frequency": 2, "amplitude": 0.13, "phase": 0.3},
+	]}, # far south rear woods
+	{"center_m": Vector2(4700.0, 2600.0), "radius_m": 180.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.16, "phase": 3.0}, {"frequency": 3, "amplitude": 0.11, "phase": 1.0},
+	]}, # far east edge woods, enemy side
+	{"center_m": Vector2(1200.0, 3100.0), "radius_m": 150.0, "warp_harmonics": [
+		{"frequency": 4, "amplitude": 0.09, "phase": 0.8}, {"frequency": 2, "amplitude": 0.15, "phase": 2.2},
+	]}, # south of the rear farmhouse
+	{"center_m": Vector2(3900.0, 1020.0), "radius_m": 170.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.16, "phase": 1.5}, {"frequency": 2, "amplitude": 0.12, "phase": 3.4},
+	]}, # north woods, enemy approach
+	{"center_m": Vector2(2500.0, 2200.0), "radius_m": 155.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.15, "phase": 2.9}, {"frequency": 3, "amplitude": 0.1, "phase": 0.9},
+	]}, # central woods between road and southern woods
+	{"center_m": Vector2(600.0, 1020.0), "radius_m": 145.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.13, "phase": 0.4}, {"frequency": 2, "amplitude": 0.14, "phase": 2.6},
+	]}, # northwest quadrant woods
+	{"center_m": Vector2(4600.0, 500.0), "radius_m": 165.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.18, "phase": 1.8}, {"frequency": 4, "amplitude": 0.08, "phase": 3.7},
+	]}, # far northeast corner
+	{"center_m": Vector2(1700.0, 3300.0), "radius_m": 155.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.15, "phase": 2.3}, {"frequency": 2, "amplitude": 0.11, "phase": 0.2},
+	]}, # south rear woods
+	{"center_m": Vector2(3600.0, 700.0), "radius_m": 145.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.14, "phase": 3.1}, {"frequency": 3, "amplitude": 0.1, "phase": 1.1},
+	]}, # north woods near enemy path
+	{"center_m": Vector2(200.0, 2700.0), "radius_m": 155.0, "warp_harmonics": [
+		{"frequency": 4, "amplitude": 0.09, "phase": 1.9}, {"frequency": 2, "amplitude": 0.16, "phase": 0.1},
+	]}, # far west rear woods
+	{"center_m": Vector2(4200.0, 3200.0), "radius_m": 170.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.12, "phase": 0.7}, {"frequency": 2, "amplitude": 0.15, "phase": 2.8},
+	]}, # far southeast corner
+	{"center_m": Vector2(2900.0, 350.0), "radius_m": 150.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.17, "phase": 2.5}, {"frequency": 3, "amplitude": 0.11, "phase": 0.6},
+	]}, # far north strip
 ]
 
 # Legal area for the player to drag squads into — wider than just the
@@ -406,16 +496,49 @@ const ZIGZAG_JINK_MAX_INTERVAL: float = 12.0 # tactical seconds
 const ENEMY_ADVANCE_RUSH_DISTANCE: float = 400.0 * PIXELS_PER_METER
 
 
+## A FOREST_PATCH's actual footprint radius at angle `theta` (radians) from
+## its own center — see _radius_warp.
+static func _forest_radius_at(patch: Dictionary, theta: float) -> float:
+	return patch.radius_m * _radius_warp(patch.warp_harmonics, theta)
+
+
+## True if a center-relative offset (in METERS) falls within a forest
+## patch's irregular footprint — shared by the point-in-world check below
+## and the deterministic tree-scatter placement in _draw_forest_patch, so
+## what's drawn always matches what actually counts as TREES.
+static func _forest_patch_contains_offset_m(patch: Dictionary, offset_m: Vector2) -> bool:
+	var d: float = offset_m.length()
+	if d < 0.01:
+		return true
+	return d <= _forest_radius_at(patch, offset_m.angle())
+
+
+static func _point_in_forest_patch(patch: Dictionary, pos_px: Vector2) -> bool:
+	return _forest_patch_contains_offset_m(patch, pos_px / PIXELS_PER_METER - patch.center_m)
+
+
+## Upper bound on a patch's own radius warp, for sizing a bounding box around
+## it (see _draw_forest_patch) — not exact (different harmonics peak at
+## different angles, so this can't all be reached at once), just a safe "big
+## enough" bound, since overshooting merely means scanning a bit more empty
+## area, not a distortion of the shape's own math.
+static func _forest_patch_max_warp(patch: Dictionary) -> float:
+	var w := 1.0
+	for h in patch.warp_harmonics:
+		w += h.amplitude
+	return w
+
+
 ## Concealment/cover terrain type at a point. BUILDING beats TREES if both
 ## overlap a point.
 static func get_terrain_type_at(pos: Vector2) -> TerrainType:
-	var best := TerrainType.OPEN
 	for zone in TERRAIN_ZONES:
-		if zone.rect.has_point(pos):
-			if zone.type == TerrainType.BUILDING:
-				return TerrainType.BUILDING
-			best = TerrainType.TREES
-	return best
+		if zone.type == TerrainType.BUILDING and zone.rect.has_point(pos):
+			return TerrainType.BUILDING
+	for patch in FOREST_PATCHES:
+		if _point_in_forest_patch(patch, pos):
+			return TerrainType.TREES
+	return TerrainType.OPEN
 
 
 static func is_in_cover(terrain: TerrainType) -> bool:
@@ -481,17 +604,56 @@ static func path_crosses_building(from: Vector2, to: Vector2) -> bool:
 ## landing next to, a specific enemy the unit knows is there).
 const DANGER_RADIUS: float = 250.0 * PIXELS_PER_METER
 
+## Every BUILDING zone and FOREST_PATCH, unified into one "cover zone" shape
+## so the search functions below can treat a rectangular building and an
+## irregular forest blob identically: a center point, "does this contain
+## point p" (_cover_zone_contains), and "a random point inside it"
+## (_random_point_in_cover_zone), each dispatched on `zone.type`.
+static func _all_cover_zones() -> Array[Dictionary]:
+	var zones: Array[Dictionary] = []
+	for zone in TERRAIN_ZONES:
+		if zone.type != TerrainType.BUILDING:
+			continue
+		zones.append({"type": TerrainType.BUILDING, "rect": zone.rect, "center": zone.rect.position + zone.rect.size / 2.0})
+	for patch in FOREST_PATCHES:
+		zones.append({"type": TerrainType.TREES, "patch": patch, "center": patch.center_m * PIXELS_PER_METER})
+	return zones
+
+
+static func _cover_zone_contains(zone: Dictionary, p: Vector2) -> bool:
+	if zone.type == TerrainType.BUILDING:
+		return zone.rect.has_point(p)
+	return _point_in_forest_patch(zone.patch, p)
+
+
+## A random point solidly inside the zone — for a BUILDING, uniform within
+## an inset rect (same as before); for a forest patch, a random angle and a
+## radius pulled in well short of the blob's own edge, so the point always
+## lands inside the irregular shape without needing rejection sampling.
+static func _random_point_in_cover_zone(zone: Dictionary) -> Vector2:
+	if zone.type == TerrainType.BUILDING:
+		var rect: Rect2 = zone.rect
+		var margin: float = min(rect.size.x, rect.size.y) * 0.15
+		var w: float = max(rect.size.x - margin * 2.0, 1.0)
+		var h: float = max(rect.size.y - margin * 2.0, 1.0)
+		return rect.position + Vector2(margin, margin) + Vector2(randf() * w, randf() * h)
+	var patch: Dictionary = zone.patch
+	var theta: float = randf() * TAU
+	var r_m: float = _forest_radius_at(patch, theta) * randf_range(0.15, 0.7)
+	return patch.center_m * PIXELS_PER_METER + Vector2(cos(theta), sin(theta)) * r_m * PIXELS_PER_METER
+
+
 static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false, avoid_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = []) -> Vector2:
 	var candidates: Array[Dictionary] = []
-	for zone in TERRAIN_ZONES:
+	for zone in _all_cover_zones():
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
 			continue
-		var center: Vector2 = zone.rect.position + zone.rect.size / 2.0
+		var center: Vector2 = zone.center
 		if retreat_dir != 0.0 and (center.x - from.x) * retreat_dir < -RETREAT_DIRECTION_TOLERANCE:
 			continue
 		if avoid_buildings and path_crosses_building(from, center):
 			continue # can't walk/hop straight through a building to get here either
-		candidates.append({"rect": zone.rect, "dist": from.distance_to(center)})
+		candidates.append({"zone": zone, "dist": from.distance_to(center)})
 	if candidates.is_empty():
 		return from
 
@@ -502,7 +664,7 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 		for c in candidates:
 			var claimed := false
 			for p in avoid_positions:
-				if c.rect.has_point(p):
+				if _cover_zone_contains(c.zone, p):
 					claimed = true
 					break
 			if not claimed:
@@ -522,12 +684,7 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 		if roll <= cumulative:
 			chosen_index = i
 			break
-	var best_rect: Rect2 = candidates[chosen_index].rect
-
-	var margin: float = min(best_rect.size.x, best_rect.size.y) * 0.15
-	var w: float = max(best_rect.size.x - margin * 2.0, 1.0)
-	var h: float = max(best_rect.size.y - margin * 2.0, 1.0)
-	return best_rect.position + Vector2(margin, margin) + Vector2(randf() * w, randf() * h)
+	return _random_point_in_cover_zone(candidates[chosen_index].zone)
 
 
 ## Drops any candidate within DANGER_RADIUS of a known enemy position, as
@@ -540,7 +697,7 @@ static func _exclude_dangerous(candidates: Array[Dictionary], known_enemy_positi
 		return candidates
 	var safe: Array[Dictionary] = []
 	for c in candidates:
-		var center: Vector2 = c.rect.position + c.rect.size / 2.0
+		var center: Vector2 = c.zone.center
 		var too_close := false
 		for ep in known_enemy_positions:
 			if center.distance_to(ep) < DANGER_RADIUS:
@@ -566,21 +723,21 @@ static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vecto
 		return nearest_cover_point(from, retreat_dir, avoid_buildings)
 
 	var candidates: Array[Dictionary] = []
-	for zone in TERRAIN_ZONES:
+	for zone in _all_cover_zones():
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
 			continue
-		var center: Vector2 = zone.rect.position + zone.rect.size / 2.0
+		var center: Vector2 = zone.center
 		if retreat_dir != 0.0 and (center.x - from.x) * retreat_dir < -RETREAT_DIRECTION_TOLERANCE:
 			continue
 		if avoid_buildings and path_crosses_building(from, center):
 			continue # can't walk/hop straight through a building to get here either
-		candidates.append({"rect": zone.rect, "dist_from_self": from.distance_to(center)})
+		candidates.append({"zone": zone, "dist_from_self": from.distance_to(center)})
 	if candidates.is_empty():
 		return from
 
 	candidates = _exclude_dangerous(candidates, known_enemy_positions)
 	for c in candidates:
-		var center: Vector2 = c.rect.position + c.rect.size / 2.0
+		var center: Vector2 = c.zone.center
 		var nearest_enemy_dist: float = INF
 		for ep in known_enemy_positions:
 			nearest_enemy_dist = min(nearest_enemy_dist, center.distance_to(ep))
@@ -590,12 +747,7 @@ static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vecto
 	var pool_size: int = min(4, candidates.size())
 	var pool := candidates.slice(0, pool_size)
 	pool.sort_custom(func(a, b): return a.safety > b.safety) # safest (farthest from known enemies) first
-	var best_rect: Rect2 = pool[0].rect
-
-	var margin: float = min(best_rect.size.x, best_rect.size.y) * 0.15
-	var w: float = max(best_rect.size.x - margin * 2.0, 1.0)
-	var h: float = max(best_rect.size.y - margin * 2.0, 1.0)
-	return best_rect.position + Vector2(margin, margin) + Vector2(randf() * w, randf() * h)
+	return _random_point_in_cover_zone(pool[0].zone)
 
 
 # How far out (and in how many steps) to search for a concealed spot — see
@@ -758,11 +910,10 @@ static func draw_terrain(ci: CanvasItem) -> void:
 	_draw_hills(ci)
 	_draw_road(ci)
 	for zone in TERRAIN_ZONES:
-		match zone.type:
-			TerrainType.BUILDING:
-				_draw_village(ci, zone.rect)
-			TerrainType.TREES:
-				_draw_forest(ci, zone.rect)
+		if zone.type == TerrainType.BUILDING:
+			_draw_village(ci, zone.rect)
+	for patch in FOREST_PATCHES:
+		_draw_forest_patch(ci, patch)
 
 
 ## A ring around a unit/token showing whether its current spot is cover —
@@ -864,17 +1015,37 @@ static func _draw_village(ci: CanvasItem, rect: Rect2) -> void:
 			ci.draw_rect(Rect2(b.position, Vector2(b.size.x, min(b.size.y * 0.35, max(b.size.y * 0.35, 1.0)))), Color(0.35, 0.2, 0.15))
 
 
-static func _draw_forest(ci: CanvasItem, rect: Rect2) -> void:
-	ci.draw_rect(rect, Color(0.3, 0.45, 0.25, 0.5))
-	var spacing: float = clamp(min(rect.size.x, rect.size.y) / 4.0, 10.0, 22.0)
-	var tree_radius: float = clamp(spacing * 0.27, 2.5, 6.0)
-	var y: float = rect.position.y + spacing * 0.5
+## Fills the patch's actual irregular footprint (the same warped-radius
+## outline _point_in_forest_patch tests against, drawn as a closed polygon —
+## same technique as _draw_hills' contour rings), then scatters tree symbols
+## across it. The tree grid itself is a fixed, deterministic offset pattern
+## (no per-frame randomness — this redraws every frame via queue_redraw, so
+## anything randomized here would visibly shimmer); each candidate point is
+## kept only if _forest_patch_contains_offset_m says it actually falls
+## inside the blob, so the scatter naturally follows the same ragged edge
+## as the filled outline instead of a rectangle's straight border.
+static func _draw_forest_patch(ci: CanvasItem, patch: Dictionary) -> void:
+	const RING_SEGMENTS: int = 40
+	var center_px: Vector2 = patch.center_m * PIXELS_PER_METER
+	var outline := PackedVector2Array()
+	for i in RING_SEGMENTS:
+		var theta: float = TAU * float(i) / float(RING_SEGMENTS)
+		var r_m: float = _forest_radius_at(patch, theta)
+		outline.append(center_px + Vector2(cos(theta), sin(theta)) * r_m * PIXELS_PER_METER)
+	ci.draw_colored_polygon(outline, Color(0.3, 0.45, 0.25, 0.5))
+
+	var max_r_m: float = patch.radius_m * _forest_patch_max_warp(patch)
+	var spacing_m: float = clamp(max_r_m / 7.0, 12.0, 28.0)
+	var tree_radius_px: float = clamp(spacing_m * PIXELS_PER_METER * 0.27, 2.5, 6.0)
+	var y_m: float = -max_r_m + spacing_m * 0.5
 	var row := 0
-	while y < rect.position.y + rect.size.y - spacing * 0.25:
-		var x_offset: float = spacing * 0.45 if row % 2 == 0 else spacing * 0.9
-		var x: float = rect.position.x + x_offset
-		while x < rect.position.x + rect.size.x - spacing * 0.25:
-			ci.draw_circle(Vector2(x, y), tree_radius, Color(0.15, 0.35, 0.12))
-			x += spacing
-		y += spacing * 0.85
+	while y_m < max_r_m - spacing_m * 0.25:
+		var x_offset_m: float = spacing_m * 0.45 if row % 2 == 0 else spacing_m * 0.9
+		var x_m: float = -max_r_m + x_offset_m
+		while x_m < max_r_m - spacing_m * 0.25:
+			var offset_m := Vector2(x_m, y_m)
+			if _forest_patch_contains_offset_m(patch, offset_m):
+				ci.draw_circle(center_px + offset_m * PIXELS_PER_METER, tree_radius_px, Color(0.15, 0.35, 0.12))
+			x_m += spacing_m
+		y_m += spacing_m * 0.85
 		row += 1
