@@ -111,13 +111,15 @@ var reported_issue: bool = false
 var reported_issue_logged: bool = false
 var concern_threshold: float = 0.25
 
-# DRONE only: how long this specific sortie has been airborne (tactical
-# seconds) and how far it's actually flown (path length, not straight-line
-# displacement) since launch — both checked against GameConfig.
-# DRONE_MAX_FLIGHT_TIME / DRONE_ROUND_TRIP_RANGE each tick by
-# BattleManager._update_active_drone to decide when it must turn for home.
-var drone_flight_time: float = 0.0
-var drone_distance_flown: float = 0.0
+# DRONE only: this specific sortie's CURRENTLY INSTALLED battery's charge
+# level, 0.0 (empty) to 1.0 (full) — the one thing actually tracked; how
+# much flight time or range that implies is a consequence of this, worked
+# out on demand (see BattleManager._update_active_drone), not separately
+# stored. Set at launch from whatever the ground crew actually had on hand
+# (see BattleManager._pop_best_battery) — not always 1.0; the team keeps
+# spares, but "always fly on a full battery" isn't guaranteed the way it
+# would be if this were still just a flight-time countdown.
+var drone_battery_charge: float = 1.0
 
 # MORTAR only: a small crew-served weapon, CREW_SIZE people including the
 # driver. Tracked as an exact headcount, not a percent — see

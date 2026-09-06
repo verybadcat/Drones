@@ -402,22 +402,40 @@ const SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER: float = 0.8 # applies only when NO
 
 # The drone team (ReconMode.DRONE_TEAM): a 3-person ground crew (ground-side
 # stats mirror the mortar's crew model — see Unit.Kind.DRONE_TEAM/
-# _apply_crew_casualties) operating a rotation of 4 small quadcopter scouts.
-# Real numbers, not abstractions: a Mavic-class airframe's actual specs —
-# 12km round-trip range, ~21 minutes flight time — are what actually force
-# the rotation in the first place, not a made-up "cooldown."
+# _apply_crew_casualties) operating a rotation of DRONE_FLEET_SIZE small
+# quadcopter scouts. Real numbers, not abstractions: a Mavic-class
+# airframe's actual specs are what actually force the rotation, not a
+# made-up "cooldown."
 #
-# Exactly one drone is airborne at a time; a second sits fully charged,
-# ready to launch the instant the flying one needs replacing — either
-# because it's been shot down (unplanned — see BattleManager's
-# _on_drone_state_changed) or because it's hit its flight-time/range budget
-# and is returning to base (planned — the standby launches immediately, not
-# after the old one physically lands, so there's no coverage gap on a
-# routine swap; see BattleManager._update_drone_operations). The other two
-# are cycling through DRONE_RECHARGE_DURATION before becoming the next
-# standby — a real, occasionally-binding constraint over a long battle, not
-# a guarantee of eternal unbroken coverage.
+# Exactly one drone is airborne at a time; a second sits ready to launch
+# the instant the flying one needs replacing — either because it's been
+# shot down (unplanned — see BattleManager._on_drone_state_changed) or
+# because it's hit its flight-time/range budget and is returning to base
+# (planned — the standby launches immediately, not after the old one
+# physically lands, so there's no coverage gap on a routine swap; see
+# BattleManager._update_drone_operations).
+#
+# Airframes and batteries are tracked SEPARATELY, because they recover at
+# wildly different speeds: the team also carries DRONE_SPARE_BATTERIES
+# charged spare batteries (DRONE_FLEET_SIZE + DRONE_SPARE_BATTERIES = 8
+# batteries total for only 4 airframes), and "batteries are easily
+# swappable" — a landed airframe gets whichever's the best-charged battery
+# currently on hand after just DRONE_BATTERY_SWAP_DURATION (a real
+# battery-swap-and-inspection, a few minutes), not the full ~100-minute
+# DRONE_RECHARGE_DURATION a spent battery actually needs to reach 100%.
+#
+# What's actually tracked, both airborne (Unit.drone_battery_charge) and on
+# the ground (BattleManager._battery_pool/_drones_ready), is each
+# battery's real CHARGE LEVEL (0.0-1.0), not a fixed recharge duration —
+# recharge time is a CONSEQUENCE of how depleted a battery happens to be
+# when it comes off an airframe, not something separately counted down.
+# With 8 batteries for 4 airframes, at least DRONE_SPARE_BATTERIES worth
+# are mathematically always sitting uninstalled, so a landed airframe is
+# never left with literally nothing to swap in — but with heavy use, "best
+# available" can still mean a partial charge, not a full one: the team
+# launches on whatever it actually has, same as the real thing would.
 const DRONE_FLEET_SIZE: int = 4
+const DRONE_SPARE_BATTERIES: int = 4
 const DRONE_TEAM_CREW_SIZE: int = 3
 const DRONE_ALTITUDE_M: float = 300.0
 # DJI's own published Mavic 3 specs, not a guess: 46-minute max flight time
@@ -433,16 +451,32 @@ const DRONE_ALTITUDE_M: float = 300.0
 # normally tight; a sortie generally ends on whichever of the two a
 # particular flight path happens to use up first.
 const DRONE_CRUISE_SPEED: float = 14.0 * PIXELS_PER_METER # 50.4 km/h — DJI's own tested speed for the range figure below
-const DRONE_MAX_FLIGHT_TIME: float = 46.0 * 60.0 # tactical seconds — DJI's rated Mavic 3 max flight time
+const DRONE_MAX_FLIGHT_TIME: float = 46.0 * 60.0 # tactical seconds — DJI's rated Mavic 3 max flight time, cited for realism
 const DRONE_ROUND_TRIP_RANGE: float = 30000.0 * PIXELS_PER_METER # DJI's rated Mavic 3 max flight distance
-const DRONE_RTB_SAFETY_MARGIN: float = 300.0 * PIXELS_PER_METER # turn for home this much before the budget is actually exhausted
+# What a battery's charge level ACTUALLY tracks against, in flight-time
+# terms: the range-derived figure, not the separately-rated
+# DRONE_MAX_FLIGHT_TIME above. The drone always moves at a fixed
+# DRONE_CRUISE_SPEED, so time and distance are always directly
+# proportional — a single depletion rate has to be picked, and the range
+# figure is the one that's actually self-consistent with that constant
+# speed (see the comment above DRONE_MAX_FLIGHT_TIME for why the two DJI
+# figures don't quite agree in the first place).
+const DRONE_FULL_CHARGE_FLIGHT_TIME: float = DRONE_ROUND_TRIP_RANGE / DRONE_CRUISE_SPEED # ~35.7 minutes
+const DRONE_RTB_SAFETY_MARGIN: float = 300.0 * PIXELS_PER_METER # turn for home this much charge-equivalent before the battery is actually flat
 # DJI's own published Mavic 3 charging spec: 1h36m (96 minutes) from empty
-# on the standard 65W charger — that's the actual constraint that makes a
-# 4-airframe rotation necessary in the first place. Plus a few minutes for
-# the physical battery swap/inspection itself before it goes on the
-# charger. (A fast 100W charger/hub can do it in ~70-80 minutes instead, but
-# that's not assumed here — treat this as the more conservative field case.)
+# on the standard 65W charger — this is what a SPENT battery actually needs
+# before it's usable again, regardless of how quickly its airframe got back
+# in the air on a different (spare) battery. (A fast 100W charger/hub can do
+# it in ~70-80 minutes instead, but that's not assumed here — treat this as
+# the more conservative field case.)
 const DRONE_RECHARGE_DURATION: float = 100.0 * 60.0 # tactical seconds
+
+# The actual "easily swappable" part: popping out a spent battery, clipping
+# in a charged spare, and a quick power-on/GPS-lock check before the
+# airframe is trusted back in the air. Real and quick — this, not the full
+# recharge above, is normally what limits how fast a landed airframe
+# returns to service, as long as a charged spare is available.
+const DRONE_BATTERY_SWAP_DURATION: float = 4.0 * 60.0 # tactical seconds
 
 # From 300m up, camera resolution and a small, quiet airframe make a drone
 # both hard to acquire visually AND, even once someone's looking at it, hard

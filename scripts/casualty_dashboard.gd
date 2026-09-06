@@ -178,11 +178,12 @@ func _mortar_status_text(u: Unit) -> String:
 	return ""
 
 
-## Airborne/ready/recharging counts for the drone fleet, with the same
-## visual weight as the mortar row above — only shown in ReconMode.
-## DRONE_TEAM (hidden entirely otherwise). If the ground team itself is out
-## of action, that takes over the row instead (no fleet to report on without
-## a team to fly it — see BattleManager._update_drone_operations).
+## Airframe (airborne/inbound/ready/swapping/grounded/lost) and battery
+## (spare/recharging) status for the drone fleet, with the same visual
+## weight as the mortar row above — only shown in ReconMode.DRONE_TEAM
+## (hidden entirely otherwise). If the ground team itself is out of action,
+## that takes over the row instead (no fleet to report on without a team to
+## fly it — see BattleManager._update_drone_operations).
 func _update_drone_row() -> void:
 	var using_drones: bool = battle_manager.recon_mode == GameConfig.ReconMode.DRONE_TEAM
 	_drone_label.visible = using_drones
@@ -197,12 +198,17 @@ func _update_drone_row() -> void:
 		_drone_fill.color = STATUS_COLOR[status.team_state]
 		return
 	var parts: PackedStringArray = []
-	parts.append("1 airborne" if status.airborne else "NONE AIRBORNE")
+	parts.append("1 airborne (%d%% charge)" % int(round(status.airborne_charge * 100.0)) if status.airborne else "NONE AIRBORNE")
 	if status.inbound:
 		parts.append("1 inbound")
-	parts.append("%d ready" % status.ready)
-	if status.recovering > 0:
-		parts.append("%d recharging (next in %dm)" % [status.recovering, int(ceil(status.next_ready_in / 60.0))])
+	if status.ready > 0:
+		parts.append("%d ready (best %d%%)" % [status.ready, int(round(status.ready_best_charge * 100.0))])
+	else:
+		parts.append("0 ready")
+	if status.swapping > 0:
+		parts.append("%d swapping battery" % status.swapping)
+	if status.spare_batteries > 0:
+		parts.append("%d spare batteries (best %d%%)" % [status.spare_batteries, int(round(status.spare_best_charge * 100.0))])
 	if status.destroyed > 0:
 		parts.append("%d lost" % status.destroyed)
 	_drone_label.text = "Drones: %s" % ", ".join(parts)

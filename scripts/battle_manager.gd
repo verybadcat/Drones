@@ -87,9 +87,32 @@ var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
 var drone_team: Unit = null
 var active_drone: Unit = null
 var returning_drone: Unit = null
-var _drones_ready_for_launch: int = 0
-var _drone_recovering: Array[float] = [] # remaining GameConfig.DRONE_RECHARGE_DURATION, one entry per grounded drone
-var _drones_destroyed: int = 0 # airframes permanently lost (shot down) this battle
+
+# The fleet is 4 AIRFRAMES (DRONE_FLEET_SIZE) but 8 BATTERIES (that plus
+# DRONE_SPARE_BATTERIES). What's actually tracked is each battery's real
+# CHARGE LEVEL (0.0-1.0), both airborne (Unit.drone_battery_charge) and on
+# the ground here — swap time (GameConfig.DRONE_BATTERY_SWAP_DURATION, a
+# few minutes) and recharge time (DRONE_RECHARGE_DURATION, ~100 minutes to
+# go from empty to full) are both DERIVED from that level, not separately
+# counted down: a battery recharges at a fixed rate, and however much
+# charge it's actually missing when it lands determines how long that
+# takes, and the ground crew always swaps in whichever battery it has on
+# hand with the MOST charge — not necessarily full.
+#
+# Every airframe not currently flying/inbound is exactly one of:
+# _drones_ready (grounded, a battery already installed — its charge level
+# is this array's entries) or _drones_swapping (grounded, mid battery-swap,
+# entries are {time_left, charge} for the battery going in). Every battery
+# not currently installed in a flying/inbound/ready/swapping airframe is an
+# entry in _battery_pool, charging up over time. With 8 batteries for 4
+# airframes, the pool can never actually run dry (worst case, exactly
+# DRONE_SPARE_BATTERIES stay uninstalled at all times) — but its best entry
+# can still be well under full, which is exactly what "might launch a drone
+# with a partly charged battery" means in practice.
+var _drones_ready: Array[float] = [] # charge level of each grounded, battery-installed, ready-to-launch airframe
+var _drones_swapping: Array[Dictionary] = [] # [{"time_left": float, "charge": float}] grounded airframes mid battery-swap
+var _battery_pool: Array[float] = [] # charge level of every battery not currently installed in any airframe
+var _drones_destroyed: int = 0 # airframes permanently lost (shot down, battery and all) this battle
 var _drone_sweep_index: int = 0 # which road waypoint the blind search patrol is currently headed for — see _drone_sweep_target
 
 
@@ -110,8 +133,9 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	drone_team = null
 	active_drone = null
 	returning_drone = null
-	_drones_ready_for_launch = 0
-	_drone_recovering.clear()
+	_drones_ready.clear()
+	_drones_swapping.clear()
+	_battery_pool.clear()
 	_drones_destroyed = 0
 	_drone_sweep_index = 0
 
@@ -192,13 +216,16 @@ func _spawn_player_units(doctrine: Dictionary) -> void:
 		drone_team = _make_unit(Unit.Team.PLAYER, Unit.Kind.DRONE_TEAM, doctrine.spotter.position)
 		_set_retreat_profile(drone_team, Unit.Team.PLAYER)
 		player_units.append(drone_team)
-		# Steady-state rotation from H-hour: one launches immediately (below,
-		# consuming one of these two), one sits fully charged as standby, the
-		# remaining two start a full recharge cycle — see GameConfig's
-		# DRONE_* constants.
-		_drones_ready_for_launch = 2
-		for i in GameConfig.DRONE_FLEET_SIZE - 2:
-			_drone_recovering.append(GameConfig.DRONE_RECHARGE_DURATION)
+		# A well-prepared team starts H-hour with everything topped off: all
+		# DRONE_FLEET_SIZE airframes AND all DRONE_SPARE_BATTERIES spares at
+		# full charge — nothing has been flown yet, so nothing's depleted.
+		# _launch_drone() below pulls one battery to launch immediately,
+		# leaving the rest ready to go, with the spares only coming into play
+		# once the first swap actually happens.
+		for i in GameConfig.DRONE_FLEET_SIZE:
+			_drones_ready.append(1.0)
+		for i in GameConfig.DRONE_SPARE_BATTERIES:
+			_battery_pool.append(1.0)
 		_launch_drone()
 	else:
 		var spotter := _make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, doctrine.spotter.position)
@@ -462,17 +489,19 @@ func _known_friendly_mortar_position() -> Vector2:
 
 
 ## Runs the whole drone-fleet rotation for one tick — ReconMode.DRONE_TEAM
-## only, no-op otherwise. Ticks every grounded drone's recharge timer,
+## only, no-op otherwise. Charges every uninstalled battery a little
+## (_battery_pool), finishes any battery-swaps whose timer has run out,
 ## advances a drone already flying home (see _update_returning_drone),
 ## updates the currently-searching sortie (which may hand off to a return
 ## flight this tick — see _update_active_drone), then, if the sky has no
-## SEARCHING drone in it and a standby is ready, launches one immediately.
-## Routing BOTH "just got shot down" (via _on_drone_state_changed clearing
-## active_drone) and "hit its flight budget" (via _update_active_drone
-## clearing it) through this same single launch check means a swap is never
-## more than one tick late either way, and there's exactly one place that
-## decides when to launch — the replacement flies while the old one is
-## still genuinely inbound, not after it's vanished.
+## SEARCHING drone in it and a ready airframe exists, launches one
+## immediately. Routing BOTH "just got shot down" (via
+## _on_drone_state_changed clearing active_drone) and "hit its charge
+## budget" (via _update_active_drone clearing it) through this same single
+## launch check means a swap is never more than one tick late either way,
+## and there's exactly one place that decides when to launch — the
+## replacement flies while the old one is still genuinely inbound, not
+## after it's vanished.
 func _update_drone_operations(scenario_delta: float) -> void:
 	if recon_mode != GameConfig.ReconMode.DRONE_TEAM or drone_team == null:
 		return
@@ -483,7 +512,7 @@ func _update_drone_operations(scenario_delta: float) -> void:
 		# a loss (not literally shot down, but permanently gone either way)
 		# rather than just freed, so the fleet total always stays accounted
 		# for — every airframe ends the battle as exactly one of airborne,
-		# inbound, ready, recovering, or lost.
+		# inbound, ready, swapping, or lost.
 		for d in [active_drone, returning_drone]:
 			if d != null:
 				player_units.erase(d)
@@ -493,11 +522,17 @@ func _update_drone_operations(scenario_delta: float) -> void:
 		returning_drone = null
 		return
 
-	for i in range(_drone_recovering.size() - 1, -1, -1):
-		_drone_recovering[i] -= scenario_delta
-		if _drone_recovering[i] <= 0.0:
-			_drone_recovering.remove_at(i)
-			_drones_ready_for_launch += 1
+	# Every uninstalled battery just charges, at a fixed rate, all the time —
+	# recharge TIME is a consequence of how much of this actually runs before
+	# something needs it, not a separately tracked countdown.
+	for i in _battery_pool.size():
+		_battery_pool[i] = min(1.0, _battery_pool[i] + scenario_delta / GameConfig.DRONE_RECHARGE_DURATION)
+
+	for i in range(_drones_swapping.size() - 1, -1, -1):
+		_drones_swapping[i].time_left -= scenario_delta
+		if _drones_swapping[i].time_left <= 0.0:
+			_drones_ready.append(_drones_swapping[i].charge)
+			_drones_swapping.remove_at(i)
 
 	if returning_drone != null:
 		_update_returning_drone()
@@ -505,13 +540,29 @@ func _update_drone_operations(scenario_delta: float) -> void:
 	if active_drone != null:
 		_update_active_drone(scenario_delta) # may hand off to returning_drone (routine RTB)
 
-	if active_drone == null and _drones_ready_for_launch > 0:
+	if active_drone == null and not _drones_ready.is_empty():
 		_launch_drone()
 
 
+## Removes and returns the single highest-charge battery from `pool`
+## (which is always non-empty when this is called on _battery_pool — see
+## GameConfig's comment on why 8 batteries for 4 airframes guarantees
+## that) — "the team might launch a drone with a partly charged battery"
+## means always grabbing the best available, not waiting around for 100%.
+func _pop_best_battery(pool: Array[float]) -> float:
+	var best_index := 0
+	for i in pool.size():
+		if pool[i] > pool[best_index]:
+			best_index = i
+	var charge: float = pool[best_index]
+	pool.remove_at(best_index)
+	return charge
+
+
 func _launch_drone() -> void:
-	_drones_ready_for_launch -= 1
+	var charge: float = _pop_best_battery(_drones_ready)
 	var d := _make_unit(Unit.Team.PLAYER, Unit.Kind.DRONE, drone_team.global_position)
+	d.drone_battery_charge = charge
 	d.state_changed.connect(_on_drone_state_changed)
 	player_units.append(d)
 	active_drone = d
@@ -537,29 +588,29 @@ func _on_drone_state_changed(unit: Unit) -> void:
 	combat_log.log_drone_shot_down(unit)
 
 
-## Ticks one sortie's flight-time/range budget (see GameConfig.
-## DRONE_MAX_FLIGHT_TIME/DRONE_ROUND_TRIP_RANGE) and, if it's still good for
-## more time in the air, re-picks where it flies next — every tick, not set
-## once, so it reacts immediately to a freshly-spotted mortar or a
-## shoot-and-scoot relocation instead of plodding toward a stale point (see
-## _drone_search_target). Once the remaining budget is only just enough to
-## get home (with DRONE_RTB_SAFETY_MARGIN to spare), it hands off search
-## duty and turns for a real, simulated flight home — see
-## _update_returning_drone — rather than simply vanishing; the very next
-## tick's launch check (see _update_drone_operations) puts the standby up in
-## its place, matching a real handoff that starts before the old one has
-## actually touched down, not after.
+## Depletes this sortie's battery charge (see GameConfig.
+## DRONE_FULL_CHARGE_FLIGHT_TIME — the flight-time a full charge is worth)
+## and, if there's still enough left to be worth it, re-picks where it
+## flies next — every tick, not set once, so it reacts immediately to a
+## freshly-spotted mortar or a shoot-and-scoot relocation instead of
+## plodding toward a stale point (see _drone_search_target). Once the
+## remaining charge is only just enough to get home (with
+## DRONE_RTB_SAFETY_MARGIN worth to spare), it hands off search duty and
+## turns for a real, simulated flight home — see _update_returning_drone —
+## rather than simply vanishing; the very next tick's launch check (see
+## _update_drone_operations) puts the standby up in its place, matching a
+## real handoff that starts before the old one has actually touched down,
+## not after.
 func _update_active_drone(scenario_delta: float) -> void:
 	var d := active_drone
-	d.drone_flight_time += scenario_delta
-	d.drone_distance_flown += GameConfig.DRONE_CRUISE_SPEED * scenario_delta
+	d.drone_battery_charge -= scenario_delta / GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME
 
-	var remaining_time: float = GameConfig.DRONE_MAX_FLIGHT_TIME - d.drone_flight_time
-	var remaining_range: float = GameConfig.DRONE_ROUND_TRIP_RANGE - d.drone_distance_flown
 	var distance_home: float = d.global_position.distance_to(drone_team.global_position)
 	var time_needed_home: float = distance_home / GameConfig.DRONE_CRUISE_SPEED
+	var margin_time: float = GameConfig.DRONE_RTB_SAFETY_MARGIN / GameConfig.DRONE_CRUISE_SPEED
+	var charge_needed_to_get_home: float = (time_needed_home + margin_time) / GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME
 
-	if remaining_time <= time_needed_home or remaining_range <= distance_home + GameConfig.DRONE_RTB_SAFETY_MARGIN:
+	if d.drone_battery_charge <= charge_needed_to_get_home:
 		combat_log.log_drone_returning(d)
 		d.move_target = drone_team.global_position
 		d.has_move_target = true
@@ -584,15 +635,22 @@ func _update_active_drone(scenario_delta: float) -> void:
 ## position since it's ACTIVE with has_move_target set). This just watches
 ## for arrival: _step_toward_target clears has_move_target the instant it
 ## reaches drone_team, which is this function's cue to land it for real —
-## free the Unit and start its recharge clock.
+## free the Unit, drop whatever charge it landed with (usually just the
+## small safety-margin reserve) into the pool to recharge from there, and
+## immediately hand the airframe the best-charged battery now available
+## (which might be that very one, if the rest of the pool happens to be
+## more depleted) for a quick swap — landing never means the full
+## ~100-minute recharge for the AIRFRAME; only running the whole pool down
+## does that, and even then only to whichever battery it draws next.
 func _update_returning_drone() -> void:
 	var d := returning_drone
 	if d.has_move_target:
 		return # still en route
 	player_units.erase(d)
+	_battery_pool.append(d.drone_battery_charge)
 	d.queue_free()
 	returning_drone = null
-	_drone_recovering.append(GameConfig.DRONE_RECHARGE_DURATION)
+	_drones_swapping.append({"time_left": GameConfig.DRONE_BATTERY_SWAP_DURATION, "charge": _pop_best_battery(_battery_pool)})
 
 
 ## Where the airborne drone flies next, re-evaluated every tick — priority
@@ -1389,11 +1447,14 @@ func drone_fleet_status() -> Dictionary:
 		"team_crew_killed": drone_team.crew_killed if drone_team else 0,
 		"team_crew_size": drone_team.crew_size if drone_team else 0,
 		"airborne": active_drone != null,
+		"airborne_charge": active_drone.drone_battery_charge if active_drone else -1.0,
 		"inbound": returning_drone != null,
-		"ready": _drones_ready_for_launch,
-		"recovering": _drone_recovering.size(),
+		"ready": _drones_ready.size(),
+		"ready_best_charge": _drones_ready.max() if not _drones_ready.is_empty() else -1.0,
+		"swapping": _drones_swapping.size(),
+		"spare_batteries": _battery_pool.size(),
+		"spare_best_charge": _battery_pool.max() if not _battery_pool.is_empty() else -1.0,
 		"destroyed": _drones_destroyed,
-		"next_ready_in": _drone_recovering.min() if not _drone_recovering.is_empty() else -1.0,
 	}
 
 
