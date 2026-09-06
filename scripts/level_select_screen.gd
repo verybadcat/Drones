@@ -28,8 +28,8 @@ func _ready() -> void:
 		GameConfig.ReconMode.SPOTTER
 	))
 	root.add_child(_build_option(
-		"Level 1 — Drone Team",
-		"Replaces the spotter with a 3-person crew flying a rotation of 4 scout drones — a real Mavic-class airframe's specs: 12km round-trip range, about 21 minutes of flight time each. One is always airborne hunting for targets (mortars are the top priority) at 300m, where it's hard to see and hard to hit; a second sits fully charged, ready to launch the instant the first needs replacing, while the other two recharge. A far better view than a ground spotter's: it can catch a shoot-and-scoot mortar's new position, and see through concealment that would fool eyes on the ground.",
+		"Level 1 — Drone team",
+		"Replaces the spotter with a 3-person team equipped with four Mavic-3 scout drones, plus spare batteries",
 		GameConfig.ReconMode.DRONE_TEAM
 	))
 

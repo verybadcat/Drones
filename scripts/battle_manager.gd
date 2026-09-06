@@ -2215,15 +2215,20 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 ## people actually there to hit); danger is _squad_danger_priority judged
 ## against `unit`'s OWN side (not unconditionally the player's — an enemy
 ## mortar weighing this cares about danger to the ENEMY side), zero for
-## anything that isn't a squad (a spotter or an already-fleeing mortar
-## crew poses no real danger to anyone). Both terms land on roughly the
-## same 0-10ish scale by construction (max pips 9, TARGET_PRIORITY_
-## SQUAD_MAX 10), so equal weights (GameConfig.MORTAR_TARGET_CASUALTY_
-## WEIGHT/_DANGER_WEIGHT) already balance them reasonably without needing
-## wildly different magnitudes.
+## anything that isn't a squad currently ACTIVE (a spotter, an
+## already-fleeing mortar crew, or a squad that's itself RETREATING poses
+## no real danger to anyone — it's pulling out, not fighting, so proximity
+## to a friendly alone shouldn't read as a threat; matches the same
+## state == ACTIVE gate _drone_search_target already applies to its own
+## squad-danger scoring). Both terms land on roughly the same 0-10ish
+## scale by construction (max pips 9, TARGET_PRIORITY_SQUAD_MAX 10), so
+## equal weights (GameConfig.MORTAR_TARGET_CASUALTY_WEIGHT/_DANGER_WEIGHT)
+## already balance them reasonably without needing wildly different
+## magnitudes.
 func _mortar_target_value(unit: Unit, target: Unit) -> float:
 	var casualty_value: float = float(target.pips)
-	var danger_value: float = _squad_danger_priority(target, unit.team) if target.kind == Unit.Kind.SQUAD else 0.0
+	var is_active_squad: bool = target.kind == Unit.Kind.SQUAD and target.state == Unit.State.ACTIVE
+	var danger_value: float = _squad_danger_priority(target, unit.team) if is_active_squad else 0.0
 	return GameConfig.MORTAR_TARGET_CASUALTY_WEIGHT * casualty_value + GameConfig.MORTAR_TARGET_DANGER_WEIGHT * danger_value
 
 
