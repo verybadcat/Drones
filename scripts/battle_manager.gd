@@ -2024,12 +2024,67 @@ func _update_enemy_squad_advance() -> void:
 
 ## A bounded step toward the village from `u`'s current position — the next
 ## leg of an advance-by-rushes, not the whole remaining distance in one go.
+## Not a blind straight line either: several candidate directions bending
+## off the direct line (GameConfig.ENEMY_ADVANCE_ANGLES_DEG) are each scored
+## for cover/concealment (_score_advance_candidate) and picked via a
+## weighted-random roll (_weighted_advance_point_pick) — a real squad
+## usually avoids a straight dash across open ground in favor of terrain or
+## a wider bend around whatever it already knows is watching, but "usually"
+## isn't "always": the literal straight line stays a reachable, if
+## lower-weight, candidate throughout.
 func _next_advance_point(u: Unit) -> Vector2:
 	var to_village: Vector2 = GameConfig.VILLAGE_CENTER - u.global_position
 	if to_village.length() < 10.0:
 		return u.global_position # already there
 	var rush: float = min(to_village.length(), GameConfig.ENEMY_ADVANCE_RUSH_DISTANCE)
-	return u.global_position + to_village.normalized() * rush
+	var known_player_positions := _known_enemy_positions(Unit.Team.ENEMY)
+	var candidates: Array[Vector2] = []
+	for angle_deg in GameConfig.ENEMY_ADVANCE_ANGLES_DEG:
+		candidates.append(u.global_position + to_village.normalized().rotated(deg_to_rad(angle_deg)) * rush)
+	return _weighted_advance_point_pick(candidates, GameConfig.ENEMY_ADVANCE_ANGLES_DEG, known_player_positions)
+
+
+## How much `point` is worth as the next advance leg at `angle_deg` off the
+## direct line — see GameConfig.ENEMY_ADVANCE_COVER_BONUS/_CONCEALMENT_
+## BONUS/_ANGLE_PENALTY_PER_DEG for the rationale behind each term.
+## Concealment is judged against EVERY currently-known player position, not
+## just the nearest — a spot only counts as truly hidden if none of them can
+## see it; with no known player position at all it's a neutral 0 bonus, same
+## as the mortar danger-scoring's "nothing to actually be dangerous to" case.
+func _score_advance_candidate(point: Vector2, angle_deg: float, known_player_positions: Array[Vector2]) -> float:
+	var score: float = GameConfig.ENEMY_ADVANCE_BASE_WEIGHT
+	if GameConfig.is_in_cover(GameConfig.get_terrain_type_at(point)):
+		score += GameConfig.ENEMY_ADVANCE_COVER_BONUS
+	if not known_player_positions.is_empty():
+		var concealed := true
+		for pp in known_player_positions:
+			if GameConfig.has_direct_los(point, pp):
+				concealed = false
+				break
+		if concealed:
+			score += GameConfig.ENEMY_ADVANCE_CONCEALMENT_BONUS
+	score -= abs(angle_deg) * GameConfig.ENEMY_ADVANCE_ANGLE_PENALTY_PER_DEG
+	return max(score, 0.1)
+
+
+## A genuine weighted-random choice among advance-rush candidates (see
+## _next_advance_point) — not a deterministic "always the single best
+## angle," matching the same real-tactics-isn't-perfectly-rational idiom as
+## _weighted_mortar_target_pick.
+func _weighted_advance_point_pick(candidates: Array[Vector2], angles_deg: Array[float], known_player_positions: Array[Vector2]) -> Vector2:
+	var weights: Array[float] = []
+	var total := 0.0
+	for i in candidates.size():
+		var w: float = _score_advance_candidate(candidates[i], angles_deg[i], known_player_positions)
+		weights.append(w)
+		total += w
+	var roll: float = randf() * total
+	var cumulative := 0.0
+	for i in candidates.size():
+		cumulative += weights[i]
+		if roll <= cumulative:
+			return candidates[i]
+	return candidates[candidates.size() - 1]
 
 
 ## Firing gives the OPPOSING mortar(s) — and only the opposing mortar, not

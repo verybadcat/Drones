@@ -923,6 +923,33 @@ const ZIGZAG_JINK_MAX_INTERVAL: float = 12.0 # tactical seconds
 # than covering the whole remaining distance blind.
 const ENEMY_ADVANCE_RUSH_DISTANCE: float = 400.0 * PIXELS_PER_METER
 
+## _next_advance_point's candidate directions, in degrees off the straight
+## line to the objective — spread both ways so a squad can bend its rush
+## left or right, whichever side actually offers cover or breaks a known
+## contact's line of sight; 0.0 keeps the literal straight-line rush in the
+## pool too, since "usually avoid the open" isn't "never." Capped at a
+## moderate angle (not 90+) so every candidate still makes real net progress
+## toward the objective — bending the approach, not sidestepping in place.
+const ENEMY_ADVANCE_ANGLES_DEG: Array[float] = [-50.0, -25.0, 0.0, 25.0, 50.0]
+
+## Advance-candidate scoring — see BattleManager._score_advance_candidate.
+## COVER rewards a candidate that actually lands in TREES/BUILDING terrain,
+## a standing "use the terrain" preference that applies whether or not any
+## enemy contact is currently known. CONCEALMENT additionally rewards a
+## candidate that every currently-known player position is unable to
+## directly see — this is what makes bending wide toward one side actually
+## pay off as a real flanking move once there's a spotted friendly to route
+## around, rather than costing distance for nothing. ANGLE_PENALTY_PER_DEG
+## makes a bigger bend cost more, so a detour has to actually be worth it
+## rather than every rush wandering aimlessly; BASE_WEIGHT keeps the literal
+## straight-line-through-the-open candidate meaningfully reachable (never
+## zero), so a direct dash across open ground still happens sometimes — just
+## not usually.
+const ENEMY_ADVANCE_COVER_BONUS: float = 3.0
+const ENEMY_ADVANCE_CONCEALMENT_BONUS: float = 2.0
+const ENEMY_ADVANCE_ANGLE_PENALTY_PER_DEG: float = 0.03
+const ENEMY_ADVANCE_BASE_WEIGHT: float = 1.0
+
 
 ## A FOREST_PATCH's actual footprint radius at angle `theta` (radians) from
 ## its own center — see _radius_warp.
