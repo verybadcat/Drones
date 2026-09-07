@@ -123,6 +123,17 @@ const HILLS: Array[Dictionary] = [
 	{"center_m": Vector2(2700.0, 900.0), "radius_m": 300.0, "height_m": 14.0, "warp_harmonics": [
 		{"frequency": 3, "amplitude": 0.15, "phase": 2.2}, {"frequency": 2, "amplitude": 0.12, "phase": 0.7},
 	]}, # rise along the road's midpoint bend
+	# West flank (negative x — see GameConfig.WEST_FLANK_WIDTH_M): open,
+	# undeveloped ground with no deployment zones or buildings, but not a
+	# featureless void either — natural relief continuing the same rolling-
+	# hills character as the rest of the map, at a density roughly matching
+	# the existing 7 hills across the original 5000x3500m map.
+	{"center_m": Vector2(-600.0, 1200.0), "radius_m": 400.0, "height_m": 22.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.16, "phase": 1.1}, {"frequency": 3, "amplitude": 0.1, "phase": 2.9},
+	]}, # west flank rise
+	{"center_m": Vector2(-1050.0, 2650.0), "radius_m": 340.0, "height_m": 17.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.14, "phase": 0.6}, {"frequency": 2, "amplitude": 0.13, "phase": 3.2},
+	]}, # west flank rise, south
 ]
 const CONTOUR_INTERVAL_M: float = 10.0
 
@@ -395,6 +406,27 @@ const FOREST_PATCHES: Array[Dictionary] = [
 	{"center_m": Vector2(2900.0, 350.0), "radius_m": 150.0, "warp_harmonics": [
 		{"frequency": 2, "amplitude": 0.17, "phase": 2.5}, {"frequency": 3, "amplitude": 0.11, "phase": 0.6},
 	]}, # far north strip
+	# West flank (negative x) — same density/character as the rest of the
+	# map's woodland, continuing naturally from "far west rear woods" above
+	# rather than stopping dead at x=0.
+	{"center_m": Vector2(-300.0, 700.0), "radius_m": 160.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.15, "phase": 0.8}, {"frequency": 3, "amplitude": 0.12, "phase": 2.6},
+	]}, # west flank copse, north
+	{"center_m": Vector2(-800.0, 1500.0), "radius_m": 190.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.17, "phase": 1.9}, {"frequency": 2, "amplitude": 0.11, "phase": 3.5},
+	]}, # west flank woods
+	{"center_m": Vector2(-450.0, 2200.0), "radius_m": 150.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.14, "phase": 2.4}, {"frequency": 4, "amplitude": 0.09, "phase": 0.9},
+	]}, # west flank copse
+	{"center_m": Vector2(-1100.0, 900.0), "radius_m": 170.0, "warp_harmonics": [
+		{"frequency": 3, "amplitude": 0.16, "phase": 0.3}, {"frequency": 2, "amplitude": 0.13, "phase": 2.1},
+	]}, # west flank woods, deep
+	{"center_m": Vector2(-1300.0, 2900.0), "radius_m": 155.0, "warp_harmonics": [
+		{"frequency": 2, "amplitude": 0.18, "phase": 1.5}, {"frequency": 3, "amplitude": 0.1, "phase": 3.7},
+	]}, # west flank woods, far edge
+	{"center_m": Vector2(-650.0, 3100.0), "radius_m": 145.0, "warp_harmonics": [
+		{"frequency": 4, "amplitude": 0.09, "phase": 2.7}, {"frequency": 2, "amplitude": 0.15, "phase": 0.5},
+	]}, # west flank copse, south
 ]
 
 # Legal area for the player to drag squads into — wider than just the
