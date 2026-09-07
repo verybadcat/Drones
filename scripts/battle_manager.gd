@@ -3676,7 +3676,7 @@ func _end_battle() -> void:
 			enemy_stats.killed, enemy_stats.heavily_wounded, enemy_stats.captured, enemy_stats.evacuated_unknown,
 		])
 		lines.append("Plus an estimated %d more among units that got away before the position could be swept — not independently confirmed, just what was actually scouted during the fight" % enemy_stats.unconfirmed_pips_lost)
-		lines.append("Enemy casualties overall: %d/%d personnel (~%.0f%%)" % [
+		lines.append("Enemy casualties overall (partly estimated): ~%d/%d personnel (~%.0f%%)" % [
 			enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent,
 		])
 	# No separate "exchange ratio" line — it was purely duplicative of the two
