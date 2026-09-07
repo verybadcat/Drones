@@ -3449,6 +3449,16 @@ func drone_fleet_status() -> Dictionary:
 func _compute_side_stats(units: Array[Unit], estimated: bool = false, is_enemy_side: bool = false) -> Dictionary:
 	var pips_total := 0
 	var pips_lost := 0
+	# `pips_lost` splits into these two — every unit's own contribution
+	# lands in exactly one, per that UNIT's own unit_estimated verdict, not
+	# the overall call's. This is what lets a single "held the position"
+	# AAR call honestly report a mix — some units fully confirmed on the
+	# battlefield, others (ones that got away) still just an estimate —
+	# instead of one blended number implying more certainty than the
+	# assessment actually has. Always 100%/0% split for the player's own
+	# side (confirmed) and the live dashboard's enemy read (unconfirmed).
+	var confirmed_pips_lost := 0
+	var unconfirmed_pips_lost := 0
 	var killed := 0
 	var heavily_wounded := 0
 	var walking_wounded := 0
@@ -3483,7 +3493,12 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false, is_enemy_s
 		var eff_state: Unit.State = u.player_known_state if unit_estimated else u.state
 		var eff_pips: int = u.player_known_pips if unit_estimated else u.pips
 		if u.kind != Unit.Kind.DRONE:
-			pips_lost += (u.max_pips - eff_pips)
+			var lost_here: int = u.max_pips - eff_pips
+			pips_lost += lost_here
+			if unit_estimated:
+				unconfirmed_pips_lost += lost_here
+			else:
+				confirmed_pips_lost += lost_here
 			if not unit_estimated:
 				# killed_count/heavily_wounded_count/walking_wounded_count/
 				# wounded_left_behind_count are populated for every personnel
@@ -3513,7 +3528,10 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false, is_enemy_s
 			# were still an active part of the fight.
 			if eff_state == Unit.State.SURRENDERED:
 				pips_lost += eff_pips
-				if not unit_estimated:
+				if unit_estimated:
+					unconfirmed_pips_lost += eff_pips
+				else:
+					confirmed_pips_lost += eff_pips
 					captured += eff_pips
 		match eff_state:
 			Unit.State.DESTROYED:
@@ -3544,6 +3562,8 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false, is_enemy_s
 	return {
 		"pips_total": pips_total,
 		"pips_lost": pips_lost,
+		"confirmed_pips_lost": confirmed_pips_lost,
+		"unconfirmed_pips_lost": unconfirmed_pips_lost,
 		"casualty_percent": casualty_percent,
 		"killed": killed,
 		"heavily_wounded": heavily_wounded,
@@ -3624,11 +3644,21 @@ func _end_battle() -> void:
 		player_stats.pips_lost, player_stats.pips_total, player_stats.casualty_percent,
 		player_stats.killed, player_stats.heavily_wounded, player_stats.walking_wounded, player_stats.captured,
 	])
+	# Three distinct cases, not two — "held the position" doesn't mean every
+	# enemy unit's own fate got confirmed (see _compute_side_stats's own
+	# confirmed_pips_lost/unconfirmed_pips_lost doc comment): some may have
+	# been destroyed/captured right there (fully assessable), others may
+	# have gotten away with everything they had (only as good as what was
+	# actually scouted, exactly like the "position not held" case below).
+	# Blending those into one number would imply a precision the assessment
+	# doesn't actually have — so a real mix gets its own, explicit wording
+	# rather than being silently folded into either the pure-estimate or
+	# pure-confirmed line.
 	if enemy_stats.estimated:
 		lines.append("Enemy casualties: an estimated %d/%d personnel (~%.0f%%) — the position wasn't held for a battlefield assessment, so this reflects only what was actually scouted during the fight, not the true toll" % [
 			enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent,
 		])
-	else:
+	elif enemy_stats.unconfirmed_pips_lost == 0:
 		# No "walking wounded" line here, unlike the player's own casualties
 		# above — a losing side evacuates its own ambulatory wounded under
 		# their own power even from a position it's about to lose, so
@@ -3636,9 +3666,18 @@ func _end_battle() -> void:
 		# of them; `evacuated_unknown` is a real, counted personnel loss,
 		# just not one this assessment can characterize any further (see
 		# _compute_side_stats's own `is_enemy_side` doc comment).
-		lines.append("Enemy casualties: %d/%d personnel (%.0f%%) — %d killed, %d heavily wounded, %d captured, %d more unaccounted for (likely evacuated wounded — the enemy pulls its own ambulatory casualties out even from ground it's about to lose)" % [
+		lines.append("Enemy casualties: %d/%d personnel confirmed on the battlefield (%.0f%%) — %d killed, %d heavily wounded, %d captured, %d more unaccounted for (likely evacuated wounded — the enemy pulls its own ambulatory casualties out even from ground it's about to lose)" % [
 			enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent,
 			enemy_stats.killed, enemy_stats.heavily_wounded, enemy_stats.captured, enemy_stats.evacuated_unknown,
+		])
+	else:
+		lines.append("Enemy casualties: %d/%d confirmed on the battlefield — %d killed, %d heavily wounded, %d captured, %d more unaccounted for (likely evacuated wounded)" % [
+			enemy_stats.confirmed_pips_lost, enemy_stats.pips_total,
+			enemy_stats.killed, enemy_stats.heavily_wounded, enemy_stats.captured, enemy_stats.evacuated_unknown,
+		])
+		lines.append("Plus an estimated %d more among units that got away before the position could be swept — not independently confirmed, just what was actually scouted during the fight" % enemy_stats.unconfirmed_pips_lost)
+		lines.append("Enemy casualties overall: %d/%d personnel (~%.0f%%)" % [
+			enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent,
 		])
 	# No separate "exchange ratio" line — it was purely duplicative of the two
 	# casualty lines just above; `exchange_ratio` itself stays, still doing
