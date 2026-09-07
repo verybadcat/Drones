@@ -12,6 +12,7 @@ var _tokens: Array[UnitToken] = []
 var _squad_tokens: Array[UnitToken] = []
 var _mortar_token: UnitToken
 var _spotter_token: UnitToken
+var _resupply_token: UnitToken
 var _dragging: UnitToken = null
 
 
@@ -36,6 +37,11 @@ func _ready() -> void:
 	var recon_label: String = "Drone Team" if recon_mode == GameConfig.ReconMode.DRONE_TEAM else "Spotter"
 	_spotter_token.setup(recon_kind, recon_label, GameConfig.PLAYER_SPOTTER_DEFAULT_POSITION, GameConfig.PLAYER_SPOTTER_DEPLOYMENT_ZONE)
 	_tokens.append(_spotter_token)
+
+	_resupply_token = UnitToken.new()
+	add_child(_resupply_token)
+	_resupply_token.setup_resupply_point("Resupply Point", GameConfig.PLAYER_RESUPPLY_DEFAULT_POSITION, GameConfig.PLAYER_RESUPPLY_DEPLOYMENT_ZONE)
+	_tokens.append(_resupply_token)
 
 	queue_redraw()
 
@@ -67,7 +73,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 ## Returns {"squad_positions": [Vector2, Vector2, Vector2], "mortar_position":
-## Vector2, "spotter_position": Vector2} for BattleManager's doctrine dict.
+## Vector2, "spotter_position": Vector2, "resupply_point": Vector2} for
+## BattleManager's doctrine dict.
 func get_positions() -> Dictionary:
 	var squad_positions: Array[Vector2] = []
 	for token in _squad_tokens:
@@ -76,6 +83,7 @@ func get_positions() -> Dictionary:
 		"squad_positions": squad_positions,
 		"mortar_position": _mortar_token.position,
 		"spotter_position": _spotter_token.position,
+		"resupply_point": _resupply_token.position,
 	}
 
 
@@ -84,3 +92,4 @@ func _draw() -> void:
 	draw_rect(GameConfig.PLAYER_MORTAR_DEPLOYMENT_ZONE, Color(1.0, 0.55, 0.15, 0.5), false, 2.0)
 	draw_rect(GameConfig.PLAYER_DEPLOYMENT_ZONE, Color(1.0, 1.0, 0.2, 0.7), false, 2.0)
 	draw_rect(GameConfig.PLAYER_SPOTTER_DEPLOYMENT_ZONE, Color(0.3, 1.0, 1.0, 0.6), false, 2.0)
+	draw_rect(GameConfig.PLAYER_RESUPPLY_DEPLOYMENT_ZONE, Color(0.85, 0.75, 0.2, 0.8), false, 2.0)

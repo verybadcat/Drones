@@ -164,6 +164,13 @@ const MORTAR_CREW_SIZE: int = 4
 var crew_size: int = 0
 var crew_casualties: int = 0
 
+# MORTAR only: real, finite ammunition — see GameConfig.MORTAR_STARTING_AMMO
+# and BattleManager's whole request/arrival/pickup resupply pipeline. Never
+# reloads on its own; only a completed resupply run (Unit.setup() sets the
+# starting count, BattleManager._update_mortar_resupply/_update_mortar_
+# resupply_fetch add to it later) changes this.
+var mortar_rounds_remaining: int = 0
+
 # SQUAD only: a real 9-person infantry squad, for both sides. Unlike the
 # mortar/drone team's crew_size/crew_casualties model (a hit is decisive, killing
 # a random handful of a small crew at once), a squad takes casualties one
@@ -188,6 +195,7 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 			base_hit_chance = 0.40
 			unit_label = "Mortar"
 			fire_interval = reload_time
+			mortar_rounds_remaining = GameConfig.MORTAR_STARTING_AMMO
 		Kind.SPOTTER:
 			max_pips = 1 # a small, fragile recon team
 			base_hit_chance = 0.0 # never fires — see BattleManager._tick_fire

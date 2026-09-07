@@ -15,15 +15,15 @@ class_name CombatLog
 ## whole window is a fixed 700px tall (see project.godot), the dashboard
 ## above this now legitimately needs ~400px with every row showing
 ## (DRONE_TEAM recon mode, enemy's 2 mortars both still active — see
-## CasualtyDashboard._ready), and main.gd positions this panel below it —
+## CasualtyDashboard._ready), and main.gd positions this panel below it,
+## below the one button row (general retreat) above the dashboard in turn —
 ## there simply isn't room for this to be as tall as it once was without
-## the two overlapping, which is exactly what was happening before both
-## were correctly sized/positioned for the dashboard's real content height.
+## something overlapping something else.
 var _scroll: ScrollContainer
 var _list: VBoxContainer
 
 const MAX_ENTRIES: int = 200
-const SIZE: Vector2 = Vector2(300, 230)
+const SIZE: Vector2 = Vector2(300, 220)
 
 
 func _ready() -> void:
@@ -149,6 +149,32 @@ func log_relocate(unit: Unit, urgent: bool = false) -> void:
 		add_entry("%s relocates after firing — farther and faster, still shaking off recent counter-battery fire" % unit.display_name())
 	else:
 		add_entry("%s relocates after firing (shoot and scoot)" % unit.display_name())
+
+
+func log_mortar_resupply_requested(unit: Unit) -> void:
+	add_entry("%s requests ammunition resupply — first shipment due in the rear area" % unit.display_name())
+
+
+## "Roughly" is the whole point — see GameConfig.MORTAR_RESUPPLY_ETA_WARNING_
+## MEDIAN's own comment. This is a real ETA estimate, not a guaranteed one.
+func log_mortar_resupply_eta_warning(unit: Unit) -> void:
+	add_entry("%s: resupply convoy reports roughly 15 minutes out" % unit.display_name())
+
+
+func log_mortar_resupply_arrived(unit: Unit, rounds: int) -> void:
+	add_entry("%s: resupply run gets through — %d rounds waiting at the resupply point" % [unit.display_name(), rounds])
+
+
+func log_mortar_resupply_failed(unit: Unit) -> void:
+	add_entry("%s: resupply run failed to get through — request again when ready" % unit.display_name())
+
+
+func log_mortar_resupply_departing(unit: Unit) -> void:
+	add_entry("%s heads to the resupply point to collect waiting ammunition" % unit.display_name())
+
+
+func log_mortar_resupply_collected(unit: Unit, rounds: int) -> void:
+	add_entry("%s collects %d rounds (%d now on hand) and heads back" % [unit.display_name(), rounds, unit.mortar_rounds_remaining])
 
 
 func log_mortar_relocating_for_cover(unit: Unit) -> void:

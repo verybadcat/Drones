@@ -382,6 +382,18 @@ const PLAYER_MORTAR_DEPLOYMENT_ZONE: Rect2 = Rect2(50.0 * PIXELS_PER_METER, 80.0
 const PLAYER_SPOTTER_DEPLOYMENT_ZONE: Rect2 = Rect2(50.0 * PIXELS_PER_METER, 50.0 * PIXELS_PER_METER, 4900.0 * PIXELS_PER_METER, 3400.0 * PIXELS_PER_METER)
 const PLAYER_SPOTTER_DEFAULT_POSITION: Vector2 = Vector2(1900.0 * PIXELS_PER_METER, 1750.0 * PIXELS_PER_METER)
 
+# Where the mortar's resupply runs actually deliver rounds — placed by the
+# commander at deployment, same as every other asset, but constrained to a
+# narrow strip along the player's own (western) map edge specifically:
+# "anywhere along the friendly map edge," not anywhere on the map the way
+# the recon asset can be. A resupply point isn't a combat unit (see
+# UnitToken.is_resupply_point) — this is a logistics location the mortar
+# has to physically travel to and from once rounds actually arrive there
+# (see BattleManager's own resupply request/travel logic), not something
+# that just teleports ammo onto the gun.
+const PLAYER_RESUPPLY_DEPLOYMENT_ZONE: Rect2 = Rect2(20.0 * PIXELS_PER_METER, 50.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 3400.0 * PIXELS_PER_METER)
+const PLAYER_RESUPPLY_DEFAULT_POSITION: Vector2 = Vector2(70.0 * PIXELS_PER_METER, 1750.0 * PIXELS_PER_METER)
+
 # Default starting token positions on the deployment screen, before the
 # player drags them anywhere else within their zone.
 const PLAYER_DEFAULT_POSITIONS: Array[Vector2] = [
@@ -402,6 +414,20 @@ const ENEMY_SPAWN_X: float = 4950.0 * PIXELS_PER_METER
 # advancing near, not literally on top of, each other and the road.
 const ENEMY_SQUAD_Y_OFFSETS_M: Array[float] = [-420.0, -250.0, -80.0, 80.0, 250.0, 420.0]
 const ENEMY_MORTAR_POSITIONS_M: Array[Vector2] = [Vector2(4700.0, 1300.0), Vector2(4700.0, 2500.0)]
+
+# The enemy has no player-visible deployment screen to place a resupply
+# point on, so its own "commander" picks one algorithmically instead of
+# using a single fixed spot — a point on the enemy's own edge, at the
+# y-coordinate centered on its own mortars, so the resupply run is a
+# broadly sensible distance from both of them regardless of how many there
+# are or exactly where. Mirrors PLAYER_RESUPPLY_DEPLOYMENT_ZONE's own
+# "friendly edge" placement, just computed rather than player-chosen.
+static func choose_enemy_resupply_point() -> Vector2:
+	var sum_y := 0.0
+	for p in ENEMY_MORTAR_POSITIONS_M:
+		sum_y += p.y
+	var avg_y: float = sum_y / ENEMY_MORTAR_POSITIONS_M.size()
+	return Vector2(4900.0, avg_y) * PIXELS_PER_METER
 
 # The tactical clock runs faster than the actual time you spend watching —
 # without this, a battle at real distances/speeds would take the better
@@ -736,6 +762,66 @@ const SQUAD_ENGAGEMENT_RANGE: float = 400.0 * PIXELS_PER_METER
 # enemy squads the way a rifle's muzzle flash does. But it is NOT unlimited
 # range: a real light/medium mortar tops out well short of the whole map.
 const MORTAR_MAX_RANGE: float = 3500.0 * PIXELS_PER_METER
+
+# Limited ammunition — every mortar team on both sides starts with this
+# many rounds (see Unit.setup) and has to actually manage it, not just
+# reload for free forever. See BattleManager's request_mortar_resupply/
+# _update_mortar_resupply/_update_mortar_resupply_fetch for the full
+# request → arrival → physical pickup pipeline this drives.
+const MORTAR_STARTING_AMMO: int = 20
+const MORTAR_RESUPPLY_ROUNDS: int = 20
+
+# A resupply run's delay from the moment it's requested — genuinely random,
+# not a fixed countdown, modeled as log-normal (right-skewed: it can run
+# late by a lot more than it can ever run early) with the requested MEDIAN,
+# not mean — see GameConfig.sample_resupply_delay. SIGMA is the log-space
+# spread; 0.5 is "substantial" as asked for — at a 60-minute median that
+# puts roughly the middle two-thirds of outcomes between ~36 and ~100
+# minutes, with a real (if unlikely) tail well beyond that, and only a
+# small chance of arriving under half the median time.
+const MORTAR_RESUPPLY_DELAY_MEDIAN: float = 60.0 * 60.0 # tactical seconds
+const MORTAR_RESUPPLY_DELAY_SIGMA: float = 0.5
+# The second wave's delay is measured from the FIRST wave's own (already
+# random) arrival, not from the original request — "a further 20 rounds
+# will arrive after approximately another hour" reads as one more hour on
+# top of the first, not a fixed ~2 hours from the request. Both waves are
+# scheduled at request time regardless of how wave 1 actually turns out
+# (including if it fails) — see request_mortar_resupply.
+const MORTAR_RESUPPLY_WAVE_COUNT: int = 2
+
+# Every resupply run, independently, can simply fail to get through —
+# nothing wrong with the request itself, the convoy just doesn't make it.
+const MORTAR_RESUPPLY_FAILURE_CHANCE: float = 0.10
+
+# The "roughly 15 minutes out" heads-up — deliberately NOT computed as
+# exactly (true arrival time - 15 minutes), which would make the estimate
+# perfectly accurate by construction. Real ETAs are themselves estimates:
+# this fires once the ACTUAL remaining time first drops to a value drawn
+# from its own distribution centered on 15 minutes, so the stated "roughly
+# 15 minutes" can and sometimes will be meaningfully wrong by the time the
+# run actually arrives (or fails) — matching "this guess might again prove
+# to be incorrect" directly, not just as flavor text.
+const MORTAR_RESUPPLY_ETA_WARNING_MEDIAN: float = 15.0 * 60.0 # tactical seconds
+const MORTAR_RESUPPLY_ETA_WARNING_SIGMA: float = 0.35
+
+# Once a mortar's remaining rounds drop to this many or fewer, it holds
+# them back for an enemy mortar specifically (which always wins target
+# priority anyway — see BattleManager._pick_target) rather than spending
+# them on a squad target — "if an enemy mortar is out there, it is
+# important to have ammunition to shoot at it." A firm floor, not a
+# probabilistic tendency: the request frames this as a real policy, not a
+# vague preference.
+const MORTAR_AMMO_RESERVE_FOR_COUNTER_BATTERY: int = 5
+
+## Log-normal sample with the given MEDIAN (not mean) and log-space SIGMA —
+## shared by both resupply-wave delays and the ETA-warning threshold so
+## "substantial variability" means the same thing everywhere it's used.
+## randfn(0.0, sigma) draws a normal deviate in log-space; exponentiating
+## converts it back, which is what makes the result right-skewed (a
+## symmetric spread in log-space is an asymmetric one in real time — it can
+## run late by a much larger absolute margin than it can run early).
+static func sample_resupply_delay(median: float, sigma: float) -> float:
+	return exp(log(median) + randfn(0.0, sigma))
 
 # The drone's own TARGET PRIORITY scoring (see BattleManager.
 # _drone_search_target/_squad_danger_priority/_mortar_existence_

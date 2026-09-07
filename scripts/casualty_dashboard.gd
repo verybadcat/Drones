@@ -184,7 +184,7 @@ func _update_mortar_rows(units: Array[Unit], rows: Array[Dictionary]) -> void:
 func _mortar_status_text(u: Unit) -> String:
 	match u.state:
 		Unit.State.ACTIVE:
-			return "in action"
+			return "in action (%d rounds)" % u.mortar_rounds_remaining
 		Unit.State.RETREATING:
 			return "abandoned, crew fleeing (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
 		Unit.State.WITHDRAWN:

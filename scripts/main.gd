@@ -147,6 +147,7 @@ func _on_start_pressed() -> void:
 		"mortar": mortar_doctrine,
 		"spotter": {"position": positions.spotter_position},
 		"recon_mode": recon_mode,
+		"resupply_point": positions.resupply_point,
 	}
 
 	deployment_screen.queue_free()
@@ -158,7 +159,7 @@ func _on_start_pressed() -> void:
 
 	retreat_button = Button.new()
 	retreat_button.text = "Order General Retreat"
-	retreat_button.position = Vector2(1020, 20)
+	retreat_button.position = Vector2(1020, 20) # measured 31px tall — see casualty_dashboard's own y below
 	retreat_button.pressed.connect(_on_retreat_pressed)
 	add_child(retreat_button)
 
@@ -167,19 +168,21 @@ func _on_start_pressed() -> void:
 	add_child(battle_manager)
 
 	casualty_dashboard = CasualtyDashboard.new()
-	casualty_dashboard.position = Vector2(1020, 55)
+	# 20 + 31 (retreat_button's real height) + 14px breathing room. Mortar
+	# resupply requests itself automatically now (see BattleManager.
+	# _update_mortar_resupply_requests) — no button for it, so this sidebar
+	# is back to the single button row it had before that was ever added.
+	casualty_dashboard.position = Vector2(1020, 65)
 	casualty_dashboard.setup(battle_manager)
 	add_child(casualty_dashboard)
 
 	combat_log = CombatLog.new()
-	# 55 (dashboard's own y) + 400 (its real measured height, see
+	# 65 (dashboard's own y) + 400 (its real measured height, see
 	# CasualtyDashboard._ready) + 10px breathing room — clears the dashboard
 	# even with every row showing. The window is a fixed 700px tall (see
-	# project.godot), so this leaves CombatLog exactly its own declared
-	# SIZE.y (230, see combat_log.gd) with 5px to spare at the bottom —
-	# tight, but real: there isn't more vertical budget to give it without
-	# either panel overlapping the other or running off the window.
-	combat_log.position = Vector2(1020, 465)
+	# project.godot); CombatLog's own declared SIZE.y (see combat_log.gd)
+	# is sized to fill what's left over.
+	combat_log.position = Vector2(1020, 475)
 	add_child(combat_log)
 
 	battle_manager.start_battle(doctrine, combat_log)
