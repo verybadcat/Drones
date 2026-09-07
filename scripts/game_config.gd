@@ -217,6 +217,25 @@ static func drone_search_waypoints_px() -> Array[Vector2]:
 ## just correctly treated as far less likely than the middle of the map.
 const DRONE_SWEEP_ROW_WEIGHTS: Array[float] = [0.05, 0.15, 0.6, 0.15, 0.05]
 
+## Once an enemy unit is confirmed no longer any kind of threat — DESTROYED,
+## WITHDRAWN, or SURRENDERED, the same "not still a threat" boundary
+## _known_enemy_positions itself already draws — the ground it was last
+## known to occupy is genuinely known-clear, real information gained
+## through play, not a static bias like the road-band weighting above (see
+## BattleManager._area_confirmed_clear/_weighted_random_sweep_index). A
+## sweep waypoint landing within this radius of that position is much less
+## worth the trip. Sized to roughly match the grid's own leg spacing
+## (~750-850m between waypoints) so "cleared" tracks an area genuinely
+## comparable to one search leg, not a token few meters around the exact
+## former position.
+const DRONE_SWEEP_CLEARED_RADIUS_M: float = 600.0
+## Not zero — a cleared area is meaningfully less worth revisiting, not
+## certain to stay empty forever (a unit could in principle still pass
+## through later), so this stays a strong bias, not a hard exclusion,
+## matching this game's usual "real decisions aren't perfectly certain"
+## idiom (see _weighted_mortar_target_pick, _weighted_advance_point_pick).
+const DRONE_SWEEP_CLEARED_WEIGHT_MULTIPLIER: float = 0.15
+
 
 # Each zone is a rectangle + terrain type (TREES/BUILDING only — elevation
 # is now the continuous heightmap above, and the road is its own waypoint

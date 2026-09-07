@@ -42,7 +42,18 @@ func setup(p_battle_manager: BattleManager) -> void:
 
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(320, 300) # room for the enemy's two mortar rows, plus the player's drone row
+	# Measured directly (a headless layout diagnostic, not a guess): title +
+	# separator + player label/bar + up to 2 player mortar rows + drone
+	# row + separator + enemy label/bar + up to 2 enemy mortar rows comes to
+	# ~366px of actual VBoxContainer content, +20px for this panel's own
+	# StyleBoxFlat margins below = ~386px real height with every row
+	# showing (DRONE_TEAM recon mode, enemy's 2 mortars both still present).
+	# 300 was a stale guess from before the mortar/drone rows existed in
+	# their current form — undersized by 86px, which is exactly how much
+	# main.gd's CombatLog (positioned below this panel at a fixed y) ended
+	# up overlapping it. Sized here with real margin, not to the exact
+	# minimum, since text metrics can shift slightly across fonts/platforms.
+	custom_minimum_size = Vector2(320, 400)
 
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.07, 0.07, 0.07, 0.9)

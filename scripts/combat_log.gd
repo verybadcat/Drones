@@ -10,12 +10,20 @@ class_name CombatLog
 ## content as ever) but the CasualtyDashboard above it is the prominent,
 ## at-a-glance readout now; the log is for scrolling back through what
 ## happened, not for reading at a glance.
-
+##
+## Height is genuinely budget-constrained, not just a style choice: the
+## whole window is a fixed 700px tall (see project.godot), the dashboard
+## above this now legitimately needs ~400px with every row showing
+## (DRONE_TEAM recon mode, enemy's 2 mortars both still active — see
+## CasualtyDashboard._ready), and main.gd positions this panel below it —
+## there simply isn't room for this to be as tall as it once was without
+## the two overlapping, which is exactly what was happening before both
+## were correctly sized/positioned for the dashboard's real content height.
 var _scroll: ScrollContainer
 var _list: VBoxContainer
 
 const MAX_ENTRIES: int = 200
-const SIZE: Vector2 = Vector2(300, 340)
+const SIZE: Vector2 = Vector2(300, 230)
 
 
 func _ready() -> void:

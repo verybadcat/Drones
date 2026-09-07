@@ -1631,27 +1631,59 @@ func _in_friendly_mortar_range(pos: Vector2) -> bool:
 ## fraction of a leg's own length instead.
 const DRONE_SWEEP_WAYPOINT_RADIUS: float = 200.0 * GameConfig.PIXELS_PER_METER
 
+## True once some enemy unit confirmed no longer any kind of threat
+## (DESTROYED/WITHDRAWN/SURRENDERED — the same boundary _known_enemy_
+## positions itself draws for "still a threat") has its own last-known
+## position within GameConfig.DRONE_SWEEP_CLEARED_RADIUS_M of `point` — the
+## enemy is now KNOWN not to be there, so a sweep waypoint landing on it is
+## much less worth the trip (see _weighted_random_sweep_index). Uses the
+## real, omniscient unit state rather than requiring THIS drone to have
+## personally witnessed the kill — the same simplification
+## _mortar_existence_confidence already relies on ("a real commander
+## eventually being told the enemy mortars are destroyed").
+func _area_confirmed_clear(point: Vector2) -> bool:
+	var radius: float = GameConfig.DRONE_SWEEP_CLEARED_RADIUS_M * GameConfig.PIXELS_PER_METER
+	for u in enemy_units:
+		if u.state != Unit.State.ACTIVE and u.state != Unit.State.RETREATING:
+			if point.distance_to(u.global_position) <= radius:
+				return true
+	return false
+
+
 ## A grid index chosen with GameConfig.DRONE_SWEEP_ROW_WEIGHTS bias toward
-## the rows nearest the road (see _drone_sweep_target's own reasoning) —
-## shared by the initial pick at battle start (see start_battle) and every
-## subsequent re-roll on arrival, so "where the drone starts" and "where
-## it keeps going" are the same underlying bias instead of two separate,
-## potentially inconsistent mechanisms. Column (x) is picked uniformly
-## within whichever row wins — the whole road's length is equally
-## plausible, only how far off its y-band matters.
+## the rows nearest the road (see _drone_sweep_target's own reasoning),
+## further reduced per-waypoint wherever _area_confirmed_clear says the
+## enemy is already known not to be — shared by the initial pick at battle
+## start (see start_battle) and every subsequent re-roll on arrival, so
+## "where the drone starts" and "where it keeps going" are the same
+## underlying bias instead of two separate, potentially inconsistent
+## mechanisms. A genuine weighted-random pick across all 25 cells at once,
+## not row-then-uniform-column as before — with nothing confirmed clear
+## this reduces to exactly the same distribution (each cell in a row gets
+## an equal share of that row's own weight), so this is a generalization,
+## not a behavior change, for the common case where nothing's confirmed
+## clear yet.
 func _weighted_random_sweep_index() -> int:
 	var row_count: int = GameConfig.DRONE_SEARCH_GRID_ROWS_M.size()
 	var columns_per_row: int = GameConfig.DRONE_SEARCH_GRID_COLUMNS_M.size()
-	var roll := randf()
-	var cumulative := 0.0
-	var chosen_row := row_count - 1
+	var waypoints: Array[Vector2] = GameConfig.drone_search_waypoints_px()
+	var weights: Array[float] = []
+	var total := 0.0
 	for row_i in row_count:
-		cumulative += GameConfig.DRONE_SWEEP_ROW_WEIGHTS[row_i]
+		for col_i in columns_per_row:
+			var idx: int = row_i * columns_per_row + col_i
+			var w: float = GameConfig.DRONE_SWEEP_ROW_WEIGHTS[row_i] / float(columns_per_row)
+			if _area_confirmed_clear(waypoints[idx]):
+				w *= GameConfig.DRONE_SWEEP_CLEARED_WEIGHT_MULTIPLIER
+			weights.append(w)
+			total += w
+	var roll: float = randf() * total
+	var cumulative := 0.0
+	for i in weights.size():
+		cumulative += weights[i]
 		if roll <= cumulative:
-			chosen_row = row_i
-			break
-	var chosen_column := randi() % columns_per_row
-	return chosen_row * columns_per_row + chosen_column
+			return i
+	return weights.size() - 1
 
 
 func _drone_sweep_target() -> Vector2:

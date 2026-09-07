@@ -27,7 +27,7 @@ func _ready() -> void:
 		GameConfig.ReconMode.SPOTTER
 	))
 	root.add_child(_build_option(
-		"Level 1 — Drone recon",
+		"Level 1 — Drone Recon",
 		"Replaces the spotter with a 3-person team equipped with four Mavic-3 scout drones, plus spare batteries",
 		GameConfig.ReconMode.DRONE_TEAM
 	))
