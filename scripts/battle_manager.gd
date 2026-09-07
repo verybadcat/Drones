@@ -784,11 +784,14 @@ func _update_mortar_resupply_requests() -> void:
 ## sitting at its side's resupply point — a resupply point is a logistics
 ## location, not something that teleports ammo onto the gun (see
 ## GameConfig.PLAYER_RESUPPLY_DEPLOYMENT_ZONE's own comment). Reuses
-## MORTAR_RELOCATE_SPEED for the trip; `origin` is remembered so the return
-## leg (see _advance_mortar_resupply_trip) has somewhere sensible to come
-## back to, rather than ending the trip at the resupply point itself.
+## MORTAR_RELOCATE_SPEED for the trip. No return leg is scheduled: there is
+## nothing wrong with firing from the resupply point itself once loaded (see
+## _advance_mortar_resupply_trip) — the mortar only moves on from there for
+## an actual reason of its own (shoot-and-scoot's own _relocate_mortar after
+## a shot, or an enemy fix on its position), not because a fetch trip always
+## has to end with a trip back.
 func _start_mortar_resupply_trip(m: Unit) -> void:
-	_mortar_resupply_trip[m] = {"phase": "to_point", "origin": m.global_position}
+	_mortar_resupply_trip[m] = true
 	m.move_target = _resupply_point_for(m.team)
 	m.has_move_target = true
 	m.move_queue.clear()
@@ -800,44 +803,46 @@ func _start_mortar_resupply_trip(m: Unit) -> void:
 
 ## Advances a mortar already en route (see _start_mortar_resupply_trip) —
 ## no-op while still moving (the ordinary move system is already stepping
-## it there); once arrival is detected (has_move_target clears), either
-## collects the waiting rounds and turns for home, or — on the return
-## leg — simply ends the trip, letting the mortar's normal AI take back
-## over from wherever it's actually standing.
+## it there); once arrival is detected (has_move_target clears), collects
+## the waiting rounds and ends the trip right there at the resupply point,
+## letting the mortar's normal AI take back over from wherever it's
+## actually standing rather than forcing a trip back to wherever it started.
 func _advance_mortar_resupply_trip(m: Unit) -> void:
 	if m.has_move_target:
 		return
-	var trip: Dictionary = _mortar_resupply_trip[m]
-	if trip.phase == "to_point":
-		var record: Dictionary = _mortar_resupply.get(m, {})
-		var rounds: int = int(record.get("rounds_waiting", 0))
-		m.mortar_rounds_remaining += rounds
-		if not record.is_empty():
-			record.rounds_waiting = 0
-			_mortar_resupply[m] = record
-		if _should_narrate_mortar_logistics(m):
-			combat_log.log_mortar_resupply_collected(m, rounds)
-		trip.phase = "returning"
-		_mortar_resupply_trip[m] = trip
-		m.move_target = trip.origin
-		m.has_move_target = true
-		m.move_queue.clear()
-		m.move_speed = GameConfig.MORTAR_RELOCATE_SPEED
-		m.movement_predictable = false
-	else:
-		_mortar_resupply_trip.erase(m)
+	var record: Dictionary = _mortar_resupply.get(m, {})
+	var rounds: int = int(record.get("rounds_waiting", 0))
+	m.mortar_rounds_remaining += rounds
+	if not record.is_empty():
+		record.rounds_waiting = 0
+		_mortar_resupply[m] = record
+	if _should_narrate_mortar_logistics(m):
+		combat_log.log_mortar_resupply_collected(m, rounds)
+	_mortar_resupply_trip.erase(m)
+
+
+## True when `mortar` isn't currently spotted by the opposing side — the bar
+## for setting out on a fetch trip while completely dry. Trekking to a
+## fixed, standing resupply point while under an enemy's eye is exactly the
+## kind of exposure a real crew would rather wait out than walk into,
+## especially with nothing to shoot back with if it goes wrong.
+func _safe_to_fetch_resupply(mortar: Unit) -> bool:
+	return not mortar.is_visible
 
 
 ## Decides when a mortar with ready-and-waiting rounds actually breaks off
 ## to go collect them — not the instant they arrive, since abandoning a
 ## live fire mission just to top off is exactly the kind of thing "mortar
-## teams need to be smart about" the request calls out. Goes immediately
-## if the mortar is completely dry (nothing else useful to do regardless —
-## see _tick_fire's own ammo gate), otherwise only once it's already idle
-## (no target worth engaging right now) so an active hunt or fire mission
-## already claiming its movement this tick (see _update_friendly_mortar_
-## hunting/_update_enemy_mortar_positioning, both of which run earlier)
-## isn't interrupted for a top-up that can wait.
+## teams need to be smart about" the request calls out. Goes once it's
+## already idle (no target worth engaging right now) so an active hunt or
+## fire mission already claiming its movement this tick (see
+## _update_friendly_mortar_hunting/_update_enemy_mortar_positioning, both of
+## which run earlier) isn't interrupted for a top-up that can wait. A
+## completely dry mortar can't wait for "idle" to naturally arrive (it has
+## nothing to fire regardless — see _tick_fire's own ammo gate) but still
+## only goes once it's safe to do so (see _safe_to_fetch_resupply) — being
+## out of ammo is a reason to want to go, not a reason to walk into the open
+## while spotted.
 func _update_mortar_resupply_fetch() -> void:
 	for m in player_units + enemy_units:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
@@ -854,7 +859,7 @@ func _update_mortar_resupply_fetch() -> void:
 			continue # already busy with something else this tick
 		var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
 		var idle: bool = _pick_target(m, opposing) == null
-		if out_of_ammo or idle:
+		if idle or (out_of_ammo and _safe_to_fetch_resupply(m)):
 			_start_mortar_resupply_trip(m)
 
 
