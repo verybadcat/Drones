@@ -183,6 +183,7 @@ var _drone_sweep_index: int = 0 # which road waypoint the blind search patrol is
 var _drone_sweep_last_visited: Dictionary = {}
 var _drone_vicinity_search_angle: float = 0.0 # current angle around a spotted squad the drone is circling to — see _drone_vicinity_search_point
 var _drone_flank_watch_point: Vector2 = Vector2.INF # current unscreened bearing around the mortar the drone is checking — see _drone_flank_watch_target
+var _drone_flank_watch_bearing_index: int = 0 # which entry of GameConfig.DRONE_FLANK_WATCH_BEARINGS_DEG _drone_flank_watch_point corresponds to — advances by fixed rotational order, see _drone_flank_watch_target
 
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
@@ -213,6 +214,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drone_sweep_index = _weighted_random_sweep_index()
 	_drone_vicinity_search_angle = 0.0
 	_drone_flank_watch_point = Vector2.INF
+	_drone_flank_watch_bearing_index = 0
 	_player_sighted_enemy = false
 	_enemy_sighted_enemy = false
 	_mortar_resupply.clear()
@@ -1949,6 +1951,12 @@ func _drone_search_target() -> Vector2:
 ## spotted there since) — otherwise a bearing that briefly loses and
 ## re-wins the weighted pick against its neighbors would have the drone
 ## flitting between them instead of committing to actually checking one.
+## When it DOES need a new bearing, picks whichever qualifying one is
+## nearest to the drone's own current position, not a random one — a
+## random pick could (and did) send it clear across the mortar to an
+## almost-opposite bearing right after finishing the last one, then back
+## again next time: a real, visible back-and-forth crisscross, not the
+## occasional, purposeful repositioning this check is meant to be.
 func _drone_flank_watch_target() -> Vector2:
 	var mortar := _friendly_active_mortar()
 	if mortar == null:
@@ -1960,26 +1968,48 @@ func _drone_flank_watch_target() -> Vector2:
 			screening_squads.append(u)
 	var known_enemies := _known_enemy_positions(Unit.Team.PLAYER)
 
-	var qualifying: Array[Vector2] = []
-	for bearing_deg in GameConfig.DRONE_FLANK_WATCH_BEARINGS_DEG:
+	var bearings: Array[float] = GameConfig.DRONE_FLANK_WATCH_BEARINGS_DEG
+	var qualifies: Array[bool] = []
+	var probes: Array[Vector2] = []
+	var any_qualifies := false
+	for bearing_deg in bearings:
 		var probe: Vector2 = mortar.global_position + Vector2.RIGHT.rotated(deg_to_rad(bearing_deg)) * GameConfig.MORTAR_FLANK_THREAT_RADIUS
-		if _lane_is_screened(probe, mortar.global_position, screening_squads):
-			continue
-		var already_known := false
-		for e in known_enemies:
-			if e.distance_to(probe) <= GameConfig.DRONE_FLANK_WATCH_ARRIVE_RADIUS:
-				already_known = true
-				break
-		if already_known:
-			continue
-		qualifying.append(probe)
+		probes.append(probe)
+		var ok: bool = not _lane_is_screened(probe, mortar.global_position, screening_squads)
+		if ok:
+			for e in known_enemies:
+				if e.distance_to(probe) <= GameConfig.DRONE_FLANK_WATCH_ARRIVE_RADIUS:
+					ok = false
+					break
+		qualifies.append(ok)
+		any_qualifies = any_qualifies or ok
 
-	if qualifying.is_empty():
+	if not any_qualifies:
 		return Vector2.INF
 
-	var current_still_qualifies: bool = qualifying.any(func(p): return p.distance_to(_drone_flank_watch_point) < 1.0)
-	if not current_still_qualifies or active_drone.global_position.distance_to(_drone_flank_watch_point) <= GameConfig.DRONE_FLANK_WATCH_ARRIVE_RADIUS:
-		_drone_flank_watch_point = qualifying[randi() % qualifying.size()]
+	var current_still_qualifies: bool = qualifies[_drone_flank_watch_bearing_index] and probes[_drone_flank_watch_bearing_index].distance_to(_drone_flank_watch_point) < 1.0
+	var arrived: bool = active_drone.global_position.distance_to(_drone_flank_watch_point) <= GameConfig.DRONE_FLANK_WATCH_ARRIVE_RADIUS
+	if not current_still_qualifies or arrived:
+		# Step to the NEXT bearing around the compass that currently
+		# qualifies, in fixed order, wrapping around — not a random pick
+		# among all of them, and not "whichever happens to be nearest right
+		# now" either: both of those either crisscross wildly (random) or
+		# lock into a perpetual back-and-forth once only two bearings
+		# remain open (nearest-excluding-current, tried and rejected — with
+		# just two candidates left, "the other one" ping-pongs forever).
+		# Always advancing in the same fixed rotational order is what a real
+		# methodical sweep of the compass around a position actually looks
+		# like: it eventually revisits every open bearing exactly once per
+		# lap, never doubles back, and never gets stuck cycling between the
+		# same two. Mirrors _drone_vicinity_search_point's own step-and-wrap
+		# pattern for circling a spotted squad.
+		var idx: int = _drone_flank_watch_bearing_index
+		for step in bearings.size():
+			idx = (idx + 1) % bearings.size()
+			if qualifies[idx]:
+				break
+		_drone_flank_watch_bearing_index = idx
+		_drone_flank_watch_point = probes[idx]
 	return _drone_flank_watch_point
 
 
