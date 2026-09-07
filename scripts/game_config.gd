@@ -52,23 +52,41 @@ const WEST_FLANK_WIDTH_PX: float = WEST_FLANK_WIDTH_M * PIXELS_PER_METER # 300px
 ## independent choice that happens to match.
 const CAMERA_DEFAULT_X: float = 500.0
 const CAMERA_MIN_X: float = 200.0
-const CAMERA_VIEW_MARGIN_PX: float = 100.0 * PIXELS_PER_METER # 500m buffer so the westmost relevant unit sits comfortably inside the view, not pinned to its literal edge
+const CAMERA_VIEW_MARGIN_PX: float = 100.0 * PIXELS_PER_METER # 500m buffer so a relevant unit that forced the view to move sits comfortably inside it, not pinned to its literal edge (whichever edge — west or east)
 const CAMERA_FOLLOW_LERP_SPEED: float = 2.5 # ~1-1.5s for a full 300px pan — a visible glide, not a snap
 
-## Where the map's camera should be centered (x only) given every unit
-## position the player is currently allowed to know about — see
-## BattleManager._camera_relevant_positions for the fog-of-war-respecting
-## filter that builds this list (an unspotted enemy unit must never be in
-## it; panning the camera toward it would leak its position for free).
-## Stays at CAMERA_DEFAULT_X (today's ordinary view, unchanged) as long as
-## nothing relevant has drifted west of the old map edge.
-static func compute_camera_target_x(relevant_positions: Array[Vector2]) -> float:
-	var westmost_x: float = INF
+## Where the map's camera should be centered (x only) given `current_x`
+## (wherever it actually is right now) and every unit position the player
+## is currently allowed to know about — see BattleManager.
+## _camera_relevant_positions for the fog-of-war-respecting filter that
+## builds that list (an unspotted enemy unit must never be in it; panning
+## the camera toward it would leak its position for free).
+##
+## Deliberately NOT "always re-center on whatever's relevant" — once the
+## view has panned to reveal something out west, it stays there even after
+## that thing is gone, rather than snapping back to the default view the
+## instant nothing remains near the west edge. It only moves again when
+## there's an actual need to: something relevant has drifted outside the
+## CURRENT view (past whichever edge — west needs more revealed, or east
+## because panning west can hide the map's own east side, see main.gd's
+## Camera2D setup), and even then only far enough to bring it back into
+## comfortable view, not all the way back to center.
+static func compute_camera_target_x(relevant_positions: Array[Vector2], current_x: float) -> float:
+	if relevant_positions.is_empty():
+		return current_x
+	var min_x: float = INF
+	var max_x: float = -INF
 	for p in relevant_positions:
-		westmost_x = min(westmost_x, p.x)
-	if is_inf(westmost_x) or westmost_x >= 0.0:
-		return CAMERA_DEFAULT_X
-	return clamp(westmost_x + CAMERA_VIEW_MARGIN_PX, CAMERA_MIN_X, CAMERA_DEFAULT_X)
+		min_x = min(min_x, p.x)
+		max_x = max(max_x, p.x)
+	var half_width: float = MAP_WIDTH_PX / 2.0
+	var view_left: float = current_x - half_width
+	var view_right: float = current_x + half_width
+	if min_x < view_left:
+		return clamp(min_x + CAMERA_VIEW_MARGIN_PX, CAMERA_MIN_X, CAMERA_DEFAULT_X)
+	if max_x > view_right:
+		return clamp(max_x - CAMERA_VIEW_MARGIN_PX, CAMERA_MIN_X, CAMERA_DEFAULT_X)
+	return current_x
 
 ## Runtime meters<->pixels conversion, for the few places that need to
 ## convert a value that isn't known until the game is running (the mouseover
@@ -586,6 +604,22 @@ const PLAYER_SAFE_X: float = 60.0 * PIXELS_PER_METER
 ## short of the true world edge (-WEST_FLANK_WIDTH_PX) so an escalated
 ## retreat never ends literally on the map boundary.
 const PLAYER_EXTENDED_SAFE_X: float = -(WEST_FLANK_WIDTH_M - 100.0) * PIXELS_PER_METER # -280px / -1400m
+
+## The final retreat leg's straight dash (see BattleManager._step_retreat)
+## bends laterally away from the single nearest known threat once it's
+## within reacting distance — real troops falling back don't walk a
+## compass-straight line through ground they know the enemy is on, and
+## once the enemy can be somewhere other than dead ahead (a flanking
+## squad in the west flank, say), a pure x-only dash could walk a
+## retreating unit straight past or even into one. Reactive, not planned
+## in advance: re-evaluated every tick against whatever's currently known,
+## so it responds immediately if a threat is spotted mid-retreat and
+## relaxes just as immediately once it's no longer close enough to matter.
+## Fraction of retreat_speed divertable to the lateral correction at
+## maximum urgency (the threat right on top of the retreat line) — well
+## under 1.0 so a unit under threat still makes real forward progress
+## toward safety throughout, never stalling to purely sidestep.
+const RETREAT_THREAT_STEER_FRACTION: float = 0.6
 
 # How much slack a cover zone gets on the "wrong" side of a retreating
 # unit's current position before it's excluded as a detour toward the

@@ -2297,12 +2297,15 @@ func _step_toward_target(unit: Unit, scenario_delta: float) -> void:
 		unit.position += to_target.normalized() * step
 
 
-## The final leg is a straight dash at constant y toward the safe line — for
-## a MORTAR, that line can happen to run straight through a building (the
-## village is a real obstacle now, not a rare edge case at this map's real
-## scale). Since a mortar can never enter one, it sidesteps vertically,
-## away from whatever building is blocking it, until clear, then the normal
-## x-only dash resumes on its own — see _sidestep_building.
+## The final leg is a dash toward the safe line's x, primarily along x but
+## bending in y away from the nearest known threat along the way (see
+## _retreat_avoidance_offset) rather than a compass-straight line
+## regardless of what's known to be out there. For a MORTAR, that line can
+## also happen to run straight through a building (the village is a real
+## obstacle now, not a rare edge case at this map's real scale). Since a
+## mortar can never enter one, it sidesteps vertically, away from whatever
+## building is blocking it, until clear, then the normal dash resumes on
+## its own — see _sidestep_building.
 func _step_retreat(unit: Unit, scenario_delta: float) -> void:
 	unit.activity = Unit.Activity.MOVING
 	var dir_x: float = -1.0 if unit.team == Unit.Team.PLAYER else 1.0
@@ -2315,6 +2318,10 @@ func _step_retreat(unit: Unit, scenario_delta: float) -> void:
 			var lateral_sign: float = 1.0 if randf() < 0.5 else -1.0
 			unit._zigzag_lateral_velocity = lateral_sign * unit.retreat_speed * GameConfig.ZIGZAG_LATERAL_SPEED_FRACTION
 		next_pos.y += unit._zigzag_lateral_velocity * scenario_delta
+
+	# Bend away from the nearest known threat rather than dashing straight
+	# through/past it — see GameConfig.RETREAT_THREAT_STEER_FRACTION.
+	next_pos.y += _retreat_avoidance_offset(unit) * unit.retreat_speed * GameConfig.RETREAT_THREAT_STEER_FRACTION * scenario_delta
 
 	if unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(next_pos):
 		_sidestep_building(unit, scenario_delta, next_pos)
@@ -2352,6 +2359,31 @@ func _still_under_pressure(unit: Unit) -> bool:
 		if unit.global_position.distance_to(p) <= range_m:
 			return true
 	return false
+
+
+## Signed lateral steering strength for _step_retreat's final dash: 0.0
+## with no known threat close enough to react to; otherwise the sign
+## points away from the nearest one's own y (positive = steer toward
+## higher y), scaled up to 1.0 as that threat gets closer — a threat
+## right on top of the retreat line demands a sharper correction than one
+## just barely within range. Same danger-range framing _still_under_
+## pressure already uses (mortar crew vs. everyone else), since it's
+## asking the same underlying question: is this threat close enough to
+## actually matter right now.
+func _retreat_avoidance_offset(unit: Unit) -> float:
+	var range_m: float = GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE if unit.kind == Unit.Kind.MORTAR else GameConfig.SQUAD_DANGER_RANGE
+	var nearest_dist: float = INF
+	var nearest_threat: Vector2 = Vector2.INF
+	for p in _known_enemy_positions(unit.team):
+		var d: float = unit.global_position.distance_to(p)
+		if d < nearest_dist:
+			nearest_dist = d
+			nearest_threat = p
+	if nearest_dist > range_m:
+		return 0.0
+	var urgency: float = clamp(1.0 - nearest_dist / range_m, 0.0, 1.0)
+	var away_sign: float = 1.0 if unit.global_position.y >= nearest_threat.y else -1.0
+	return away_sign * urgency
 
 
 func _sidestep_building(unit: Unit, scenario_delta: float, blocked_pos: Vector2) -> void:

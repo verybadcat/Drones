@@ -100,7 +100,7 @@ func _process(delta: float) -> void:
 	_clock_label.text = battle_manager.clock_string() if battle_manager else "%02d:00:00" % int(GameConfig.SCENARIO_START_HOUR)
 
 	if battle_manager and map_camera:
-		var target_x: float = GameConfig.compute_camera_target_x(battle_manager._camera_relevant_positions())
+		var target_x: float = GameConfig.compute_camera_target_x(battle_manager._camera_relevant_positions(), map_camera.position.x)
 		map_camera.position.x = lerp(map_camera.position.x, target_x, delta * GameConfig.CAMERA_FOLLOW_LERP_SPEED)
 		# A resupply run spawns at whatever edge of the map is CURRENTLY on
 		# screen (see BattleManager._resupply_entry_point_for) rather than a
