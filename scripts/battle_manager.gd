@@ -3366,7 +3366,7 @@ func _crew_survivor_label(u: Unit) -> String:
 func casualty_stats(team: Unit.Team) -> Dictionary:
 	if team == Unit.Team.PLAYER:
 		return _compute_side_stats(player_units)
-	return _compute_side_stats(enemy_units, true)
+	return _compute_side_stats(enemy_units, true, true)
 
 
 ## Public read for UI (see CasualtyDashboard) — a snapshot of the drone
@@ -3393,24 +3393,31 @@ func drone_fleet_status() -> Dictionary:
 	}
 
 
-## `estimated` — true for the PLAYER's own fog-of-war view of the ENEMY side
-## (see Unit.player_has_been_sighted/_known_pips/_known_state and
-## _update_player_intel): the player's own side is always fully known (they
-## command it directly), but the enemy's true condition is only as good as
+## `is_enemy_side` MUST be true for either fog-of-war behavior below to
+## apply at all — the player's own side is always fully known regardless of
+## `estimated`/unit state, full stop (they command it directly; a friendly
+## unit that retreats doesn't become a mystery to its own commander). Every
+## caller computing the player's own stats leaves this at its default
+## (false) precisely so that's true unconditionally. Only pass true when
+## actually computing the OPPOSING side's assessment.
+##
+## `estimated` — true for the PLAYER's own live fog-of-war view of the
+## ENEMY side (see Unit.player_has_been_sighted/_known_pips/_known_state
+## and _update_player_intel): the enemy's true condition is only as good as
 ## what's actually been scouted, live or in the AAR — see _end_battle's own
 ## reasoning for when the AAR still gets the true figures anyway (holding
-## the position for a battlefield sweep, or drone coverage that doesn't
-## need to). A unit never sighted at all contributes to the known TOTAL
-## order of battle (pips_total) but not a single casualty — assumed still
-## active and undamaged, not "unknown," since crediting losses nobody
-## actually confirmed would be worse than just not knowing.
+## the position for a battlefield sweep). A unit never sighted at all
+## contributes to the known TOTAL order of battle (pips_total) but not a
+## single casualty — assumed still active and undamaged, not "unknown,"
+## since crediting losses nobody actually confirmed would be worse than
+## just not knowing.
 ##
-## Even when the OVERALL call is the confirmed one (`estimated = false` —
-## the position was held, or drone coverage), a unit's OWN casualties are
-## only ever assessable if it's something actually LEFT BEHIND to examine:
-## a DESTROYED unit's remains, or a SURRENDERED one's personnel, already in
-## hand. A WITHDRAWN or still-RETREATING unit took whatever it had —
-## dead, wounded, and everyone still standing — with it when it left;
+## Even when the OVERALL call is the confirmed one (`estimated = false`,
+## `is_enemy_side = true` — the position was held), a unit's OWN casualties
+## are only ever assessable if it's something actually LEFT BEHIND to
+## examine: a DESTROYED unit's remains, or a SURRENDERED one's personnel,
+## already in hand. A WITHDRAWN or still-RETREATING unit took whatever it
+## had — dead, wounded, and everyone still standing — with it when it left;
 ## holding the ground it fought over doesn't recover casualties that
 ## physically aren't there any more. Real battle-damage-assessment practice
 ## backs this up directly: even a body count on ground you've actually
@@ -3418,7 +3425,7 @@ func drone_fleet_status() -> Dictionary:
 ## because a retreating force removes its own fallen whenever it gets the
 ## chance — the ones truly left behind are the ones from a unit that had no
 ## chance to save anyone, i.e. one actually destroyed in place. So each
-## unit gets its OWN recoverability check (`unrecoverable`) independent of
+## ENEMY unit gets its OWN recoverability check (`unrecoverable`) on top of
 ## the overall `estimated` flag: DESTROYED/SURRENDERED units use the true
 ## figures (they're right there to count); WITHDRAWN/RETREATING units fall
 ## back to the same last-known snapshot the live dashboard already uses,
@@ -3427,12 +3434,25 @@ func drone_fleet_status() -> Dictionary:
 ## that isn't itself recoverable — knowing a unit pulled back is something
 ## observation alone can support, but the exact mix of who among them died
 ## vs. was carried off isn't, and there's no aftermath left to go examine.
-func _compute_side_stats(units: Array[Unit], estimated: bool = false) -> Dictionary:
+##
+## `is_enemy_side` adds one more layer even for a unit that IS recoverable:
+## a squad's casualties usually accumulate hit by hit, not all in one
+## moment, and its WALKING wounded — ambulatory almost by definition — are
+## exactly the casualties a losing side can and does evacuate under their
+## own power even from a position it's about to lose, unlike its dead or
+## its immobile heavily wounded. So even standing on ground a destroyed
+## enemy unit fought over, "how many of its walking wounded actually got
+## out" isn't something examining the position answers — they're tallied
+## separately as `evacuated_unknown`, a real, counted personnel loss whose
+## fate just isn't known, rather than asserted as "walking wounded left
+## behind" with a confidence a real assessment wouldn't have.
+func _compute_side_stats(units: Array[Unit], estimated: bool = false, is_enemy_side: bool = false) -> Dictionary:
 	var pips_total := 0
 	var pips_lost := 0
 	var killed := 0
 	var heavily_wounded := 0
 	var walking_wounded := 0
+	var evacuated_unknown := 0
 	var captured := 0
 	var destroyed: PackedStringArray = []
 	var withdrawn: PackedStringArray = []
@@ -3444,7 +3464,19 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false) -> Diction
 		# (it still shows up below if destroyed, just not in the pip count).
 		if u.kind != Unit.Kind.DRONE:
 			pips_total += u.max_pips
-		var unrecoverable: bool = u.state == Unit.State.WITHDRAWN or u.state == Unit.State.RETREATING
+		# Only ever relevant for the ENEMY side — the player's own units are
+		# always fully known regardless of state; a friendly mortar crew
+		# that retreats or withdraws doesn't become a mystery to its own
+		# commander. Without this gate, is_enemy_side defaulting false on
+		# the player's own _compute_side_stats(player_units) call still let
+		# a RETREATING/WITHDRAWN friendly unit fall through as "unrecoverable
+		# and never sighted" (player_has_been_sighted is only ever populated
+		# for enemy_units — see _update_player_intel — so it reads false for
+		# every player unit too) and get silently skipped from pips_lost
+		# entirely: a real, reported bug (a mortar crew took 3 casualties
+		# and retreated, logged in the combat log, yet the aggregate still
+		# read "0/34 personnel lost").
+		var unrecoverable: bool = is_enemy_side and (u.state == Unit.State.WITHDRAWN or u.state == Unit.State.RETREATING)
 		var unit_estimated: bool = estimated or unrecoverable
 		if unit_estimated and not u.player_has_been_sighted:
 			continue # never actually confirmed — assumed still active and undamaged
@@ -3462,7 +3494,10 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false) -> Diction
 				# exactly with pips_lost above, not just for squads.
 				killed += u.killed_count
 				heavily_wounded += u.heavily_wounded_count
-				walking_wounded += u.walking_wounded_count
+				if is_enemy_side:
+					evacuated_unknown += u.walking_wounded_count
+				else:
+					walking_wounded += u.walking_wounded_count
 				captured += u.wounded_left_behind_count
 			# Captured is captured regardless of the reason: an individually
 			# abandoned HEAVILY_WOUNDED soldier (wounded_left_behind_count
@@ -3485,6 +3520,10 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false) -> Diction
 				if u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM:
 					if unit_estimated:
 						destroyed.append("%s (destroyed — crew losses unconfirmed)" % u.display_name())
+					elif is_enemy_side:
+						destroyed.append("%s (%d/%d crew casualties: %d killed, %d heavily wounded, %d unaccounted for)" % [
+							u.display_name(), u.crew_casualties, u.crew_size, u.killed_count, u.heavily_wounded_count, u.walking_wounded_count
+						])
 					else:
 						destroyed.append("%s (%d/%d crew casualties: %d killed, %d heavily wounded, %d walking wounded)" % [
 							u.display_name(), u.crew_casualties, u.crew_size, u.killed_count, u.heavily_wounded_count, u.walking_wounded_count
@@ -3509,6 +3548,7 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false) -> Diction
 		"killed": killed,
 		"heavily_wounded": heavily_wounded,
 		"walking_wounded": walking_wounded,
+		"evacuated_unknown": evacuated_unknown,
 		"captured": captured,
 		"destroyed": destroyed,
 		"withdrawn": withdrawn,
@@ -3533,8 +3573,9 @@ func _end_battle() -> void:
 	# The verdict itself is always judged on the TRUE outcome — win/loss
 	# scoring has to be fair regardless of what the player actually got to
 	# see, the same way the enemy's own AI plays with full knowledge of its
-	# own mortar's ammo even though the player never sees it (v75). What
-	# gets DISPLAYED to the player is a separate question, resolved below.
+	# own mortar's ammo even though the player never sees it (v75). Deliberately
+	# NOT `is_enemy_side` — that flag only affects what gets DISPLAYED (see
+	# `enemy_stats` below), and scoring must never be built on top of it.
 	var true_enemy_stats := _compute_side_stats(enemy_units)
 	var held: bool = _has_active_units(player_units)
 	var exchange_ratio: float = float(true_enemy_stats.pips_lost) / float(max(player_stats.pips_lost, 1))
@@ -3559,8 +3600,14 @@ func _end_battle() -> void:
 	# GOOD that live-scouted picture is (a drone's wider coverage means more
 	# actually got confirmed along the way — see _compute_side_stats's own
 	# `estimated` doc comment), it just doesn't independently unlock the
-	# true figures the way holding the ground does.
-	var enemy_stats := true_enemy_stats if held else _compute_side_stats(enemy_units, true)
+	# true figures the way holding the ground does. Even holding doesn't
+	# unlock EVERYTHING, though — see _compute_side_stats's own
+	# `is_enemy_side` doc comment: an enemy unit's walking wounded are
+	# exactly the casualties a losing side can, and does, evacuate under
+	# their own power even from a position it's about to lose. A fresh
+	# computation, not a reuse of `true_enemy_stats` above — that one has to
+	# stay pure ground truth for scoring, this one is deliberately not.
+	var enemy_stats := _compute_side_stats(enemy_units, not held, true)
 
 	var lines: PackedStringArray = []
 	lines.append("=== AFTER-ACTION REPORT ===")
@@ -3582,9 +3629,16 @@ func _end_battle() -> void:
 			enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent,
 		])
 	else:
-		lines.append("Enemy casualties: %d/%d personnel (%.0f%%) — %d killed, %d heavily wounded, %d walking wounded, %d captured" % [
+		# No "walking wounded" line here, unlike the player's own casualties
+		# above — a losing side evacuates its own ambulatory wounded under
+		# their own power even from a position it's about to lose, so
+		# holding the ground afterward doesn't actually answer what became
+		# of them; `evacuated_unknown` is a real, counted personnel loss,
+		# just not one this assessment can characterize any further (see
+		# _compute_side_stats's own `is_enemy_side` doc comment).
+		lines.append("Enemy casualties: %d/%d personnel (%.0f%%) — %d killed, %d heavily wounded, %d captured, %d more unaccounted for (likely evacuated wounded — the enemy pulls its own ambulatory casualties out even from ground it's about to lose)" % [
 			enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent,
-			enemy_stats.killed, enemy_stats.heavily_wounded, enemy_stats.walking_wounded, enemy_stats.captured,
+			enemy_stats.killed, enemy_stats.heavily_wounded, enemy_stats.captured, enemy_stats.evacuated_unknown,
 		])
 	# No separate "exchange ratio" line — it was purely duplicative of the two
 	# casualty lines just above; `exchange_ratio` itself stays, still doing
