@@ -178,6 +178,7 @@ var _battery_pool: Array[float] = [] # charge level of every battery not current
 var _drones_destroyed: int = 0 # airframes permanently lost (shot down, battery and all) this battle
 var _drone_sweep_index: int = 0 # which road waypoint the blind search patrol is currently headed for — see _drone_sweep_target
 var _drone_vicinity_search_angle: float = 0.0 # current angle around a spotted squad the drone is circling to — see _drone_vicinity_search_point
+var _drone_flank_watch_point: Vector2 = Vector2.INF # current unscreened bearing around the mortar the drone is checking — see _drone_flank_watch_target
 
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
@@ -206,6 +207,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drones_destroyed = 0
 	_drone_sweep_index = _weighted_random_sweep_index()
 	_drone_vicinity_search_angle = 0.0
+	_drone_flank_watch_point = Vector2.INF
 	_player_sighted_enemy = false
 	_enemy_sighted_enemy = false
 	_mortar_resupply.clear()
@@ -1754,6 +1756,11 @@ func _drone_search_target() -> Vector2:
 			best_score = GameConfig.TARGET_PRIORITY_MORTAR
 			best_pos = joint_pos
 
+	var flank_watch_pos: Vector2 = _drone_flank_watch_target()
+	if not is_inf(flank_watch_pos.x) and GameConfig.TARGET_PRIORITY_FLANK_WATCH > best_score:
+		best_score = GameConfig.TARGET_PRIORITY_FLANK_WATCH
+		best_pos = flank_watch_pos
+
 	var best_squad: Unit = null
 	var best_squad_score := -1.0
 	for u in enemy_units:
@@ -1801,6 +1808,57 @@ func _drone_search_target() -> Vector2:
 		best_pos = _drone_sweep_target()
 
 	return best_pos
+
+
+## Where the drone checks for an enemy flanking around toward the mortar's
+## blind side — the drone's own contribution to spotting the kind of
+## approach _update_friendly_squad_positioning exists to answer, ideally
+## before it's close enough to force that response at all. Vector2.INF (no
+## flank worth watching right now) if the mortar isn't ACTIVE, or if every
+## compass bearing around it is already either screened by an ACTIVE
+## friendly squad (_lane_is_screened — that lane already has real coverage)
+## or sitting on/near an already-known enemy position (already covered by a
+## higher-priority tier above — no point in redundantly re-watching it).
+##
+## Sticky like _drone_sweep_target's own waypoint: keeps heading to the
+## SAME point once picked, rather than re-rolling every tick, until either
+## the drone actually arrives (DRONE_FLANK_WATCH_ARRIVE_RADIUS) or that
+## bearing stops qualifying (a squad now screens it, or something's been
+## spotted there since) — otherwise a bearing that briefly loses and
+## re-wins the weighted pick against its neighbors would have the drone
+## flitting between them instead of committing to actually checking one.
+func _drone_flank_watch_target() -> Vector2:
+	var mortar := _friendly_active_mortar()
+	if mortar == null:
+		return Vector2.INF
+
+	var screening_squads: Array[Unit] = []
+	for u in player_units:
+		if u.kind == Unit.Kind.SQUAD and u.state == Unit.State.ACTIVE:
+			screening_squads.append(u)
+	var known_enemies := _known_enemy_positions(Unit.Team.PLAYER)
+
+	var qualifying: Array[Vector2] = []
+	for bearing_deg in GameConfig.DRONE_FLANK_WATCH_BEARINGS_DEG:
+		var probe: Vector2 = mortar.global_position + Vector2.RIGHT.rotated(deg_to_rad(bearing_deg)) * GameConfig.MORTAR_FLANK_THREAT_RADIUS
+		if _lane_is_screened(probe, mortar.global_position, screening_squads):
+			continue
+		var already_known := false
+		for e in known_enemies:
+			if e.distance_to(probe) <= GameConfig.DRONE_FLANK_WATCH_ARRIVE_RADIUS:
+				already_known = true
+				break
+		if already_known:
+			continue
+		qualifying.append(probe)
+
+	if qualifying.is_empty():
+		return Vector2.INF
+
+	var current_still_qualifies: bool = qualifying.any(func(p): return p.distance_to(_drone_flank_watch_point) < 1.0)
+	if not current_still_qualifies or active_drone.global_position.distance_to(_drone_flank_watch_point) <= GameConfig.DRONE_FLANK_WATCH_ARRIVE_RADIUS:
+		_drone_flank_watch_point = qualifying[randi() % qualifying.size()]
+	return _drone_flank_watch_point
 
 
 ## The single currently-visible, still-ACTIVE, in-range enemy mortar worth
@@ -2362,29 +2420,44 @@ func _resolve_pending_mortar_shots() -> void:
 
 
 ## Word travels fast: break every still-marching enemy squad off its road
-## march and send it to cover, same reaction as if it had personally been
-## shot at (see Unit.take_hit's ENEMY-team branch). Squads already seeking
-## cover, retreating, withdrawn, or destroyed are left alone.
+## march and send it toward cover — but NOT via the plain, purely-proximity
+## "nearest cover point" reflex (Unit.seek_cover) every other bolt-for-cover
+## reaction in this game uses. All of them break at once here, which used to
+## be exactly the scenario most likely to pile several squads into the same
+## nearest patch of cover: several squads that are all still fairly close
+## together (same road march) each independently reaching for whichever
+## patch of cover is nearest THEM specifically tends to be the same one or
+## two patches nearest the whole group, not a real spread — the direct cause
+## of squads visibly bunching up (in the village or anywhere else) the
+## moment contact was first made, cover goal fully met but at the total
+## expense of ever surrounding anything or pressing toward the mortar.
 ##
-## All of them break at once here, which is exactly the scenario most
-## likely to pile several squads into the same nearest patch of cover —
-## `claimed` tracks where each squad processed so far in THIS event is
-## already headed, on top of any other active squad's current position, so
-## each successive squad prefers a different one (see Unit.seek_cover /
-## GameConfig.nearest_cover_point's avoid_positions). Also steered away
-## from cover near a known player position — bolting for cover shouldn't
-## mean running toward a threat it already knows is right there.
+## Routed through _next_advance_point instead — the same multi-goal
+## weighted scoring the ongoing advance-by-bounds already uses (cover,
+## concealment/exposure, and spreading out around the known friendly
+## cluster or the objective itself — see _score_advance_candidate) — so
+## this first break for cover is already weighing "surround" and "hunt the
+## mortar" against "get to cover," not just solving for cover alone and
+## leaving the other two goals to some later tick that may never come once
+## a squad's already settled in.
 func _alert_enemy_squads() -> void:
 	var alerted_any := false
-	var claimed: Array[Vector2] = []
-	var known_player_positions := _known_enemy_positions(Unit.Team.ENEMY)
+	var claimed_bearings: Array[float] = []
+	var pivot: Vector2 = _encirclement_pivot()
 	for u in enemy_units:
 		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or u.sought_cover:
 			continue
 		u.sought_cover = true
 		u.sought_cover_logged = true # logged once, right here, not via _log_hit_consequence
-		u.seek_cover(_ally_positions_for(u) + claimed, known_player_positions)
-		claimed.append(u.move_target)
+		var target: Vector2 = _next_advance_point(u, INF, claimed_bearings)
+		if target != u.global_position:
+			u.move_target = target
+			u.has_move_target = true
+			u.move_queue.clear()
+			u.move_speed = GameConfig.REPOSITION_SPEED
+			u.movement_predictable = false
+			if not is_inf(pivot.x):
+				claimed_bearings.append(rad_to_deg((target - pivot).angle()))
 		combat_log.log_seeking_cover(u)
 		alerted_any = true
 	if alerted_any:
@@ -2431,24 +2504,105 @@ func _update_enemy_squad_advance() -> void:
 ## — the next leg of an advance-by-rushes, not the whole remaining distance
 ## in one go. Not a blind straight line either: several candidate
 ## directions bending off the direct line (GameConfig.ENEMY_ADVANCE_ANGLES_
-## DEG) are each scored for cover/concealment/exposure (_score_advance_
-## candidate) and picked via a weighted-random roll (_weighted_advance_
-## point_pick) — a real squad usually avoids a straight dash across open
-## ground, or into a defender's engagement range, in favor of terrain or a
-## wider bend around whatever it already knows is watching, but "usually"
-## isn't "always": the literal straight line stays a reachable, if
-## lower-weight, candidate throughout.
-func _next_advance_point(u: Unit) -> Vector2:
+## DEG) are each scored for cover/concealment/exposure/encirclement
+## (_score_advance_candidate) and picked via a weighted-random roll
+## (_weighted_advance_point_pick) — a real squad usually avoids a straight
+## dash across open ground, or into a defender's engagement range, in favor
+## of terrain or a wider bend around whatever it already knows is watching
+## or where the rest of its own side already stands, but "usually" isn't
+## "always": the literal straight line stays a reachable, if lower-weight,
+## candidate throughout.
+##
+## Stops advancing once within GameConfig.ENEMY_SURROUND_STANDOFF_RADIUS of
+## the objective rather than trying to walk onto its exact position —
+## several squads each stopping on that ring, from whatever bearing their
+## own approach happened to settle on, is what actually surrounds the
+## objective instead of all of them piling onto the same spot.
+##
+## `max_step` overrides the normal bounded ENEMY_ADVANCE_RUSH_DISTANCE —
+## used by _alert_enemy_squads to let the initial break-for-cover scatter
+## cover most/all of the remaining distance to the standoff ring in one
+## decisive move (`INF`), rather than the slow, tick-by-tick reassessment
+## the ordinary advance-by-bounds uses once already under way. Without that,
+## several squads that all come under fire at once (and may well find a
+## target and stop moving again within a tick or two) would barely separate
+## at all before locking into whatever tight starting cluster they began
+## in — the direct cause of squads visibly bunching up the moment contact
+## was first made.
+##
+## `extra_bearings_deg` — additional already-claimed bearings (relative to
+## the SAME friendly_center this call resolves to; see _alert_enemy_squads)
+## folded into the encirclement scoring on top of every other currently
+## ACTIVE enemy squad's own actual position. Needed because several squads
+## alerted in the same event are processed one at a time, in the same tick,
+## before any of them has actually moved (see _tick_movement) — without
+## this, each one's own "where do my allies already stand" check would only
+## ever see everyone's stale, still-bunched starting positions, never the
+## bearings its allies-in-this-same-event just claimed a moment ago in this
+## very loop.
+func _next_advance_point(u: Unit, max_step: float = GameConfig.ENEMY_ADVANCE_RUSH_DISTANCE, extra_bearings_deg: Array[float] = []) -> Vector2:
 	var objective: Vector2 = _enemy_advance_objective()
 	var to_objective: Vector2 = objective - u.global_position
-	if to_objective.length() < 10.0:
-		return u.global_position # already there
-	var rush: float = min(to_objective.length(), GameConfig.ENEMY_ADVANCE_RUSH_DISTANCE)
+	var distance_to_objective: float = to_objective.length()
+	if distance_to_objective < GameConfig.ENEMY_SURROUND_STANDOFF_RADIUS:
+		return u.global_position # already close enough — hold this bearing rather than close in further
+	# Capped against the STANDOFF distance too, not just the full remaining
+	# distance — otherwise a squad already within one rush of the objective
+	# would overshoot clean through the standoff ring in a single bound,
+	# defeating the whole point of stopping there instead of at the literal
+	# objective.
+	var rush: float = min(distance_to_objective - GameConfig.ENEMY_SURROUND_STANDOFF_RADIUS, max_step)
 	var known_player_positions := _known_enemy_positions(Unit.Team.ENEMY)
+	# Prefer spreading out around the actual known friendly cluster — real
+	# encirclement, once there's an actual contact to surround — but with
+	# nothing sighted yet, spreading around the objective itself instead is
+	# what keeps several squads converging on the same mortar/village from
+	# stacking on the exact same bearing to it in the first place.
+	var friendly_center: Vector2 = _known_position_centroid(known_player_positions)
+	if is_inf(friendly_center.x):
+		friendly_center = objective
+	var other_bearings: Array[float] = extra_bearings_deg.duplicate()
+	for other in enemy_units:
+		if other == u or other.kind != Unit.Kind.SQUAD or other.state != Unit.State.ACTIVE:
+			continue
+		other_bearings.append(rad_to_deg((other.global_position - friendly_center).angle()))
 	var candidates: Array[Vector2] = []
 	for angle_deg in GameConfig.ENEMY_ADVANCE_ANGLES_DEG:
 		candidates.append(u.global_position + to_objective.normalized().rotated(deg_to_rad(angle_deg)) * rush)
-	return _weighted_advance_point_pick(candidates, GameConfig.ENEMY_ADVANCE_ANGLES_DEG, known_player_positions)
+	return _weighted_advance_point_pick(candidates, GameConfig.ENEMY_ADVANCE_ANGLES_DEG, known_player_positions, friendly_center, other_bearings)
+
+
+## The pivot _next_advance_point uses for its own encirclement scoring —
+## the known friendly cluster's centroid once there's an actual contact, or
+## the current advance objective itself before then. Exposed separately so
+## _alert_enemy_squads can convert a chosen target back into a bearing
+## around the SAME pivot _next_advance_point itself used to pick it.
+func _encirclement_pivot() -> Vector2:
+	var pivot: Vector2 = _known_position_centroid(_known_enemy_positions(Unit.Team.ENEMY))
+	if is_inf(pivot.x):
+		pivot = _enemy_advance_objective()
+	return pivot
+
+
+## The centroid of `positions`, or Vector2.INF if there are none — used to
+## judge a candidate's bearing "around" the known friendly cluster for
+## encirclement scoring, same "nothing to actually be dangerous to/around"
+## neutral-when-empty convention used elsewhere in this file.
+func _known_position_centroid(positions: Array[Vector2]) -> Vector2:
+	if positions.is_empty():
+		return Vector2.INF
+	var sum := Vector2.ZERO
+	for p in positions:
+		sum += p
+	return sum / positions.size()
+
+
+## The minimum absolute angular distance between two bearings in degrees,
+## correctly wrapped (e.g. 350° and 10° are 20° apart, not 340°) — always in
+## [0, 180].
+func _angle_diff(a_deg: float, b_deg: float) -> float:
+	var d: float = fmod(abs(a_deg - b_deg), 360.0)
+	return min(d, 360.0 - d)
 
 
 ## The enemy's current objective for advance-by-bounds: the friendly
@@ -2662,12 +2816,24 @@ func _lane_is_screened(from: Vector2, to: Vector2, squads: Array[Unit]) -> bool:
 
 ## How much `point` is worth as the next advance leg at `angle_deg` off the
 ## direct line — see GameConfig.ENEMY_ADVANCE_COVER_BONUS/_CONCEALMENT_
-## BONUS/_ANGLE_PENALTY_PER_DEG for the rationale behind each term.
-## Concealment is judged against EVERY currently-known player position, not
-## just the nearest — a spot only counts as truly hidden if none of them can
-## see it; with no known player position at all it's a neutral 0 bonus, same
-## as the mortar danger-scoring's "nothing to actually be dangerous to" case.
-func _score_advance_candidate(point: Vector2, angle_deg: float, known_player_positions: Array[Vector2]) -> float:
+## BONUS/_ENCIRCLE_BONUS/_ANGLE_PENALTY_PER_DEG for the rationale and
+## relative weight behind each term; they're deliberately similar
+## magnitudes so no one goal structurally dominates the others.
+##
+## Concealment/exposure are judged against EVERY currently-known player
+## position, not just the nearest — a spot only counts as truly hidden if
+## none of them can see it; with no known player position at all both are a
+## neutral 0, same as the mortar danger-scoring's "nothing to actually be
+## dangerous to" case.
+##
+## ENCIRCLE rewards a candidate whose bearing (relative to `friendly_center`
+## — the known friendly cluster's own centroid) is angularly far from every
+## OTHER active enemy squad's own current bearing around that same center —
+## the actual mechanism behind squads settling on different sides of a
+## shared objective instead of all crowding the one patch of cover nearest
+## the direct line to it. Neutral 0 with no known friendly cluster yet, or
+## with no other squad to differ from (nothing to spread out relative to).
+func _score_advance_candidate(point: Vector2, angle_deg: float, known_player_positions: Array[Vector2], friendly_center: Vector2 = Vector2.INF, other_bearings_deg: Array[float] = []) -> float:
 	var score: float = GameConfig.ENEMY_ADVANCE_BASE_WEIGHT
 	if GameConfig.is_in_cover(GameConfig.get_terrain_type_at(point)):
 		score += GameConfig.ENEMY_ADVANCE_COVER_BONUS
@@ -2683,6 +2849,12 @@ func _score_advance_candidate(point: Vector2, angle_deg: float, known_player_pos
 			score += GameConfig.ENEMY_ADVANCE_CONCEALMENT_BONUS
 		if exposed_to_fire:
 			score -= GameConfig.ENEMY_ADVANCE_EXPOSURE_PENALTY
+	if not is_inf(friendly_center.x) and not other_bearings_deg.is_empty():
+		var candidate_bearing: float = rad_to_deg((point - friendly_center).angle())
+		var nearest_claimed_gap := 180.0
+		for b in other_bearings_deg:
+			nearest_claimed_gap = min(nearest_claimed_gap, _angle_diff(candidate_bearing, b))
+		score += GameConfig.ENEMY_ADVANCE_ENCIRCLE_BONUS * (nearest_claimed_gap / 180.0)
 	score -= abs(angle_deg) * GameConfig.ENEMY_ADVANCE_ANGLE_PENALTY_PER_DEG
 	return max(score, 0.1)
 
@@ -2691,11 +2863,11 @@ func _score_advance_candidate(point: Vector2, angle_deg: float, known_player_pos
 ## _next_advance_point) — not a deterministic "always the single best
 ## angle," matching the same real-tactics-isn't-perfectly-rational idiom as
 ## _weighted_mortar_target_pick.
-func _weighted_advance_point_pick(candidates: Array[Vector2], angles_deg: Array[float], known_player_positions: Array[Vector2]) -> Vector2:
+func _weighted_advance_point_pick(candidates: Array[Vector2], angles_deg: Array[float], known_player_positions: Array[Vector2], friendly_center: Vector2 = Vector2.INF, other_bearings_deg: Array[float] = []) -> Vector2:
 	var weights: Array[float] = []
 	var total := 0.0
 	for i in candidates.size():
-		var w: float = _score_advance_candidate(candidates[i], angles_deg[i], known_player_positions)
+		var w: float = _score_advance_candidate(candidates[i], angles_deg[i], known_player_positions, friendly_center, other_bearings_deg)
 		weights.append(w)
 		total += w
 	var roll: float = randf() * total

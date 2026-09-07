@@ -823,6 +823,23 @@ const MORTAR_FLANK_CORRIDOR_WIDTH: float = 300.0 * PIXELS_PER_METER
 # threat that's still distant, and would abandon the mortar's other flanks).
 const MORTAR_PROTECTIVE_RADIUS: float = 350.0 * PIXELS_PER_METER
 
+## The drone's own flank-watch search (BattleManager._drone_flank_watch_
+## target): a fixed ring of compass bearings around the friendly mortar,
+## checked at MORTAR_FLANK_THREAT_RADIUS out — the same distance that
+## already defines "close enough to be a real threat" for the friendly
+## squads' own screening behavior, so the drone is watching exactly the
+## zone an unscreened approach would actually trigger a squad response in.
+## 8 bearings (every 45°) is coarse — a real patrol pattern, not pixel-
+## perfect coverage — deliberately, since this is meant to catch a
+## developing flanking approach in the open country around the mortar, not
+## to replace the squads' own close-in screening.
+const DRONE_FLANK_WATCH_BEARINGS_DEG: Array[float] = [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0]
+
+## Once the drone arrives within this radius of its current flank-watch
+## point (or that bearing stops qualifying — see _drone_flank_watch_target),
+## it picks a new one rather than parking there for the rest of the battle.
+const DRONE_FLANK_WATCH_ARRIVE_RADIUS: float = 150.0 * PIXELS_PER_METER
+
 # Limited ammunition — every mortar team on both sides starts with this
 # many rounds (see Unit.setup) and has to actually manage it, not just
 # reload for free forever. See BattleManager's request_mortar_resupply/
@@ -915,6 +932,23 @@ const TARGET_PRIORITY_MORTAR: float = 100.0
 const TARGET_PRIORITY_MORTAR_LEAD_DISCOUNT: float = 0.8
 const TARGET_PRIORITY_SQUAD_MAX: float = 10.0
 const SQUAD_DANGER_RANGE: float = 1200.0 * PIXELS_PER_METER
+
+## Checking whether an enemy is currently flanking around toward the
+## mortar's blind side (see BattleManager._drone_flank_watch_target) sits
+## between the two: below any confirmed-or-leaded mortar (100 / 80) — an
+## actual, already-located mortar is still the single biggest, most
+## repeatable threat there is, real ammunition landing on real people every
+## reload, and nothing preventative outweighs that — but well above simply
+## re-confirming a squad already spotted and being watched (TARGET_PRIORITY_
+## SQUAD_MAX = 10). A squad already seen is a squad the friendly side
+## already knows to worry about; a flanking approach nobody has spotted yet
+## is exactly the kind of surprise that turns into "surrounded by enemies
+## under cover" (see the doctrine doc's own v76 follow-ups) before anyone
+## reacts. Set a little above TARGET_PRIORITY_RETREATING_ENEMY (25) too —
+## catching a flanking squad before it ever reaches the mortar is worth
+## more than finishing off one already-broken straggler, even during a
+## general retreat.
+const TARGET_PRIORITY_FLANK_WATCH: float = 30.0
 
 # How a MORTAR weighs which non-mortar candidate to actually fire on — see
 # BattleManager._mortar_target_value/_pick_target's own doc comment. Equal
@@ -1159,12 +1193,27 @@ const ENEMY_ADVANCE_RUSH_DISTANCE: float = 400.0 * PIXELS_PER_METER
 
 ## _next_advance_point's candidate directions, in degrees off the straight
 ## line to the objective — spread both ways so a squad can bend its rush
-## left or right, whichever side actually offers cover or breaks a known
-## contact's line of sight; 0.0 keeps the literal straight-line rush in the
-## pool too, since "usually avoid the open" isn't "never." Capped at a
-## moderate angle (not 90+) so every candidate still makes real net progress
-## toward the objective — bending the approach, not sidestepping in place.
-const ENEMY_ADVANCE_ANGLES_DEG: Array[float] = [-50.0, -25.0, 0.0, 25.0, 50.0]
+## left or right, whichever side actually offers cover, breaks a known
+## contact's line of sight, or opens up a bearing around the friendly
+## cluster (or the objective itself) none of its own side has claimed yet
+## (see ENEMY_ADVANCE_ENCIRCLE_BONUS). 0.0 keeps the literal straight-line
+## rush in the pool too, since "usually avoid the open" isn't "never."
+##
+## Goes all the way out to ±120.0 — genuinely PAST perpendicular, meaning
+## the outermost entries are a real step backward along the direct line to
+## the objective, not just a lateral bend. That's deliberate: several
+## squads that all break for cover at the same moment (see
+## _alert_enemy_squads) usually start out bunched close together (the same
+## road-march column), and a squad trying to circle around to a genuinely
+## different side of a nearby objective needs more room to maneuver than a
+## shallow bend can give it — capping at a "moderate," always-forward angle
+## was exactly what left squads with no real way to spread out from a tight
+## starting cluster, however strongly ENEMY_ADVANCE_ENCIRCLE_BONUS wanted to
+## push them apart. A wide or backward-leaning candidate only actually wins
+## the weighted roll when the scoring says the detour (or the temporary lost
+## ground) is worth it — see ANGLE_PENALTY_PER_DEG below, which still taxes
+## the widest entries the most heavily of any candidate.
+const ENEMY_ADVANCE_ANGLES_DEG: Array[float] = [-120.0, -80.0, -50.0, -25.0, 0.0, 25.0, 50.0, 80.0, 120.0]
 
 ## Advance-candidate scoring — see BattleManager._score_advance_candidate.
 ## COVER rewards a candidate that actually lands in TREES/BUILDING terrain,
@@ -1173,16 +1222,46 @@ const ENEMY_ADVANCE_ANGLES_DEG: Array[float] = [-50.0, -25.0, 0.0, 25.0, 50.0]
 ## candidate that every currently-known player position is unable to
 ## directly see — this is what makes bending wide toward one side actually
 ## pay off as a real flanking move once there's a spotted friendly to route
-## around, rather than costing distance for nothing. ANGLE_PENALTY_PER_DEG
-## makes a bigger bend cost more, so a detour has to actually be worth it
-## rather than every rush wandering aimlessly; BASE_WEIGHT keeps the literal
-## straight-line-through-the-open candidate meaningfully reachable (never
-## zero), so a direct dash across open ground still happens sometimes — just
-## not usually.
+## around, rather than costing distance for nothing. ENCIRCLE_BONUS rewards
+## a candidate that opens up a DIFFERENT bearing — relative to the known
+## friendly cluster's own center once there's an actual contact to surround,
+## or relative to the objective itself before then, so several squads
+## converging on the same mortar/village don't stack on the same approach
+## bearing even with nothing sighted yet — than where the rest of the
+## squad's own side is already standing. See BattleManager._next_advance_
+## point/_score_advance_candidate's own comments for why this is what
+## actually keeps squads from all piling onto the same patch of cover once
+## close to a shared objective.
+## ANGLE_PENALTY_PER_DEG makes a bigger bend cost more, so a detour has to
+## actually be worth it rather than every rush wandering aimlessly;
+## BASE_WEIGHT keeps the literal straight-line-through-the-open candidate
+## meaningfully reachable (never zero), so a direct dash across open ground
+## still happens sometimes — just not usually. All four bonus/penalty terms
+## are deliberately similar magnitudes (2.0-3.0, against a 0.1-0.2 total
+## angle-penalty spread across the widened angle set) so no single goal
+## structurally dominates the others — which one actually wins a given roll
+## depends on the real terrain and known contacts, not a fixed pecking
+## order.
 const ENEMY_ADVANCE_COVER_BONUS: float = 3.0
 const ENEMY_ADVANCE_CONCEALMENT_BONUS: float = 2.0
+const ENEMY_ADVANCE_ENCIRCLE_BONUS: float = 3.0
 const ENEMY_ADVANCE_ANGLE_PENALTY_PER_DEG: float = 0.03
 const ENEMY_ADVANCE_BASE_WEIGHT: float = 1.0
+
+## Once an enemy squad is this close to its current objective (see
+## BattleManager._enemy_advance_objective/_next_advance_point), it treats
+## the objective as "reached" and stops advancing further inward — the
+## direct fix for squads bunching up on top of each other (or the objective
+## itself): every squad approaching the SAME point would otherwise
+## eventually converge on that literal coordinate regardless of how well
+## ENCIRCLE_BONUS spread out their approach bearings along the way. Halting
+## on a ring at this radius instead — reached from a different bearing per
+## squad, thanks to that same encirclement pull during the approach — is
+## what actually turns "several squads converging on one spot" into "an
+## objective surrounded from multiple sides," matching the doctrine's own
+## "surround the friendly squads" goal as a real end state, not just a
+## scoring nudge along the way.
+const ENEMY_SURROUND_STANDOFF_RADIUS: float = 300.0 * PIXELS_PER_METER
 
 
 ## A FOREST_PATCH's actual footprint radius at angle `theta` (radians) from
