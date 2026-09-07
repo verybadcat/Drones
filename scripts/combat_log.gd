@@ -13,17 +13,18 @@ class_name CombatLog
 ##
 ## Height is genuinely budget-constrained, not just a style choice: the
 ## whole window is a fixed 700px tall (see project.godot), the dashboard
-## above this now legitimately needs ~400px with every row showing
-## (DRONE_TEAM recon mode, enemy's 2 mortars both still active — see
-## CasualtyDashboard._ready), and main.gd positions this panel below it,
-## below the one button row (general retreat) above the dashboard in turn —
-## there simply isn't room for this to be as tall as it once was without
-## something overlapping something else.
+## above this now legitimately needs ~500px with every row showing at its
+## real worst-case wrapped height (DRONE_TEAM recon mode, enemy's 2 mortars
+## both still active, and the drone fleet row's every status component
+## populated at once — see CasualtyDashboard._ready), and main.gd positions
+## this panel below it, below the one button row (general retreat) above
+## the dashboard in turn — there simply isn't room for this to be as tall
+## as it once was without something overlapping something else.
 var _scroll: ScrollContainer
 var _list: VBoxContainer
 
 const MAX_ENTRIES: int = 200
-const SIZE: Vector2 = Vector2(300, 220)
+const SIZE: Vector2 = Vector2(300, 120)
 
 
 func _ready() -> void:
@@ -98,6 +99,10 @@ func log_crew_abandoned(unit: Unit) -> void:
 	add_entry("%s takes a hit — %d/%d crew down, survivors abandon %s and flee" % [
 		unit.display_name(), unit.crew_casualties, unit.crew_size, what
 	])
+
+
+func log_mortar_ammo_cookoff(unit: Unit) -> void:
+	add_entry("%s's stored rounds cook off in a secondary explosion" % unit.display_name())
 
 
 func log_drone_launched(unit: Unit) -> void:
@@ -222,7 +227,3 @@ func log_seeking_cover(unit: Unit) -> void:
 
 func log_bolts_for_cover(unit: Unit) -> void:
 	add_entry("%s bolts for a new position under mortar fire" % unit.display_name())
-
-
-func log_battle_end(report_text: String) -> void:
-	add_entry(report_text)

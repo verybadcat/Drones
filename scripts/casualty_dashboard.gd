@@ -42,18 +42,22 @@ func setup(p_battle_manager: BattleManager) -> void:
 
 
 func _ready() -> void:
-	# Measured directly (a headless layout diagnostic, not a guess): title +
-	# separator + player label/bar + up to 2 player mortar rows + drone
-	# row + separator + enemy label/bar + up to 2 enemy mortar rows comes to
-	# ~366px of actual VBoxContainer content, +20px for this panel's own
-	# StyleBoxFlat margins below = ~386px real height with every row
-	# showing (DRONE_TEAM recon mode, enemy's 2 mortars both still present).
-	# 300 was a stale guess from before the mortar/drone rows existed in
-	# their current form — undersized by 86px, which is exactly how much
-	# main.gd's CombatLog (positioned below this panel at a fixed y) ended
-	# up overlapping it. Sized here with real margin, not to the exact
-	# minimum, since text metrics can shift slightly across fonts/platforms.
-	custom_minimum_size = Vector2(320, 400)
+	# Measured directly (a headless layout diagnostic, not a guess), with
+	# every row actually showing its full text, including the two cases
+	# that wrap to a second line at this panel's 320px width: a mortar row
+	# once its status grows a resupply suffix ("in action (22 rounds,
+	# resupply ~25m out)"), and — the tallest case by far — the drone fleet
+	# row once every one of its status components is populated at once
+	# ("1 airborne ..., 1 backup ..., N inbound, N ready ..., N swapping
+	# battery, N spare batteries ..., N lost"), a real state normal play can
+	# reach given enough battle duration, not a contrived one. That worst
+	# case measures 478px real height; 400 was sized for the single-line
+	# assumption from before these rows could wrap at all, so it overlapped
+	# main.gd's CombatLog (positioned below this panel at a fixed y) by as
+	# much as 78px. Sized here with real margin over the measured worst
+	# case, not to the exact minimum, since text metrics can shift slightly
+	# across fonts/platforms.
+	custom_minimum_size = Vector2(320, 500)
 
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.07, 0.07, 0.07, 0.9)

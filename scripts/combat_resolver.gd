@@ -6,23 +6,39 @@ class_name CombatResolver
 ## the engine.
 
 # Cover against DIRECT fire (squads): a tremendous swing. In the open, a
-# squad is exposed and takes an outright penalty (1.3x) on top of having no
-# protection at all — brutal. In trees or a building, fire almost never
-# lands. This is the whole point of holding the village.
+# squad is exposed and takes an outright penalty (1.6x, matching
+# MOVING_HIT_MULTIPLIER — standing exposed in the open is now exactly as
+# dangerous as being caught moving, not notably safer) on top of having no
+# protection at all — brutal, especially combined with the close-range
+# lethality bonus below. In trees or a building, fire almost never lands.
+# This is the whole point of holding the village.
 const SQUAD_COVER_MULTIPLIER := {
-	GameConfig.TerrainType.OPEN: 1.3,
+	GameConfig.TerrainType.OPEN: 1.6,
 	GameConfig.TerrainType.TREES: 0.2,
 	GameConfig.TerrainType.BUILDING: 0.1,
 }
 
-# Cover against MORTAR fire: much weaker — a mortar's plunging fire is the
-# thing that punishes cover that stops rifles. Not impossible, just easier.
-# The open-exposure penalty still applies — a mortar hits an exposed target
-# harder too, same as direct fire does.
+# Cover against MORTAR fire: weaker than direct fire's own cover table
+# (SQUAD_COVER_MULTIPLIER above) — a mortar's plunging fire is the thing
+# that punishes cover built to stop a flat rifle trajectory, so it's still
+# meaningfully easier to survive incoming mortar fire in the open vs. under
+# cover than direct fire's near-total block. But NOT nearly as weak as this
+# table used to claim: US Army FM 7-90 planning figures put a STANDING,
+# exposed platoon under sustained 60mm mortar fire at roughly 20% casualties,
+# a PRONE one under 10%, and one dug in with overhead cover under 10% and
+# "mostly by direct hits" — a real, several-fold protective effect from
+# cover and posture, not the ~1.9x spread (1.3 vs 0.7) this table used to
+# have between fully exposed and inside a building. Retuned to a roughly
+# 4x OPEN-to-BUILDING spread (matching "mostly direct hits only" under
+# overhead cover) and TREES roughly halfway there — undergrowth breaks up
+# fragment paths and forces some rounds to detonate in the canopy rather
+# than at ground level, real but well short of a hard roof overhead. The
+# open-exposure penalty still applies on top — a mortar hits an exposed
+# target harder too, same as direct fire does.
 const MORTAR_COVER_MULTIPLIER := {
 	GameConfig.TerrainType.OPEN: 1.3,
-	GameConfig.TerrainType.TREES: 0.85,
-	GameConfig.TerrainType.BUILDING: 0.7,
+	GameConfig.TerrainType.TREES: 0.5,
+	GameConfig.TerrainType.BUILDING: 0.3,
 }
 
 # Concealment: reduces the chance of being spotted in the first place.
@@ -169,6 +185,28 @@ static func has_live_observer(target: Unit, observers: Array[Unit]) -> bool:
 ## hard to lead-aim against and gets a real hit-chance PENALTY, not just "no
 ## bonus."
 ##
+## Direct fire ALSO gets a real, range-dependent lethality bonus — see
+## GameConfig.SQUAD_CLOSE_RANGE_HIT_MULTIPLIER for the real-world combat
+## data behind both the existence and the SHAPE of this curve — independent
+## of and stacked on top of the cover/moving multipliers above: closer
+## range means an easier shot regardless of what the target is or isn't
+## hiding behind or whether it's on the move. Exponential decay, not a
+## straight line — most of the bonus concentrated at genuinely close range,
+## a rapid initial falloff, then a long, nearly-flat tail approaching (but
+## never quite reaching) a neutral 1.0x — matching how real rifle hit
+## probability actually falls off with distance. Indirect (mortar) fire
+## doesn't get this — a lobbed shell's accuracy isn't a function of how
+## close the target happens to be to the tube.
+##
+## `drone_directed` — true only for the player's own mortar, and only while
+## a friendly drone is actually airborne, per GameConfig.DRONE_DIRECTED_
+## MORTAR_ACCURACY_MULTIPLIER's own reasoning — applies a further flat
+## accuracy bonus on top of everything else above. A continuous overhead
+## video feed corrects the next round off the last one's actual impact in
+## a way a ground spotter's limited, single-position view never can; cover
+## still does its job regardless (this is an accuracy multiplier, not a
+## way to see through a roof).
+##
 ## `ally_positions` and `known_enemy_positions` are passed straight through
 ## to `defender.take_hit()` — other same-team units' current positions (so
 ## a squad breaking for cover after this hit picks a DIFFERENT patch than
@@ -181,7 +219,7 @@ static func has_live_observer(target: Unit, observers: Array[Unit]) -> bool:
 ## standing on any ground to take cover in — in favor of a flat, severe
 ## DRONE_HIT_CHANCE_MULTIPLIER: altitude, not a foxhole, is what protects it,
 ## and that protection doesn't depend on whether it happens to be moving.
-static func resolve_fire(attacker: Unit, defender: Unit, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = []) -> bool:
+static func resolve_fire(attacker: Unit, defender: Unit, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], drone_directed: bool = false) -> bool:
 	var chance: float
 	if defender.kind == Unit.Kind.DRONE:
 		chance = attacker.base_hit_chance * GameConfig.DRONE_HIT_CHANCE_MULTIPLIER
@@ -190,11 +228,17 @@ static func resolve_fire(attacker: Unit, defender: Unit, ally_positions: Array[V
 		var cover_table: Dictionary = MORTAR_COVER_MULTIPLIER if attacker.kind == Unit.Kind.MORTAR else SQUAD_COVER_MULTIPLIER
 		var cover_multiplier: float = 1.0 if moving else cover_table[defender.terrain_type()]
 		chance = attacker.base_hit_chance * cover_multiplier
+		if attacker.kind != Unit.Kind.MORTAR:
+			var distance: float = attacker.global_position.distance_to(defender.global_position)
+			var decay: float = exp(-distance / GameConfig.SQUAD_CLOSE_RANGE_DECAY_M)
+			chance *= 1.0 + (GameConfig.SQUAD_CLOSE_RANGE_HIT_MULTIPLIER - 1.0) * decay
 		if moving:
 			if attacker.kind == Unit.Kind.MORTAR:
 				chance *= GameConfig.MORTAR_PREDICTABLE_MOVING_MULTIPLIER if defender.movement_predictable else GameConfig.MORTAR_UNPREDICTABLE_MOVING_MULTIPLIER
 			else:
 				chance *= GameConfig.MOVING_HIT_MULTIPLIER
+		if attacker.kind == Unit.Kind.MORTAR and drone_directed:
+			chance *= GameConfig.DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER
 	var hit: bool = randf() < chance
 	if hit:
 		defender.take_hit(attacker.kind == Unit.Kind.MORTAR, ally_positions, known_enemy_positions)

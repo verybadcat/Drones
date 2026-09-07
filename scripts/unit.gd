@@ -91,6 +91,11 @@ var sought_cover_logged: bool = false
 # BattleManager polls + clears this to log each occurrence once.
 var bolted_for_cover: bool = false
 
+# MORTAR only — set true by _roll_mortar_ammo_cookoff whenever a hit sets
+# off this mortar's own stored rounds. Same one-shot poll-and-clear pattern
+# as bolted_for_cover above; see BattleManager._log_hit_consequence.
+var ammo_cooked_off: bool = false
+
 var retreat_speed: float = 0.0
 var retreat_target_x: float = 0.0 # x that means "reached safety" while retreating
 
@@ -322,9 +327,18 @@ func _check_retreat(known_enemy_positions: Array[Vector2] = [], ally_positions: 
 ## on/near a small crew is decisive: however many of them go down in this
 ## one hit (`crew_casualties`, an honest headcount, not a vague percent) are
 ## OUT OF ACTION for the rest of the battle either way, unlike a squad's
-## gradual attrition. If anyone survives, they abandon the position right
-## there and retreat to try to get clear (see order_retreat()); only a hit
-## that accounts for the whole crew actually destroys the unit.
+## gradual attrition. Only a hit that accounts for the whole crew actually
+## destroys the unit outright.
+##
+## A surviving MORTAR crew doesn't automatically abandon the gun, though —
+## see GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE for the real doctrine and
+## reasoning behind this: real crew-served-weapon doctrine favors keeping a
+## reduced crew firing over abandoning it outright, and whether that's
+## actually viable depends on how much crew is left AND whether the crew
+## itself is in real danger of being overrun, not casualties alone. A
+## drone-team crew has no equivalent "someone else takes over the gun"
+## option (there's no weapon to cross-level, just the ground-control link)
+## so it keeps the older unconditional-retreat behavior.
 ##
 ## "Out of action" is not the same claim as "dead," though — a crew hit is
 ## exactly as capable of producing killed vs. wounded survivors as a squad's
@@ -344,8 +358,78 @@ func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_pos
 		state = State.DESTROYED
 		state_changed.emit(self)
 		return
-	if state == State.ACTIVE:
-		order_retreat(known_enemy_positions, ally_positions)
+
+	var cooked_off := false
+	if kind == Kind.MORTAR:
+		cooked_off = _roll_mortar_ammo_cookoff()
+		pips = crew_size - crew_casualties # a cook-off can add its own casualties on top — keep this in sync
+		if crew_casualties >= crew_size:
+			state = State.DESTROYED
+			state_changed.emit(self)
+			return
+
+	if state != State.ACTIVE:
+		return
+	if kind == Kind.MORTAR and not cooked_off and _mortar_crew_holds_position(known_enemy_positions):
+		# Stays in the fight, wounded but still crewed — a real reason to
+		# relocate (shoot-and-scoot after the next shot, the out-of-ammo
+		# safety check, or simply being spotted while idle) still applies
+		# exactly as it would to an untouched crew; this only means it
+		# doesn't pull out of the battle over this hit alone. Marked as if
+		# it had just weathered counter-battery fire either way — whatever
+		# actually hit it, a crew that chose to stick it out after taking
+		# casualties is especially eager not to get caught again.
+		evading_counter_battery = true
+		return
+	order_retreat(known_enemy_positions, ally_positions)
+
+
+## Rolls whether this hit sets off the mortar's own stored rounds in a
+## secondary explosion — see GameConfig.MORTAR_AMMO_COOKOFF_MAX_CHANCE for
+## the reasoning and the (judgment-call, not cited) probability. A cook-off
+## destroys whatever rounds were left (there's no stockpile left to protect
+## or carry away) and can knock down more of the surviving crew on top of
+## the original hit — a violent secondary blast right at the position is a
+## real danger to whoever's still standing there, not just a fireworks
+## show. Sets `ammo_cooked_off` (a one-shot flag, same pattern as
+## `bolted_for_cover`) for BattleManager to narrate and clear; `nothing to
+## cook off` (already dry) always returns false outright.
+func _roll_mortar_ammo_cookoff() -> bool:
+	if mortar_rounds_remaining <= 0:
+		return false
+	var chance: float = GameConfig.MORTAR_AMMO_COOKOFF_MAX_CHANCE * clamp(float(mortar_rounds_remaining) / float(GameConfig.MORTAR_STARTING_AMMO), 0.0, 1.0)
+	if randf() >= chance:
+		return false
+	mortar_rounds_remaining = 0
+	var remaining: int = crew_size - crew_casualties
+	if remaining > 0:
+		var newly_down: int = randi_range(1, remaining)
+		crew_casualties += newly_down
+		_categorize_casualties(newly_down)
+	ammo_cooked_off = true
+	return true
+
+
+## Whether a wounded MORTAR crew (crew_size - crew_casualties survivors)
+## keeps the gun in the fight rather than abandoning it — see GameConfig.
+## MORTAR_CREW_OVERRUN_DANGER_RANGE for the doctrine this models. A genuine
+## risk-weighted roll, not a hard cutoff, matching this game's standing
+## "real decisions aren't perfectly rational" idiom: `remaining_fraction *
+## (1.0 - overrun_risk)`. A full-strength crew with nothing threatening it
+## up close holds essentially every time; the same crew with an enemy
+## closing to overrun range flees almost regardless of how many hands are
+## still on the gun — self-preservation from being physically overrun beats
+## the tactical value of one more round downrange. With nothing known
+## nearby at all, overrun_risk is 0 and the decision rests purely on how
+## much crew is actually left to work the tube.
+func _mortar_crew_holds_position(known_enemy_positions: Array[Vector2]) -> bool:
+	var remaining_fraction: float = float(crew_size - crew_casualties) / float(crew_size)
+	var nearest_threat_dist := INF
+	for p in known_enemy_positions:
+		nearest_threat_dist = min(nearest_threat_dist, global_position.distance_to(p))
+	var overrun_risk: float = clamp(1.0 - nearest_threat_dist / GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE, 0.0, 1.0)
+	var hold_chance: float = remaining_fraction * (1.0 - overrun_risk)
+	return randf() < hold_chance
 
 
 ## Force this unit into a retreat regardless of its threshold — used both by

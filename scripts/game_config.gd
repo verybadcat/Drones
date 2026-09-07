@@ -743,6 +743,36 @@ const DRONE_VICINITY_SEARCH_ANGLE_STEP_DEG: float = 70.0
 # CombatResolver.
 const MOVING_HIT_MULTIPLIER: float = 1.6
 
+## DIRECT fire gets a real, independent lethality bonus the closer the
+## range — the effective danger space a rifle squad can actually control
+## accurately shrinks fast with distance, on top of whatever cover the
+## target does or doesn't have. Shaped to match real infantry-combat data,
+## not a straight-line guess: the US Army's 1948 Operations Research Office
+## study of roughly 3 million WWII/Korea casualty reports found hit
+## probability "satisfactory only up to 100 yards, declining rapidly
+## beyond," with the vast majority of engagements — and hits — occurring
+## within 300 yards even though rifles were effective to nearly 3x that;
+## separately, 1960s-era M16 test data put 50% hit probability on a
+## STATIONARY man-sized target at roughly 250m under favorable range
+## conditions (combat stress drives real figures well below that). That's a
+## front-loaded curve — most of the advantage concentrated at genuinely
+## close range, a rapid initial falloff, then a long, nearly-flat tail — not
+## a straight line from 2x at the muzzle down to 1x at max range. Modeled
+## here as exponential decay (see CombatResolver.resolve_fire): `1.0 +
+## (this - 1.0) * exp(-distance_m / SQUAD_CLOSE_RANGE_DECAY_M)`. At the
+## chosen SQUAD_CLOSE_RANGE_DECAY_M (150m), that's ~1.72x still at 50m,
+## ~1.55x at 100 yards (still "satisfactory"), down to ~1.16x by 300 yards
+## and ~1.03x by SQUAD_ENGAGEMENT_RANGE (400m) itself — genuinely brutal at
+## point-blank, and correctly back near baseline by the range real data
+## says most rifle lethality has already dropped off. Stacks with
+## SQUAD_COVER_MULTIPLIER's own OPEN entry; TREES/BUILDING's tiny
+## multipliers mean even the doubled close-range bonus still lands on a
+## small number, so cover keeps doing its job regardless of range. Direct
+## fire only — a mortar's plunging indirect fire doesn't get easier to aim
+## just because the target happens to be closer to the tube.
+const SQUAD_CLOSE_RANGE_HIT_MULTIPLIER: float = 2.0
+const SQUAD_CLOSE_RANGE_DECAY_M: float = 150.0 * PIXELS_PER_METER
+
 # MORTAR fire against a moving target is the opposite story: indirect fire
 # has to be aimed at where the target WILL be, which only works if the
 # movement is predictable (the enemy's steady road march — see
@@ -751,6 +781,24 @@ const MOVING_HIT_MULTIPLIER: float = 1.6
 # just "no bonus."
 const MORTAR_PREDICTABLE_MOVING_MULTIPLIER: float = 1.1
 const MORTAR_UNPREDICTABLE_MOVING_MULTIPLIER: float = 0.25
+
+## A continuous, real-time video feed genuinely makes indirect fire more
+## accurate than a ground spotter ever can — modern reporting on drone-
+## directed artillery/mortar fire in Ukraine cites accuracy improvements on
+## the order of 200-250% (roughly doubled to tripled) over ground-observer-
+## adjusted fire, plus a dramatically shorter sensor-to-shooter cycle (a
+## Russian account put UAV-cued fire at 3-5 minutes versus roughly 30
+## minutes without one) — a drone operator watches the round actually land
+## and corrects the next one immediately, where a ground observer needs
+## line of sight to both the target AND the impact, is limited to what's
+## visible from one fixed position, and passes corrections by voice. Set
+## conservatively within that cited range (not the high end) so even the
+## single most favorable case (a fully exposed target in the open) still
+## isn't a mathematical certainty — see CombatResolver.resolve_fire, applied
+## only to the PLAYER's own mortar (the only one with a doctrine-level
+## SPOTTER/DRONE_TEAM choice at all) and only while a friendly drone is
+## actually airborne to provide it, not merely available in principle.
+const DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER: float = 1.75
 
 # Direct-fire (squad) engagement range — a squad can only fire at a target
 # IT could plausibly see and reach with its own weapons, unlike a mortar
@@ -1165,6 +1213,46 @@ const HEAVILY_WOUNDED_MIN_RETREAT_SPEED_FRACTION: float = 0.4
 const WOUNDED_ABANDON_DANGER_RANGE: float = 600.0 * PIXELS_PER_METER
 const WOUNDED_ABANDON_CHANCE_PER_PERSON: float = 0.25
 const WOUNDED_ABANDON_MAX_CHANCE: float = 0.85
+
+## A mortar crew's decision to keep the gun in action after taking
+## casualties, rather than abandon it outright (see Unit._apply_crew_
+## casualties) — real doctrine favors cross-leveling a reduced crew to keep
+## a crew-served weapon firing rather than automatically abandoning it after
+## any casualty (US infantry battle drills treat "man the crew-served
+## weapon first, evacuate wounded second" as standard), and Korean War-era
+## mortar-position design was explicitly built to let a squad "continue to
+## fight, even during intense enemy countermortar fire" (FM 7-90). What
+## actually decides it is how much crew is left AND whether the crew itself
+## — not just the gun — is in real danger of being overrun by advancing
+## enemy infantry, not casualties alone: a crew that's taken a hit from
+## long-range counter-battery fire with no ground threat anywhere nearby
+## has every reason to patch up and keep firing (possibly relocating first
+## — see Unit.evading_counter_battery), where the same casualties with an
+## enemy squad closing to within this range is a real, immediate fight-or-
+## flight call a real crew makes in favor of flight. Mirrors WOUNDED_ABANDON_
+## DANGER_RANGE's own scale — inside it, a known threat reads as realistically
+## able to overrun the position; beyond it, the position itself is safe
+## enough that only crew strength (not proximity) drives the decision.
+const MORTAR_CREW_OVERRUN_DANGER_RANGE: float = 600.0 * PIXELS_PER_METER
+
+## A hit that lands on/near a mortar position can set off its OWN stored
+## rounds in a secondary explosion ("cook-off" — a well-documented real
+## phenomenon: a round already primed by heat/blast can detonate and
+## sympathetically set off adjacent stacked rounds). No source found gives
+## a hard probability for this happening to a field mortar position
+## specifically — this is a judgment call, not a cited figure — but the
+## qualitative logic is solid enough to model directly: more rounds
+## actually stacked at the gun means more fuel for it to happen at all, and
+## a mortar that's already fired off its stockpile (or hasn't been
+## resupplied yet) has nothing left to cook off. Scaled linearly against
+## MORTAR_STARTING_AMMO — a full load gives this MAX_CHANCE outright; an
+## empty tube gives exactly zero, not just a smaller number. See Unit.
+## _apply_crew_casualties/_roll_mortar_ammo_cookoff: a cook-off forces the
+## crew to abandon the position regardless of how the ordinary hold-or-flee
+## roll would have gone (nobody stays next to their own exploding
+## ammunition) and can add real additional casualties on top of the
+## original hit, on top of destroying whatever rounds were left.
+const MORTAR_AMMO_COOKOFF_MAX_CHANCE: float = 0.35
 
 # Squads bunched up this close together (e.g. piled into the same patch of
 # cover) risk a stray hit spreading from whichever of them was actually

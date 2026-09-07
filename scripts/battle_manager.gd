@@ -602,7 +602,7 @@ func _ally_positions_for(unit: Unit) -> Array[Vector2]:
 ## GameConfig.nearest_cover_point's avoid_positions).
 func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit) -> void:
 	var target_was_active := target.state == Unit.State.ACTIVE
-	var hit := CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team))
+	var hit := CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team), _drone_directing_mortar_fire(attacker))
 	_log_hit_consequence(target, target_was_active)
 	if not hit or target.kind != Unit.Kind.SQUAD:
 		return
@@ -613,6 +613,23 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit) -> void:
 	spillover.take_hit(attacker.kind == Unit.Kind.MORTAR, _ally_positions_for(spillover), _known_enemy_positions(spillover.team))
 	combat_log.log_bunching_spillover(target, spillover)
 	_log_hit_consequence(spillover, spillover_was_active)
+
+
+## True while `attacker`'s shot should get GameConfig.DRONE_DIRECTED_MORTAR_
+## ACCURACY_MULTIPLIER's bonus — only the player's own mortar (the enemy
+## has no doctrine-level recon choice at all) firing while the doctrine is
+## actually DRONE_TEAM AND a friendly drone (active or backup — either one
+## airborne means the team's ISR feed is live right now) is actually up.
+## Checked fresh at resolution time (mortar shots land ~40 tactical seconds
+## after firing — see _launch_mortar_shot/_resolve_pending_mortar_shots),
+## the same moment the target's own moving/terrain state is read, not
+## frozen at the instant the round left the tube.
+func _drone_directing_mortar_fire(attacker: Unit) -> bool:
+	if attacker.kind != Unit.Kind.MORTAR or attacker.team != Unit.Team.PLAYER:
+		return false
+	if recon_mode != GameConfig.ReconMode.DRONE_TEAM:
+		return false
+	return active_drone != null or backup_drone != null
 
 
 ## A same-side SQUAD close enough to `defender` (see GameConfig.BUNCHING_RADIUS)
@@ -3012,6 +3029,9 @@ func _relocate_mortar(mortar: Unit) -> bool:
 
 
 func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
+	if unit.ammo_cooked_off:
+		unit.ammo_cooked_off = false
+		combat_log.log_mortar_ammo_cookoff(unit)
 	if unit.state == Unit.State.DESTROYED:
 		combat_log.log_destroyed(unit)
 	elif unit.state == Unit.State.RETREATING and was_active_before:
@@ -3461,7 +3481,6 @@ func _end_battle() -> void:
 		lines.append("Enemy surrendered: %s" % ", ".join(enemy_stats.surrendered))
 
 	var report_text := "\n".join(lines)
-	combat_log.log_battle_end(report_text)
 	battle_ended.emit(report_text)
 
 

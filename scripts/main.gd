@@ -177,12 +177,13 @@ func _on_start_pressed() -> void:
 	add_child(casualty_dashboard)
 
 	combat_log = CombatLog.new()
-	# 65 (dashboard's own y) + 400 (its real measured height, see
+	# 65 (dashboard's own y) + 500 (its real measured worst-case height, see
 	# CasualtyDashboard._ready) + 10px breathing room — clears the dashboard
-	# even with every row showing. The window is a fixed 700px tall (see
+	# even with every row showing, drone fleet row wrapped to its full
+	# multi-line worst case included. The window is a fixed 700px tall (see
 	# project.godot); CombatLog's own declared SIZE.y (see combat_log.gd)
 	# is sized to fill what's left over.
-	combat_log.position = Vector2(1020, 475)
+	combat_log.position = Vector2(1020, 575)
 	add_child(combat_log)
 
 	battle_manager.start_battle(doctrine, combat_log)
