@@ -804,14 +804,27 @@ const MORTAR_RESUPPLY_FAILURE_CHANCE: float = 0.10
 const MORTAR_RESUPPLY_ETA_WARNING_MEDIAN: float = 15.0 * 60.0 # tactical seconds
 const MORTAR_RESUPPLY_ETA_WARNING_SIGMA: float = 0.35
 
-# Once a mortar's remaining rounds drop to this many or fewer, it holds
-# them back for an enemy mortar specifically (which always wins target
-# priority anyway — see BattleManager._pick_target) rather than spending
-# them on a squad target — "if an enemy mortar is out there, it is
-# important to have ammunition to shoot at it." A firm floor, not a
-# probabilistic tendency: the request frames this as a real policy, not a
-# vague preference.
-const MORTAR_AMMO_RESERVE_FOR_COUNTER_BATTERY: int = 5
+# Whether to hold fire on a SQUAD target to conserve ammunition (an enemy
+# mortar target is never subject to this at all — see BattleManager.
+# _pick_target — "that shot should always be taken") is a genuine sliding
+# scale, not a hard cutoff: "five shots remaining should never be a magical
+# number." Two independent factors, both continuous, combine into one
+# hold-fire PROBABILITY (see BattleManager._pick_target/_mortar_ammo_
+# scarcity/_mortar_resupply_urgency) rather than a deterministic rule:
+#   - SCARCITY: how much of a full load is left. 0 at a full
+#     MORTAR_STARTING_AMMO load (no inclination to hold at all), ramping
+#     linearly up to 1 as rounds approach zero — "the less ammo is left,
+#     the greater the inclination to hold some."
+#   - URGENCY: how soon resupply is actually expected. 0 with nothing
+#     pending or still MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES or more
+#     away, ramping linearly up to 1 as the soonest still-unresolved wave's
+#     arrival approaches (or already-arrived-but-uncollected rounds sitting
+#     at the resupply point, which count as maximally urgent) — "the sooner
+#     resupply is expected, the more willing one should be to fire."
+# The actual hold-fire chance is scarcity * (1 - urgency): full ammo never
+# hesitates regardless of urgency; empty-handed with nothing coming holds
+# almost every time; anywhere in between genuinely slides with both.
+const MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES: float = 30.0
 
 ## Log-normal sample with the given MEDIAN (not mean) and log-space SIGMA —
 ## shared by both resupply-wave delays and the ETA-warning threshold so

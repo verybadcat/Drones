@@ -184,7 +184,9 @@ func _update_mortar_rows(units: Array[Unit], rows: Array[Dictionary]) -> void:
 func _mortar_status_text(u: Unit) -> String:
 	match u.state:
 		Unit.State.ACTIVE:
-			return "in action (%d rounds)" % u.mortar_rounds_remaining
+			if u.team != Unit.Team.PLAYER:
+				return "in action"
+			return "in action (%d rounds%s)" % [u.mortar_rounds_remaining, _resupply_status_suffix(u)]
 		Unit.State.RETREATING:
 			return "abandoned, crew fleeing (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
 		Unit.State.WITHDRAWN:
@@ -192,6 +194,21 @@ func _mortar_status_text(u: Unit) -> String:
 		Unit.State.DESTROYED:
 			return "destroyed (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
 	return ""
+
+
+## Right next to the rounds count, per the request — the same live status
+## (BattleManager.mortar_resupply_status) that drives the actual sliding-
+## scale hold-fire decision (_mortar_resupply_urgency), so what the player
+## sees here always matches why the mortar is or isn't holding fire on a
+## squad right now. Empty string (no suffix at all) when nothing's pending,
+## so a mortar that's never requested resupply doesn't clutter its own row.
+func _resupply_status_suffix(u: Unit) -> String:
+	var status: Dictionary = battle_manager.mortar_resupply_status(u)
+	if not status.pending:
+		return ""
+	if status.ready_for_pickup:
+		return ", resupply ready for pickup"
+	return ", resupply ~%dm out" % int(round(float(status.minutes_until_next)))
 
 
 ## Airframe (airborne/inbound/ready/swapping/grounded/lost) and battery

@@ -633,6 +633,18 @@ func _resupply_point_for(team: Unit.Team) -> Vector2:
 	return _player_resupply_point if team == Unit.Team.PLAYER else _enemy_resupply_point
 
 
+## The whole resupply pipeline (requests, ETA warnings, arrivals, failures,
+## the physical fetch trip) runs identically for both sides' mortars — but
+## none of it is something the PLAYER's own side would actually know about
+## an opposing crew's ammunition or logistics. Every combat_log call in
+## this pipeline is gated on this, and CasualtyDashboard's own enemy mortar
+## row shows only "in action," never a round count or resupply status —
+## the mechanic is fully real and functional for the enemy either way, it's
+## simply never narrated to the player.
+func _should_narrate_mortar_logistics(mortar: Unit) -> bool:
+	return mortar.team == Unit.Team.PLAYER
+
+
 ## Sticky — see _player_sighted_enemy/_enemy_sighted_enemy's own doc
 ## comment. Called every tick; only ever flips false to true, never back.
 func _update_sighting_flags() -> void:
@@ -688,7 +700,8 @@ func request_mortar_resupply(mortar: Unit) -> bool:
 		"wave_resolved": [false, false],
 		"rounds_waiting": 0,
 	}
-	combat_log.log_mortar_resupply_requested(mortar)
+	if _should_narrate_mortar_logistics(mortar):
+		combat_log.log_mortar_resupply_requested(mortar)
 	return true
 
 
@@ -710,14 +723,17 @@ func _update_mortar_resupply() -> void:
 				continue
 			if not warned[i] and scenario_elapsed_time >= warnings[i]:
 				warned[i] = true
-				combat_log.log_mortar_resupply_eta_warning(m)
+				if _should_narrate_mortar_logistics(m):
+					combat_log.log_mortar_resupply_eta_warning(m)
 			if scenario_elapsed_time >= arrivals[i]:
 				resolved[i] = true
 				if randf() < GameConfig.MORTAR_RESUPPLY_FAILURE_CHANCE:
-					combat_log.log_mortar_resupply_failed(m)
+					if _should_narrate_mortar_logistics(m):
+						combat_log.log_mortar_resupply_failed(m)
 				else:
 					record.rounds_waiting = int(record.rounds_waiting) + GameConfig.MORTAR_RESUPPLY_ROUNDS
-					combat_log.log_mortar_resupply_arrived(m, GameConfig.MORTAR_RESUPPLY_ROUNDS)
+					if _should_narrate_mortar_logistics(m):
+						combat_log.log_mortar_resupply_arrived(m, GameConfig.MORTAR_RESUPPLY_ROUNDS)
 		record.wave_warned = warned
 		record.wave_resolved = resolved
 		_mortar_resupply[m] = record
@@ -778,7 +794,8 @@ func _start_mortar_resupply_trip(m: Unit) -> void:
 	m.move_queue.clear()
 	m.move_speed = GameConfig.MORTAR_RELOCATE_SPEED
 	m.movement_predictable = false
-	combat_log.log_mortar_resupply_departing(m)
+	if _should_narrate_mortar_logistics(m):
+		combat_log.log_mortar_resupply_departing(m)
 
 
 ## Advances a mortar already en route (see _start_mortar_resupply_trip) —
@@ -798,7 +815,8 @@ func _advance_mortar_resupply_trip(m: Unit) -> void:
 		if not record.is_empty():
 			record.rounds_waiting = 0
 			_mortar_resupply[m] = record
-		combat_log.log_mortar_resupply_collected(m, rounds)
+		if _should_narrate_mortar_logistics(m):
+			combat_log.log_mortar_resupply_collected(m, rounds)
 		trip.phase = "returning"
 		_mortar_resupply_trip[m] = trip
 		m.move_target = trip.origin
@@ -2643,47 +2661,85 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		return mortar_candidates[randi() % mortar_candidates.size()]
 	if unit.kind == Unit.Kind.MORTAR:
 		# Limited ammunition means a real choice, not just "shoot whatever's
-		# best": once down to GameConfig.MORTAR_AMMO_RESERVE_FOR_COUNTER_
-		# BATTERY rounds or fewer, hold them back for an enemy mortar
-		# specifically (which — see just above — always wins target
-		# priority outright regardless of ammo) rather than spending them on
-		# a squad. A firm floor, not a probabilistic tendency, matching how
-		# the request itself frames this as real policy: "if an enemy
-		# mortar is out there, it is important to have ammunition to shoot
-		# at it." — UNLESS resupply is already known to be imminent (see
-		# _mortar_resupply_imminent): hoarding the last few rounds makes no
-		# sense when more are already on the way, so a squad target that
-		# would otherwise be declined to protect the reserve is fair game
-		# again, "assuming targets are available" — this doesn't force
-		# firing, it just stops holding back.
-		if unit.mortar_rounds_remaining <= GameConfig.MORTAR_AMMO_RESERVE_FOR_COUNTER_BATTERY and not _mortar_resupply_imminent(unit):
+		# best" — but "ammo is not a consideration when shooting at an enemy
+		# mortar, that shot should be taken; it's only a consideration when
+		# shooting at squads" is exactly why this only runs once mortar_
+		# candidates (above) is already known empty. A genuine sliding-scale
+		# PROBABILITY of holding fire on a squad target, not a hard
+		# threshold — "five shots remaining should never be a magical
+		# number" — combining how scarce ammo already is
+		# (_mortar_ammo_scarcity) with how soon resupply is actually
+		# expected (_mortar_resupply_urgency): a full load never hesitates
+		# regardless of urgency, an empty-handed mortar with nothing coming
+		# holds almost every time, and relief expected soon makes firing
+		# more attractive even while genuinely low. See GameConfig.
+		# MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES for the full reasoning.
+		var scarcity: float = _mortar_ammo_scarcity(unit)
+		var urgency: float = _mortar_resupply_urgency(unit)
+		var hold_fire_chance: float = scarcity * (1.0 - urgency)
+		if randf() < hold_fire_chance:
 			return null
 		return _weighted_mortar_target_pick(unit, candidates)
 	return candidates[randi() % candidates.size()]
 
 
-## True once this mortar's own pending resupply is either already sitting,
-## collected or not, at its resupply point (rounds_waiting > 0) or has had
-## its "roughly 15 minutes out" ETA warning fire for a wave that hasn't
-## resolved yet — either way, real rounds are genuinely expected soon, not
-## just requested-and-who-knows-when. Drives _pick_target's own ammo-
-## reserve conservation: "if resupply is known to be coming soon, that is a
-## reason to use up one's remaining ammo before collecting the resupply,
-## assuming targets are available" — there's no reason to hoard the last
-## few rounds against a hypothetical future mortar sighting when relief is
-## already on its way regardless.
-func _mortar_resupply_imminent(mortar: Unit) -> bool:
+## 0.0 (nothing pending, or the soonest still-unresolved wave is still
+## GameConfig.MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES or more away) to 1.0
+## (rounds already sitting at the resupply point, awaiting pickup — as
+## urgent/certain as it gets short of already being in the tube), ramping
+## linearly as the soonest still-unresolved wave's actual arrival time
+## approaches. Drives _pick_target's own sliding-scale ammo conservation —
+## see GameConfig.MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES's own comment for
+## the full reasoning. Also the source for CasualtyDashboard's live
+## "resupply ~Nm out" / "ready for pickup" readout (see mortar_resupply_status).
+func _mortar_resupply_urgency(mortar: Unit) -> float:
 	var record: Dictionary = _mortar_resupply.get(mortar, {})
 	if record.is_empty():
-		return false
+		return 0.0
 	if int(record.get("rounds_waiting", 0)) > 0:
-		return true
-	var warned: Array = record.get("wave_warned", [])
+		return 1.0
+	var arrivals: Array = record.get("wave_arrival_times", [])
 	var resolved: Array = record.get("wave_resolved", [])
-	for i in warned.size():
-		if warned[i] and not resolved[i]:
-			return true
-	return false
+	var soonest: float = INF
+	for i in arrivals.size():
+		if not resolved[i]:
+			soonest = min(soonest, float(arrivals[i]))
+	if is_inf(soonest):
+		return 0.0
+	var minutes_left: float = max(soonest - scenario_elapsed_time, 0.0) / 60.0
+	return clamp(1.0 - minutes_left / GameConfig.MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES, 0.0, 1.0)
+
+
+## How much this mortar's own remaining ammo, on its own (independent of
+## any resupply timing), argues for holding back a squad shot — see
+## GameConfig.MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES's own comment for the
+## full reasoning. 0.0 at a full GameConfig.MORTAR_STARTING_AMMO load
+## (spend freely), ramping linearly to 1.0 as rounds approach zero.
+func _mortar_ammo_scarcity(mortar: Unit) -> float:
+	return clamp(1.0 - float(mortar.mortar_rounds_remaining) / float(GameConfig.MORTAR_STARTING_AMMO), 0.0, 1.0)
+
+
+## Public accessor for CasualtyDashboard's live per-mortar readout — never
+## reveals the true underlying arrival time as some kind of privileged
+## knowledge the player shouldn't have (this IS the player's own mortar's
+## status board, not the enemy's), just a friendly summary of the same
+## state _mortar_resupply_urgency already computes from.
+func mortar_resupply_status(mortar: Unit) -> Dictionary:
+	var record: Dictionary = _mortar_resupply.get(mortar, {})
+	if record.is_empty():
+		return {"pending": false}
+	if int(record.get("rounds_waiting", 0)) > 0:
+		return {"pending": true, "ready_for_pickup": true}
+	var arrivals: Array = record.get("wave_arrival_times", [])
+	var resolved: Array = record.get("wave_resolved", [])
+	var soonest: float = INF
+	for i in arrivals.size():
+		if not resolved[i]:
+			soonest = min(soonest, float(arrivals[i]))
+	if is_inf(soonest):
+		return {"pending": false}
+	var minutes_left: float = max(soonest - scenario_elapsed_time, 0.0) / 60.0
+	return {"pending": true, "ready_for_pickup": false, "minutes_until_next": minutes_left}
 
 
 ## How much a MORTAR would value firing on `target` right now — see
