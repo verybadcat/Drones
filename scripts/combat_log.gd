@@ -177,6 +177,14 @@ func log_mortar_resupply_collected(unit: Unit, rounds: int) -> void:
 	add_entry("%s collects %d rounds (%d now on hand) and heads back" % [unit.display_name(), rounds, unit.mortar_rounds_remaining])
 
 
+func log_squad_blocking_flank(unit: Unit) -> void:
+	add_entry("%s moves to block an approach toward the mortar" % unit.display_name())
+
+
+func log_squad_consolidating(unit: Unit) -> void:
+	add_entry("%s pulls back toward the rest of the line rather than risk being surrounded" % unit.display_name())
+
+
 func log_mortar_relocating_for_cover(unit: Unit) -> void:
 	add_entry("%s spotted — abandons position for better cover" % unit.display_name())
 

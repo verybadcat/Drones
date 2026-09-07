@@ -763,6 +763,66 @@ const SQUAD_ENGAGEMENT_RANGE: float = 400.0 * PIXELS_PER_METER
 # range: a real light/medium mortar tops out well short of the whole map.
 const MORTAR_MAX_RANGE: float = 3500.0 * PIXELS_PER_METER
 
+## Squad tactics: the enemy tries to flank toward the friendly mortar (see
+## BattleManager._enemy_advance_objective/_score_advance_candidate), and
+## friendly squads answer by screening it and by not letting themselves get
+## surrounded (see BattleManager._update_friendly_squad_positioning).
+##
+## A candidate advance point within SQUAD_ENGAGEMENT_RANGE and direct LOS of
+## a known player position is walking straight into that squad's kill zone
+## rather than around it — a real tactical cost on top of simply not
+## qualifying for the concealment bonus (ENEMY_ADVANCE_CONCEALMENT_BONUS),
+## which only rewards being COMPLETELY unseen. This is what actually makes
+## routing wide around a known defender pay off over walking up to it.
+const ENEMY_ADVANCE_EXPOSURE_PENALTY: float = 2.5
+
+# How far out a friendly squad watches for known enemies converging on it
+# from multiple directions at once (BattleManager._reposition_for_
+# encirclement) — bigger than SQUAD_ENGAGEMENT_RANGE so a squad can react to
+# being flanked before the encircling enemies are actually already in range
+# to fire.
+const FRIENDLY_ENCIRCLEMENT_DETECT_RADIUS: float = 600.0 * PIXELS_PER_METER
+
+## The angular arc (degrees, as seen from the squad) that known nearby
+## enemies have to span before a position counts as genuinely surrounded —
+## two contacts roughly in the same direction is just "the enemy is over
+## there," not encirclement; contacts spread across most of the compass
+## rose is the real, hopeless case this is meant to catch.
+const FRIENDLY_ENCIRCLEMENT_ANGLE_THRESHOLD_DEG: float = 140.0
+
+## "Surrounded by enemies under cover" is the specific fear this doctrine
+## calls out — not just outnumbered from multiple sides, but by contacts
+## already dug in and hard to dislodge. At least this fraction of the
+## nearby, encircling contacts have to actually be sitting in TREES/BUILDING
+## terrain (GameConfig.is_in_cover) for a squad to treat its position as
+## genuinely hopeless and pull back rather than stand and fight it out.
+const FRIENDLY_ENCIRCLEMENT_MIN_COVERED_FRACTION: float = 0.5
+
+# Bounded step (like ENEMY_ADVANCE_RUSH_DISTANCE) for a friendly squad
+# repositioning toward its own side's center of mass rather than standing
+# to be surrounded — reassessed next tick rather than committing to the
+# whole distance at once, same "advance/reposition by bounds" idiom.
+const FRIENDLY_REPOSITION_RUSH_DISTANCE: float = 300.0 * PIXELS_PER_METER
+
+# How close a known enemy has to get to the friendly mortar's OWN actual
+# position (not the enemy's own, possibly stale, fix on it — the player's
+# side always knows exactly where its own gun is) before it counts as a
+# real flanking threat worth a squad breaking off to screen.
+const MORTAR_FLANK_THREAT_RADIUS: float = 1500.0 * PIXELS_PER_METER
+
+# A friendly squad "screens" an approach if it sits within this distance of
+# the straight line between a threatening enemy and the mortar, somewhere
+# between the two — close enough that the enemy would have to fight past it
+# (or at least through its engagement range) to actually reach the gun.
+const MORTAR_FLANK_CORRIDOR_WIDTH: float = 300.0 * PIXELS_PER_METER
+
+# Where a squad answering an open flanking lane actually takes position:
+# on a ring at this radius around the mortar, on the bearing toward the
+# threat — directly interposed between the two, not all the way out at the
+# threat's own position (which could be a long, unnecessary march for a
+# threat that's still distant, and would abandon the mortar's other flanks).
+const MORTAR_PROTECTIVE_RADIUS: float = 350.0 * PIXELS_PER_METER
+
 # Limited ammunition — every mortar team on both sides starts with this
 # many rounds (see Unit.setup) and has to actually manage it, not just
 # reload for free forever. See BattleManager's request_mortar_resupply/

@@ -2036,6 +2036,7 @@ func _process(delta: float) -> void:
 	_update_friendly_mortar_hunting()
 	_update_mortar_resupply_fetch()
 	_update_enemy_squad_advance()
+	_update_friendly_squad_positioning()
 	_update_drone_operations(scenario_delta)
 
 	for unit in player_units:
@@ -2426,26 +2427,237 @@ func _update_enemy_squad_advance() -> void:
 		u.movement_predictable = false # a deliberate rush, not the road-bound march
 
 
-## A bounded step toward the village from `u`'s current position — the next
-## leg of an advance-by-rushes, not the whole remaining distance in one go.
-## Not a blind straight line either: several candidate directions bending
-## off the direct line (GameConfig.ENEMY_ADVANCE_ANGLES_DEG) are each scored
-## for cover/concealment (_score_advance_candidate) and picked via a
-## weighted-random roll (_weighted_advance_point_pick) — a real squad
-## usually avoids a straight dash across open ground in favor of terrain or
-## a wider bend around whatever it already knows is watching, but "usually"
+## A bounded step toward the current objective from `u`'s current position
+## — the next leg of an advance-by-rushes, not the whole remaining distance
+## in one go. Not a blind straight line either: several candidate
+## directions bending off the direct line (GameConfig.ENEMY_ADVANCE_ANGLES_
+## DEG) are each scored for cover/concealment/exposure (_score_advance_
+## candidate) and picked via a weighted-random roll (_weighted_advance_
+## point_pick) — a real squad usually avoids a straight dash across open
+## ground, or into a defender's engagement range, in favor of terrain or a
+## wider bend around whatever it already knows is watching, but "usually"
 ## isn't "always": the literal straight line stays a reachable, if
 ## lower-weight, candidate throughout.
 func _next_advance_point(u: Unit) -> Vector2:
-	var to_village: Vector2 = GameConfig.VILLAGE_CENTER - u.global_position
-	if to_village.length() < 10.0:
+	var objective: Vector2 = _enemy_advance_objective()
+	var to_objective: Vector2 = objective - u.global_position
+	if to_objective.length() < 10.0:
 		return u.global_position # already there
-	var rush: float = min(to_village.length(), GameConfig.ENEMY_ADVANCE_RUSH_DISTANCE)
+	var rush: float = min(to_objective.length(), GameConfig.ENEMY_ADVANCE_RUSH_DISTANCE)
 	var known_player_positions := _known_enemy_positions(Unit.Team.ENEMY)
 	var candidates: Array[Vector2] = []
 	for angle_deg in GameConfig.ENEMY_ADVANCE_ANGLES_DEG:
-		candidates.append(u.global_position + to_village.normalized().rotated(deg_to_rad(angle_deg)) * rush)
+		candidates.append(u.global_position + to_objective.normalized().rotated(deg_to_rad(angle_deg)) * rush)
 	return _weighted_advance_point_pick(candidates, GameConfig.ENEMY_ADVANCE_ANGLES_DEG, known_player_positions)
+
+
+## The enemy's current objective for advance-by-bounds: the friendly
+## mortar's own current position, if it's genuinely ACTIVE and the enemy
+## actually has a fix on it (see _known_friendly_mortar_position) — "in
+## particular in order to reach the mortar." A stale/expired or nonexistent
+## fix, or a mortar that's already destroyed/withdrawn/retreating, isn't a
+## real objective to route toward; the enemy falls back to the village
+## itself — "an advantageous battle for the village" instead of chasing a
+## gun that's no longer a target worth flanking for.
+func _enemy_advance_objective() -> Vector2:
+	var mortar_pos := _known_friendly_mortar_position()
+	if not is_inf(mortar_pos.x) and _friendly_mortar_is_active():
+		return mortar_pos
+	return GameConfig.VILLAGE_CENTER
+
+
+func _friendly_mortar_is_active() -> bool:
+	for u in player_units:
+		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE:
+			return true
+	return false
+
+
+## The friendly-side counterpart to _update_enemy_squad_advance: an idle,
+## ACTIVE player squad with nothing worth shooting at right now (same idle
+## gate — a squad already fighting stands and fights, it doesn't reposition
+## out from under a live engagement) watches for two things and answers
+## either, in priority order:
+##
+## (1) SELF-PRESERVATION — see _reposition_for_encirclement. A squad that's
+## actually at risk of being surrounded pulls back toward its own side's
+## center of mass instead of standing to be overrun. It's marked in
+## `at_risk` so the pass below never reassigns it to go plug a gap
+## elsewhere — it's already got its own problem to solve.
+##
+## (2) MORTAR PROTECTION — for the single nearest known enemy that has an
+## open, unscreened lane to the friendly mortar's own actual position (see
+## _nearest_unscreened_mortar_threat/_lane_is_screened), the nearest
+## still-idle, not-already-at-risk squad moves out to MORTAR_PROTECTIVE_
+## RADIUS from the mortar, on the bearing toward that threat — directly
+## interposing itself between the two. Only the single closest open lane is
+## answered per tick, one squad at a time, rather than every idle squad
+## reshuffling at once for threats that may resolve themselves before
+## anyone arrives.
+##
+## Deliberately never narrates *why* a squad moves (no "the mortar's
+## position is known" log) — that would hand the player intel about the
+## enemy's own knowledge state it wouldn't otherwise have, the same
+## fog-of-war line drawn around the enemy's mortar ammo/resupply status.
+func _update_friendly_squad_positioning() -> void:
+	var known_enemies := _known_enemy_positions(Unit.Team.PLAYER)
+	var at_risk: Dictionary = {}
+	for u in player_units:
+		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or u.has_move_target:
+			continue
+		if _pick_target(u, enemy_units) != null:
+			continue # something to shoot at right now — stand and fight
+		if _reposition_for_encirclement(u, known_enemies):
+			at_risk[u] = true
+
+	var mortar := _friendly_active_mortar()
+	if mortar == null:
+		return
+	var threat := _nearest_unscreened_mortar_threat(mortar, known_enemies)
+	if is_inf(threat.x):
+		return
+
+	var responder: Unit = null
+	var best_dist := INF
+	for u in player_units:
+		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or u.has_move_target or at_risk.has(u):
+			continue
+		if _pick_target(u, enemy_units) != null:
+			continue
+		var d: float = u.global_position.distance_to(mortar.global_position)
+		if d < best_dist:
+			best_dist = d
+			responder = u
+	if responder == null:
+		return
+
+	var block_point: Vector2 = mortar.global_position + (threat - mortar.global_position).normalized() * GameConfig.MORTAR_PROTECTIVE_RADIUS
+	responder.move_target = block_point
+	responder.has_move_target = true
+	responder.move_queue.clear()
+	responder.move_speed = GameConfig.REPOSITION_SPEED
+	responder.movement_predictable = false
+	combat_log.log_squad_blocking_flank(responder)
+
+
+## True (and issues the actual repositioning move) if `u` is genuinely at
+## risk of being surrounded: known enemies within FRIENDLY_ENCIRCLEMENT_
+## DETECT_RADIUS span at least FRIENDLY_ENCIRCLEMENT_ANGLE_THRESHOLD_DEG of
+## arc around it, AND at least FRIENDLY_ENCIRCLEMENT_MIN_COVERED_FRACTION of
+## them are already dug into real cover — "surrounded by enemies under
+## cover," the specific hopeless case, not just "outnumbered from two
+## sides" by contacts still caught in the open. Pulls back toward the
+## center of mass of the rest of this squad's own side (every other ACTIVE
+## unit, not just squads — the mortar and spotter/drone team count too) by
+## a bounded step, or toward the mortar alone if it's the only one left.
+func _reposition_for_encirclement(u: Unit, known_enemies: Array[Vector2]) -> bool:
+	var nearby: Array[Vector2] = []
+	for p in known_enemies:
+		if u.global_position.distance_to(p) <= GameConfig.FRIENDLY_ENCIRCLEMENT_DETECT_RADIUS:
+			nearby.append(p)
+	if nearby.size() < 2:
+		return false
+
+	var covered := 0
+	for p in nearby:
+		if GameConfig.is_in_cover(GameConfig.get_terrain_type_at(p)):
+			covered += 1
+	if float(covered) / float(nearby.size()) < GameConfig.FRIENDLY_ENCIRCLEMENT_MIN_COVERED_FRACTION:
+		return false
+
+	var angles: Array[float] = []
+	for p in nearby:
+		angles.append(rad_to_deg((p - u.global_position).angle()))
+	angles.sort()
+	var max_gap := 0.0
+	for i in angles.size():
+		var a: float = angles[i]
+		var b: float = angles[(i + 1) % angles.size()]
+		var gap: float = (b - a) if i < angles.size() - 1 else (b + 360.0 - a)
+		max_gap = max(max_gap, gap)
+	if 360.0 - max_gap < GameConfig.FRIENDLY_ENCIRCLEMENT_ANGLE_THRESHOLD_DEG:
+		return false
+
+	var allies := _ally_units_for(u)
+	var rally_point: Vector2
+	if allies.is_empty():
+		var mortar := _friendly_active_mortar()
+		if mortar == null:
+			return false
+		rally_point = mortar.global_position
+	else:
+		var sum := Vector2.ZERO
+		for a in allies:
+			sum += a.global_position
+		rally_point = sum / allies.size()
+
+	var to_rally: Vector2 = rally_point - u.global_position
+	if to_rally.length() < 10.0:
+		return false
+	var step: float = min(to_rally.length(), GameConfig.FRIENDLY_REPOSITION_RUSH_DISTANCE)
+	u.move_target = u.global_position + to_rally.normalized() * step
+	u.has_move_target = true
+	u.move_queue.clear()
+	u.move_speed = GameConfig.REPOSITION_SPEED
+	u.movement_predictable = false
+	combat_log.log_squad_consolidating(u)
+	return true
+
+
+func _friendly_active_mortar() -> Unit:
+	for u in player_units:
+		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE:
+			return u
+	return null
+
+
+## The nearest known enemy (from the player's own full knowledge of its own
+## mortar's position — not the enemy's possibly-stale fix on it) within
+## MORTAR_FLANK_THREAT_RADIUS of `mortar` that has no ACTIVE friendly squad
+## currently screening the direct line between the two (_lane_is_screened)
+## — an open lane worth a squad breaking off to plug. Vector2.INF if every
+## nearby threat already has a squad in the way, or nothing is close enough
+## to be a real threat yet.
+func _nearest_unscreened_mortar_threat(mortar: Unit, known_enemies: Array[Vector2]) -> Vector2:
+	var screening_squads: Array[Unit] = []
+	for u in player_units:
+		if u.kind == Unit.Kind.SQUAD and u.state == Unit.State.ACTIVE:
+			screening_squads.append(u)
+
+	var best := Vector2.INF
+	var best_dist := INF
+	for p in known_enemies:
+		var dist: float = p.distance_to(mortar.global_position)
+		if dist > GameConfig.MORTAR_FLANK_THREAT_RADIUS:
+			continue
+		if _lane_is_screened(p, mortar.global_position, screening_squads):
+			continue
+		if dist < best_dist:
+			best_dist = dist
+			best = p
+	return best
+
+
+## True if some squad in `squads` already sits within MORTAR_FLANK_CORRIDOR_
+## WIDTH of the straight line from `from` to `to`, somewhere between the two
+## endpoints (not off past either end) — close enough that anything walking
+## that line would have to pass through, or at least within engagement
+## range of, that squad first.
+func _lane_is_screened(from: Vector2, to: Vector2, squads: Array[Unit]) -> bool:
+	var lane: Vector2 = to - from
+	var lane_len: float = lane.length()
+	if lane_len < 1.0:
+		return true
+	var lane_dir: Vector2 = lane / lane_len
+	for s in squads:
+		var rel: Vector2 = s.global_position - from
+		var t: float = rel.dot(lane_dir)
+		if t < 0.0 or t > lane_len:
+			continue # projects outside the segment — not actually between them
+		var closest: Vector2 = from + lane_dir * t
+		if s.global_position.distance_to(closest) <= GameConfig.MORTAR_FLANK_CORRIDOR_WIDTH:
+			return true
+	return false
 
 
 ## How much `point` is worth as the next advance leg at `angle_deg` off the
@@ -2461,12 +2673,16 @@ func _score_advance_candidate(point: Vector2, angle_deg: float, known_player_pos
 		score += GameConfig.ENEMY_ADVANCE_COVER_BONUS
 	if not known_player_positions.is_empty():
 		var concealed := true
+		var exposed_to_fire := false
 		for pp in known_player_positions:
 			if GameConfig.has_direct_los(point, pp):
 				concealed = false
-				break
+				if point.distance_to(pp) <= GameConfig.SQUAD_ENGAGEMENT_RANGE:
+					exposed_to_fire = true
 		if concealed:
 			score += GameConfig.ENEMY_ADVANCE_CONCEALMENT_BONUS
+		if exposed_to_fire:
+			score -= GameConfig.ENEMY_ADVANCE_EXPOSURE_PENALTY
 	score -= abs(angle_deg) * GameConfig.ENEMY_ADVANCE_ANGLE_PENALTY_PER_DEG
 	return max(score, 0.1)
 
