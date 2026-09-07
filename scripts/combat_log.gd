@@ -112,6 +112,10 @@ func log_drone_sacrificed(unit: Unit, watched: Unit) -> void:
 	add_entry("%s's battery gives out while holding station over %s — the airframe is lost" % [unit.display_name(), watched.display_name()])
 
 
+func log_drone_battery_died(unit: Unit) -> void:
+	add_entry("%s's battery dies mid-flight — the airframe falls" % unit.display_name())
+
+
 func log_bunching_spillover(defender: Unit, spillover: Unit) -> void:
 	add_entry("%s was bunched up with %s — the fire catches both" % [defender.display_name(), spillover.display_name()])
 

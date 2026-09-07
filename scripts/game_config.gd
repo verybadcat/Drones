@@ -586,6 +586,28 @@ const DRONE_ROUND_TRIP_RANGE: float = 30000.0 * PIXELS_PER_METER # DJI's rated M
 # figures don't quite agree in the first place).
 const DRONE_FULL_CHARGE_FLIGHT_TIME: float = DRONE_ROUND_TRIP_RANGE / DRONE_CRUISE_SPEED # ~35.7 minutes
 const DRONE_RTB_SAFETY_MARGIN: float = 300.0 * PIXELS_PER_METER # turn for home this much charge-equivalent before the battery is actually flat
+
+# Getting to DRONE_ALTITUDE_M (or back down from it) isn't free — DJI's own
+# rated Normal-mode ascent/descent speeds, applied as a real time-and-charge
+# cost the cruise-only model above would otherwise skip entirely. Not
+# modeled as an extra movement phase (the drone doesn't go anywhere
+# horizontally while climbing/descending straight up or down over a fixed
+# point, so there's nothing for the existing move system to actually
+# simulate) — instead a one-time charge deduction, converted through the
+# same charge-per-second rate as everything else here
+# (DRONE_FULL_CHARGE_FLIGHT_TIME), applied once at launch
+# (BattleManager._launch_drone/_launch_backup_drone) and once at an actual
+# landing (_update_returning_drones) — never at a shoot-down or a
+# battery-dry sacrifice crash, since neither of those ever actually lands.
+# Small in absolute terms (~50s each way against a ~35.7-minute full
+# charge, call it ~4.5% of a sortie's total endurance round-trip) but a
+# genuine gap the pure cruise-speed model left on the table.
+const DRONE_ASCENT_SPEED_MPS: float = 6.0 # DJI-rated Normal-mode ascent speed (real m/s — a time calc, not a move_speed, so no PIXELS_PER_METER here)
+const DRONE_DESCENT_SPEED_MPS: float = 6.0 # DJI-rated Normal-mode descent speed
+const DRONE_CLIMB_TIME: float = DRONE_ALTITUDE_M / DRONE_ASCENT_SPEED_MPS # ~50 tactical seconds
+const DRONE_DESCENT_TIME: float = DRONE_ALTITUDE_M / DRONE_DESCENT_SPEED_MPS # ~50 tactical seconds
+const DRONE_LAUNCH_CHARGE_COST: float = DRONE_CLIMB_TIME / DRONE_FULL_CHARGE_FLIGHT_TIME
+const DRONE_LANDING_CHARGE_COST: float = DRONE_DESCENT_TIME / DRONE_FULL_CHARGE_FLIGHT_TIME
 # DJI's own published Mavic 3 charging spec: 1h36m (96 minutes) from empty
 # on the standard 65W charger — this is what a SPENT battery actually needs
 # before it's usable again, regardless of how quickly its airframe got back

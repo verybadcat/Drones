@@ -1062,7 +1062,7 @@ func _pop_best_battery(pool: Array[float]) -> float:
 func _launch_drone() -> void:
 	var charge: float = _pop_best_battery(_drones_ready)
 	var d := _make_unit(Unit.Team.PLAYER, Unit.Kind.DRONE, drone_team.global_position)
-	d.drone_battery_charge = charge
+	d.drone_battery_charge = max(charge - GameConfig.DRONE_LAUNCH_CHARGE_COST, 0.0) # climb-out to DRONE_ALTITUDE_M isn't free — see GameConfig's own comment
 	d.state_changed.connect(_on_drone_state_changed)
 	player_units.append(d)
 	active_drone = d
@@ -1081,7 +1081,7 @@ func _launch_drone() -> void:
 func _launch_backup_drone(watched: Unit) -> void:
 	var charge: float = _pop_best_battery(_drones_ready)
 	var d := _make_unit(Unit.Team.PLAYER, Unit.Kind.DRONE, drone_team.global_position)
-	d.drone_battery_charge = charge
+	d.drone_battery_charge = max(charge - GameConfig.DRONE_LAUNCH_CHARGE_COST, 0.0) # climb-out to DRONE_ALTITUDE_M isn't free — see GameConfig's own comment
 	d.state_changed.connect(_on_drone_state_changed)
 	player_units.append(d)
 	backup_drone = d
@@ -1118,36 +1118,49 @@ func _on_drone_state_changed(unit: Unit) -> void:
 ## freshly-spotted mortar or a shoot-and-scoot relocation instead of
 ## plodding toward a stale point (see _drone_search_target).
 ##
-## Once the remaining charge is only just enough to get home (with
-## DRONE_RTB_SAFETY_MARGIN worth to spare), it normally hands off search
-## duty and turns for home — UNLESS it's currently watching a live,
+## Charge hitting zero is checked FIRST, unconditionally, before anything
+## else: a drone with no battery left doesn't glide home on fumes, it falls
+## (_crash_drone) — full stop, regardless of how it got there. Normally
+## that's only actually reachable via the deliberate sacrifice below (a
+## drone that chose to keep watching past its safety margin, draining
+## further each tick until it's genuinely dry); a real DJI Mavic 3 doesn't
+## fly on a truly empty battery either way, and since v72 added a real
+## charge cost to LAUNCHING (see GameConfig.DRONE_LAUNCH_CHARGE_COST), an
+## already-critically-low battery popped for a fresh sortie could in
+## principle hit zero before ever getting a chance to turn for home —
+## this catches that case too, not just the sacrifice one.
+##
+## Short of that, once the remaining charge is only just enough to get home
+## (with DRONE_RTB_SAFETY_MARGIN worth to spare), it normally hands off
+## search duty and turns for home — UNLESS it's currently watching a live,
 ## engageable enemy mortar (_visible_engageable_mortar) with no backup
 ## already on-station to take over: in that specific case it sacrifices
 ## itself instead, deliberately ignoring the safety margin and continuing
-## to watch until the battery is genuinely empty (0.0), at which point the
-## airframe is lost (_crash_drone) rather than making it home. This is
-## re-evaluated every tick, not decided once — if a backup shows up, the
-## mortar dies/retreats/leaves range, or the friendly mortar itself is lost
-## partway through (making the target no longer engageable), the sacrifice
-## is abandoned immediately and it heads home with whatever's left.
+## to watch until the top-of-function check above catches it running dry.
+## This is re-evaluated every tick, not decided once — if a backup shows
+## up, the mortar dies/retreats/leaves range, or the friendly mortar itself
+## is lost partway through (making the target no longer engageable), the
+## sacrifice is abandoned immediately and it heads home with whatever's left.
 func _update_active_drone(scenario_delta: float) -> void:
 	var d := active_drone
 	d.drone_battery_charge -= scenario_delta / GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME
+
+	if d.drone_battery_charge <= 0.0:
+		_crash_drone(d, _visible_engageable_mortar())
+		active_drone = null
+		return
 
 	if _drone_should_rtb(d):
 		if backup_drone == null:
 			var watched: Unit = _visible_engageable_mortar()
 			if watched != null and _can_engage_position(watched.global_position):
-				if d.drone_battery_charge <= 0.0:
-					_crash_drone(d, watched)
-					active_drone = null
-				# else: sacrifice continues -- fall through to keep watching.
-				else:
-					d.move_target = _drone_search_target()
-					d.has_move_target = true
-					d.move_queue.clear()
-					d.move_speed = GameConfig.DRONE_CRUISE_SPEED
-					d.movement_predictable = false
+				# Sacrifice continues -- fall through to keep watching,
+				# ignoring RTB, until the zero-charge check above ends it.
+				d.move_target = _drone_search_target()
+				d.has_move_target = true
+				d.move_queue.clear()
+				d.move_speed = GameConfig.DRONE_CRUISE_SPEED
+				d.movement_predictable = false
 				return
 		_send_drone_home(d)
 		active_drone = null
@@ -1167,9 +1180,21 @@ func _update_active_drone(scenario_delta: float) -> void:
 ## it runs low itself, or its job is done because active_drone has moved on
 ## / the mortar it was shadowing no longer qualifies (destroyed, retreated,
 ## or otherwise stopped being what active_drone is watching).
+##
+## Same zero-charge rule as _update_active_drone: a backup never
+## deliberately sacrifices itself, but it can still, in principle, launch
+## on an already-critically-low battery (see GameConfig.
+## DRONE_LAUNCH_CHARGE_COST) and hit zero before its own RTB check ever
+## gets a chance to send it home — that's still a fall, not a graceful
+## landing, checked first and unconditionally.
 func _update_backup_drone(scenario_delta: float) -> void:
 	var d := backup_drone
 	d.drone_battery_charge -= scenario_delta / GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME
+
+	if d.drone_battery_charge <= 0.0:
+		_crash_drone(d, _visible_engageable_mortar())
+		backup_drone = null
+		return
 
 	var watched: Unit = _visible_engageable_mortar()
 	if watched == null or _drone_should_rtb(d):
@@ -1204,7 +1229,12 @@ func _drone_time_until_rtb(d: Unit) -> float:
 	var distance_home: float = d.global_position.distance_to(drone_team.global_position)
 	var time_needed_home: float = distance_home / GameConfig.DRONE_CRUISE_SPEED
 	var margin_time: float = GameConfig.DRONE_RTB_SAFETY_MARGIN / GameConfig.DRONE_CRUISE_SPEED
-	var charge_needed_to_get_home: float = (time_needed_home + margin_time) / GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME
+	# Also reserves enough to cover the letdown cost it'll actually be
+	# charged the moment it lands (see GameConfig.DRONE_LANDING_CHARGE_COST)
+	# — without this, a drone could turn for home with "just enough," fly
+	# the whole way back, and land with less charge than it actually has
+	# left to give.
+	var charge_needed_to_get_home: float = (time_needed_home + margin_time) / GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME + GameConfig.DRONE_LANDING_CHARGE_COST
 	var charge_to_spare: float = d.drone_battery_charge - charge_needed_to_get_home
 	return charge_to_spare * GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME
 
@@ -1222,13 +1252,20 @@ func _send_drone_home(d: Unit) -> void:
 	returning_drones.append(d)
 
 
-## The battery finally runs dry mid-sacrifice — the airframe is lost right
-## where it stood, not "shot down" (see _on_drone_state_changed's own
-## comment on why this bypasses that signal/log path entirely) but gone all
-## the same: no landing, no battery to recover, just a permanent loss
-## counted the same way.
-func _crash_drone(d: Unit, watched: Unit) -> void:
-	combat_log.log_drone_sacrificed(d, watched)
+## The battery hits zero — the airframe is lost right where it stood, not
+## "shot down" (see _on_drone_state_changed's own comment on why this
+## bypasses that signal/log path entirely) but gone all the same: no
+## landing, no battery to recover, just a permanent loss counted the same
+## way. `watched`, if non-null (whatever _visible_engageable_mortar()
+## currently returns — usually genuinely what it was sacrificing itself
+## over, but this fires the same way regardless of exact cause, see
+## _update_active_drone/_update_backup_drone), gets the sacrifice-flavored
+## log message; otherwise a plain battery-died one.
+func _crash_drone(d: Unit, watched: Unit = null) -> void:
+	if watched != null:
+		combat_log.log_drone_sacrificed(d, watched)
+	else:
+		combat_log.log_drone_battery_died(d)
 	player_units.erase(d)
 	d.queue_free()
 	_drones_destroyed += 1
@@ -1254,7 +1291,10 @@ func _update_returning_drones() -> void:
 			continue # still en route
 		returning_drones.remove_at(i)
 		player_units.erase(d)
-		_battery_pool.append(d.drone_battery_charge)
+		# The letdown back to the ground isn't free either — see GameConfig.
+		# DRONE_LANDING_CHARGE_COST; _drone_time_until_rtb already reserves
+		# for this so it's not normally a surprise, but clamp at 0 regardless.
+		_battery_pool.append(max(d.drone_battery_charge - GameConfig.DRONE_LANDING_CHARGE_COST, 0.0))
 		d.queue_free()
 		_drones_swapping.append({"time_left": GameConfig.DRONE_BATTERY_SWAP_DURATION, "charge": _pop_best_battery(_battery_pool)})
 
