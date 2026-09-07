@@ -130,13 +130,16 @@ func _show_deployment() -> void:
 
 func _on_start_pressed() -> void:
 	var positions := deployment_screen.get_positions()
-	var thresholds := doctrine_panel.get_squad_retreat_thresholds()
+	# One standing order for the whole force, not a separately dialed-in
+	# threshold per squad — see DoctrinePanel.get_retreat_threshold's own
+	# doc comment for the real-command-authority reasoning behind this.
+	var retreat_threshold := doctrine_panel.get_retreat_threshold()
 
 	var squads: Array[Dictionary] = []
-	for i in positions.squad_positions.size():
+	for pos in positions.squad_positions:
 		squads.append({
-			"position": positions.squad_positions[i],
-			"retreat_threshold": thresholds[i],
+			"position": pos,
+			"retreat_threshold": retreat_threshold,
 		})
 
 	var mortar_doctrine := doctrine_panel.get_mortar_doctrine()

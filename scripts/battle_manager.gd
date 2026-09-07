@@ -3204,6 +3204,34 @@ func mortar_resupply_status(mortar: Unit) -> Dictionary:
 	return {"pending": true, "ready_for_pickup": false, "minutes_until_next": minutes_left}
 
 
+## Public accessor for CasualtyDashboard's enemy mortar row: true if
+## `mortar` has fired recently enough (GameConfig.MORTAR_FIRE_DETECTION_
+## EXPIRY) that muzzle-flash/trajectory detection alone — the same
+## mechanism the enemy's own counter-battery chase already relies on (see
+## _known_friendly_mortar_position) — would tell the player's side it's
+## currently in action, even with no visual sighting at all. Firing gives
+## away THAT a mortar is active and roughly where from, not its remaining
+## strength or exact condition with anything like a visual sighting's
+## confidence, so this only ever unlocks the coarse "it's in action" fact
+## in the dashboard, never casualty detail — see
+## CasualtyDashboard._enemy_mortar_status_text.
+func mortar_recently_detected_firing(mortar: Unit) -> bool:
+	var info: Dictionary = _last_detected_mortar_fire.get(mortar, {})
+	if info.is_empty():
+		return false
+	return scenario_elapsed_time - info.time <= GameConfig.MORTAR_FIRE_DETECTION_EXPIRY
+
+
+## Minutes since `mortar` was last detected firing, for the same "detected
+## firing" dashboard case above — INF if it's never been detected at all
+## (callers should already have checked mortar_recently_detected_firing).
+func mortar_minutes_since_detected_firing(mortar: Unit) -> float:
+	var info: Dictionary = _last_detected_mortar_fire.get(mortar, {})
+	if info.is_empty():
+		return INF
+	return (scenario_elapsed_time - info.time) / 60.0
+
+
 ## How much a MORTAR would value firing on `target` right now — see
 ## _pick_target's own doc comment for the two factors this weighs.
 ## Casualty potential is just the target's own current pip count (more
@@ -3521,16 +3549,18 @@ func _end_battle() -> void:
 	else:
 		verdict = "DEFEAT"
 
-	# A commander only gets the TRUE enemy toll one of two ways: by actually
-	# holding the ground afterward for a real battlefield assessment (bodies,
-	# abandoned equipment, prisoners), or via a drone, which never needed to
-	# hold any ground to get one last, unobstructed look from overhead
-	# before the fight ends. Anyone else — pulled back, spotter only — gets
-	# nothing more than their own last-scouted picture, the exact same
-	# fog-of-war estimate the live dashboard showed throughout the fight
-	# (see _compute_side_stats's own `estimated` doc comment).
-	var enemy_assessment_confirmed: bool = held or recon_mode == GameConfig.ReconMode.DRONE_TEAM
-	var enemy_stats := true_enemy_stats if enemy_assessment_confirmed else _compute_side_stats(enemy_units, true)
+	# A commander only gets the TRUE enemy toll by actually holding the
+	# ground afterward for a real battlefield assessment — bodies, abandoned
+	# equipment, prisoners, physically found and counted. A drone doesn't
+	# change that: it's a live sensor, not a way to walk a battlefield the
+	# side has just given up — once the position is lost, a withdrawn
+	# drone (and everyone else) is going home with whatever it already
+	# scouted, the same as a spotter would. Recon mode already shapes how
+	# GOOD that live-scouted picture is (a drone's wider coverage means more
+	# actually got confirmed along the way — see _compute_side_stats's own
+	# `estimated` doc comment), it just doesn't independently unlock the
+	# true figures the way holding the ground does.
+	var enemy_stats := true_enemy_stats if held else _compute_side_stats(enemy_units, true)
 
 	var lines: PackedStringArray = []
 	lines.append("=== AFTER-ACTION REPORT ===")

@@ -1,16 +1,16 @@
 extends Control
 class_name DoctrinePanel
-## Sidebar doctrine controls that aren't a map position: retreat threshold
-## per squad, and the mortar's shoot-and-scoot doctrine. Starting positions
-## are set on DeploymentScreen instead (drag and drop) — see main.gd, which
-## reads from both this panel and the deployment screen to build the
-## doctrine dict when Start Battle is pressed.
+## Sidebar doctrine controls that aren't a map position: one shared retreat
+## threshold for the whole force, and the mortar's shoot-and-scoot doctrine.
+## Starting positions are set on DeploymentScreen instead (drag and drop) —
+## see main.gd, which reads from both this panel and the deployment screen
+## to build the doctrine dict when Start Battle is pressed.
 ##
 ## No retreat-threshold control for the mortar: a mortar crew is either in
 ## action or knocked out by a single hit, not worn down by percent casualties
 ## the way a squad is — see Unit.take_hit().
 
-var _squad_thresholds: Array[HSlider] = []
+var _threshold_slider: HSlider
 var _mortar_shoot_and_scoot: CheckBox
 
 
@@ -27,17 +27,29 @@ func _ready() -> void:
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(title)
 
-	for i in 3:
-		root.add_child(_build_squad_section("Squad %d" % (i + 1)))
-		root.add_child(HSeparator.new())
-
+	root.add_child(_build_retreat_section())
+	root.add_child(HSeparator.new())
 	root.add_child(_build_mortar_section())
 
 
-func _build_squad_section(label_text: String) -> Control:
+## ONE standing order for the whole force, not a separate breaking point
+## negotiated per squad — real infantry doctrine is explicit that a unit
+## "never withdraws except upon the verified order of higher authority"
+## (FM 3-21.8): a squad doesn't decide for itself, from its own casualties
+## alone, that it's time to pull out — that call belongs to command. This
+## slider IS that order, a single coherent piece of commander's intent
+## ("hold as long as you can" vs. "don't get decisively engaged, pull back
+## early to preserve the force") given up front as part of the defensive
+## plan, applied identically to every squad — not three separately dialed-
+## in percentages as if each squad negotiated its own terms with command.
+## Giving it in advance, rather than only live, means nobody has to get a
+## radio call through mid-fight to do something already authorized — the
+## General Retreat button remains the same authority's live override on
+## top of it, a further, later order from the same source.
+func _build_retreat_section() -> Control:
 	var box := VBoxContainer.new()
 
-	var label := GameConfig.make_selectable_label(label_text)
+	var label := GameConfig.make_selectable_label("Standing order, whole force")
 	box.add_child(label)
 
 	var threshold_row := HBoxContainer.new()
@@ -63,7 +75,7 @@ func _build_squad_section(label_text: String) -> Control:
 	threshold_row.add_child(threshold_slider)
 	box.add_child(threshold_row)
 
-	_squad_thresholds.append(threshold_slider)
+	_threshold_slider = threshold_slider
 	return box
 
 
@@ -91,11 +103,8 @@ func _build_mortar_section() -> Control:
 	return box
 
 
-func get_squad_retreat_thresholds() -> Array[float]:
-	var out: Array[float] = []
-	for s in _squad_thresholds:
-		out.append(s.value / 100.0)
-	return out
+func get_retreat_threshold() -> float:
+	return _threshold_slider.value / 100.0
 
 
 func get_mortar_doctrine() -> Dictionary:

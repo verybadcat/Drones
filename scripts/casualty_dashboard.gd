@@ -186,7 +186,10 @@ func _update_mortar_rows(units: Array[Unit], rows: Array[Dictionary]) -> void:
 		label.text = "Mortar: %s" % _mortar_status_text(u)
 		var fill: ColorRect = row.fill
 		if u.team != Unit.Team.PLAYER and not u.player_has_been_sighted:
-			fill.color = UNKNOWN_COLOR
+			# Detected firing without ever being sighted still reads as
+			# genuinely "in action" (green) — only a mortar with neither a
+			# sighting nor a recent fire detection is a true unknown (gray).
+			fill.color = STATUS_COLOR[Unit.State.ACTIVE] if battle_manager.mortar_recently_detected_firing(u) else UNKNOWN_COLOR
 		else:
 			fill.color = STATUS_COLOR[u.player_known_state if u.team != Unit.Team.PLAYER else u.state]
 
@@ -219,18 +222,25 @@ func _mortar_status_text(u: Unit) -> String:
 ## The enemy mortar's row shows the PLAYER's own last-known picture of it
 ## (Unit.player_known_state/_known_pips/_has_been_sighted — see
 ## BattleManager._update_player_intel), never its true live state. Never
-## actually sighted at all reads as genuine "status unknown" rather than
-## assuming "in action" — the dashboard shouldn't claim a confidence the
-## player doesn't have, even though _compute_side_stats's aggregate count
-## quietly assumes "still active" as the safe default for an unconfirmed
-## unit. Crew casualties are derived from the same known-pips snapshot
-## (crew_size - known_pips), not the live crew_casualties field, and can be
-## nonzero even while ACTIVE now that a wounded crew may hold its position
-## instead of automatically abandoning the gun (see Unit._apply_crew_
-## casualties) — "last seen" framing throughout, since none of this is
-## live, unlike the player's own mortar row above.
+## actually sighted at all reads as genuine "status unknown" — UNLESS it's
+## fired recently enough to be caught by muzzle-flash/trajectory detection
+## (BattleManager.mortar_recently_detected_firing), the same mechanism the
+## enemy's own counter-battery chase already relies on to find the
+## friendly mortar without ever seeing it: a mortar that's shooting at you
+## is obviously "in action" whether or not anyone's laid eyes on it, even
+## though firing alone reveals nothing about its remaining strength — no
+## casualty count gets attached to that case. Once actually sighted, crew
+## casualties are derived from the known-pips snapshot (crew_size -
+## known_pips), not the live crew_casualties field, and can be nonzero even
+## while ACTIVE now that a wounded crew may hold its position instead of
+## automatically abandoning the gun (see Unit._apply_crew_casualties) —
+## "last seen" framing throughout, since none of this is live, unlike the
+## player's own mortar row above.
 func _enemy_mortar_status_text(u: Unit) -> String:
 	if not u.player_has_been_sighted:
+		if battle_manager.mortar_recently_detected_firing(u):
+			var minutes_ago: float = battle_manager.mortar_minutes_since_detected_firing(u)
+			return "in action (detected firing ~%dm ago)" % int(round(minutes_ago))
 		return "status unknown"
 	var known_crew_casualties: int = u.crew_size - u.player_known_pips
 	match u.player_known_state:
