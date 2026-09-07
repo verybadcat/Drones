@@ -2073,6 +2073,34 @@ func _update_friendly_mortar_concealment() -> void:
 			combat_log.log_mortar_relocating_for_cover(m)
 
 
+## A mortar with zero rounds left can't shoot back — standing its ground
+## serves no purpose while it waits for resupply, and it's still exactly as
+## vulnerable as an armed one would be. Applies to BOTH sides identically
+## (unlike _update_friendly_mortar_concealment above, this isn't gated on
+## being currently spotted — being defenseless is reason enough on its own
+## to seek better concealment, not just a reaction to being seen), though
+## only the player's own move is narrated (see _should_narrate_mortar_
+## logistics's fog-of-war reasoning — the enemy's move happens exactly the
+## same way, just silently, same as its resupply fetch trips already do).
+##
+## Runs before _update_friendly_mortar_concealment so an out-of-ammo mortar
+## that's ALSO currently spotted gets the more specific "out of ammo"
+## framing rather than the generic "spotted" one — both would pick the same
+## destination via _relocate_mortar regardless, this only decides which log
+## message describes it. Naturally defers to a fetch trip already claimed
+## this tick (_update_mortar_resupply_fetch runs earlier) via the same
+## has_move_target check every other reactive relocation here uses.
+func _update_mortar_safety_relocation() -> void:
+	for m in player_units + enemy_units:
+		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE or m.has_move_target:
+			continue
+		if m.mortar_rounds_remaining > 0:
+			continue
+		if _relocate_mortar(m):
+			if _should_narrate_mortar_logistics(m):
+				combat_log.log_mortar_relocating_out_of_ammo(m)
+
+
 func _process(delta: float) -> void:
 	if battle_over or combat_log == null:
 		return
@@ -2102,6 +2130,7 @@ func _process(delta: float) -> void:
 	for unit in enemy_units:
 		_tick_fire(unit, delta, scenario_delta, player_units)
 
+	_update_mortar_safety_relocation()
 	_update_friendly_mortar_concealment()
 	_resolve_pending_counter_battery()
 	_resolve_pending_mortar_shots()

@@ -189,6 +189,10 @@ func log_mortar_relocating_for_cover(unit: Unit) -> void:
 	add_entry("%s spotted — abandons position for better cover" % unit.display_name())
 
 
+func log_mortar_relocating_out_of_ammo(unit: Unit) -> void:
+	add_entry("%s, out of ammunition, relocates to a safer position while awaiting resupply" % unit.display_name())
+
+
 func log_mortar_hunting(unit: Unit, trusted: bool) -> void:
 	if trusted:
 		add_entry("%s repositions for a tracked shot at the enemy mortar" % unit.display_name())
