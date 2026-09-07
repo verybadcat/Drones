@@ -102,6 +102,13 @@ func _process(delta: float) -> void:
 	if battle_manager and map_camera:
 		var target_x: float = GameConfig.compute_camera_target_x(battle_manager._camera_relevant_positions())
 		map_camera.position.x = lerp(map_camera.position.x, target_x, delta * GameConfig.CAMERA_FOLLOW_LERP_SPEED)
+		# A resupply run spawns at whatever edge of the map is CURRENTLY on
+		# screen (see BattleManager._resupply_entry_point_for) rather than a
+		# fixed pre-placed point, so it always visually enters from off-map
+		# instead of popping into existence mid-view — battle_manager has no
+		# reach up to the actual Camera2D node, so this is pushed down to it
+		# every frame instead.
+		battle_manager.current_camera_x = map_camera.position.x
 
 
 ## The mouse's position in the MAP's own world space, camera pan included —
@@ -203,7 +210,6 @@ func _on_start_pressed() -> void:
 		"mortar": mortar_doctrine,
 		"spotter": {"position": positions.spotter_position},
 		"recon_mode": recon_mode,
-		"resupply_point": positions.resupply_point,
 	}
 
 	deployment_screen.queue_free()

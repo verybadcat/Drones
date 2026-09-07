@@ -419,20 +419,6 @@ const PLAYER_MORTAR_DEPLOYMENT_ZONE: Rect2 = Rect2(50.0 * PIXELS_PER_METER, 80.0
 const PLAYER_SPOTTER_DEPLOYMENT_ZONE: Rect2 = Rect2(50.0 * PIXELS_PER_METER, 50.0 * PIXELS_PER_METER, 4900.0 * PIXELS_PER_METER, 3400.0 * PIXELS_PER_METER)
 const PLAYER_SPOTTER_DEFAULT_POSITION: Vector2 = Vector2(1900.0 * PIXELS_PER_METER, 1750.0 * PIXELS_PER_METER)
 
-# Where the mortar's resupply runs actually originate from — placed by the
-# commander at deployment, same as every other asset, but constrained to a
-# narrow strip along the player's own (western) map edge specifically:
-# "anywhere along the friendly map edge," not anywhere on the map the way
-# the recon asset can be. A resupply point isn't a combat unit (see
-# UnitToken.is_resupply_point) and isn't somewhere the mortar itself has to
-# travel to and from — a real Unit.Kind.RESUPPLY_RUN sets out from here and
-# delivers rounds directly to wherever the mortar currently is (see
-# BattleManager._spawn_resupply_run/_update_resupply_run_targets), crossing
-# open ground the whole way and just as exposed to enemy fire as anything
-# else on the field.
-const PLAYER_RESUPPLY_DEPLOYMENT_ZONE: Rect2 = Rect2(20.0 * PIXELS_PER_METER, 50.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 3400.0 * PIXELS_PER_METER)
-const PLAYER_RESUPPLY_DEFAULT_POSITION: Vector2 = Vector2(70.0 * PIXELS_PER_METER, 1750.0 * PIXELS_PER_METER)
-
 # Default starting token positions on the deployment screen, before the
 # player drags them anywhere else within their zone.
 const PLAYER_DEFAULT_POSITIONS: Array[Vector2] = [
@@ -453,20 +439,6 @@ const ENEMY_SPAWN_X: float = 4950.0 * PIXELS_PER_METER
 # advancing near, not literally on top of, each other and the road.
 const ENEMY_SQUAD_Y_OFFSETS_M: Array[float] = [-420.0, -250.0, -80.0, 80.0, 250.0, 420.0]
 const ENEMY_MORTAR_POSITIONS_M: Array[Vector2] = [Vector2(4700.0, 1300.0), Vector2(4700.0, 2500.0)]
-
-# The enemy has no player-visible deployment screen to place a resupply
-# point on, so its own "commander" picks one algorithmically instead of
-# using a single fixed spot — a point on the enemy's own edge, at the
-# y-coordinate centered on its own mortars, so the resupply run is a
-# broadly sensible distance from both of them regardless of how many there
-# are or exactly where. Mirrors PLAYER_RESUPPLY_DEPLOYMENT_ZONE's own
-# "friendly edge" placement, just computed rather than player-chosen.
-static func choose_enemy_resupply_point() -> Vector2:
-	var sum_y := 0.0
-	for p in ENEMY_MORTAR_POSITIONS_M:
-		sum_y += p.y
-	var avg_y: float = sum_y / ENEMY_MORTAR_POSITIONS_M.size()
-	return Vector2(4900.0, avg_y) * PIXELS_PER_METER
 
 # The tactical clock runs faster than the actual time you spend watching —
 # without this, a battle at real distances/speeds would take the better

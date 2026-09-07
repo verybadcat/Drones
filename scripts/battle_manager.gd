@@ -61,11 +61,14 @@ var _pending_counter_battery: Array[Dictionary] = []
 # "aim_point": Vector2, "impact_time": float}
 var _pending_mortar_shots: Array[Dictionary] = []
 
-# Where each side's resupply runs actually deliver rounds to — the
-# player's own choice from deployment, the enemy's own algorithmic pick
-# (see GameConfig.choose_enemy_resupply_point). Set once in start_battle.
-var _player_resupply_point: Vector2 = Vector2.ZERO
-var _enemy_resupply_point: Vector2 = Vector2.ZERO
+## Pushed every frame by main.gd (which owns the actual Camera2D — see its
+## own _process) — the map camera's current x, so a spawning resupply run
+## can enter from whatever edge of the map is CURRENTLY on screen rather
+## than a fixed pre-placed point (see _resupply_entry_point_for). Defaults
+## to GameConfig.CAMERA_DEFAULT_X so a stray call before the first frame
+## (or in a headless test with no main.gd driving it) still resolves to
+## the map's ordinary, un-panned view.
+var current_camera_x: float = GameConfig.CAMERA_DEFAULT_X
 
 # True once a side has EVER sighted the enemy — sticky, not "currently
 # visible right now" (see _update_sighting_flags) — "once the enemy is
@@ -205,8 +208,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_player_sighted_enemy = false
 	_enemy_sighted_enemy = false
 	_mortar_resupply.clear()
-	_player_resupply_point = doctrine.get("resupply_point", GameConfig.PLAYER_RESUPPLY_DEFAULT_POSITION)
-	_enemy_resupply_point = GameConfig.choose_enemy_resupply_point()
+	current_camera_x = GameConfig.CAMERA_DEFAULT_X
 
 	for unit in player_units + enemy_units:
 		unit.queue_free()
@@ -667,10 +669,21 @@ func _bunched_ally(defender: Unit) -> Unit:
 	return null
 
 
-## Where a resupply run for `team`'s mortars actually delivers rounds —
-## see _player_resupply_point/_enemy_resupply_point's own doc comment.
-func _resupply_point_for(team: Unit.Team) -> Vector2:
-	return _player_resupply_point if team == Unit.Team.PLAYER else _enemy_resupply_point
+## Where a resupply run for `mortar` actually enters the map: whatever edge
+## of the map is CURRENTLY on screen (see current_camera_x), on `mortar`'s
+## own side — the west edge for the player (its rear is west), the east
+## edge for the enemy (its rear is east) — at the mortar's own current y,
+## so it heads straight in toward the mortar rather than on a diagonal.
+## Deliberately dynamic rather than a fixed pre-placed point: if the camera
+## has panned to show the west flank because the mortar relocated out
+## there, the run should visibly enter from THAT edge, not reappear back
+## near the original map boundary and cross ground that's already on
+## screen. See main.gd's own comment on why current_camera_x is pushed
+## down from there every frame instead of read directly.
+func _resupply_entry_point_for(mortar: Unit) -> Vector2:
+	var half_width: float = GameConfig.MAP_WIDTH_PX / 2.0
+	var edge_x: float = (current_camera_x - half_width) if mortar.team == Unit.Team.PLAYER else (current_camera_x + half_width)
+	return Vector2(edge_x, mortar.global_position.y)
 
 
 ## The whole resupply pipeline (requests, ETA warnings, arrivals, failures,
@@ -836,7 +849,7 @@ func _update_mortar_resupply_requests() -> void:
 ## set once here, so it keeps tracking the mortar even if the mortar itself
 ## moves in the meantime.
 func _spawn_resupply_run(mortar: Unit) -> void:
-	var run := _make_unit(mortar.team, Unit.Kind.RESUPPLY_RUN, _resupply_point_for(mortar.team))
+	var run := _make_unit(mortar.team, Unit.Kind.RESUPPLY_RUN, _resupply_entry_point_for(mortar))
 	run.resupply_target_mortar = mortar
 	run.move_target = mortar.global_position
 	run.has_move_target = true
@@ -934,15 +947,18 @@ func _resolve_resupply_run_arrivals() -> void:
 			u.queue_free()
 
 
-## A mortar that's relocated well away from its own resupply point (see
-## GameConfig.MORTAR_RESUPPLY_LINKUP_TRIGGER_RANGE) can close some of that
-## distance itself, toward an inbound run — a real doctrinal linkup, not a
-## new coordination mechanism (the run's own move_target already tracks the
-## mortar live either way, see _update_resupply_run_targets). Lowest
-## priority: only when the mortar isn't firing, isn't evading
-## counter-battery, and has nothing else already claiming its movement
-## this tick — "if it seems sensible," not something that ever interrupts
-## an actual fire mission or a genuine evasion.
+## A mortar with an inbound run still well short of it (see GameConfig.
+## MORTAR_RESUPPLY_LINKUP_TRIGGER_RANGE) can close some of that distance
+## itself — a real doctrinal linkup, not a new coordination mechanism (the
+## run's own move_target already tracks the mortar live either way, see
+## _update_resupply_run_targets, so closing from both sides converges
+## faster with zero extra coordination). Moves toward the run's own
+## CURRENT position, not a fixed resupply point — there is no fixed point
+## any more (see _resupply_entry_point_for). Lowest priority: only when
+## the mortar isn't firing, isn't evading counter-battery, and has nothing
+## else already claiming its movement this tick — "if it seems sensible,"
+## not something that ever interrupts an actual fire mission or a genuine
+## evasion.
 func _update_resupply_linkup() -> void:
 	for m in player_units + enemy_units:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
@@ -952,13 +968,12 @@ func _update_resupply_linkup() -> void:
 		var run := _active_resupply_run_for(m)
 		if run == null:
 			continue
-		var resupply_point: Vector2 = _resupply_point_for(m.team)
-		if m.global_position.distance_to(resupply_point) <= GameConfig.MORTAR_RESUPPLY_LINKUP_TRIGGER_RANGE:
+		if m.global_position.distance_to(run.global_position) <= GameConfig.MORTAR_RESUPPLY_LINKUP_TRIGGER_RANGE:
 			continue
 		var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
 		if _pick_target(m, opposing) != null:
 			continue # something worth engaging right now beats a logistics move
-		m.move_target = resupply_point
+		m.move_target = run.global_position
 		m.has_move_target = true
 		m.move_speed = GameConfig.MORTAR_RELOCATE_SPEED
 		m.movement_predictable = false

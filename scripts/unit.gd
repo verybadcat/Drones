@@ -678,10 +678,9 @@ func _draw() -> void:
 	elif kind == Kind.DRONE:
 		color = Color(0.9, 0.97, 1.0) if team == Team.PLAYER else Color(1.0, 0.55, 0.55)
 	elif kind == Kind.RESUPPLY_RUN:
-		# Muted, distinctly non-combat tan — matches the deployment-phase
-		# resupply token's own "reads as not a combat unit" square shape
-		# (see UnitToken.setup_resupply_point) rather than any fighting
-		# unit's color scheme.
+		# Muted, distinctly non-combat tan, not any fighting unit's color
+		# scheme — reinforced by the square shape below (see _draw's own
+		# radius/shape branch) reading as "not a combat unit" at a glance.
 		color = Color(0.75, 0.65, 0.35) if team == Team.PLAYER else Color(0.8, 0.55, 0.25)
 	if not is_visible and state != State.DESTROYED:
 		color.a = 0.0 if team == Team.ENEMY else 1.0 # not-currently-visible enemies are hidden; player is always drawn
