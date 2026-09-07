@@ -14,7 +14,7 @@ enum Team { PLAYER, ENEMY }
 ## observer. DRONE is the single currently-airborne scout it operates;
 ## BattleManager creates/frees a DRONE Unit per sortie rather than keeping
 ## one around for the whole battle — see BattleManager's drone-fleet fields.
-enum Kind { SQUAD, MORTAR, SPOTTER, DRONE_TEAM, DRONE }
+enum Kind { SQUAD, MORTAR, SPOTTER, DRONE_TEAM, DRONE, RESUPPLY_RUN }
 ## ACTIVE: fighting (possibly moving toward move_target). RETREATING: pulling
 ## back off the field entirely, still on the field and can still take fire.
 ## WITHDRAWN: reached safety, no longer part of the fight. SURRENDERED: laid
@@ -86,6 +86,14 @@ var move_queue: Array[Vector2] = []
 var move_speed: float = 40.0
 const MOVE_ARRIVE_RADIUS: float = 5.0 * GameConfig.PIXELS_PER_METER # "close enough" to a move target
 
+# RESUPPLY_RUN only: the mortar this run is carrying rounds to. Its
+# move_target is refreshed to this mortar's CURRENT position every tick
+# (see BattleManager._update_resupply_run_targets) rather than a fixed
+# destination set once — this is what lets the mortar itself close some of
+# the distance too (a real linkup, see BattleManager's resupply-linkup
+# idle behavior) with no extra coordination code on either side.
+var resupply_target_mortar: Unit = null
+
 # True only for the enemy's initial road march — a steady, known path a
 # mortar crew can lead-aim against. Anything reactive (diving for cover,
 # retreating) is unpredictable and gets marked false the moment it starts —
@@ -97,6 +105,18 @@ var movement_predictable: bool = false
 # BattleManager polls sought_cover_logged to log the moment exactly once.
 var sought_cover: bool = false
 var sought_cover_logged: bool = false
+
+# ENEMY SQUAD only: rolled once at spawn (see GameConfig.ENEMY_FLANK_CHANCE)
+# — a real assault doesn't send every element on the same axis. Only takes
+# effect once the squad breaks from its scripted road march (see
+# BattleManager._enemy_advance_objective); flips permanently false once the
+# squad arrives near its flank waypoint, so it falls through to the normal
+# mortar/village objective from then on, now approaching from the west
+# instead of head-on. flank_waypoint_y is fixed at spawn (the squad's own
+# road-march y offset) rather than read live, so the route stays a stable
+# point to aim at instead of drifting with the squad's own maneuvering.
+var flanking_route_active: bool = false
+var flank_waypoint_y: float = 0.0
 
 # Set (not cleared) whenever seek_cover() is called for a reason OTHER than
 # the one-time road-march break above — i.e. a mortar-fire bolt-for-cover.
@@ -110,6 +130,14 @@ var ammo_cooked_off: bool = false
 
 var retreat_speed: float = 0.0
 var retreat_target_x: float = 0.0 # x that means "reached safety" while retreating
+
+# PLAYER only: true once retreat_target_x has already been escalated from
+# GameConfig.PLAYER_SAFE_X to PLAYER_EXTENDED_SAFE_X because this unit was
+# still under pressure the moment it reached the ordinary line — see
+# BattleManager._step_retreat/_still_under_pressure. A one-time, one-way
+# upgrade; never reset (retreat is already one-way per battle, same as
+# every other retreat field here).
+var retreat_extended: bool = false
 
 # SQUAD only — every pip actually lost (see take_hit) is sorted into exactly
 # one of these three (GameConfig.CASUALTY_*_FRACTION) instead of just
@@ -229,6 +257,17 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 			max_pips = 1 # unmanned — one hit shoots it down outright, no crew to lose
 			base_hit_chance = 0.0 # never fires — pure reconnaissance, see BattleManager._tick_fire
 			unit_label = "Drone"
+			fire_interval = 0.0
+		Kind.RESUPPLY_RUN:
+			# A small, unarmed logistics detail carrying live ammunition across
+			# open ground — max_pips=1 means the existing generic take_hit path
+			# (below the match) destroys it outright on any hit, same as DRONE,
+			# with no special-case branch needed: a single hit on an unarmored
+			# vehicle/party carrying mortar rounds is a real loss, not a
+			# graduated wound.
+			max_pips = 1
+			base_hit_chance = 0.0 # never fires — see BattleManager._tick_fire
+			unit_label = "Resupply Run"
 			fire_interval = 0.0
 		_:
 			max_pips = SQUAD_SIZE
@@ -638,6 +677,12 @@ func _draw() -> void:
 		color = Color(0.75, 0.9, 0.2) if team == Team.PLAYER else Color(0.9, 0.7, 0.15)
 	elif kind == Kind.DRONE:
 		color = Color(0.9, 0.97, 1.0) if team == Team.PLAYER else Color(1.0, 0.55, 0.55)
+	elif kind == Kind.RESUPPLY_RUN:
+		# Muted, distinctly non-combat tan — matches the deployment-phase
+		# resupply token's own "reads as not a combat unit" square shape
+		# (see UnitToken.setup_resupply_point) rather than any fighting
+		# unit's color scheme.
+		color = Color(0.75, 0.65, 0.35) if team == Team.PLAYER else Color(0.8, 0.55, 0.25)
 	if not is_visible and state != State.DESTROYED:
 		color.a = 0.0 if team == Team.ENEMY else 1.0 # not-currently-visible enemies are hidden; player is always drawn
 	if state == State.RETREATING:
@@ -653,8 +698,14 @@ func _draw() -> void:
 	if color.a <= 0.0:
 		return
 
-	var radius := 14.0 if kind == Kind.SQUAD else (8.0 if (kind == Kind.SPOTTER or kind == Kind.DRONE_TEAM) else (5.0 if kind == Kind.DRONE else 10.0))
-	draw_circle(Vector2.ZERO, radius, color)
+	var radius := 14.0 if kind == Kind.SQUAD else (8.0 if (kind == Kind.SPOTTER or kind == Kind.DRONE_TEAM) else (6.0 if kind == Kind.RESUPPLY_RUN else (5.0 if kind == Kind.DRONE else 10.0)))
+	if kind == Kind.RESUPPLY_RUN:
+		# A square, not a circle — same non-combat visual language as the
+		# deployment-phase resupply token, distinct from every round
+		# fighting-unit marker.
+		draw_rect(Rect2(-radius, -radius, radius * 2.0, radius * 2.0), color)
+	else:
+		draw_circle(Vector2.ZERO, radius, color)
 
 	if kind == Kind.MORTAR:
 		draw_circle(Vector2.ZERO, radius * 0.45, Color.BLACK)

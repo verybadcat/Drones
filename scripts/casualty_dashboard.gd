@@ -268,8 +268,8 @@ func _resupply_status_suffix(u: Unit) -> String:
 	var status: Dictionary = battle_manager.mortar_resupply_status(u)
 	if not status.pending:
 		return ""
-	if status.ready_for_pickup:
-		return ", resupply ready for pickup"
+	if status.in_transit:
+		return ", resupply run en route"
 	return ", resupply ~%dm out" % int(round(float(status.minutes_until_next)))
 
 

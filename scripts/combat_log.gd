@@ -157,7 +157,7 @@ func log_relocate(unit: Unit, urgent: bool = false) -> void:
 
 
 func log_mortar_resupply_requested(unit: Unit) -> void:
-	add_entry("%s requests ammunition resupply — first shipment due in the rear area" % unit.display_name())
+	add_entry("%s requests ammunition resupply — first run inbound" % unit.display_name())
 
 
 ## "Roughly" is the whole point — see GameConfig.MORTAR_RESUPPLY_ETA_WARNING_
@@ -166,20 +166,42 @@ func log_mortar_resupply_eta_warning(unit: Unit) -> void:
 	add_entry("%s: resupply convoy reports roughly 15 minutes out" % unit.display_name())
 
 
-func log_mortar_resupply_arrived(unit: Unit, rounds: int) -> void:
-	add_entry("%s: resupply run gets through — %s waiting at the resupply point" % [unit.display_name(), GameConfig.round_count_text(rounds)])
+## The moment a wave's delay elapses and a real, physical run actually sets
+## out across open ground toward `unit`'s current position — not yet
+## delivered (see log_mortar_resupply_delivered for that), and not
+## guaranteed to make it (see log_resupply_run_destroyed/
+## log_resupply_run_aborted).
+func log_resupply_run_departed(unit: Unit, rounds: int) -> void:
+	add_entry("%s: resupply run departs, moving to link up directly — %s" % [unit.display_name(), GameConfig.round_count_text(rounds)])
 
 
 func log_mortar_resupply_failed(unit: Unit) -> void:
 	add_entry("%s: resupply run failed to get through — request again when ready" % unit.display_name())
 
 
-func log_mortar_resupply_departing(unit: Unit) -> void:
-	add_entry("%s heads to the resupply point to collect waiting ammunition" % unit.display_name())
+## The run actually reached `unit` and handed off its rounds — the payoff
+## moment of the whole direct-delivery redesign (see BattleManager.
+## _resolve_resupply_run_arrivals).
+func log_mortar_resupply_delivered(unit: Unit, rounds: int) -> void:
+	add_entry("%s: resupply run gets through — %s delivered directly (%s now on hand)" % [unit.display_name(), GameConfig.round_count_text(rounds), GameConfig.round_count_text(unit.mortar_rounds_remaining)])
 
 
-func log_mortar_resupply_collected(unit: Unit, rounds: int) -> void:
-	add_entry("%s collects %s (%s now on hand) and heads back" % [unit.display_name(), GameConfig.round_count_text(rounds), GameConfig.round_count_text(unit.mortar_rounds_remaining)])
+## The run was caught in the open and destroyed before reaching `mortar` —
+## a real combat event, not the abstract, no-cause logistics failure
+## log_mortar_resupply_failed describes. This is the entire point of
+## making resupply a real, spottable, targetable thing on the map: the
+## enemy (or, silently, the player's own side against an enemy run) can
+## actually deny it.
+func log_resupply_run_destroyed(mortar: Unit) -> void:
+	add_entry("%s: the resupply run is caught in the open and lost before reaching the position" % mortar.display_name())
+
+
+## `mortar` stopped being ACTIVE (destroyed/withdrawn/retreating) before an
+## already-dispatched run could reach it — the run finds no one there and
+## the delivery simply never happens, rather than chasing a position
+## that's gone.
+func log_resupply_run_aborted(mortar: Unit) -> void:
+	add_entry("%s: the resupply run finds no one at the position" % mortar.display_name())
 
 
 func log_squad_blocking_flank(unit: Unit) -> void:

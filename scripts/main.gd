@@ -9,6 +9,17 @@ extends Node2D
 var level_select_screen: LevelSelectScreen
 var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
 
+# The map (deployment_screen/battle_manager) lives inside this SubViewport
+# rather than directly under root, so a Camera2D can pan just the map
+# without dragging the sidebar (a direct sibling of root, outside the
+# viewport) along with it — see _ready() for the full setup and
+# GameConfig.WEST_FLANK_WIDTH_PX for why a camera is needed here at all.
+# Built once and kept for the app's whole lifetime, unlike the phase nodes
+# below which _clear_all() tears down and recreates every phase.
+var map_container: SubViewportContainer
+var map_viewport: SubViewport
+var map_camera: Camera2D
+
 var deployment_screen: DeploymentScreen
 var doctrine_panel: DoctrinePanel
 var start_button: Button
@@ -33,6 +44,25 @@ var _clock_label: Label
 
 
 func _ready() -> void:
+	map_container = SubViewportContainer.new()
+	map_container.position = Vector2(0, 0)
+	map_container.size = Vector2(GameConfig.MAP_WIDTH_PX, GameConfig.MAP_HEIGHT_PX)
+	map_container.stretch = true
+	add_child(map_container)
+
+	map_viewport = SubViewport.new()
+	map_viewport.size = Vector2i(int(GameConfig.MAP_WIDTH_PX), int(GameConfig.MAP_HEIGHT_PX))
+	map_container.add_child(map_viewport)
+
+	map_camera = Camera2D.new()
+	map_camera.position = Vector2(GameConfig.CAMERA_DEFAULT_X, GameConfig.MAP_HEIGHT_PX / 2.0)
+	map_camera.limit_left = int(-GameConfig.WEST_FLANK_WIDTH_PX)
+	map_camera.limit_right = int(GameConfig.MAP_WIDTH_PX)
+	map_camera.limit_top = 0
+	map_camera.limit_bottom = int(GameConfig.MAP_HEIGHT_PX)
+	map_viewport.add_child(map_camera)
+	map_camera.make_current()
+
 	_elevation_label = Label.new()
 	_elevation_label.position = Vector2(8, 4)
 	_elevation_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.85))
@@ -54,16 +84,38 @@ func _ready() -> void:
 	_show_level_select()
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	# Root itself carries no camera, so this stays exactly screen-anchored
+	# and still matches map_container's fixed 1000x700 screen rect — only
+	# the elevation VALUE (below) needs to account for the map's own
+	# camera pan.
 	var mouse_pos := get_global_mouse_position()
 	if mouse_pos.x < 0.0 or mouse_pos.x > GameConfig.MAP_WIDTH_PX or mouse_pos.y < 0.0 or mouse_pos.y > GameConfig.MAP_HEIGHT_PX:
 		_elevation_label.visible = false
 	else:
 		_elevation_label.visible = true
-		var elevation_m: float = GameConfig.elevation_m(mouse_pos)
+		var elevation_m: float = GameConfig.elevation_m(_map_mouse_world_position())
 		_elevation_label.text = "Elevation: %dm" % int(round(elevation_m))
 
 	_clock_label.text = battle_manager.clock_string() if battle_manager else "%02d:00:00" % int(GameConfig.SCENARIO_START_HOUR)
+
+	if battle_manager and map_camera:
+		var target_x: float = GameConfig.compute_camera_target_x(battle_manager._camera_relevant_positions())
+		map_camera.position.x = lerp(map_camera.position.x, target_x, delta * GameConfig.CAMERA_FOLLOW_LERP_SPEED)
+
+
+## The mouse's position in the MAP's own world space, camera pan included —
+## SubViewport.get_mouse_position() only accounts for the container's
+## screen offset, not the inner Camera2D's transform, so this has to go
+## through a node that actually lives inside the SubViewport instead
+## (Node2D.get_global_mouse_position() applies the viewport's full canvas
+## transform, camera and all).
+func _map_mouse_world_position() -> Vector2:
+	if battle_manager:
+		return battle_manager.get_global_mouse_position()
+	if deployment_screen:
+		return deployment_screen.get_global_mouse_position()
+	return Vector2.ZERO
 
 
 ## A fixed 1000m reference bar, bottom-left of the map — the one thing on
@@ -112,10 +164,11 @@ func _on_recon_mode_chosen(mode: GameConfig.ReconMode) -> void:
 
 func _show_deployment() -> void:
 	_clear_all()
+	map_camera.position = Vector2(GameConfig.CAMERA_DEFAULT_X, GameConfig.MAP_HEIGHT_PX / 2.0) # nobody deploys off-map, so the camera never needs to move during this phase
 
 	deployment_screen = DeploymentScreen.new()
 	deployment_screen.recon_mode = recon_mode
-	add_child(deployment_screen)
+	map_viewport.add_child(deployment_screen)
 
 	doctrine_panel = DoctrinePanel.new()
 	doctrine_panel.position = Vector2(1020, 20)
@@ -168,7 +221,7 @@ func _on_start_pressed() -> void:
 
 	battle_manager = BattleManager.new()
 	battle_manager.battle_ended.connect(_on_battle_ended)
-	add_child(battle_manager)
+	map_viewport.add_child(battle_manager)
 
 	casualty_dashboard = CasualtyDashboard.new()
 	# 20 + 31 (retreat_button's real height) + 14px breathing room. Mortar

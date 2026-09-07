@@ -76,19 +76,13 @@ var _enemy_sighted_enemy: bool = false
 
 # One entry per mortar with an active resupply request — see
 # request_mortar_resupply/_update_mortar_resupply. Keyed by the mortar
-# Unit; removed once both waves have resolved AND any arrived rounds have
-# actually been collected (rounds_waiting back to 0), so a fresh request
-# can be made later. Fields: wave_arrival_times/warning_times (Array[float],
-# one per GameConfig.MORTAR_RESUPPLY_WAVE_COUNT wave), wave_warned/
-# wave_resolved (Array[bool]), rounds_waiting (int — arrived, not yet
-# physically picked up from the resupply point).
+# Unit; removed once both waves have resolved (a successful wave hands off
+# to a real, physical Unit.Kind.RESUPPLY_RUN — see _spawn_resupply_run —
+# so this dict's own job ends at the moment a run sets out; delivery/loss
+# is tracked on the run itself, not here). Fields: wave_arrival_times/
+# warning_times (Array[float], one per GameConfig.MORTAR_RESUPPLY_WAVE_
+# COUNT wave), wave_warned/wave_resolved (Array[bool]).
 var _mortar_resupply: Dictionary = {}
-
-# Mortars currently physically traveling to collect ready rounds — see
-# _update_mortar_resupply_fetch. Keyed by mortar Unit; {"phase": "to_point"
-# or "returning", "origin": Vector2 — where it was standing when the trip
-# started, so it has somewhere sensible to come back to}.
-var _mortar_resupply_trip: Dictionary = {}
 
 # Unit (a mortar) -> {"position": Vector2, "time": float} — where and when
 # that mortar was last DETECTED firing, via muzzle blast/trajectory rather
@@ -211,7 +205,6 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_player_sighted_enemy = false
 	_enemy_sighted_enemy = false
 	_mortar_resupply.clear()
-	_mortar_resupply_trip.clear()
 	_player_resupply_point = doctrine.get("resupply_point", GameConfig.PLAYER_RESUPPLY_DEFAULT_POSITION)
 	_enemy_resupply_point = GameConfig.choose_enemy_resupply_point()
 
@@ -349,6 +342,14 @@ func _spawn_enemy_units() -> void:
 		squad.movement_predictable = true # a steady, known march — lead-aimable by mortar fire
 		squad.activity = Unit.Activity.MOVING
 		_set_retreat_profile(squad, Unit.Team.ENEMY)
+		# A real assault doesn't send every element on the same axis — see
+		# GameConfig.ENEMY_FLANK_CHANCE. Only takes effect once the squad
+		# breaks from this scripted road march (_enemy_advance_objective is
+		# never consulted before then); until then it marches with everyone
+		# else like normal.
+		if randf() < GameConfig.ENEMY_FLANK_CHANCE:
+			squad.flanking_route_active = true
+			squad.flank_waypoint_y = start_pos.y
 		enemy_units.append(squad)
 
 	for mortar_pos_m in GameConfig.ENEMY_MORTAR_POSITIONS_M:
@@ -573,6 +574,26 @@ func _known_enemy_positions(team: Unit.Team) -> Array[Vector2]:
 	return positions
 
 
+## Feeds GameConfig.compute_camera_target_x — every unit position the
+## player is currently allowed to know about. Player units always count
+## (nothing to hide from the player about their own force, regardless of
+## is_visible); an enemy unit only counts once actually spotted — panning
+## the camera toward an unspotted enemy would hand the player its position
+## for free, the exact fog-of-war leak this whole session has been careful
+## to avoid elsewhere (see _update_player_intel). WITHDRAWN/DESTROYED/
+## SURRENDERED units are done moving, so the camera has no reason to keep
+## tracking them once a more active thing needs the frame.
+func _camera_relevant_positions() -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for u in player_units:
+		if u.state == Unit.State.ACTIVE or u.state == Unit.State.RETREATING:
+			out.append(u.global_position)
+	for u in enemy_units:
+		if (u.state == Unit.State.ACTIVE or u.state == Unit.State.RETREATING) and u.is_visible:
+			out.append(u.global_position)
+	return out
+
+
 ## Other ACTIVE units on `unit`'s own side (never `unit` itself) — used both
 ## to steer a squad's own cover choice away from an ally already there (see
 ## Unit.seek_cover's avoid_positions) and to find a bunched-up neighbor a
@@ -717,7 +738,6 @@ func request_mortar_resupply(mortar: Unit) -> bool:
 		"warning_times": warning_times,
 		"wave_warned": [false, false],
 		"wave_resolved": [false, false],
-		"rounds_waiting": 0,
 	}
 	if _should_narrate_mortar_logistics(mortar):
 		combat_log.log_mortar_resupply_requested(mortar)
@@ -729,7 +749,12 @@ func request_mortar_resupply(mortar: Unit) -> bool:
 ## how the two wave timings were actually rolled. Runs every tick,
 ## regardless of whether that mortar itself is doing anything else right
 ## now (moving, firing, out of ammo) — the resupply pipeline runs in the
-## background either way, exactly like a real supply run would.
+## background either way, exactly like a real supply run would. A
+## successful wave now hands off to a real, physical run (see
+## _spawn_resupply_run) rather than staging rounds at a fixed point —
+## unless the mortar itself isn't ACTIVE any more by the time its wave
+## comes due, in which case the request quietly lapses (nothing to deliver
+## to, and no run should ever be sent chasing a position that's gone).
 func _update_mortar_resupply() -> void:
 	for m in _mortar_resupply.keys():
 		var record: Dictionary = _mortar_resupply[m]
@@ -746,20 +771,19 @@ func _update_mortar_resupply() -> void:
 					combat_log.log_mortar_resupply_eta_warning(m)
 			if scenario_elapsed_time >= arrivals[i]:
 				resolved[i] = true
-				if randf() < GameConfig.MORTAR_RESUPPLY_FAILURE_CHANCE:
+				if m.state != Unit.State.ACTIVE:
+					pass # the position is gone — nothing to send a run toward
+				elif randf() < GameConfig.MORTAR_RESUPPLY_FAILURE_CHANCE:
 					if _should_narrate_mortar_logistics(m):
 						combat_log.log_mortar_resupply_failed(m)
 				else:
-					record.rounds_waiting = int(record.rounds_waiting) + GameConfig.MORTAR_RESUPPLY_ROUNDS
-					if _should_narrate_mortar_logistics(m):
-						combat_log.log_mortar_resupply_arrived(m, GameConfig.MORTAR_RESUPPLY_ROUNDS)
+					_spawn_resupply_run(m)
 		record.wave_warned = warned
 		record.wave_resolved = resolved
 		_mortar_resupply[m] = record
 
-	# Clean up once every wave has resolved AND anything that arrived has
-	# actually been collected (see _update_mortar_resupply_fetch) — only
-	# then is this mortar eligible for a brand new request.
+	# Clean up once every wave has resolved — a fresh request cycle is only
+	# eligible after that (see _update_mortar_resupply_requests).
 	for m in _mortar_resupply.keys():
 		var record: Dictionary = _mortar_resupply[m]
 		var all_resolved := true
@@ -767,7 +791,7 @@ func _update_mortar_resupply() -> void:
 			if not r:
 				all_resolved = false
 				break
-		if all_resolved and int(record.rounds_waiting) <= 0:
+		if all_resolved:
 			_mortar_resupply.erase(m)
 
 
@@ -799,87 +823,145 @@ func _update_mortar_resupply_requests() -> void:
 		request_mortar_resupply(m)
 
 
-## Sends `m` on its way to physically collect `rounds_waiting` rounds
-## sitting at its side's resupply point — a resupply point is a logistics
-## location, not something that teleports ammo onto the gun (see
-## GameConfig.PLAYER_RESUPPLY_DEPLOYMENT_ZONE's own comment). Reuses
-## MORTAR_RELOCATE_SPEED for the trip. No return leg is scheduled: there is
-## nothing wrong with firing from the resupply point itself once loaded (see
-## _advance_mortar_resupply_trip) — the mortar only moves on from there for
-## an actual reason of its own (shoot-and-scoot's own _relocate_mortar after
-## a shot, or an enemy fix on its position), not because a fetch trip always
-## has to end with a trip back.
-func _start_mortar_resupply_trip(m: Unit) -> void:
-	_mortar_resupply_trip[m] = true
-	m.move_target = _resupply_point_for(m.team)
-	m.has_move_target = true
-	m.move_queue.clear()
-	m.move_speed = GameConfig.MORTAR_RELOCATE_SPEED
-	m.movement_predictable = false
-	if _should_narrate_mortar_logistics(m):
-		combat_log.log_mortar_resupply_departing(m)
+## Puts a real, physical Unit.Kind.RESUPPLY_RUN on the map, carrying
+## GameConfig.MORTAR_RESUPPLY_ROUNDS to `mortar` — this is what a
+## successful wave arrival (see _update_mortar_resupply) now actually
+## means, replacing the old "rounds appear at a fixed rear point, crew
+## walks over" design. The run is a normal member of its side's unit array
+## (player_units/enemy_units), so it's spotted, targeted, and fired on by
+## exactly the same generic code every other unit already goes through —
+## see Unit.is_targetable/BattleManager._refresh_visibility/_pick_target,
+## none of which needed a single change for this to work. Its own
+## move_target is refreshed every tick (_update_resupply_run_targets), not
+## set once here, so it keeps tracking the mortar even if the mortar itself
+## moves in the meantime.
+func _spawn_resupply_run(mortar: Unit) -> void:
+	var run := _make_unit(mortar.team, Unit.Kind.RESUPPLY_RUN, _resupply_point_for(mortar.team))
+	run.resupply_target_mortar = mortar
+	run.move_target = mortar.global_position
+	run.has_move_target = true
+	run.move_speed = GameConfig.MORTAR_RESUPPLY_RUN_SPEED
+	run.movement_predictable = false
+	run.state_changed.connect(_on_resupply_run_state_changed)
+	if mortar.team == Unit.Team.PLAYER:
+		player_units.append(run)
+	else:
+		enemy_units.append(run)
+	if _should_narrate_mortar_logistics(mortar):
+		combat_log.log_resupply_run_departed(mortar, GameConfig.MORTAR_RESUPPLY_ROUNDS)
 
 
-## Advances a mortar already en route (see _start_mortar_resupply_trip) —
-## no-op while still moving (the ordinary move system is already stepping
-## it there); once arrival is detected (has_move_target clears), collects
-## the waiting rounds and ends the trip right there at the resupply point,
-## letting the mortar's normal AI take back over from wherever it's
-## actually standing rather than forcing a trip back to wherever it started.
-func _advance_mortar_resupply_trip(m: Unit) -> void:
-	if m.has_move_target:
+## Mirrors _on_drone_state_changed's exact convention: a RESUPPLY_RUN that
+## reaches DESTROYED (the ordinary generic take_hit path — max_pips=1 means
+## any hit gets it there, see Unit.setup's Kind.RESUPPLY_RUN case) is
+## erased from its side's array and freed immediately, same as a downed
+## drone — it's a transient logistics element, not part of the permanent
+## roster a DESTROYED squad/mortar stays in for the AAR. This is the
+## payoff moment for the whole redesign: the mortar it was carrying rounds
+## to gets nothing, and the player (or, silently, the enemy) finds out why.
+func _on_resupply_run_state_changed(unit: Unit) -> void:
+	if unit.kind != Unit.Kind.RESUPPLY_RUN or unit.state != Unit.State.DESTROYED:
 		return
-	var record: Dictionary = _mortar_resupply.get(m, {})
-	var rounds: int = int(record.get("rounds_waiting", 0))
-	m.mortar_rounds_remaining += rounds
-	if not record.is_empty():
-		record.rounds_waiting = 0
-		_mortar_resupply[m] = record
-	if _should_narrate_mortar_logistics(m):
-		combat_log.log_mortar_resupply_collected(m, rounds)
-	_mortar_resupply_trip.erase(m)
+	if unit.resupply_target_mortar != null and _should_narrate_mortar_logistics(unit):
+		combat_log.log_resupply_run_destroyed(unit.resupply_target_mortar)
+	var side: Array[Unit] = player_units if unit.team == Unit.Team.PLAYER else enemy_units
+	side.erase(unit)
+	unit.queue_free()
 
 
-## True when `mortar` isn't currently spotted by the opposing side — the bar
-## for setting out on a fetch trip while completely dry. Trekking to a
-## fixed, standing resupply point while under an enemy's eye is exactly the
-## kind of exposure a real crew would rather wait out than walk into,
-## especially with nothing to shoot back with if it goes wrong.
-func _safe_to_fetch_resupply(mortar: Unit) -> bool:
-	return not mortar.is_visible
+## The live RESUPPLY_RUN currently servicing `mortar`, or null if none is
+## in flight — feeds the dashboard's "resupply run en route" status, the
+## resupply-linkup idle check, and _mortar_resupply_urgency.
+func _active_resupply_run_for(mortar: Unit) -> Unit:
+	var side: Array[Unit] = player_units if mortar.team == Unit.Team.PLAYER else enemy_units
+	for u in side:
+		if u.kind == Unit.Kind.RESUPPLY_RUN and u.state == Unit.State.ACTIVE and u.resupply_target_mortar == mortar:
+			return u
+	return null
 
 
-## Decides when a mortar with ready-and-waiting rounds actually breaks off
-## to go collect them — not the instant they arrive, since abandoning a
-## live fire mission just to top off is exactly the kind of thing "mortar
-## teams need to be smart about" the request calls out. Goes once it's
-## already idle (no target worth engaging right now) so an active hunt or
-## fire mission already claiming its movement this tick (see
-## _update_friendly_mortar_hunting/_update_enemy_mortar_positioning, both of
-## which run earlier) isn't interrupted for a top-up that can wait. A
-## completely dry mortar can't wait for "idle" to naturally arrive (it has
-## nothing to fire regardless — see _tick_fire's own ammo gate) but still
-## only goes once it's safe to do so (see _safe_to_fetch_resupply) — being
-## out of ammo is a reason to want to go, not a reason to walk into the open
-## while spotted.
-func _update_mortar_resupply_fetch() -> void:
+## Keeps every in-flight run's destination locked onto its mortar's CURRENT
+## position, not wherever the mortar happened to be when the run set out —
+## this is the entire mechanism behind the mortar "falling back to meet"
+## an inbound run (see _update_resupply_linkup): both sides closing
+## distance toward each other's live position naturally converges faster,
+## with no extra coordination needed between the two systems. Must run
+## before _tick_movement, which is what actually steps the run toward
+## whatever move_target says this tick.
+func _update_resupply_run_targets() -> void:
+	for m in player_units + enemy_units:
+		if m.kind != Unit.Kind.RESUPPLY_RUN or m.state != Unit.State.ACTIVE:
+			continue
+		if m.resupply_target_mortar == null or m.resupply_target_mortar.state != Unit.State.ACTIVE:
+			continue # handled by _resolve_resupply_run_arrivals below
+		m.move_target = m.resupply_target_mortar.global_position
+		m.has_move_target = true
+
+
+## Runs after _tick_movement, once this tick's actual stepping is done.
+## Three ways a run's trip ends: it physically reaches the mortar (rounds
+## delivered, run removed); the mortar it was heading to stopped being
+## ACTIVE first (destroyed/withdrawn/retreating — the run aborts rather
+## than deliver to an empty position or chase a unit that's pulling out);
+## or (handled entirely elsewhere, by ordinary combat) it gets hit and
+## destroyed like any other spotted unit, in which case it's simply gone
+## from player_units/enemy_units already by the time this runs and needs
+## no special handling here at all.
+func _resolve_resupply_run_arrivals() -> void:
+	for side in [player_units, enemy_units]:
+		var arrived: Array[Unit] = []
+		var aborted: Array[Unit] = []
+		for u in side:
+			if u.kind != Unit.Kind.RESUPPLY_RUN or u.state != Unit.State.ACTIVE:
+				continue
+			var mortar: Unit = u.resupply_target_mortar
+			if mortar == null or mortar.state != Unit.State.ACTIVE:
+				aborted.append(u)
+			elif u.global_position.distance_to(mortar.global_position) <= Unit.MOVE_ARRIVE_RADIUS:
+				arrived.append(u)
+		for u in arrived:
+			var mortar: Unit = u.resupply_target_mortar
+			mortar.mortar_rounds_remaining += GameConfig.MORTAR_RESUPPLY_ROUNDS
+			if _should_narrate_mortar_logistics(mortar):
+				combat_log.log_mortar_resupply_delivered(mortar, GameConfig.MORTAR_RESUPPLY_ROUNDS)
+			side.erase(u)
+			u.queue_free()
+		for u in aborted:
+			var mortar: Unit = u.resupply_target_mortar
+			if mortar != null and _should_narrate_mortar_logistics(mortar):
+				combat_log.log_resupply_run_aborted(mortar)
+			side.erase(u)
+			u.queue_free()
+
+
+## A mortar that's relocated well away from its own resupply point (see
+## GameConfig.MORTAR_RESUPPLY_LINKUP_TRIGGER_RANGE) can close some of that
+## distance itself, toward an inbound run — a real doctrinal linkup, not a
+## new coordination mechanism (the run's own move_target already tracks the
+## mortar live either way, see _update_resupply_run_targets). Lowest
+## priority: only when the mortar isn't firing, isn't evading
+## counter-battery, and has nothing else already claiming its movement
+## this tick — "if it seems sensible," not something that ever interrupts
+## an actual fire mission or a genuine evasion.
+func _update_resupply_linkup() -> void:
 	for m in player_units + enemy_units:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
 			continue
-		if _mortar_resupply_trip.has(m):
-			_advance_mortar_resupply_trip(m)
+		if m.has_move_target or m.evading_counter_battery:
 			continue
-		var record: Dictionary = _mortar_resupply.get(m, {})
-		var rounds_waiting: int = int(record.get("rounds_waiting", 0))
-		if rounds_waiting <= 0:
+		var run := _active_resupply_run_for(m)
+		if run == null:
 			continue
-		var out_of_ammo: bool = m.mortar_rounds_remaining <= 0
-		if not out_of_ammo and m.has_move_target:
-			continue # already busy with something else this tick
+		var resupply_point: Vector2 = _resupply_point_for(m.team)
+		if m.global_position.distance_to(resupply_point) <= GameConfig.MORTAR_RESUPPLY_LINKUP_TRIGGER_RANGE:
+			continue
 		var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
-		var idle: bool = _pick_target(m, opposing) == null
-		if idle or (out_of_ammo and _safe_to_fetch_resupply(m)):
-			_start_mortar_resupply_trip(m)
+		if _pick_target(m, opposing) != null:
+			continue # something worth engaging right now beats a logistics move
+		m.move_target = resupply_point
+		m.has_move_target = true
+		m.move_speed = GameConfig.MORTAR_RELOCATE_SPEED
+		m.movement_predictable = false
 
 
 ## The enemy actively hunts for counter-battery range on the friendly
@@ -2097,15 +2179,15 @@ func _update_friendly_mortar_concealment() -> void:
 ## being currently spotted — being defenseless is reason enough on its own
 ## to seek better concealment, not just a reaction to being seen), though
 ## only the player's own move is narrated (see _should_narrate_mortar_
-## logistics's fog-of-war reasoning — the enemy's move happens exactly the
-## same way, just silently, same as its resupply fetch trips already do).
+## logistics's fog-of-war reasoning — the enemy's resupply runs the same
+## way, just silently).
 ##
 ## Runs before _update_friendly_mortar_concealment so an out-of-ammo mortar
 ## that's ALSO currently spotted gets the more specific "out of ammo"
 ## framing rather than the generic "spotted" one — both would pick the same
 ## destination via _relocate_mortar regardless, this only decides which log
-## message describes it. Naturally defers to a fetch trip already claimed
-## this tick (_update_mortar_resupply_fetch runs earlier) via the same
+## message describes it. Naturally defers to a resupply-linkup move already
+## claimed this tick (_update_resupply_linkup runs earlier) via the same
 ## has_move_target check every other reactive relocation here uses.
 func _update_mortar_safety_relocation() -> void:
 	for m in player_units + enemy_units:
@@ -2131,13 +2213,15 @@ func _process(delta: float) -> void:
 	_update_sighting_flags()
 	_update_mortar_resupply()
 	_update_mortar_resupply_requests()
+	_update_resupply_run_targets()
 
 	_tick_movement(scenario_delta)
+	_resolve_resupply_run_arrivals()
 	_update_spotting(delta)
 	_update_enemy_mortar_positioning()
 	_update_joint_mortar_hunt()
 	_update_friendly_mortar_hunting()
-	_update_mortar_resupply_fetch()
+	_update_resupply_linkup()
 	_update_enemy_squad_advance()
 	_update_friendly_squad_positioning()
 	_update_drone_operations(scenario_delta)
@@ -2224,10 +2308,35 @@ func _step_retreat(unit: Unit, scenario_delta: float) -> void:
 	unit.position = next_pos
 	var reached: bool = (unit.position.x <= unit.retreat_target_x) if unit.team == Unit.Team.PLAYER else (unit.position.x >= unit.retreat_target_x)
 	if reached:
+		# PLAYER only: a unit still genuinely under pressure the moment it
+		# reaches the ordinary safe line has somewhere deeper to go now (the
+		# west flank) rather than always stopping at the same fixed line
+		# regardless of the tactical picture — see GameConfig.
+		# PLAYER_EXTENDED_SAFE_X and _still_under_pressure. One-time
+		# escalation (retreat_extended guards against re-triggering every
+		# tick once already on the deeper line); enemy retreat, toward its
+		# own home edge, is untouched.
+		if unit.team == Unit.Team.PLAYER and not unit.retreat_extended and _still_under_pressure(unit):
+			unit.retreat_extended = true
+			unit.retreat_target_x = GameConfig.PLAYER_EXTENDED_SAFE_X
+			return
 		unit.position.x = unit.retreat_target_x
 		unit.state = Unit.State.WITHDRAWN
 		unit.queue_redraw()
 		combat_log.log_withdrawn(unit)
+
+
+## Whether `unit` still has a known enemy close enough to count as a live
+## threat right where it's standing right now — reuses the same danger-
+## range framing _mortar_crew_holds_position already applies to a mortar
+## crew's own hold-or-flee decision, just as the bar for "still worth
+## falling back further" rather than "safe to call it withdrawn."
+func _still_under_pressure(unit: Unit) -> bool:
+	var range_m: float = GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE if unit.kind == Unit.Kind.MORTAR else GameConfig.SQUAD_DANGER_RANGE
+	for p in _known_enemy_positions(unit.team):
+		if unit.global_position.distance_to(p) <= range_m:
+			return true
+	return false
 
 
 func _sidestep_building(unit: Unit, scenario_delta: float, blocked_pos: Vector2) -> void:
@@ -2312,6 +2421,8 @@ func _update_player_intel() -> void:
 func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[Unit]) -> void:
 	if unit.kind == Unit.Kind.SPOTTER or unit.kind == Unit.Kind.DRONE_TEAM or unit.kind == Unit.Kind.DRONE:
 		return # pure reconnaissance — extends detection only, never fires (see roll_spot)
+	if unit.kind == Unit.Kind.RESUPPLY_RUN:
+		return # unarmed logistics detail — never fires back
 	if unit.state != Unit.State.ACTIVE:
 		return # destroyed/withdrawn/retreating units don't fire
 	if unit.has_move_target:
@@ -2323,7 +2434,7 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 	if unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(unit.global_position):
 		return # no overhead clearance to lob a round from inside a building
 	if unit.kind == Unit.Kind.MORTAR and unit.mortar_rounds_remaining <= 0:
-		return # out of ammunition — see _update_mortar_resupply_fetch for how it eventually gets more
+		return # out of ammunition — see _spawn_resupply_run for how it eventually gets more
 
 	unit.fire_timer -= scenario_delta if unit.kind == Unit.Kind.MORTAR else delta
 	if unit.fire_timer > 0.0:
@@ -2607,7 +2718,7 @@ func _update_enemy_squad_advance() -> void:
 ## bearings its allies-in-this-same-event just claimed a moment ago in this
 ## very loop.
 func _next_advance_point(u: Unit, max_step: float = GameConfig.ENEMY_ADVANCE_RUSH_DISTANCE, extra_bearings_deg: Array[float] = []) -> Vector2:
-	var objective: Vector2 = _enemy_advance_objective()
+	var objective: Vector2 = _enemy_advance_objective(u)
 	var to_objective: Vector2 = objective - u.global_position
 	var distance_to_objective: float = to_objective.length()
 	if distance_to_objective < GameConfig.ENEMY_SURROUND_STANDOFF_RADIUS:
@@ -2679,7 +2790,22 @@ func _angle_diff(a_deg: float, b_deg: float) -> float:
 ## real objective to route toward; the enemy falls back to the village
 ## itself — "an advantageous battle for the village" instead of chasing a
 ## gun that's no longer a target worth flanking for.
-func _enemy_advance_objective() -> Vector2:
+##
+## `u` (optional — omitted by _encirclement_pivot, which needs a shared
+## per-batch reference point rather than any one squad's own route) lets a
+## squad with flanking_route_active set (see GameConfig.ENEMY_FLANK_CHANCE)
+## route through GameConfig.ENEMY_FLANK_WAYPOINT_X first — a wide swing
+## through the west flank — before falling through to the normal mortar/
+## village objective once it arrives, now approaching from the west
+## instead of head-on. Every existing candidate/scoring mechanism in
+## _next_advance_point is completely objective-agnostic, so this is the
+## only change needed to give a flanking squad a genuine envelopment route.
+func _enemy_advance_objective(u: Unit = null) -> Vector2:
+	if u != null and u.flanking_route_active:
+		var waypoint := Vector2(GameConfig.ENEMY_FLANK_WAYPOINT_X, u.flank_waypoint_y)
+		if u.global_position.distance_to(waypoint) > GameConfig.ENEMY_FLANK_WAYPOINT_ARRIVAL_RADIUS:
+			return waypoint
+		u.flanking_route_active = false # arrived — falls through to the normal objective from here on, permanently
 	var mortar_pos := _known_friendly_mortar_position()
 	if not is_inf(mortar_pos.x) and _friendly_mortar_is_active():
 		return mortar_pos
@@ -3147,19 +3273,19 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 
 ## 0.0 (nothing pending, or the soonest still-unresolved wave is still
 ## GameConfig.MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES or more away) to 1.0
-## (rounds already sitting at the resupply point, awaiting pickup — as
-## urgent/certain as it gets short of already being in the tube), ramping
-## linearly as the soonest still-unresolved wave's actual arrival time
-## approaches. Drives _pick_target's own sliding-scale ammo conservation —
-## see GameConfig.MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES's own comment for
-## the full reasoning. Also the source for CasualtyDashboard's live
-## "resupply ~Nm out" / "ready for pickup" readout (see mortar_resupply_status).
+## (a real run is already en route — as urgent/certain as it gets short of
+## rounds already being in the tube), ramping linearly as the soonest
+## still-unresolved wave's actual arrival time approaches. Drives
+## _pick_target's own sliding-scale ammo conservation — see GameConfig.
+## MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES's own comment for the full
+## reasoning. Also the source for CasualtyDashboard's live "resupply ~Nm
+## out" / "resupply run en route" readout (see mortar_resupply_status).
 func _mortar_resupply_urgency(mortar: Unit) -> float:
+	if _active_resupply_run_for(mortar) != null:
+		return 1.0
 	var record: Dictionary = _mortar_resupply.get(mortar, {})
 	if record.is_empty():
 		return 0.0
-	if int(record.get("rounds_waiting", 0)) > 0:
-		return 1.0
 	var arrivals: Array = record.get("wave_arrival_times", [])
 	var resolved: Array = record.get("wave_resolved", [])
 	var soonest: float = INF
@@ -3187,11 +3313,11 @@ func _mortar_ammo_scarcity(mortar: Unit) -> float:
 ## status board, not the enemy's), just a friendly summary of the same
 ## state _mortar_resupply_urgency already computes from.
 func mortar_resupply_status(mortar: Unit) -> Dictionary:
+	if _active_resupply_run_for(mortar) != null:
+		return {"pending": true, "in_transit": true}
 	var record: Dictionary = _mortar_resupply.get(mortar, {})
 	if record.is_empty():
 		return {"pending": false}
-	if int(record.get("rounds_waiting", 0)) > 0:
-		return {"pending": true, "ready_for_pickup": true}
 	var arrivals: Array = record.get("wave_arrival_times", [])
 	var resolved: Array = record.get("wave_resolved", [])
 	var soonest: float = INF
@@ -3201,7 +3327,7 @@ func mortar_resupply_status(mortar: Unit) -> Dictionary:
 	if is_inf(soonest):
 		return {"pending": false}
 	var minutes_left: float = max(soonest - scenario_elapsed_time, 0.0) / 60.0
-	return {"pending": true, "ready_for_pickup": false, "minutes_until_next": minutes_left}
+	return {"pending": true, "in_transit": false, "minutes_until_next": minutes_left}
 
 
 ## Public accessor for CasualtyDashboard's enemy mortar row: true if
@@ -3472,7 +3598,13 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false, is_enemy_s
 		# A drone is equipment, not personnel — losing one doesn't hurt the
 		# 3-person crew, so it never counts toward the human casualty tally
 		# (it still shows up below if destroyed, just not in the pip count).
-		if u.kind != Unit.Kind.DRONE:
+		# A resupply run is excluded for a different reason: it's a
+		# transient logistics element spawned and resolved mid-battle (see
+		# _update_resupply_run_targets/_resolve_resupply_run_arrivals), not
+		# part of the original order of battle — counting it here would
+		# make the AAR's personnel baseline drift depending on whether a
+		# run happened to be alive at the moment stats were computed.
+		if u.kind != Unit.Kind.DRONE and u.kind != Unit.Kind.RESUPPLY_RUN:
 			pips_total += u.max_pips
 		# Only ever relevant for the ENEMY side — the player's own units are
 		# always fully known regardless of state; a friendly mortar crew
@@ -3492,7 +3624,7 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false, is_enemy_s
 			continue # never actually confirmed — assumed still active and undamaged
 		var eff_state: Unit.State = u.player_known_state if unit_estimated else u.state
 		var eff_pips: int = u.player_known_pips if unit_estimated else u.pips
-		if u.kind != Unit.Kind.DRONE:
+		if u.kind != Unit.Kind.DRONE and u.kind != Unit.Kind.RESUPPLY_RUN:
 			var lost_here: int = u.max_pips - eff_pips
 			pips_lost += lost_here
 			if unit_estimated:

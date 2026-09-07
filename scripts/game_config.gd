@@ -33,6 +33,43 @@ const MAP_WIDTH_M: float = 5000.0
 const PIXELS_PER_METER: float = MAP_WIDTH_PX / MAP_WIDTH_M # 0.2 px/m
 const MAP_HEIGHT_M: float = MAP_HEIGHT_PX / PIXELS_PER_METER # 3500m
 
+## Open, undeveloped ground west of x=0 — nobody deploys here, no authored
+## cover/terrain features exist here, but units can be pushed into it
+## (enemy flanking, a hard-pressed player retreat, a mortar evading
+## encirclement) and the camera scrolls to reveal it when that happens (see
+## main.gd's SubViewport/Camera2D setup). At today's fixed 0.2 px/m scale
+## the whole existing map already fits inside the display column, so this
+## is the first world-space that doesn't — see main.gd for why that's what
+## makes a camera necessary here at all.
+const WEST_FLANK_WIDTH_M: float = 1500.0
+const WEST_FLANK_WIDTH_PX: float = WEST_FLANK_WIDTH_M * PIXELS_PER_METER # 300px
+
+## The map's camera (see main.gd) only ever pans along x, between
+## CAMERA_MIN_X (fully reveals the west flank) and CAMERA_DEFAULT_X
+## (today's original [0,1000]x[0,700] view, unchanged) — these two values
+## plus a fixed y are exactly what the camera's own Camera2D.limit_* values
+## produce for a 1000x700 view (see main.gd's Camera2D setup), not an
+## independent choice that happens to match.
+const CAMERA_DEFAULT_X: float = 500.0
+const CAMERA_MIN_X: float = 200.0
+const CAMERA_VIEW_MARGIN_PX: float = 100.0 * PIXELS_PER_METER # 500m buffer so the westmost relevant unit sits comfortably inside the view, not pinned to its literal edge
+const CAMERA_FOLLOW_LERP_SPEED: float = 2.5 # ~1-1.5s for a full 300px pan — a visible glide, not a snap
+
+## Where the map's camera should be centered (x only) given every unit
+## position the player is currently allowed to know about — see
+## BattleManager._camera_relevant_positions for the fog-of-war-respecting
+## filter that builds this list (an unspotted enemy unit must never be in
+## it; panning the camera toward it would leak its position for free).
+## Stays at CAMERA_DEFAULT_X (today's ordinary view, unchanged) as long as
+## nothing relevant has drifted west of the old map edge.
+static func compute_camera_target_x(relevant_positions: Array[Vector2]) -> float:
+	var westmost_x: float = INF
+	for p in relevant_positions:
+		westmost_x = min(westmost_x, p.x)
+	if is_inf(westmost_x) or westmost_x >= 0.0:
+		return CAMERA_DEFAULT_X
+	return clamp(westmost_x + CAMERA_VIEW_MARGIN_PX, CAMERA_MIN_X, CAMERA_DEFAULT_X)
+
 ## Runtime meters<->pixels conversion, for the few places that need to
 ## convert a value that isn't known until the game is running (the mouseover
 ## elevation readout's cursor position, mainly). Every constant below is
@@ -382,15 +419,17 @@ const PLAYER_MORTAR_DEPLOYMENT_ZONE: Rect2 = Rect2(50.0 * PIXELS_PER_METER, 80.0
 const PLAYER_SPOTTER_DEPLOYMENT_ZONE: Rect2 = Rect2(50.0 * PIXELS_PER_METER, 50.0 * PIXELS_PER_METER, 4900.0 * PIXELS_PER_METER, 3400.0 * PIXELS_PER_METER)
 const PLAYER_SPOTTER_DEFAULT_POSITION: Vector2 = Vector2(1900.0 * PIXELS_PER_METER, 1750.0 * PIXELS_PER_METER)
 
-# Where the mortar's resupply runs actually deliver rounds — placed by the
+# Where the mortar's resupply runs actually originate from — placed by the
 # commander at deployment, same as every other asset, but constrained to a
 # narrow strip along the player's own (western) map edge specifically:
 # "anywhere along the friendly map edge," not anywhere on the map the way
 # the recon asset can be. A resupply point isn't a combat unit (see
-# UnitToken.is_resupply_point) — this is a logistics location the mortar
-# has to physically travel to and from once rounds actually arrive there
-# (see BattleManager's own resupply request/travel logic), not something
-# that just teleports ammo onto the gun.
+# UnitToken.is_resupply_point) and isn't somewhere the mortar itself has to
+# travel to and from — a real Unit.Kind.RESUPPLY_RUN sets out from here and
+# delivers rounds directly to wherever the mortar currently is (see
+# BattleManager._spawn_resupply_run/_update_resupply_run_targets), crossing
+# open ground the whole way and just as exposed to enemy fire as anything
+# else on the field.
 const PLAYER_RESUPPLY_DEPLOYMENT_ZONE: Rect2 = Rect2(20.0 * PIXELS_PER_METER, 50.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 3400.0 * PIXELS_PER_METER)
 const PLAYER_RESUPPLY_DEFAULT_POSITION: Vector2 = Vector2(70.0 * PIXELS_PER_METER, 1750.0 * PIXELS_PER_METER)
 
@@ -535,6 +574,14 @@ const SURRENDER_WILLINGNESS_MULTIPLIER_ENEMY: float = 1.0
 const ENEMY_SAFE_X: float = ENEMY_SPAWN_X + 150.0 * PIXELS_PER_METER
 const PLAYER_RETREAT_SPEED: float = 2.0 * PIXELS_PER_METER
 const PLAYER_SAFE_X: float = 60.0 * PIXELS_PER_METER
+
+## A unit still genuinely under pressure (see BattleManager.
+## _still_under_pressure) the moment it reaches PLAYER_SAFE_X doesn't stop
+## there — it keeps falling back, into the west flank, until it reaches
+## this deeper line instead (see BattleManager._step_retreat). A buffer
+## short of the true world edge (-WEST_FLANK_WIDTH_PX) so an escalated
+## retreat never ends literally on the map boundary.
+const PLAYER_EXTENDED_SAFE_X: float = -(WEST_FLANK_WIDTH_M - 100.0) * PIXELS_PER_METER # -280px / -1400m
 
 # How much slack a cover zone gets on the "wrong" side of a retreating
 # unit's current position before it's excluded as a detour toward the
@@ -891,8 +938,8 @@ const DRONE_FLANK_WATCH_ARRIVE_RADIUS: float = 150.0 * PIXELS_PER_METER
 # Limited ammunition — every mortar team on both sides starts with this
 # many rounds (see Unit.setup) and has to actually manage it, not just
 # reload for free forever. See BattleManager's request_mortar_resupply/
-# _update_mortar_resupply/_update_mortar_resupply_fetch for the full
-# request → arrival → physical pickup pipeline this drives.
+# _update_mortar_resupply/_spawn_resupply_run for the full request ->
+# wave-arrival -> physical delivery-run pipeline this drives.
 const MORTAR_STARTING_AMMO: int = 20
 const MORTAR_RESUPPLY_ROUNDS: int = 20
 
@@ -950,6 +997,29 @@ const MORTAR_RESUPPLY_ETA_WARNING_SIGMA: float = 0.35
 # hesitates regardless of urgency; empty-handed with nothing coming holds
 # almost every time; anywhere in between genuinely slides with both.
 const MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES: float = 30.0
+
+# Once a resupply wave's log-normal delay elapses (see MORTAR_RESUPPLY_
+# DELAY_MEDIAN/SIGMA), rounds no longer just appear at a rear point — a
+# real, physical Unit.Kind.RESUPPLY_RUN sets out across open ground toward
+# the mortar's CURRENT position, spottable and targetable exactly like any
+# other unit (see BattleManager._spawn_resupply_run/_update_resupply_run_
+# targets/_resolve_resupply_run_arrivals). Faster than any dismounted
+# unit's pace in this game (compare MORTAR_RELOCATE_SPEED's 2.2 m/s) since
+# this represents a light vehicle or a hustling carrying party covering
+# ground quickly, not a formed unit's tactical movement — but still no
+# armor, no weapon, and a single hit ends it (see Unit.setup's
+# Kind.RESUPPLY_RUN case).
+const MORTAR_RESUPPLY_RUN_SPEED: float = 7.0 * PIXELS_PER_METER
+
+# Only worth a mortar actively closing distance toward its own resupply
+# point (a real "linkup," see BattleManager's resupply-linkup idle check)
+# once it's meaningfully far away — exactly the case a mortar that
+# relocated deep into the west flank creates. A mortar already reasonably
+# close to its own resupply point has nothing to gain by walking toward it
+# early; the run's own move_target already tracks the mortar live either
+# way (see Unit.resupply_target_mortar), so closing distance always helps
+# once it's actually worth bothering with.
+const MORTAR_RESUPPLY_LINKUP_TRIGGER_RANGE: float = 1000.0 * PIXELS_PER_METER
 
 ## Log-normal sample with the given MEDIAN (not mean) and log-space SIGMA —
 ## shared by both resupply-wave delays and the ETA-warning threshold so
@@ -1308,6 +1378,23 @@ const ENEMY_ADVANCE_RUSH_DISTANCE: float = 400.0 * PIXELS_PER_METER
 ## ground) is worth it — see ANGLE_PENALTY_PER_DEG below, which still taxes
 ## the widest entries the most heavily of any candidate.
 const ENEMY_ADVANCE_ANGLES_DEG: Array[float] = [-120.0, -80.0, -50.0, -25.0, 0.0, 25.0, 50.0, 80.0, 120.0]
+
+## Fraction of enemy squads (rolled once each, at spawn — see
+## BattleManager._spawn_enemy_units) designated to swing wide through the
+## new west flank rather than advance along the road/toward the village
+## directly — basic fire-and-maneuver: a real assault doesn't send every
+## element on the same axis. ~1/3 gives a good chance of at least one
+## genuine flank most battles without making it the default behavior for
+## every squad.
+const ENEMY_FLANK_CHANCE: float = 0.35
+## Deep enough into the 1500m-wide west flank to be a real flank (1000m
+## in, 500m of buffer before the true world edge) — not just a token step
+## off the road.
+const ENEMY_FLANK_WAYPOINT_X: float = -1000.0 * PIXELS_PER_METER
+## Tighter than ENEMY_SURROUND_STANDOFF_RADIUS (below) since this is a
+## pass-through waypoint on the way to the real objective, not the
+## objective itself.
+const ENEMY_FLANK_WAYPOINT_ARRIVAL_RADIUS: float = 100.0 * PIXELS_PER_METER
 
 ## Advance-candidate scoring — see BattleManager._score_advance_candidate.
 ## COVER rewards a candidate that actually lands in TREES/BUILDING terrain,
@@ -1830,6 +1917,11 @@ static func draw_cover_ring(ci: CanvasItem, radius: float, terrain: TerrainType)
 const CONTOUR_GRID_STEP_M: float = 40.0
 static var _contour_segments_cache: Array[Dictionary] = [] # [{"level": float, "a": Vector2, "b": Vector2}] in px
 static var _contour_cache_built: bool = false
+## Grid column 0's world x, in meters — negative so the grid also covers
+## WEST_FLANK_WIDTH_M (see _build_contour_cache). Set there; read by
+## _marching_squares_cell so grid-index math and world-position math for a
+## cell agree with each other.
+static var _contour_col_origin_m: float = 0.0
 
 
 static func _draw_hills(ci: CanvasItem) -> void:
@@ -1858,14 +1950,19 @@ static func _build_contour_cache() -> void:
 		return
 	_contour_cache_built = true
 
-	var cols: int = int(MAP_WIDTH_M / CONTOUR_GRID_STEP_M) + 2
+	# West flank first, so the grid also traces the new open ground rather
+	# than stopping dead at x=0 — a hard-edged void starting exactly at the
+	# old map boundary would read as a rendering bug, not open terrain.
+	var west_cols: int = int(WEST_FLANK_WIDTH_M / CONTOUR_GRID_STEP_M) + 1
+	_contour_col_origin_m = -float(west_cols) * CONTOUR_GRID_STEP_M
+	var cols: int = west_cols + int(MAP_WIDTH_M / CONTOUR_GRID_STEP_M) + 2
 	var rows: int = int(MAP_HEIGHT_M / CONTOUR_GRID_STEP_M) + 2
 	var grid: Array[PackedFloat32Array] = []
 	for row in rows:
 		var line := PackedFloat32Array()
 		line.resize(cols)
 		for col in cols:
-			var pos_m := Vector2(col, row) * CONTOUR_GRID_STEP_M
+			var pos_m := Vector2(_contour_col_origin_m + col * CONTOUR_GRID_STEP_M, row * CONTOUR_GRID_STEP_M)
 			line[col] = elevation_m(pos_m * PIXELS_PER_METER)
 		grid.append(line)
 
@@ -1904,10 +2001,10 @@ static func _marching_squares_cell(grid: Array[PackedFloat32Array], row: int, co
 	if case_index == 0 or case_index == 15:
 		return
 
-	var p_tl := Vector2(col, row) * CONTOUR_GRID_STEP_M
-	var p_tr := Vector2(col + 1, row) * CONTOUR_GRID_STEP_M
-	var p_br := Vector2(col + 1, row + 1) * CONTOUR_GRID_STEP_M
-	var p_bl := Vector2(col, row + 1) * CONTOUR_GRID_STEP_M
+	var p_tl := Vector2(_contour_col_origin_m + col * CONTOUR_GRID_STEP_M, row * CONTOUR_GRID_STEP_M)
+	var p_tr := Vector2(_contour_col_origin_m + (col + 1) * CONTOUR_GRID_STEP_M, row * CONTOUR_GRID_STEP_M)
+	var p_br := Vector2(_contour_col_origin_m + (col + 1) * CONTOUR_GRID_STEP_M, (row + 1) * CONTOUR_GRID_STEP_M)
+	var p_bl := Vector2(_contour_col_origin_m + col * CONTOUR_GRID_STEP_M, (row + 1) * CONTOUR_GRID_STEP_M)
 
 	var e_top: Vector2 = _lerp_edge(p_tl, p_tr, v_tl, v_tr, level)
 	var e_right: Vector2 = _lerp_edge(p_tr, p_br, v_tr, v_br, level)
