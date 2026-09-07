@@ -42,6 +42,18 @@ var activity: Activity = Activity.STATIONARY
 # losing line of sight loses visibility too.
 var is_visible: bool = false
 
+# The PLAYER side's own knowledge of THIS unit's condition, as of the last
+# time it was actually observed (is_visible) — a frozen last report, not a
+# live read of the true state, exactly like a real commander's own picture
+# of the enemy. Meaningless for the player's own units (their own side is
+# always fully known); populated for enemy_units only by BattleManager's
+# _update_player_intel. Drives the live CasualtyDashboard's enemy readout
+# and, unless the battle ends with the position held or with drone
+# coverage (see BattleManager._end_battle), the AAR report too.
+var player_has_been_sighted: bool = false
+var player_known_pips: int = 0
+var player_known_state: State = State.ACTIVE
+
 var fire_interval: float = 2.0 # seconds between fire attempts
 var fire_timer: float = 0.0
 

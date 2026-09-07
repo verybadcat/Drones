@@ -25,6 +25,12 @@ const STATUS_COLOR := {
 	Unit.State.SURRENDERED: Color(0.9, 0.9, 0.9),
 }
 
+## A dedicated color for an enemy mortar never yet sighted — distinct from
+## every real STATUS_COLOR entry (including WITHDRAWN's own gray) so
+## "we genuinely don't know" never gets mistaken for a real, confirmed
+## status at a glance.
+const UNKNOWN_COLOR := Color(0.35, 0.35, 0.4)
+
 var battle_manager: BattleManager
 var _player_label: RichTextLabel
 var _player_bar: ColorRect
@@ -147,8 +153,15 @@ func _refresh() -> void:
 	_update_mortar_rows(battle_manager.enemy_units, _enemy_mortar_rows)
 
 
+## `stats.estimated` (see BattleManager._compute_side_stats) marks the
+## player's own fog-of-war view of the enemy — shown with a "~"/"estimated"
+## qualifier so it never reads as an authoritative figure the way the
+## player's own, always-fully-known casualty line does.
 func _update_side(stats: Dictionary, label: RichTextLabel, bar: ColorRect, side_name: String) -> void:
-	label.text = "%s: %d/%d personnel lost (%.0f%%)" % [side_name, stats.pips_lost, stats.pips_total, stats.casualty_percent]
+	if stats.get("estimated", false):
+		label.text = "%s: ~%d/%d personnel lost (~%.0f%%)" % [side_name, stats.pips_lost, stats.pips_total, stats.casualty_percent]
+	else:
+		label.text = "%s: %d/%d personnel lost (%.0f%%)" % [side_name, stats.pips_lost, stats.pips_total, stats.casualty_percent]
 	var frac: float = clamp(stats.casualty_percent / 100.0, 0.0, 1.0)
 	bar.size = Vector2(BAR_SIZE.x * frac, BAR_SIZE.y)
 
@@ -172,7 +185,10 @@ func _update_mortar_rows(units: Array[Unit], rows: Array[Dictionary]) -> void:
 		var u: Unit = mortars[i]
 		label.text = "Mortar: %s" % _mortar_status_text(u)
 		var fill: ColorRect = row.fill
-		fill.color = STATUS_COLOR[u.state]
+		if u.team != Unit.Team.PLAYER and not u.player_has_been_sighted:
+			fill.color = UNKNOWN_COLOR
+		else:
+			fill.color = STATUS_COLOR[u.player_known_state if u.team != Unit.Team.PLAYER else u.state]
 
 
 ## A mortar's own casualty model (an exact crew headcount) does feed into
@@ -186,10 +202,10 @@ func _update_mortar_rows(units: Array[Unit], rows: Array[Dictionary]) -> void:
 ## the battle's over (see BattleManager._crew_survivor_label/
 ## _compute_side_stats).
 func _mortar_status_text(u: Unit) -> String:
+	if u.team != Unit.Team.PLAYER:
+		return _enemy_mortar_status_text(u)
 	match u.state:
 		Unit.State.ACTIVE:
-			if u.team != Unit.Team.PLAYER:
-				return "in action"
 			return "in action (%d rounds%s)" % [u.mortar_rounds_remaining, _resupply_status_suffix(u)]
 		Unit.State.RETREATING:
 			return "abandoned, crew fleeing (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
@@ -197,6 +213,38 @@ func _mortar_status_text(u: Unit) -> String:
 			return "withdrew safely" if u.crew_casualties == 0 else "withdrew (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
 		Unit.State.DESTROYED:
 			return "destroyed (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
+	return ""
+
+
+## The enemy mortar's row shows the PLAYER's own last-known picture of it
+## (Unit.player_known_state/_known_pips/_has_been_sighted — see
+## BattleManager._update_player_intel), never its true live state. Never
+## actually sighted at all reads as genuine "status unknown" rather than
+## assuming "in action" — the dashboard shouldn't claim a confidence the
+## player doesn't have, even though _compute_side_stats's aggregate count
+## quietly assumes "still active" as the safe default for an unconfirmed
+## unit. Crew casualties are derived from the same known-pips snapshot
+## (crew_size - known_pips), not the live crew_casualties field, and can be
+## nonzero even while ACTIVE now that a wounded crew may hold its position
+## instead of automatically abandoning the gun (see Unit._apply_crew_
+## casualties) — "last seen" framing throughout, since none of this is
+## live, unlike the player's own mortar row above.
+func _enemy_mortar_status_text(u: Unit) -> String:
+	if not u.player_has_been_sighted:
+		return "status unknown"
+	var known_crew_casualties: int = u.crew_size - u.player_known_pips
+	match u.player_known_state:
+		Unit.State.ACTIVE:
+			return "in action" if known_crew_casualties == 0 else "in action (%d/%d, last seen)" % [known_crew_casualties, u.crew_size]
+		Unit.State.RETREATING:
+			return "fleeing, gun abandoned (%d/%d)" % [known_crew_casualties, u.crew_size]
+		Unit.State.WITHDRAWN:
+			return "withdrew safely" if known_crew_casualties == 0 else "withdrew (%d/%d)" % [known_crew_casualties, u.crew_size]
+		Unit.State.DESTROYED:
+			# Always crew_size/crew_size once DESTROYED (see Unit._apply_
+			# crew_casualties) — showing the count would just repeat the
+			# word "destroyed" in numbers, so it's dropped here entirely.
+			return "confirmed destroyed"
 	return ""
 
 
