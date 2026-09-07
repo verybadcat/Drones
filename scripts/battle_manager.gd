@@ -3375,15 +3375,30 @@ func drone_fleet_status() -> Dictionary:
 ## need to). A unit never sighted at all contributes to the known TOTAL
 ## order of battle (pips_total) but not a single casualty — assumed still
 ## active and undamaged, not "unknown," since crediting losses nobody
-## actually confirmed would be worse than just not knowing. A unit that
-## WAS sighted at some point uses its last-known snapshot instead of its
-## true current state — genuinely stale if contact was lost since, exactly
-## like a real last report. The detailed killed/heavily-wounded/walking-
-## wounded/captured breakdown is skipped entirely when estimated: knowing a
-## unit was destroyed or pulled back is something battle observation alone
-## can support, but the exact mix of who died vs. was carried off isn't —
-## that needs an actual look at the aftermath, which is exactly what "not
-## sighted" or "sighted but stale" means we don't have.
+## actually confirmed would be worse than just not knowing.
+##
+## Even when the OVERALL call is the confirmed one (`estimated = false` —
+## the position was held, or drone coverage), a unit's OWN casualties are
+## only ever assessable if it's something actually LEFT BEHIND to examine:
+## a DESTROYED unit's remains, or a SURRENDERED one's personnel, already in
+## hand. A WITHDRAWN or still-RETREATING unit took whatever it had —
+## dead, wounded, and everyone still standing — with it when it left;
+## holding the ground it fought over doesn't recover casualties that
+## physically aren't there any more. Real battle-damage-assessment practice
+## backs this up directly: even a body count on ground you've actually
+## seized is understood as an UNDERCOUNT of true enemy dead, specifically
+## because a retreating force removes its own fallen whenever it gets the
+## chance — the ones truly left behind are the ones from a unit that had no
+## chance to save anyone, i.e. one actually destroyed in place. So each
+## unit gets its OWN recoverability check (`unrecoverable`) independent of
+## the overall `estimated` flag: DESTROYED/SURRENDERED units use the true
+## figures (they're right there to count); WITHDRAWN/RETREATING units fall
+## back to the same last-known snapshot the live dashboard already uses,
+## no matter how the overall call was made. Either way, the detailed
+## killed/heavily-wounded/walking-wounded breakdown is skipped for any unit
+## that isn't itself recoverable — knowing a unit pulled back is something
+## observation alone can support, but the exact mix of who among them died
+## vs. was carried off isn't, and there's no aftermath left to go examine.
 func _compute_side_stats(units: Array[Unit], estimated: bool = false) -> Dictionary:
 	var pips_total := 0
 	var pips_lost := 0
@@ -3401,13 +3416,15 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false) -> Diction
 		# (it still shows up below if destroyed, just not in the pip count).
 		if u.kind != Unit.Kind.DRONE:
 			pips_total += u.max_pips
-		if estimated and not u.player_has_been_sighted:
+		var unrecoverable: bool = u.state == Unit.State.WITHDRAWN or u.state == Unit.State.RETREATING
+		var unit_estimated: bool = estimated or unrecoverable
+		if unit_estimated and not u.player_has_been_sighted:
 			continue # never actually confirmed — assumed still active and undamaged
-		var eff_state: Unit.State = u.player_known_state if estimated else u.state
-		var eff_pips: int = u.player_known_pips if estimated else u.pips
+		var eff_state: Unit.State = u.player_known_state if unit_estimated else u.state
+		var eff_pips: int = u.player_known_pips if unit_estimated else u.pips
 		if u.kind != Unit.Kind.DRONE:
 			pips_lost += (u.max_pips - eff_pips)
-			if not estimated:
+			if not unit_estimated:
 				# killed_count/heavily_wounded_count/walking_wounded_count/
 				# wounded_left_behind_count are populated for every personnel
 				# kind (SQUAD's graduated split, and a flat killed_count
@@ -3433,12 +3450,12 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false) -> Diction
 			# were still an active part of the fight.
 			if eff_state == Unit.State.SURRENDERED:
 				pips_lost += eff_pips
-				if not estimated:
+				if not unit_estimated:
 					captured += eff_pips
 		match eff_state:
 			Unit.State.DESTROYED:
 				if u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM:
-					if estimated:
+					if unit_estimated:
 						destroyed.append("%s (destroyed — crew losses unconfirmed)" % u.display_name())
 					else:
 						destroyed.append("%s (%d/%d crew casualties: %d killed, %d heavily wounded, %d walking wounded)" % [
@@ -3447,9 +3464,9 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false) -> Diction
 				else:
 					destroyed.append(u.display_name())
 			Unit.State.WITHDRAWN:
-				withdrawn.append(u.display_name() if estimated else _crew_survivor_label(u))
+				withdrawn.append(u.display_name() if unit_estimated else _crew_survivor_label(u))
 			Unit.State.RETREATING:
-				still_retreating.append(u.display_name() if estimated else _crew_survivor_label(u))
+				still_retreating.append(u.display_name() if unit_estimated else _crew_survivor_label(u))
 			Unit.State.SURRENDERED:
 				# Its remaining `pips` are already folded into `captured`
 				# (and `pips_lost`) above — this line just names WHICH unit
