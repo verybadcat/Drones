@@ -164,17 +164,22 @@ func _update_mortar_rows(units: Array[Unit], rows: Array[Dictionary]) -> void:
 ## the aggregate pip bar above (see Unit.setup's max_pips = crew_size), but
 ## the exact headcount and WHY it's out of action (abandoned vs. destroyed
 ## outright) is otherwise buried in that one aggregate number — spelled out
-## here instead.
+## here instead. Says "casualties," not "killed" — a crew hit produces a real
+## mix of killed/wounded same as a squad's does (see Unit.
+## _apply_crew_casualties), so labeling the live, at-a-glance readout
+## "killed" would overstate it; the AAR breaks the mix down properly once
+## the battle's over (see BattleManager._crew_survivor_label/
+## _compute_side_stats).
 func _mortar_status_text(u: Unit) -> String:
 	match u.state:
 		Unit.State.ACTIVE:
 			return "in action"
 		Unit.State.RETREATING:
-			return "abandoned, crew fleeing (%d/%d crew killed)" % [u.crew_killed, u.crew_size]
+			return "abandoned, crew fleeing (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
 		Unit.State.WITHDRAWN:
-			return "withdrew safely" if u.crew_killed == 0 else "withdrew (%d/%d crew killed)" % [u.crew_killed, u.crew_size]
+			return "withdrew safely" if u.crew_casualties == 0 else "withdrew (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
 		Unit.State.DESTROYED:
-			return "destroyed (%d/%d crew killed)" % [u.crew_killed, u.crew_size]
+			return "destroyed (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
 	return ""
 
 
@@ -192,8 +197,8 @@ func _update_drone_row() -> void:
 		return
 	var status: Dictionary = battle_manager.drone_fleet_status()
 	if not status.team_active:
-		_drone_label.text = "Drone team: %s (%d/%d crew killed)" % [
-			_team_state_text(status.team_state), status.team_crew_killed, status.team_crew_size
+		_drone_label.text = "Drone team: %s (%d/%d crew casualties)" % [
+			_team_state_text(status.team_state), status.team_crew_casualties, status.team_crew_size
 		]
 		_drone_fill.color = STATUS_COLOR[status.team_state]
 		return

@@ -78,8 +78,8 @@ func log_reports_issue(unit: Unit) -> void:
 func log_destroyed(unit: Unit) -> void:
 	if unit.kind == Unit.Kind.MORTAR or unit.kind == Unit.Kind.DRONE_TEAM:
 		var what := "the gun" if unit.kind == Unit.Kind.MORTAR else "the operation"
-		add_entry("%s's entire crew is down (%d/%d killed) — %s is lost" % [
-			unit.display_name(), unit.crew_killed, unit.crew_size, what
+		add_entry("%s's entire crew is down (%d/%d casualties) — %s is lost" % [
+			unit.display_name(), unit.crew_casualties, unit.crew_size, what
 		])
 	else:
 		add_entry("%s %s" % [unit.display_name(), unit.destroyed_verb()])
@@ -88,7 +88,7 @@ func log_destroyed(unit: Unit) -> void:
 func log_crew_abandoned(unit: Unit) -> void:
 	var what := "the gun" if unit.kind == Unit.Kind.MORTAR else "operations"
 	add_entry("%s takes a hit — %d/%d crew down, survivors abandon %s and flee" % [
-		unit.display_name(), unit.crew_killed, unit.crew_size, what
+		unit.display_name(), unit.crew_casualties, unit.crew_size, what
 	])
 
 

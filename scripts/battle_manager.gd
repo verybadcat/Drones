@@ -2429,9 +2429,11 @@ func _has_active_units(units: Array[Unit]) -> bool:
 ## gets that noted, since "withdrew safely" alone would hide that its crew
 ## was hurt.
 func _crew_survivor_label(u: Unit) -> String:
-	if u.crew_killed > 0 and (u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM):
+	if u.crew_casualties > 0 and (u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM):
 		var what := "gun abandoned" if u.kind == Unit.Kind.MORTAR else "operations abandoned"
-		return "%s (%d/%d crew killed, %s)" % [u.display_name(), u.crew_killed, u.crew_size, what]
+		return "%s (%d/%d crew casualties: %d killed, %d heavily wounded, %d walking wounded, %s)" % [
+			u.display_name(), u.crew_casualties, u.crew_size, u.killed_count, u.heavily_wounded_count, u.walking_wounded_count, what
+		]
 	return u.display_name()
 
 
@@ -2450,7 +2452,7 @@ func drone_fleet_status() -> Dictionary:
 	return {
 		"team_active": drone_team != null and drone_team.state == Unit.State.ACTIVE,
 		"team_state": drone_team.state if drone_team else Unit.State.DESTROYED,
-		"team_crew_killed": drone_team.crew_killed if drone_team else 0,
+		"team_crew_casualties": drone_team.crew_casualties if drone_team else 0,
 		"team_crew_size": drone_team.crew_size if drone_team else 0,
 		"airborne": active_drone != null,
 		"airborne_charge": active_drone.drone_battery_charge if active_drone else -1.0,
@@ -2513,7 +2515,9 @@ func _compute_side_stats(units: Array[Unit]) -> Dictionary:
 		match u.state:
 			Unit.State.DESTROYED:
 				if u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM:
-					destroyed.append("%s (%d/%d crew killed)" % [u.display_name(), u.crew_killed, u.crew_size])
+					destroyed.append("%s (%d/%d crew casualties: %d killed, %d heavily wounded, %d walking wounded)" % [
+						u.display_name(), u.crew_casualties, u.crew_size, u.killed_count, u.heavily_wounded_count, u.walking_wounded_count
+					])
 				else:
 					destroyed.append(u.display_name())
 			Unit.State.WITHDRAWN:

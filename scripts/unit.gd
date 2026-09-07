@@ -162,10 +162,10 @@ var drone_battery_charge: float = 1.0
 # and its crew are worth just as much to lose, or to kill, as anyone else.
 const MORTAR_CREW_SIZE: int = 4
 var crew_size: int = 0
-var crew_killed: int = 0
+var crew_casualties: int = 0
 
 # SQUAD only: a real 9-person infantry squad, for both sides. Unlike the
-# mortar/drone team's crew_size/crew_killed model (a hit is decisive, killing
+# mortar/drone team's crew_size/crew_casualties model (a hit is decisive, killing
 # a random handful of a small crew at once), a squad takes casualties one
 # soldier at a time per hit (see take_hit's generic `pips = max(pips-1, 0)`)
 # — pips already WAS a literal headcount in that sense, just scaled to a
@@ -183,7 +183,7 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 	match kind:
 		Kind.MORTAR:
 			crew_size = MORTAR_CREW_SIZE
-			crew_killed = 0
+			crew_casualties = 0
 			max_pips = crew_size # crew casualties count the same as squad pips — see _apply_crew_casualties
 			base_hit_chance = 0.40
 			unit_label = "Mortar"
@@ -195,7 +195,7 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 			fire_interval = 0.0
 		Kind.DRONE_TEAM:
 			crew_size = GameConfig.DRONE_TEAM_CREW_SIZE
-			crew_killed = 0
+			crew_casualties = 0
 			max_pips = crew_size # same crew-casualty accounting as the mortar — see _apply_crew_casualties
 			base_hit_chance = 0.0 # never fires — see BattleManager._tick_fire
 			unit_label = "Drone Team"
@@ -252,14 +252,12 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], kn
 	# handful, which is exactly why it's also a more attractive TARGET in
 	# the first place (see BattleManager._mortar_target_value).
 	var casualties: int = GameConfig.mortar_casualty_count(pips) if from_mortar else 1
-	if kind == Kind.SQUAD:
-		_categorize_casualties(casualties)
-	else:
-		# SPOTTER: one-hit-fragile (max_pips == 1), no graduated wounded
-		# split for a single person — counts as killed, same reasoning as
-		# _apply_crew_casualties. Also keeps the side-wide breakdown exactly
-		# reconciling with pips actually lost for every kind, not just squads.
-		killed_count += casualties
+	# SPOTTER (one-hit-fragile, max_pips == 1) gets the same categorization
+	# roll as a SQUAD's casualties — no reason a spotter's single casualty
+	# should be unconditionally "killed" any more than a mortar crew's are
+	# (see _apply_crew_casualties). Also keeps the side-wide breakdown
+	# exactly reconciling with pips actually lost for every kind.
+	_categorize_casualties(casualties)
 	pips = max(pips - casualties, 0)
 	if pips <= 0:
 		state = State.DESTROYED
@@ -313,27 +311,28 @@ func _check_retreat(known_enemy_positions: Array[Vector2] = [], ally_positions: 
 
 ## A mortar crew (or a drone team's ground crew) doesn't shrug off a hit and
 ## keep working the way a rifle squad absorbs casualties — a round landing
-## on/near a small crew is decisive. Tracks exactly how many went down (an
-## honest headcount, not a vague percent) so the AAR can report a real
-## number. If anyone survives, they abandon the position right there — it's
-## out of action for the rest of the battle either way — and retreat to try
-## to get clear (see order_retreat()); only a hit that gets the whole crew
-## actually destroys the unit.
+## on/near a small crew is decisive: however many of them go down in this
+## one hit (`crew_casualties`, an honest headcount, not a vague percent) are
+## OUT OF ACTION for the rest of the battle either way, unlike a squad's
+## gradual attrition. If anyone survives, they abandon the position right
+## there and retreat to try to get clear (see order_retreat()); only a hit
+## that accounts for the whole crew actually destroys the unit.
 ##
-## Every one of these counts as killed_count too, not just crew_killed — the
-## model has no separate "wounded crew" concept (a decisive hit either takes
-## someone down for good or doesn't touch them at all), so folding straight
-## into killed_count is exactly right, not a simplification. This is what
-## keeps _compute_side_stats's killed/heavily_wounded/walking_wounded/
+## "Out of action" is not the same claim as "dead," though — a crew hit is
+## exactly as capable of producing killed vs. wounded survivors as a squad's
+## is, so each of these newly-down crew members gets the same _categorize_
+## casualties roll a squad's casualties do, instead of every one of them
+## being unconditionally tallied as killed_count. This is also what keeps
+## _compute_side_stats's killed/heavily_wounded/walking_wounded/
 ## wounded_left_behind breakdown always summing to the side's actual total
 ## personnel lost, mortars and drone-team crews included, not just squads.
 func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_positions: Array[Vector2] = []) -> void:
-	var remaining: int = crew_size - crew_killed
-	var newly_killed: int = randi_range(1, remaining)
-	crew_killed += newly_killed
-	killed_count += newly_killed
-	pips = crew_size - crew_killed # feeds the side's overall casualty tally exactly like a squad's pips — see setup()
-	if crew_killed >= crew_size:
+	var remaining: int = crew_size - crew_casualties
+	var newly_down: int = randi_range(1, remaining)
+	crew_casualties += newly_down
+	_categorize_casualties(newly_down)
+	pips = crew_size - crew_casualties # feeds the side's overall casualty tally exactly like a squad's pips — see setup()
+	if crew_casualties >= crew_size:
 		state = State.DESTROYED
 		state_changed.emit(self)
 		return
