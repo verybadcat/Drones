@@ -174,6 +174,13 @@ var _drones_swapping: Array[Dictionary] = [] # [{"time_left": float, "charge": f
 var _battery_pool: Array[float] = [] # charge level of every battery not currently installed in any airframe
 var _drones_destroyed: int = 0 # airframes permanently lost (shot down, battery and all) this battle
 var _drone_sweep_index: int = 0 # which road waypoint the blind search patrol is currently headed for — see _drone_sweep_target
+# Waypoint index -> scenario_elapsed_time it was last actually reached (not
+# just picked) — see _drone_sweep_target/_recently_visited_weight_multiplier.
+# A cell the drone was just over and saw nothing in is temporarily much
+# less worth an immediate re-roll back to, decaying back to its ordinary
+# weight over GameConfig.DRONE_SWEEP_RECENTLY_VISITED_COOLDOWN_S rather
+# than staying suppressed forever the way a confirmed kill does.
+var _drone_sweep_last_visited: Dictionary = {}
 var _drone_vicinity_search_angle: float = 0.0 # current angle around a spotted squad the drone is circling to — see _drone_vicinity_search_point
 var _drone_flank_watch_point: Vector2 = Vector2.INF # current unscreened bearing around the mortar the drone is checking — see _drone_flank_watch_target
 
@@ -202,6 +209,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drones_swapping.clear()
 	_battery_pool.clear()
 	_drones_destroyed = 0
+	_drone_sweep_last_visited.clear()
 	_drone_sweep_index = _weighted_random_sweep_index()
 	_drone_vicinity_search_angle = 0.0
 	_drone_flank_watch_point = Vector2.INF
@@ -2098,16 +2106,20 @@ func _area_confirmed_clear(point: Vector2) -> bool:
 ## A grid index chosen with GameConfig.DRONE_SWEEP_ROW_WEIGHTS bias toward
 ## the rows nearest the road (see _drone_sweep_target's own reasoning),
 ## further reduced per-waypoint wherever _area_confirmed_clear says the
-## enemy is already known not to be — shared by the initial pick at battle
-## start (see start_battle) and every subsequent re-roll on arrival, so
-## "where the drone starts" and "where it keeps going" are the same
-## underlying bias instead of two separate, potentially inconsistent
-## mechanisms. A genuine weighted-random pick across all 25 cells at once,
-## not row-then-uniform-column as before — with nothing confirmed clear
-## this reduces to exactly the same distribution (each cell in a row gets
-## an equal share of that row's own weight), so this is a generalization,
-## not a behavior change, for the common case where nothing's confirmed
-## clear yet.
+## enemy is already known not to be (permanent — a specific unit died or
+## pulled out there for good) AND wherever the drone itself was recently
+## overhead and found nothing (temporary, see _recently_visited_weight_
+## multiplier — the ground itself hasn't been ruled out, just isn't worth
+## an immediate repeat trip). Shared by the initial pick at battle start
+## (see start_battle) and every subsequent re-roll on arrival, so "where
+## the drone starts" and "where it keeps going" are the same underlying
+## bias instead of two separate, potentially inconsistent mechanisms. A
+## genuine weighted-random pick across all 25 cells at once, not
+## row-then-uniform-column as before — with neither penalty in play this
+## reduces to exactly the same distribution (each cell in a row gets an
+## equal share of that row's own weight), so this is a generalization, not
+## a behavior change, for the common case where nothing's been ruled out
+## yet.
 func _weighted_random_sweep_index() -> int:
 	var row_count: int = GameConfig.DRONE_SEARCH_GRID_ROWS_M.size()
 	var columns_per_row: int = GameConfig.DRONE_SEARCH_GRID_COLUMNS_M.size()
@@ -2120,6 +2132,7 @@ func _weighted_random_sweep_index() -> int:
 			var w: float = GameConfig.DRONE_SWEEP_ROW_WEIGHTS[row_i] / float(columns_per_row)
 			if _area_confirmed_clear(waypoints[idx]):
 				w *= GameConfig.DRONE_SWEEP_CLEARED_WEIGHT_MULTIPLIER
+			w *= _recently_visited_weight_multiplier(idx)
 			weights.append(w)
 			total += w
 	var roll: float = randf() * total
@@ -2131,9 +2144,27 @@ func _weighted_random_sweep_index() -> int:
 	return weights.size() - 1
 
 
+## 1.0 with no record of this waypoint at all, or once GameConfig.
+## DRONE_SWEEP_RECENTLY_VISITED_COOLDOWN_S has fully passed since the drone
+## was last actually overhead it — down to DRONE_SWEEP_RECENTLY_VISITED_
+## MIN_WEIGHT_MULTIPLIER the instant it just left, ramping back up linearly
+## as the memory of "I already looked here" goes stale. A softer, decaying
+## version of _area_confirmed_clear's permanent penalty: this is "probably
+## still not worth an immediate repeat trip," not "definitively ruled out."
+func _recently_visited_weight_multiplier(idx: int) -> float:
+	if not _drone_sweep_last_visited.has(idx):
+		return 1.0
+	var elapsed: float = scenario_elapsed_time - _drone_sweep_last_visited[idx]
+	if elapsed >= GameConfig.DRONE_SWEEP_RECENTLY_VISITED_COOLDOWN_S:
+		return 1.0
+	var t: float = elapsed / GameConfig.DRONE_SWEEP_RECENTLY_VISITED_COOLDOWN_S
+	return lerp(GameConfig.DRONE_SWEEP_RECENTLY_VISITED_MIN_WEIGHT_MULTIPLIER, 1.0, t)
+
+
 func _drone_sweep_target() -> Vector2:
 	var waypoints: Array[Vector2] = GameConfig.drone_search_waypoints_px()
 	if active_drone.global_position.distance_to(waypoints[_drone_sweep_index]) <= DRONE_SWEEP_WAYPOINT_RADIUS:
+		_drone_sweep_last_visited[_drone_sweep_index] = scenario_elapsed_time
 		_drone_sweep_index = _weighted_random_sweep_index()
 	return waypoints[_drone_sweep_index]
 

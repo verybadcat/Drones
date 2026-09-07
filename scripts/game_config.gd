@@ -302,6 +302,24 @@ const DRONE_SWEEP_CLEARED_RADIUS_M: float = 600.0
 ## idiom (see _weighted_mortar_target_pick, _weighted_advance_point_pick).
 const DRONE_SWEEP_CLEARED_WEIGHT_MULTIPLIER: float = 0.15
 
+## A softer, TEMPORARY counterpart to the permanent "confirmed clear" bias
+## above — see BattleManager._recently_visited_weight_multiplier. The
+## drone's own random re-rolls could otherwise keep bouncing back to a cell
+## it just searched (nothing there is real, hard-won information too, it's
+## just not permanent the way a confirmed kill is — an enemy unit could
+## still walk into that same ground later), spending a lot of time
+## "concentrating" on one area while genuinely unsearched ground sits
+## untouched. Not as severe as the permanent penalty (0.2 vs. 0.15) since
+## this is weaker, temporary evidence, and it fully decays rather than
+## staying suppressed forever.
+const DRONE_SWEEP_RECENTLY_VISITED_MIN_WEIGHT_MULTIPLIER: float = 0.2
+## How long "I was just there" keeps suppressing a waypoint's own weight —
+## a judgment call, not sourced: long enough that the drone actually
+## spreads out over the grid instead of thrashing between a couple of
+## favored cells, short enough that a genuinely quiet area doesn't stay
+## permanently under-searched for the whole battle.
+const DRONE_SWEEP_RECENTLY_VISITED_COOLDOWN_S: float = 20.0 * 60.0
+
 
 # Each zone is a rectangle + terrain type (TREES/BUILDING only — elevation
 # is now the continuous heightmap above, and the road is its own waypoint
