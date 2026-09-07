@@ -1182,6 +1182,12 @@ const MORTAR_CASUALTY_FRACTION: float = 0.2
 static func mortar_casualty_count(current_pips: int) -> int:
 	return clampi(int(round(float(current_pips) * MORTAR_CASUALTY_FRACTION)), 1, current_pips)
 
+## "1 rounds" reads as a typo, not a translation of the game state — every
+## display of a mortar's ammo count needs this, not just the one place it
+## was first noticed.
+static func round_count_text(rounds: int) -> String:
+	return "%d round" % rounds if rounds == 1 else "%d rounds" % rounds
+
 # Every pip a SQUAD actually loses (see Unit._categorize_casualties) is
 # sorted into killed / heavily wounded (immobile — needs carrying, see
 # Unit._resolve_wounded_evacuation) / walking wounded (mobile, no retreat

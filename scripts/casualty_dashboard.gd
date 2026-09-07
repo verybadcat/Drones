@@ -209,7 +209,7 @@ func _mortar_status_text(u: Unit) -> String:
 		return _enemy_mortar_status_text(u)
 	match u.state:
 		Unit.State.ACTIVE:
-			return "in action (%d rounds%s)" % [u.mortar_rounds_remaining, _resupply_status_suffix(u)]
+			return "in action (%s%s)" % [GameConfig.round_count_text(u.mortar_rounds_remaining), _resupply_status_suffix(u)]
 		Unit.State.RETREATING:
 			return "abandoned, crew fleeing (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
 		Unit.State.WITHDRAWN:

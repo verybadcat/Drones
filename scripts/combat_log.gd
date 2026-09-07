@@ -167,7 +167,7 @@ func log_mortar_resupply_eta_warning(unit: Unit) -> void:
 
 
 func log_mortar_resupply_arrived(unit: Unit, rounds: int) -> void:
-	add_entry("%s: resupply run gets through — %d rounds waiting at the resupply point" % [unit.display_name(), rounds])
+	add_entry("%s: resupply run gets through — %s waiting at the resupply point" % [unit.display_name(), GameConfig.round_count_text(rounds)])
 
 
 func log_mortar_resupply_failed(unit: Unit) -> void:
@@ -179,7 +179,7 @@ func log_mortar_resupply_departing(unit: Unit) -> void:
 
 
 func log_mortar_resupply_collected(unit: Unit, rounds: int) -> void:
-	add_entry("%s collects %d rounds (%d now on hand) and heads back" % [unit.display_name(), rounds, unit.mortar_rounds_remaining])
+	add_entry("%s collects %s (%s now on hand) and heads back" % [unit.display_name(), GameConfig.round_count_text(rounds), GameConfig.round_count_text(unit.mortar_rounds_remaining)])
 
 
 func log_squad_blocking_flank(unit: Unit) -> void:
