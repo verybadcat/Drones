@@ -34,6 +34,72 @@ const RETREAT_THRESHOLD := 0.30 # DoctrinePanel's own default slider value
 const OUTPUT_JSON := "res://docs/designs/pre-rewrite-baseline.json"
 const OUTPUT_MD := "res://docs/designs/pre-rewrite-baseline.md"
 
+## Battle-outcome scoring rubric, fixed by the user (2026-09-08) — the
+## concrete operationalization of "win the battle / keep our people alive
+## / cause enemy casualties" the planned rewrite is meant to derive
+## decisions from. Computed TWICE per trial: once against TRUE ground
+## truth (the internal score actual decisions should be evaluated
+## against) and once against the PLAYER'S OWN best-guess/estimated
+## figures (what would actually justify a displayed verdict label) — the
+## two are expected to sometimes disagree, same as the rest of this
+## game's AAR already can. Deliberately excludes any "recon asset lost"
+## term: per the user, this scores FINAL outcomes only, not intermediate/
+## replaceable capability effects — a drone-team casualty is already
+## counted as an ordinary friendly death/wounded, same as any squad's.
+const SCORE_POSITION_HELD := 20.0
+const SCORE_POSITION_LOST := -20.0
+const SCORE_FRIENDLY_DEATH := -10.0
+const SCORE_ENEMY_DEATH := 5.0
+const SCORE_FRIENDLY_CAPTURED := -8.0
+const SCORE_ENEMY_CAPTURED := 8.0
+const SCORE_FRIENDLY_HEAVILY_WOUNDED := -4.0
+const SCORE_ENEMY_HEAVILY_WOUNDED := 2.0
+const SCORE_FRIENDLY_WALKING_WOUNDED := -1.0
+const SCORE_ENEMY_WALKING_WOUNDED := 0.5
+const SCORE_FRIENDLY_MORTAR_LOST := -5.0 # the gun itself, on top of whatever its crew already cost above
+const SCORE_ENEMY_MORTAR_OUT := 2.5 # destroyed, or abandoned on ground the player ends up holding
+
+
+func _score_battle(held: bool, player_killed: int, player_captured: int, player_heavily_wounded: int, player_walking_wounded: int, player_mortar_lost: int, enemy_killed: int, enemy_captured: int, enemy_heavily_wounded: int, enemy_walking_wounded: int, enemy_mortar_out: int) -> float:
+	var score := SCORE_POSITION_HELD if held else SCORE_POSITION_LOST
+	score += SCORE_FRIENDLY_DEATH * player_killed
+	score += SCORE_ENEMY_DEATH * enemy_killed
+	score += SCORE_FRIENDLY_CAPTURED * player_captured
+	score += SCORE_ENEMY_CAPTURED * enemy_captured
+	score += SCORE_FRIENDLY_HEAVILY_WOUNDED * player_heavily_wounded
+	score += SCORE_ENEMY_HEAVILY_WOUNDED * enemy_heavily_wounded
+	score += SCORE_FRIENDLY_WALKING_WOUNDED * player_walking_wounded
+	score += SCORE_ENEMY_WALKING_WOUNDED * enemy_walking_wounded
+	score += SCORE_FRIENDLY_MORTAR_LOST * player_mortar_lost
+	score += SCORE_ENEMY_MORTAR_OUT * enemy_mortar_out
+	return score
+
+
+## Ground truth: is `mortar` actually destroyed, or abandoned on ground
+## the player ends up holding? The "abandoned on held ground" half ties
+## to the AAR's own "holding lets you confirm what was left behind"
+## mechanic — a withdrawn/retreating crew only counts once the position
+## itself is confirmed held, not merely because it happened to flee.
+func _mortar_out_true(mortar: Unit, held: bool) -> bool:
+	if mortar.state == Unit.State.DESTROYED:
+		return true
+	return held and (mortar.state == Unit.State.WITHDRAWN or mortar.state == Unit.State.RETREATING)
+
+
+## The player's own best-guess equivalent, for the displayed-verdict
+## score — mirrors _compute_side_stats's own per-unit confirmation logic
+## (battle_manager.gd) exactly: a withdrawn/retreating enemy is only
+## "confirmed" if the position is held AND it was actually sighted at
+## some point; otherwise the honest assumption is that it's still in
+## action, same as the rest of the AAR would report.
+func _mortar_out_estimated(mortar: Unit, held: bool) -> bool:
+	var unrecoverable: bool = mortar.state == Unit.State.WITHDRAWN or mortar.state == Unit.State.RETREATING
+	var unit_estimated: bool = (not held) or unrecoverable
+	if unit_estimated and not mortar.player_has_been_sighted:
+		return false
+	var eff_state: Unit.State = mortar.player_known_state if unit_estimated else mortar.state
+	return eff_state == Unit.State.DESTROYED or eff_state == Unit.State.WITHDRAWN or eff_state == Unit.State.RETREATING
+
 
 func _build_doctrine(mode: GameConfig.ReconMode) -> Dictionary:
 	var squads: Array[Dictionary] = []
@@ -80,6 +146,7 @@ func _run_one_trial(mode: GameConfig.ReconMode) -> Dictionary:
 	var player_surrendered := 0
 	var player_retreat_extended := 0
 	var player_ever_retreated := 0
+	var player_mortar_lost := 0
 	for u in bm.player_units:
 		if u.state == Unit.State.SURRENDERED:
 			player_surrendered += 1
@@ -87,10 +154,25 @@ func _run_one_trial(mode: GameConfig.ReconMode) -> Dictionary:
 			player_retreat_extended += 1
 		if u.state == Unit.State.RETREATING or u.state == Unit.State.WITHDRAWN or u.retreat_extended:
 			player_ever_retreated += 1
+		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.DESTROYED:
+			player_mortar_lost += 1
 	var enemy_surrendered := 0
+	var enemy_mortar_out_true := 0
+	var enemy_mortar_out_estimated := 0
 	for u in bm.enemy_units:
 		if u.state == Unit.State.SURRENDERED:
 			enemy_surrendered += 1
+		if u.kind == Unit.Kind.MORTAR:
+			if _mortar_out_true(u, held):
+				enemy_mortar_out_true += 1
+			if _mortar_out_estimated(u, held):
+				enemy_mortar_out_estimated += 1
+
+	# The displayed-AAR figure — exactly what _end_battle itself computes
+	# as `enemy_stats` (battle_manager.gd) — feeds the estimated score.
+	var enemy_stats_estimated: Dictionary = bm._compute_side_stats(bm.enemy_units, not held, true)
+	var true_score: float = _score_battle(held, player_stats.killed, player_stats.captured, player_stats.heavily_wounded, player_stats.walking_wounded, player_mortar_lost, true_enemy_stats.killed, true_enemy_stats.captured, true_enemy_stats.heavily_wounded, true_enemy_stats.walking_wounded, enemy_mortar_out_true)
+	var estimated_score: float = _score_battle(held, player_stats.killed, player_stats.captured, player_stats.heavily_wounded, player_stats.walking_wounded, player_mortar_lost, enemy_stats_estimated.killed, enemy_stats_estimated.captured, enemy_stats_estimated.heavily_wounded, enemy_stats_estimated.walking_wounded, enemy_mortar_out_estimated)
 
 	var result: Dictionary = {
 		"hung": hung,
@@ -109,6 +191,11 @@ func _run_one_trial(mode: GameConfig.ReconMode) -> Dictionary:
 		"enemy_surrendered": enemy_surrendered,
 		"player_retreat_extended": player_retreat_extended,
 		"player_ever_retreated": player_ever_retreated,
+		"player_mortar_lost": player_mortar_lost,
+		"enemy_mortar_out_true": enemy_mortar_out_true,
+		"enemy_mortar_out_estimated": enemy_mortar_out_estimated,
+		"true_score": true_score,
+		"estimated_score": estimated_score,
 		"target_picks": bm.target_picks,
 		"resupply_spawned": bm.resupply_spawned,
 		"resupply_destroyed_in_transit": bm.resupply_destroyed_in_transit,
@@ -142,6 +229,9 @@ func _aggregate(trials: Array[Dictionary]) -> Dictionary:
 		"trials": n,
 		"hung": 0,
 		"verdict_counts": {},
+		"verdict_score_stats": {}, # verdict -> {count, true_sum/min/max, est_sum/min/max}
+		"true_score_sum": 0.0,
+		"estimated_score_sum": 0.0,
 		"held_count": 0,
 		"exchange_ratio_sum": 0.0,
 		"duration_sum": 0.0,
@@ -175,6 +265,18 @@ func _aggregate(trials: Array[Dictionary]) -> Dictionary:
 		if t.hung:
 			agg.hung += 1
 		agg.verdict_counts[t.verdict] = int(agg.verdict_counts.get(t.verdict, 0)) + 1
+		agg.true_score_sum += t.true_score
+		agg.estimated_score_sum += t.estimated_score
+		if not agg.verdict_score_stats.has(t.verdict):
+			agg.verdict_score_stats[t.verdict] = {"count": 0, "true_sum": 0.0, "true_min": INF, "true_max": -INF, "est_sum": 0.0, "est_min": INF, "est_max": -INF}
+		var vs: Dictionary = agg.verdict_score_stats[t.verdict]
+		vs.count += 1
+		vs.true_sum += t.true_score
+		vs.true_min = min(vs.true_min, t.true_score)
+		vs.true_max = max(vs.true_max, t.true_score)
+		vs.est_sum += t.estimated_score
+		vs.est_min = min(vs.est_min, t.estimated_score)
+		vs.est_max = max(vs.est_max, t.estimated_score)
 		if t.held:
 			agg.held_count += 1
 		agg.exchange_ratio_sum += t.exchange_ratio
@@ -228,6 +330,15 @@ func _md_for_mode(mode_name: String, agg: Dictionary) -> String:
 	lines.append("- Average battle duration: %.1f tactical minutes" % (agg.duration_sum / n / 60.0))
 	lines.append("- Average player casualties: %.1f / %.1f (%s)" % [agg.player_pips_lost_sum / n, agg.player_pips_total_sum / n, _pct(agg.player_pips_lost_sum, agg.player_pips_total_sum)])
 	lines.append("- Average enemy casualties (true): %.1f / %.1f (%s)" % [agg.enemy_pips_lost_sum / n, agg.enemy_pips_total_sum / n, _pct(agg.enemy_pips_lost_sum, agg.enemy_pips_total_sum)])
+	lines.append("")
+	lines.append("### Battle-outcome score (see design doc for the fixed rubric)")
+	lines.append("Two separate numbers per battle: the TRUE score (ground truth — what an actual decision-making framework should be evaluated against) and the ESTIMATED score (the player's own best-guess figures — what would actually justify a displayed verdict). These are expected to diverge sometimes; that's intentional, not an error.")
+	lines.append("- Average true score: %.2f" % (agg.true_score_sum / n))
+	lines.append("- Average estimated (best-guess) score: %.2f" % (agg.estimated_score_sum / n))
+	lines.append("- By current verdict label (still held+exchange_ratio-based, NOT yet derived from this score):")
+	for v in agg.verdict_score_stats:
+		var vs: Dictionary = agg.verdict_score_stats[v]
+		lines.append("  - `%s` (%d battles): true score avg %.1f (range %.1f to %.1f), estimated score avg %.1f (range %.1f to %.1f)" % [v, vs.count, vs.true_sum / vs.count, vs.true_min, vs.true_max, vs.est_sum / vs.count, vs.est_min, vs.est_max])
 	lines.append("")
 	lines.append("### Surrender (expected to remain unchanged by the rewrite — see design doc)")
 	lines.append("- Player squads surrendered: %.2f per battle on average" % (agg.player_surrendered_sum / n))

@@ -1,129 +1,190 @@
 {
-  "generated_at": "2026-09-08T00:43:47",
+  "generated_at": "2026-09-08T01:18:54",
   "git_tag": "before-tactical-rewrite",
   "results": {
     "DRONE_TEAM": {
-      "cookoff_occurred_sum": 30,
-      "cookoff_rolls_sum": 104,
+      "cookoff_occurred_sum": 29,
+      "cookoff_rolls_sum": 106,
       "drone_lost_to_battery_sum": 0,
       "drone_shot_down_by_enemy_sum": 0,
-      "drone_sorties_launched_sum": 165,
-      "duration_sum": 1002300.0,
-      "enemy_pips_lost_sum": 1832,
+      "drone_sorties_launched_sum": 168,
+      "duration_sum": 989160.0,
+      "enemy_pips_lost_sum": 1955,
       "enemy_pips_total_sum": 6200,
-      "enemy_surrendered_sum": 5,
-      "exchange_ratio_sum": 149.681535767294,
-      "flanking_arrivals_sum": 139,
-      "flanking_units_assigned_sum": 194,
-      "held_count": 60,
+      "enemy_surrendered_sum": 3,
+      "estimated_score_sum": -5499.0,
+      "exchange_ratio_sum": 162.721688545373,
+      "flanking_arrivals_sum": 127,
+      "flanking_units_assigned_sum": 199,
+      "held_count": 59,
       "hung": 0,
       "mortar_hold_decisions": {
-        "enemy": 8,
-        "player": 66
+        "enemy": 6,
+        "player": 71
       },
       "mortar_hold_outcomes": {
         "enemy": 4,
-        "player": 30
+        "player": 29
       },
       "player_ever_retreated_sum": 270,
-      "player_pips_lost_sum": 1388,
+      "player_pips_lost_sum": 1352,
       "player_pips_total_sum": 3400,
-      "player_retreat_extended_sum": 39,
+      "player_retreat_extended_sum": 38,
       "player_surrendered_sum": 0,
       "resupply_destroyed_in_transit": {},
       "resupply_spawned": {
-        "enemy": 260,
-        "player": 1
+        "enemy": 269
       },
-      "retreat_avoidance_active_sum": 5242,
-      "retreat_avoidance_checks_sum": 24202,
+      "retreat_avoidance_active_sum": 5609,
+      "retreat_avoidance_checks_sum": 25540,
       "target_picks": {
-        "enemy:MORTAR->DRONE_TEAM": 650,
-        "enemy:MORTAR->SQUAD": 3799,
-        "enemy:SQUAD->DRONE_TEAM": 346,
-        "enemy:SQUAD->SQUAD": 18818,
-        "player:MORTAR->MORTAR": 50,
-        "player:MORTAR->SQUAD": 611,
-        "player:SQUAD->SQUAD": 18135
+        "enemy:MORTAR->DRONE_TEAM": 591,
+        "enemy:MORTAR->SQUAD": 3754,
+        "enemy:SQUAD->DRONE_TEAM": 312,
+        "enemy:SQUAD->SQUAD": 16147,
+        "player:MORTAR->MORTAR": 44,
+        "player:MORTAR->SQUAD": 587,
+        "player:SQUAD->SQUAD": 17143
       },
       "trials": 100,
+      "true_score_sum": -545.5,
       "verdict_counts": {
-        "DEFEAT": 40,
-        "PYRRHIC DEFENSE": 18,
-        "SUCCESSFUL DEFENSE": 42
+        "DEFEAT": 41,
+        "PYRRHIC DEFENSE": 15,
+        "SUCCESSFUL DEFENSE": 44
+      },
+      "verdict_score_stats": {
+        "DEFEAT": {
+          "count": 41,
+          "est_max": -63.0,
+          "est_min": -171.0,
+          "est_sum": -4146.5,
+          "true_max": -15.5,
+          "true_min": -145.5,
+          "true_sum": -2638.0
+        },
+        "PYRRHIC DEFENSE": {
+          "count": 15,
+          "est_max": -5.0,
+          "est_min": -54.0,
+          "est_sum": -497.5,
+          "true_max": 39.5,
+          "true_min": -33.5,
+          "true_sum": 34.5
+        },
+        "SUCCESSFUL DEFENSE": {
+          "count": 44,
+          "est_max": 44.0,
+          "est_min": -68.0,
+          "est_sum": -855.0,
+          "true_max": 103.5,
+          "true_min": -8.5,
+          "true_sum": 2058.0
+        }
       },
       "wounded_abandoned": {
-        "enemy": 43
+        "enemy": 66
       },
       "wounded_carried": {
-        "enemy": 185,
-        "player": 145
+        "enemy": 190,
+        "player": 144
       },
       "wounded_evac_decisions": {
-        "enemy": 228,
-        "player": 145
+        "enemy": 256,
+        "player": 144
       }
     },
     "SPOTTER": {
-      "cookoff_occurred_sum": 28,
-      "cookoff_rolls_sum": 128,
+      "cookoff_occurred_sum": 27,
+      "cookoff_rolls_sum": 112,
       "drone_lost_to_battery_sum": 0,
       "drone_shot_down_by_enemy_sum": 0,
       "drone_sorties_launched_sum": 0,
-      "duration_sum": 948870.0,
-      "enemy_pips_lost_sum": 1339,
+      "duration_sum": 918090.0,
+      "enemy_pips_lost_sum": 1254,
       "enemy_pips_total_sum": 6200,
-      "enemy_surrendered_sum": 1,
-      "exchange_ratio_sum": 107.719509953411,
-      "flanking_arrivals_sum": 134,
-      "flanking_units_assigned_sum": 180,
-      "held_count": 40,
+      "enemy_surrendered_sum": 0,
+      "estimated_score_sum": -7745.0,
+      "exchange_ratio_sum": 97.266534505712,
+      "flanking_arrivals_sum": 146,
+      "flanking_units_assigned_sum": 207,
+      "held_count": 34,
       "hung": 0,
       "mortar_hold_decisions": {
-        "enemy": 20,
-        "player": 80
+        "enemy": 19,
+        "player": 66
       },
       "mortar_hold_outcomes": {
-        "enemy": 8,
-        "player": 26
+        "enemy": 9,
+        "player": 28
       },
-      "player_ever_retreated_sum": 304,
-      "player_pips_lost_sum": 1471,
+      "player_ever_retreated_sum": 305,
+      "player_pips_lost_sum": 1449,
       "player_pips_total_sum": 3200,
-      "player_retreat_extended_sum": 35,
+      "player_retreat_extended_sum": 28,
       "player_surrendered_sum": 0,
       "resupply_destroyed_in_transit": {},
       "resupply_spawned": {
-        "enemy": 217
+        "enemy": 219,
+        "player": 2
       },
-      "retreat_avoidance_active_sum": 4911,
-      "retreat_avoidance_checks_sum": 18666,
+      "retreat_avoidance_active_sum": 4439,
+      "retreat_avoidance_checks_sum": 17690,
       "target_picks": {
-        "enemy:MORTAR->MORTAR": 11,
-        "enemy:MORTAR->SPOTTER": 308,
-        "enemy:MORTAR->SQUAD": 3543,
-        "enemy:SQUAD->MORTAR": 9,
-        "enemy:SQUAD->SPOTTER": 379,
-        "enemy:SQUAD->SQUAD": 17272,
-        "player:MORTAR->SQUAD": 651,
-        "player:SQUAD->SQUAD": 14314
+        "enemy:MORTAR->MORTAR": 7,
+        "enemy:MORTAR->SPOTTER": 318,
+        "enemy:MORTAR->SQUAD": 3670,
+        "enemy:SQUAD->SPOTTER": 346,
+        "enemy:SQUAD->SQUAD": 15903,
+        "player:MORTAR->SQUAD": 677,
+        "player:SQUAD->SQUAD": 13047
       },
       "trials": 100,
+      "true_score_sum": -4423.5,
       "verdict_counts": {
-        "DEFEAT": 60,
-        "PYRRHIC DEFENSE": 19,
-        "SUCCESSFUL DEFENSE": 21
+        "DEFEAT": 66,
+        "PYRRHIC DEFENSE": 15,
+        "SUCCESSFUL DEFENSE": 19
+      },
+      "verdict_score_stats": {
+        "DEFEAT": {
+          "count": 66,
+          "est_max": -55.0,
+          "est_min": -148.0,
+          "est_sum": -6409.0,
+          "true_max": -16.0,
+          "true_min": -136.0,
+          "true_sum": -4829.5
+        },
+        "PYRRHIC DEFENSE": {
+          "count": 15,
+          "est_max": -16.0,
+          "est_min": -73.0,
+          "est_sum": -715.5,
+          "true_max": 11.5,
+          "true_min": -53.0,
+          "true_sum": -231.0
+        },
+        "SUCCESSFUL DEFENSE": {
+          "count": 19,
+          "est_max": 8.0,
+          "est_min": -87.0,
+          "est_sum": -620.5,
+          "true_max": 89.5,
+          "true_min": -43.0,
+          "true_sum": 637.0
+        }
       },
       "wounded_abandoned": {
         "enemy": 32
       },
       "wounded_carried": {
-        "enemy": 118,
-        "player": 192
+        "enemy": 109,
+        "player": 187
       },
       "wounded_evac_decisions": {
-        "enemy": 150,
-        "player": 192
+        "enemy": 141,
+        "player": 187
       }
     }
   },

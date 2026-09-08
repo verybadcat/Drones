@@ -1345,3 +1345,38 @@ Fixed by setting `ENEMY_FLANK_WAYPOINT_ARRIVAL_RADIUS` to 350m — comfortably l
 **Verified:** a direct repro of the exact stuck scenario now shows the squad detecting arrival and pivoting off the flank waypoint well before reaching standoff distance, then genuinely closing on the real objective afterward (confirmed by checking its distance to `VILLAGE_CENTER` decreases over subsequent steps, not just that the flag flipped). This second fix is exactly why the baseline is worth having: it caught something no amount of "did it crash" stress testing would ever have noticed, since a permanently-stalled squad isn't a crash, it's just quietly wrong.
 
 One more wrinkle, caught by the regenerated baseline itself: right after this fix, the "flanking maneuver" stats read `0.54 per battle assigned` and `274%` arrived — a percentage over 100 is impossible, so the harness's OWN instrumentation had a bug, not the game. `TestBattleManager.flanking_units_seen` erases a unit the moment its arrival is counted (to avoid double-counting); reading `.size()` at battle-end to report "how many were ever assigned" therefore only reflects units still mid-flight at that exact moment, undercounting anyone who already arrived — while `flanking_arrivals` (a plain monotonic counter) correctly counts every arrival across the whole battle, producing a nonsensical ratio between a shrinking snapshot and a running total. Fixed by adding a separate, real monotonic counter (`flanking_units_assigned_total`) incremented exactly once per unit the first time it's ever seen flanking, independent of the working set used for arrival-dedup. Re-verified with a fresh 5-trial run (sane values, both proportions under 100%) before regenerating the full 100-trial baseline a final time.
+
+### 2026-09-08 — A battle-outcome scoring function, and a plan for the rewrite itself
+
+With the baseline capturing current behavior, the actual design of the rewrite began. Agreed principles, in order:
+
+**Scope.** Enemy behavior is explicitly out of scope for now — "do the rewrite in such a way that it could be applied to the enemy at some future time. But for now, we won't." The framework should be team-parameterizable (not hard-coded to "player") but only ever driven for the player's own side in this pass. **Pilot area**: retreat/hold-or-flee decisions (squad retreat threshold, mortar hold-vs-abandon, wounded evacuation) — the clearest existing place where "keep people alive" and "hold the position / cause enemy casualties" are already in real tension.
+
+**Knowledge locality**, worked through concretely rather than assumed. A three-tier model: (1) *personal/organic* — a unit's own state (own casualties, own ammo — worked example: a mortar's round count stays local, nothing about a retreat decision needs another unit to know it), known only to itself unless a decision downstream actually needs it; (2) *reported situational awareness* — what's realistically radioed for shared tactical picture: enemy contact reports (already modeled via `_known_enemy_positions`, gated on `is_visible`), and — the piece genuinely missing from the current codebase — whether a *neighboring friendly unit* is still fighting or has gone quiet, which matters a lot for a real hold-or-flee call (a unit is far more willing to hold if it isn't isolated); (3) *command-level aggregate* — force-wide totals only a commander synthesizes (the existing general-retreat trigger), not needed for any individual unit's own local decision.
+
+**A fixed battle-outcome scoring rubric**, the concrete operationalization of "win the battle / keep our people alive / cause enemy casualties":
+
+| Outcome | Score |
+|---|---|
+| Position held | +20 |
+| Position lost | -20 |
+| Friendly death | -10 |
+| Enemy death | +5 |
+| Friendly captured | -8 |
+| Enemy captured | +8 |
+| Friendly heavily wounded | -4 |
+| Enemy heavily wounded | +2 |
+| Friendly walking wounded | -1 |
+| Enemy walking wounded | +0.5 |
+| Friendly mortar lost (the gun itself) | -5 |
+| Enemy mortar destroyed or abandoned on ground the player holds | +2.5 |
+
+Deaths are deliberately asymmetric (-10 vs +5 — a friendly life costs more than an enemy death is worth, real risk-aversion); captures are symmetric (±8). The friendly-mortar and enemy-mortar terms are each *on top of* whatever their crews already cost via the death/wounded terms above — they specifically price the loss/denial of the weapon system itself. The enemy-mortar term's "or abandoned on held ground" half ties directly into the AAR's own long-established "holding lets you confirm what was left behind" mechanic from earlier in this doctrine's history — a withdrawn crew only counts as confirmed out of action once the ground it stood on is actually held.
+
+**Explicitly excluded: any "recon asset lost" term.** The stated principle: *"We are scoring the final result of the fight. Not intermediate steps. The decision should be based on final outcomes, not immediate localized results... there would be every chance to reconstitute the drone team. A dead drone team member is no better or worse than a dead soldier in a squad."* Losing recon capability mid-battle is an intermediate, replaceable effect (it changes how the rest of *this* fight goes, but resolves itself before the next engagement) — only the actual personnel losses matter for the score, and those are already fully counted via the generic death/wounded terms. This is the litmus test for any future proposed term: a genuine final outcome (a life, a scarce hard-to-replace weapon system, holding ground) belongs in the score; a replaceable/intermediate capability effect (recon coverage, ammo on hand) does not.
+
+**Two separate scores, not one — and they're allowed to disagree.** Ground truth feeds the score actual decisions get evaluated against internally; a SEPARATE computation, fed the player's own best-guess/estimated figures (the exact same fog-of-war machinery the AAR already uses — `_compute_side_stats(enemy_units, not held, true)`), is what would justify a *displayed* verdict label. *"The labelling of a successful defense should be based on best guesses, not actual results. So it may not always match up."* This is a direct, deliberate extension of the AAR's existing honest-uncertainty epistemics (confirmed vs. estimated casualty splits, "partly estimated" wording) to the headline verdict itself — a commander's own after-action read, built on imperfect intel, can legitimately be wrong about how the fight actually went.
+
+Implemented in `scripts/tests/characterize_doctrine.gd` as `_score_battle()` plus `_mortar_out_true`/`_mortar_out_estimated` (the latter mirroring `_compute_side_stats`'s own per-unit confirmation logic exactly), computing both scores per trial and reporting them broken out by the *existing* held+exchange_ratio verdict labels — not yet used to redefine those labels, since that requires seeing the real score distribution first. An early small-sample run already showed the two scores diverging in the expected direction (the estimated score consistently reads more pessimistic than the true score, since it can't fully credit enemy losses it can't confirm) and hinted that the current verdict labels may not rank cleanly against the true score — worth checking properly against the full 100-trial run before touching any production verdict logic.
+
+Per the user's standing instruction, the `before-tactical-rewrite` git tag keeps moving forward through all of this scoring/validation work — it should land on whatever commit is the true last one before actual tactical decision-making code changes begin, not before.
