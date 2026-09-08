@@ -299,6 +299,26 @@ const DRONE_SWEEP_ROW_WEIGHTS: Array[float] = [0.05, 0.15, 0.6, 0.15, 0.05]
 const ENEMY_APPROACH_LIKELIHOOD_MIN: float = 0.1
 const ENEMY_APPROACH_LIKELIHOOD_MAX: float = 1.0
 
+## "Possible" enemy mortar locations — the doctrinal counterpart to actual
+## detected/known ones (see BattleManager._update_recent_enemy_contacts'
+## own doc comment for that half). A real indirect-fire mortar deliberately
+## avoids sitting draped over the same open road a rifle squad marches
+## down (see DRONE_SEARCH_GRID_COLUMNS_M/ROWS_M's own doc comment on why
+## the full grid exists at all, not just a road-hugging sweep) — it wants
+## concealment and standoff from the visible line while staying close
+## enough to the enemy's own rear to support the advance. This is a
+## SEPARATE row bias from DRONE_SWEEP_ROW_WEIGHTS above (which is really
+## about where SQUADS concentrate — the road itself), favoring the bands
+## just off the road instead of the road's own row, added on top rather
+## than replacing it (see BattleManager._sweep_candidates) — the road
+## remains the single most valuable row overall (worth checking for BOTH
+## squads and, to a lesser extent, a mortar sited just off it), but the
+## flanking bands are no longer crushed down to a token weight the way
+## they are for pure squad-spotting purposes. Public knowledge of mortar
+## deployment doctrine, not secret intelligence about any specific
+## position — same idiom as the road-band weighting itself.
+const DRONE_MORTAR_HUNT_ROW_WEIGHTS: Array[float] = [0.05, 0.35, 0.05, 0.35, 0.05]
+
 ## Once an enemy unit is confirmed no longer any kind of threat — DESTROYED,
 ## WITHDRAWN, or SURRENDERED, the same "not still a threat" boundary
 ## _known_enemy_positions itself already draws — the ground it was last

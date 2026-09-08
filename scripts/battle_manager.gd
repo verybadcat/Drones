@@ -1776,10 +1776,28 @@ func _squad_danger_priority(u: Unit, threatened_team: Unit.Team = Unit.Team.PLAY
 ## contact's influence fades the same way a mortar fire-detection lead
 ## does (GameConfig.DRONE_CONTACT_BONUS_EXPIRY) rather than persisting
 ## forever or vanishing the instant the unit itself drops out of LOS.
+##
+## Also folds in _last_detected_mortar_fire — the "known mortar location"
+## half of mortar-hunting, as distinct from _mortar_deployment_likelihood's
+## "possible" half. A mortar is essentially never actually SEEN (is_visible
+## rarely applies to it — see the doc's own established fire-detection
+## pattern), so without this, a real muzzle-flash/trajectory detection
+## would only ever inform the single top-priority "fresh lead" tier in
+## _drone_search_target and then vanish entirely from the search the
+## instant GameConfig.DRONE_MORTAR_FIRE_LEAD_EXPIRY passes — real, hard-won
+## intelligence just disappearing rather than continuing to inform the
+## broader search at reduced confidence, the same way it would for any
+## other kind of contact. _last_detected_mortar_fire already stores
+## {"position", "time"} in exactly the shape _recent_enemy_contacts uses,
+## so this is a direct merge, not a parallel mechanism.
 func _update_recent_enemy_contacts() -> void:
 	for u in enemy_units:
 		if u.state == Unit.State.ACTIVE and u.is_visible:
 			_recent_enemy_contacts[u] = {"position": u.global_position, "time": scenario_elapsed_time}
+		elif u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE:
+			var info: Dictionary = _last_detected_mortar_fire.get(u, {})
+			if not info.is_empty():
+				_recent_enemy_contacts[u] = info
 
 
 ## How much extra value a routine-recon candidate at `point` gets for being
@@ -2247,13 +2265,18 @@ func _enemy_approach_likelihood(point: Vector2) -> float:
 ## flank-watch candidates together, each row's own weight can stand as a
 ## genuine per-cell value directly. Also weighted by _enemy_approach_
 ## likelihood — a SEPARATE, column/x-axis bias toward the enemy's own
-## known approach edge, independent of the row/y-axis bias above — and
-## picks up _contact_search_bonus, added rather than multiplied so a real,
-## recent sighting is worth more than the row/column bias alone says
-## regardless of where it happens to be, which is what makes a discovered
-## enemy actually widen the search around it instead of only being
-## remembered as the one exact spot _area_confirmed_clear will eventually
-## mark clear.
+## known approach edge, independent of the row/y-axis bias above.
+## GameConfig.DRONE_MORTAR_HUNT_ROW_WEIGHTS contributes its own, ADDED
+## value on the same column bias — a genuinely separate reason a cell
+## might be worth checking (a possible mortar position, not just squad
+## activity near the road) rather than folding the two concerns into one
+## row-weight array. Finally picks up _contact_search_bonus, added rather
+## than multiplied so a real, recent sighting (including a mortar fire-
+## detection — see _update_recent_enemy_contacts) is worth more than
+## either doctrinal bias alone says regardless of where it happens to be,
+## which is what makes a discovered enemy actually widen the search around
+## it instead of only being remembered as the one exact spot
+## _area_confirmed_clear will eventually mark clear.
 func _sweep_candidates() -> Array:
 	var row_count: int = GameConfig.DRONE_SEARCH_GRID_ROWS_M.size()
 	var columns_per_row: int = GameConfig.DRONE_SEARCH_GRID_COLUMNS_M.size()
@@ -2263,7 +2286,8 @@ func _sweep_candidates() -> Array:
 		for col_i in columns_per_row:
 			var idx: int = row_i * columns_per_row + col_i
 			var point: Vector2 = waypoints[idx]
-			var value: float = GameConfig.DRONE_SWEEP_ROW_WEIGHTS[row_i] * _enemy_approach_likelihood(point)
+			var approach: float = _enemy_approach_likelihood(point)
+			var value: float = (GameConfig.DRONE_SWEEP_ROW_WEIGHTS[row_i] + GameConfig.DRONE_MORTAR_HUNT_ROW_WEIGHTS[row_i]) * approach
 			if _area_confirmed_clear(point):
 				value *= GameConfig.DRONE_SWEEP_CLEARED_WEIGHT_MULTIPLIER
 			value += _contact_search_bonus(point)
