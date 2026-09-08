@@ -173,7 +173,6 @@ var _drones_ready: Array[float] = [] # charge level of each grounded, battery-in
 var _drones_swapping: Array[Dictionary] = [] # [{"time_left": float, "charge": float}] grounded airframes mid battery-swap
 var _battery_pool: Array[float] = [] # charge level of every battery not currently installed in any airframe
 var _drones_destroyed: int = 0 # airframes permanently lost (shot down, battery and all) this battle
-var _drone_vicinity_search_angle: float = 0.0 # current angle around a spotted squad the drone is circling to — see _drone_vicinity_search_point
 # The single candidate key (see _sweep_candidates/_flank_watch_candidates)
 # the drone is currently committed to flying toward or sitting at, for the
 # unified routine-recon pool — see _drone_routine_recon_target. Empty
@@ -187,6 +186,14 @@ var _drone_current_destination_key: String = ""
 # COOLDOWN_S rather than staying suppressed forever the way a confirmed
 # kill does (see _area_confirmed_clear for that permanent case).
 var _drone_destination_last_visited: Dictionary = {}
+# Enemy Unit -> {"position": Vector2, "time": scenario_elapsed_time} for
+# every ACTIVE enemy unit seen live at least once recently — see
+# _contact_search_bonus. Real, hard-won evidence that enemy activity
+# exists near a given spot, feeding a value bonus into nearby routine-
+# recon candidates so a confirmed sighting actually shifts where the
+# drone looks next, fading out the same way a mortar fire-detection lead
+# does rather than vanishing the instant the unit itself drops out of LOS.
+var _recent_enemy_contacts: Dictionary = {}
 
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
@@ -215,7 +222,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drones_destroyed = 0
 	_drone_destination_last_visited.clear()
 	_drone_current_destination_key = ""
-	_drone_vicinity_search_angle = 0.0
+	_recent_enemy_contacts.clear()
 	_player_sighted_enemy = false
 	_enemy_sighted_enemy = false
 	_mortar_resupply.clear()
@@ -1762,25 +1769,51 @@ func _squad_danger_priority(u: Unit, threatened_team: Unit.Team = Unit.Team.PLAY
 	return GameConfig.TARGET_PRIORITY_SQUAD_MAX * clamp(1.0 - nearest_friendly_dist / GameConfig.SQUAD_DANGER_RANGE, 0.0, 1.0)
 
 
-## Where the drone actually flies once a visible squad is the highest
-## priority thing going — NOT that squad's own exact position. A spotted
-## squad is rarely alone; working the ground around it (are there more
-## squads nearby? a mortar sitting just off to one side?) is worth more
-## than parking directly overhead the one unit already confirmed. Circles
-## `center` at GameConfig.DRONE_VICINITY_SEARCH_RADIUS, advancing to the
-## next point around the circle once close enough — same
-## arrival-then-advance shape as the routine-recon pool's own candidates
-## (_drone_routine_recon_target), just anchored to a live contact instead
-## of a fixed map grid. Re-centers on `center` fresh
-## every call, so if the squad itself moves (or a different, now more
-## dangerous squad takes over the tier), the circle follows without
-## needing to be reset.
-func _drone_vicinity_search_point(center: Vector2) -> Vector2:
-	var candidate := center + Vector2.RIGHT.rotated(_drone_vicinity_search_angle) * GameConfig.DRONE_VICINITY_SEARCH_RADIUS
-	if active_drone.global_position.distance_to(candidate) <= GameConfig.DRONE_VICINITY_SEARCH_ARRIVAL_RADIUS:
-		_drone_vicinity_search_angle = wrapf(_drone_vicinity_search_angle + deg_to_rad(GameConfig.DRONE_VICINITY_SEARCH_ANGLE_STEP_DEG), 0.0, TAU)
-		candidate = center + Vector2.RIGHT.rotated(_drone_vicinity_search_angle) * GameConfig.DRONE_VICINITY_SEARCH_RADIUS
-	return candidate
+## Records every currently-visible ACTIVE enemy unit's position as a real,
+## recent contact — see _contact_search_bonus, which is what actually acts
+## on this memory. Called once per tick from _drone_search_target. Kept as
+## a live position + timestamp per unit (not a permanent list) so a
+## contact's influence fades the same way a mortar fire-detection lead
+## does (GameConfig.DRONE_CONTACT_BONUS_EXPIRY) rather than persisting
+## forever or vanishing the instant the unit itself drops out of LOS.
+func _update_recent_enemy_contacts() -> void:
+	for u in enemy_units:
+		if u.state == Unit.State.ACTIVE and u.is_visible:
+			_recent_enemy_contacts[u] = {"position": u.global_position, "time": scenario_elapsed_time}
+
+
+## How much extra value a routine-recon candidate at `point` gets for being
+## near a real, recent enemy contact (_update_recent_enemy_contacts) — a
+## spotted squad or mortar rarely operates in isolation, so an actual,
+## confirmed sighting is genuine evidence more of the enemy might be
+## nearby, and the drone's default search should be drawn OUTWARD around a
+## contact rather than treating a sighting as "nothing more to see here."
+## This is what replaced the old dedicated vicinity-search circle: instead
+## of committing the WHOLE drone to orbiting one exact spot, a contact just
+## makes nearby sweep/flank-watch candidates more attractive within the
+## SAME shared pool, so it still competes fairly against distance cost and
+## recency (and can't cause the same lock-on the circle used to) while
+## actually shifting where the general search goes. Tapers with both how
+## long ago the contact was made (GameConfig.DRONE_CONTACT_BONUS_EXPIRY)
+## and how far `point` is from it (GameConfig.DRONE_CONTACT_BONUS_RADIUS),
+## so the closest, freshest ground to a sighting is favored well above the
+## far edge of a stale one. Takes the single best-supported contact rather
+## than summing every nearby one, to avoid an implausible pile-up of value
+## where several separate sightings happen to cluster.
+func _contact_search_bonus(point: Vector2) -> float:
+	var bonus := 0.0
+	for u in _recent_enemy_contacts:
+		var info: Dictionary = _recent_enemy_contacts[u]
+		var age: float = scenario_elapsed_time - info.time
+		if age >= GameConfig.DRONE_CONTACT_BONUS_EXPIRY:
+			continue
+		var dist: float = point.distance_to(info.position)
+		if dist >= GameConfig.DRONE_CONTACT_BONUS_RADIUS:
+			continue
+		var age_factor: float = 1.0 - age / GameConfig.DRONE_CONTACT_BONUS_EXPIRY
+		var dist_factor: float = 1.0 - dist / GameConfig.DRONE_CONTACT_BONUS_RADIUS
+		bonus = max(bonus, GameConfig.DRONE_CONTACT_BONUS_VALUE * age_factor * dist_factor)
+	return bonus
 
 
 ## Where the airborne drone flies next, re-evaluated every tick — a genuine
@@ -1806,13 +1839,17 @@ func _drone_vicinity_search_point(center: Vector2) -> Vector2:
 ## its entire purpose is keeping the drone on-station over a target the
 ## friendly mortar is still walking toward and hasn't reached range of
 ## yet; (4) the single most dangerous currently-visible ACTIVE enemy
-## squad — scored at that squad's own position (_squad_danger_priority),
-## but actually FLOWN at a point circling it instead
-## (_drone_vicinity_search_point): a spotted squad rarely travels alone,
-## so working the surrounding ground for more of them (or whatever's
-## supporting them) beats parking directly overhead the one already
-## confirmed; (5) the nearest currently-visible RETREATING enemy (squad,
-## or a mortar crew that's abandoned its gun for good — that counts as
+## squad — scored AND flown at that squad's own live position
+## (_squad_danger_priority): an active, closing threat is worth keeping
+## direct eyes on for its own sake. Whether more enemies might be nearby
+## is a SEPARATE question, answered by _contact_search_bonus feeding tier
+## (6) below rather than by circling this squad specifically — spreading
+## the search outward through the shared pool instead of committing the
+## whole drone to orbiting one exact spot, which is what an earlier
+## version of this tier did (a fixed-radius circle) before it became
+## clear that just meant a real sighting had no visible effect on the
+## broader search at all; (5) the nearest currently-visible RETREATING
+## enemy (squad, or a mortar crew that's abandoned its gun for good — that counts as
 ## "retreating," not "the mortar priority," the instant it happens) —
 ## scored one of two very different ways depending on whether the battle
 ## is actually still going: high (TARGET_PRIORITY_RETREATING_ENEMY, a real
@@ -1825,25 +1862,51 @@ func _drone_vicinity_search_point(center: Vector2) -> Vector2:
 ## the same underlying activity (idle patrol with no specific live lead to
 ## chase) and a single flight can pick up sweep coverage AND a flank check
 ## in the same trip rather than the two competing to be "the" routine
-## choice. Valued as the genuine expected value of what it might still
-## find — TARGET_PRIORITY_MORTAR times _mortar_existence_confidence().
-## That last term is what lets the drone's default search effort shift
-## naturally toward tracking real, visible squads (advancing OR retreating)
-## instead of an indefinite mortar-shaped sweep once mortar fire hasn't
-## been detected in a long while, or every known enemy mortar is confirmed
-## out of action — without ever hard-coding either condition directly
-## here. Tier (4)'s own candidate pool empties out on its own once the
-## enemy commander orders a general retreat (every ACTIVE squad is pulled
-## into RETREATING in that same instant — see _check_enemy_commander_
-## retreat) — there's usually nothing left "advancing" to search for at
-## that point. Tier (6) is ALSO directly discounted (GameConfig.
-## SWEEP_DISCOUNT_DURING_ENEMY_RETREAT) the instant that same general
-## retreat is ordered, on top of whatever the slower, generic confidence
-## decay has already done — a commander who's just
-## called off the attack has little reason left to keep searching broadly
-## for new arrivals, and this makes that immediate rather than waiting on
-## the same decay curve built for "no mortar fire in a while."
+## choice. Every candidate in that pool also gets a value bump for sitting
+## near a real, recent sighting (_contact_search_bonus) — a spotted enemy
+## is genuine evidence more of them might be close by, so the pool is what
+## actually turns "we found one" into "now check around here more," not a
+## dedicated mechanism of its own.
+##
+## Whether this WHOLE tier is worth doing at all (as opposed to tiers 1-5
+## above) is `max` of two independently-judged things, not one blended
+## number: the genuine expected value of an as-yet-undiscovered mortar
+## (TARGET_PRIORITY_MORTAR times _mortar_existence_confidence(), which
+## naturally decays the longer no mortar fire is detected anywhere) OR a
+## fixed standing value whenever the mortar's flank-watch actually has an
+## open gap to check right now (GameConfig.DRONE_FLANK_WATCH_STANDING_
+## PRIORITY). These have to stay independent: watching the mortar's blind
+## side is a standing duty that matters regardless of how confident anyone
+## is that a SECOND mortar exists, so it must not fade out just because
+## that confidence has — an earlier version of this tier used one blended,
+## fully-confidence-scaled score for both, which meant that once
+## confidence decayed (as it does in most battles well before they end),
+## an already-spotted squad's own tracking priority (tier 4, capped at
+## TARGET_PRIORITY_SQUAD_MAX) could out-bid the ENTIRE routine tier
+## indefinitely, including flank-watch — the drone would fixate on one
+## contact and stop checking the mortar's flanks or sweeping for anything
+## new at all. That last term is what lets the drone's default search
+## effort shift naturally toward tracking real, visible squads (advancing
+## OR retreating) instead of an indefinite mortar-shaped sweep once mortar
+## fire hasn't been detected in a long while, or every known enemy mortar
+## is confirmed out of action — without ever hard-coding either condition
+## directly here. Tier (4)'s own candidate pool empties out on its own once
+## the enemy commander orders a general retreat (every ACTIVE squad is
+## pulled into RETREATING in that same instant — see
+## _check_enemy_commander_retreat) — there's usually nothing left
+## "advancing" to search for at that point. The mortar-confidence half of
+## tier (6) is ALSO directly discounted (GameConfig.SWEEP_DISCOUNT_DURING_
+## ENEMY_RETREAT) the instant that same general retreat is ordered, on top
+## of whatever the slower, generic confidence decay has already done — a
+## commander who's just called off the attack has little reason left to
+## keep searching broadly for new arrivals, and this makes that immediate
+## rather than waiting on the same decay curve built for "no mortar fire in
+## a while." The flank-watch half is untouched by that discount — an
+## unscreened gap toward the mortar is exactly as worth checking whether or
+## not the enemy has called a general retreat.
 func _drone_search_target() -> Vector2:
+	_update_recent_enemy_contacts()
+
 	var best_score := -1.0
 	var best_pos := Vector2.INF
 
@@ -1897,7 +1960,7 @@ func _drone_search_target() -> Vector2:
 				best_squad = u
 	if best_squad != null and best_squad_score > best_score:
 		best_score = best_squad_score
-		best_pos = _drone_vicinity_search_point(best_squad.global_position)
+		best_pos = best_squad.global_position
 
 	var best_retreating: Unit = null
 	var best_retreating_dist := INF
@@ -1918,6 +1981,8 @@ func _drone_search_target() -> Vector2:
 			best_score = retreating_score
 			best_pos = best_retreating.global_position
 
+	var flank_candidates: Array = _flank_watch_candidates()
+
 	var routine_score: float = GameConfig.TARGET_PRIORITY_MORTAR * _mortar_existence_confidence()
 	if enemy_general_retreat_ordered:
 		# The enemy commander has already called off the attack — the whole
@@ -1930,12 +1995,42 @@ func _drone_search_target() -> Vector2:
 		# actually left to weigh the sweep against here is real, already-
 		# broken kills in progress (tier 4) — those should win.
 		routine_score *= GameConfig.SWEEP_DISCOUNT_DURING_ENEMY_RETREAT
+	if not flank_candidates.is_empty():
+		# Watching the mortar's blind side is a standing duty, independent
+		# of how confident anyone is that a second mortar exists — see this
+		# function's own doc comment for why these two must NOT be blended
+		# into one confidence-scaled number.
+		routine_score = max(routine_score, GameConfig.DRONE_FLANK_WATCH_STANDING_PRIORITY)
 	if routine_score > best_score or is_inf(best_pos.x):
-		var routine_pick: Dictionary = _drone_routine_recon_target()
+		var routine_pick: Dictionary = _drone_routine_recon_target(flank_candidates)
 		if not routine_pick.is_empty():
 			best_pos = routine_pick.point
 
-	return best_pos
+	# A last, universal guard: every tier above is supposed to only ever
+	# offer a real, in-area position (an actual enemy unit's position, a
+	# probe already clamped by _flank_watch_candidates, a sweep waypoint
+	# that's always been well inside the map), but a live enemy unit is the
+	# one case not otherwise clamped here — nothing currently drives one
+	# north/south off the map, but should that ever change, this is what
+	# keeps the drone from following it into ground that belongs to another
+	# unit's sector entirely, regardless of the reason.
+	return _clamp_to_drone_operating_area(best_pos)
+
+
+## The rectangle a drone's own destination must stay within — MAP_HEIGHT_M
+## vertically with NO exception: north or south of the map is another
+## unit's sector this recon asset has no business in, no matter what's
+## suspected there. Horizontally, the already-modeled west flank
+## (WEST_FLANK_WIDTH_M) is real, legitimate ground a genuine contact or
+## flanking threat can draw the drone into, but nothing is modeled (or
+## should be suspected) further west than that, or east of the map's own
+## edge — so x is bounded too, just on a wider, real range rather than
+## clamped tight to the core map.
+func _clamp_to_drone_operating_area(point: Vector2) -> Vector2:
+	return Vector2(
+		clamp(point.x, -GameConfig.WEST_FLANK_WIDTH_PX, GameConfig.MAP_WIDTH_PX),
+		clamp(point.y, 0.0, GameConfig.MAP_HEIGHT_PX)
+	)
 
 
 ## Where the drone checks for an enemy flanking around toward the mortar's
@@ -1949,7 +2044,9 @@ func _drone_search_target() -> Vector2:
 ## higher-priority tier above — no point in redundantly re-watching it).
 ## Feeds into the shared routine-recon pool (_drone_routine_recon_target)
 ## alongside _sweep_candidates — see that function's own doc comment for
-## why the two were merged.
+## why the two were merged, and for _contact_search_bonus, applied here
+## too: a squad recently seen moving toward one of these bearings is
+## exactly the "sneaking up on the mortar" case this check exists for.
 func _flank_watch_candidates() -> Array:
 	var mortar := _friendly_active_mortar()
 	if mortar == null:
@@ -1963,6 +2060,9 @@ func _flank_watch_candidates() -> Array:
 
 	var out: Array = []
 	for bearing_deg in GameConfig.DRONE_FLANK_WATCH_BEARINGS_DEG:
+		# The true bearing direction, unclamped — screening/already-known
+		# both reason about real compass geometry around the mortar, not
+		# about where the drone can physically go.
 		var probe: Vector2 = mortar.global_position + Vector2.RIGHT.rotated(deg_to_rad(bearing_deg)) * GameConfig.MORTAR_FLANK_THREAT_RADIUS
 		if _lane_is_screened(probe, mortar.global_position, screening_squads):
 			continue
@@ -1973,7 +2073,16 @@ func _flank_watch_candidates() -> Array:
 				break
 		if already_known:
 			continue
-		out.append({"key": "flank:%d" % int(bearing_deg), "point": probe, "value": GameConfig.DRONE_FLANK_WATCH_BASE_VALUE})
+		# But MORTAR_FLANK_THREAT_RADIUS (1500m) is large enough relative to
+		# the map's own height that a mortar anywhere near the north or
+		# south edge sends a straight-line bearing probe off the map
+		# entirely — another unit's sector this recon asset has no business
+		# in, unlike the west flank, which is real, modeled ground. Fly to
+		# the boundary instead of off it; the bearing itself, and whether
+		# it's worth checking at all, is still judged on the true direction.
+		var flight_point: Vector2 = _clamp_to_drone_operating_area(probe)
+		var value: float = GameConfig.DRONE_FLANK_WATCH_BASE_VALUE + _contact_search_bonus(probe)
+		out.append({"key": "flank:%d" % int(bearing_deg), "point": flight_point, "value": value})
 	return out
 
 
@@ -2112,7 +2221,11 @@ func _area_confirmed_clear(point: Vector2) -> bool:
 ## PROBABILITY distribution over sweep cells alone; now that recency and
 ## distance cost are handled by one shared formula across sweep AND
 ## flank-watch candidates together, each row's own weight can stand as a
-## genuine per-cell value directly.
+## genuine per-cell value directly. Also picks up _contact_search_bonus —
+## a cell near a real, recent sighting is worth more than the row-weight
+## bias alone says, which is what makes a discovered enemy actually widen
+## the search around it instead of only being remembered as the one exact
+## spot _area_confirmed_clear will eventually mark clear.
 func _sweep_candidates() -> Array:
 	var row_count: int = GameConfig.DRONE_SEARCH_GRID_ROWS_M.size()
 	var columns_per_row: int = GameConfig.DRONE_SEARCH_GRID_COLUMNS_M.size()
@@ -2125,6 +2238,7 @@ func _sweep_candidates() -> Array:
 			var value: float = GameConfig.DRONE_SWEEP_ROW_WEIGHTS[row_i]
 			if _area_confirmed_clear(point):
 				value *= GameConfig.DRONE_SWEEP_CLEARED_WEIGHT_MULTIPLIER
+			value += _contact_search_bonus(point)
 			out.append({"key": "sweep:%d" % idx, "point": point, "value": value})
 	return out
 
@@ -2201,9 +2315,11 @@ func _pick_best_drone_destination(candidates: Array) -> Dictionary:
 ## excludes the just-left candidate so the recency discount alone (easily
 ## beaten by a zero-distance-cost candidate sitting right under the drone,
 ## see that function's own doc comment) isn't the only thing keeping the
-## drone moving on.
-func _drone_routine_recon_target() -> Dictionary:
-	var candidates: Array = _sweep_candidates() + _flank_watch_candidates()
+## drone moving on. Takes flank_candidates already computed by the caller
+## (_drone_search_target needs them anyway, to judge whether this whole
+## tier is worth entering in the first place) rather than recomputing them.
+func _drone_routine_recon_target(flank_candidates: Array) -> Dictionary:
+	var candidates: Array = _sweep_candidates() + flank_candidates
 	if candidates.is_empty():
 		return {}
 

@@ -860,22 +860,24 @@ const DRONE_CONCEALMENT_MULTIPLIER := {
 }
 
 # A spotted enemy squad rarely travels alone — a real reconnaissance asset
-# that's just made contact works the surrounding ground for more of them
-# (and whatever might be supporting them) instead of just parking directly
-# overhead the one unit it already has eyes on. See BattleManager.
-# _drone_vicinity_search_point, which the squad-tracking priority tier
-# (_drone_search_target) uses instead of the squad's own exact position —
-# a slow circle at this radius, comfortably inside DRONE_DETECTION_RANGE so
-# the original contact never actually drops out of view while the drone
-# works the area around it. Re-centers on the current highest-priority
-# visible squad every tick, so the circle follows if that squad moves (or
-# hands off cleanly to a different one that becomes more dangerous).
-const DRONE_VICINITY_SEARCH_RADIUS: float = 600.0 * PIXELS_PER_METER
-const DRONE_VICINITY_SEARCH_ARRIVAL_RADIUS: float = 150.0 * PIXELS_PER_METER
-# Not a clean fraction of 360 on purpose — a step that evenly divided the
-# circle would eventually retrace the exact same handful of points forever;
-# this keeps sweeping fresh ground around the contact instead.
-const DRONE_VICINITY_SEARCH_ANGLE_STEP_DEG: float = 70.0
+# that's just made contact should have that shift where it looks next, not
+# just note the one exact spot and move on. This used to be its own
+# dedicated mechanism (a slow circle around the single most dangerous
+# visible squad, re-centered every tick) but that meant the ENTIRE drone
+# committed to orbiting one spot, and a sighting had no visible effect on
+# the broader search at all otherwise. Replaced by BattleManager.
+# _contact_search_bonus: a real, recent sighting (of any enemy unit, not
+# just the single most dangerous one) now adds value to nearby candidates
+# in the shared routine-recon pool (BattleManager._sweep_candidates/
+# _flank_watch_candidates) instead, so the search is drawn toward it
+# without abandoning everything else — see that function's own doc
+# comment. The single most dangerous visible squad still gets flown at
+# directly (BattleManager._drone_search_target's own tier 4), for the
+# separate reason that an active, closing threat is worth watching
+# directly regardless of what else might be nearby.
+const DRONE_CONTACT_BONUS_RADIUS: float = 900.0 * PIXELS_PER_METER # a bit more than the sweep grid's own ~750-850m cell spacing, so a sighting's influence genuinely reaches the next cell over, not just its own cell
+const DRONE_CONTACT_BONUS_EXPIRY: float = 600.0 # tactical seconds — matches DRONE_MORTAR_FIRE_LEAD_EXPIRY's own "how long is a lead still worth acting on" reasoning
+const DRONE_CONTACT_BONUS_VALUE: float = 0.5 # comparable to the sweep grid's own top row weight (0.6) and DRONE_FLANK_WATCH_BASE_VALUE — a real, recent contact is roughly as compelling as the single most likely area to check anyway, not an automatic trump card
 
 # A unit caught moving in the open is much easier to hit by DIRECT fire, not
 # just to spot — it has broken cover to advance (or to retreat). See
@@ -1027,6 +1029,22 @@ const DRONE_FLANK_WATCH_BEARINGS_DEG: Array[float] = [0.0, 45.0, 90.0, 135.0, 18
 ## _flank_watch_candidates/_drone_routine_recon_target), it picks a new one
 ## rather than parking there for the rest of the battle.
 const DRONE_FLANK_WATCH_ARRIVE_RADIUS: float = 150.0 * PIXELS_PER_METER
+
+## The routine-recon tier's OUTER competing value (see BattleManager.
+## _drone_search_target's own tier-6 doc comment) whenever flank-watch
+## actually has at least one open bearing to check right now — deliberately
+## NOT scaled by _mortar_existence_confidence() the way the general sweep's
+## own outer value is. Watching the mortar's blind side is a standing duty
+## that matters regardless of how confident anyone is that a SECOND mortar
+## exists; tying its relevance to that confidence meant it could fade below
+## an already-spotted squad's own tracking priority (TARGET_PRIORITY_
+## SQUAD_MAX = 10) well before a typical battle ends, letting the drone
+## fixate on one contact and stop checking the mortar's flanks entirely.
+## Set comfortably above that squad-tracking ceiling for the same reason
+## the old, pre-merge TARGET_PRIORITY_FLANK_WATCH (30) was: catching a
+## flanking squad before it ever reaches the mortar is worth more than
+## continuing to watch one already-known contact.
+const DRONE_FLANK_WATCH_STANDING_PRIORITY: float = 30.0
 
 # Limited ammunition — every mortar team on both sides starts with this
 # many rounds (see Unit.setup) and has to actually manage it, not just
