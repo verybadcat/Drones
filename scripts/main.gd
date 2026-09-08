@@ -54,6 +54,7 @@ var history_viewer
 var history_slider: HSlider
 var history_time_label: Label
 var history_back_button: Button
+var history_play_button: Button
 
 # "See what the drone pilot is thinking" — off by default (see _ready),
 # toggled by the "d" key (_unhandled_input) rather than a sidebar button
@@ -167,6 +168,20 @@ func _process(delta: float) -> void:
 	if _drone_debug_enabled and battle_manager:
 		_write_drone_debug_snapshot()
 
+	# History playback: BattleHistoryViewer owns the actual time-advance
+	# logic (advance_playback); this just drives it every frame and keeps
+	# the slider/label/button in sync while it's running. set_value_no_
+	# signal avoids re-entering _on_history_slider_changed (which would
+	# otherwise treat the programmatic update as a manual scrub and pause
+	# playback right back off again).
+	if history_viewer and history_viewer.is_playing:
+		history_viewer.advance_playback(delta)
+		if history_slider:
+			history_slider.set_value_no_signal(history_viewer.current_index)
+		_update_history_time_label()
+		if not history_viewer.is_playing: # reached the end this frame
+			_update_history_play_button_text()
+
 
 ## _unhandled_input rather than _input: lets any real UI control (a
 ## button, a text field) consume the key first if it ever legitimately
@@ -235,7 +250,7 @@ func _clear_all() -> void:
 	for node in [level_select_screen, deployment_screen, doctrine_panel, start_button, battle_manager,
 			combat_log, casualty_dashboard, retreat_button, pause_button, drone_debug_panel,
 			enemy_heatmap_overlay, report_background, restart_button, review_history_button,
-			history_viewer, history_slider, history_time_label, history_back_button]:
+			history_viewer, history_slider, history_time_label, history_back_button, history_play_button]:
 		if node:
 			node.queue_free()
 	level_select_screen = null
@@ -256,6 +271,7 @@ func _clear_all() -> void:
 	history_slider = null
 	history_time_label = null
 	history_back_button = null
+	history_play_button = null
 
 
 func _show_level_select() -> void:
@@ -468,7 +484,7 @@ func _on_review_history_pressed() -> void:
 
 	history_viewer = preload("res://scripts/battle_history_viewer.gd").new()
 	var history: Array[Dictionary] = battle_manager.battle_history()
-	history_viewer.setup(history)
+	history_viewer.setup(history, battle_manager.battle_history_fire_events())
 	map_viewport.add_child(history_viewer)
 
 	history_slider = HSlider.new()
@@ -493,11 +509,34 @@ func _on_review_history_pressed() -> void:
 	history_back_button.pressed.connect(_on_history_back_pressed)
 	add_child(history_back_button)
 
+	history_play_button = Button.new()
+	history_play_button.text = "Play"
+	history_play_button.position = Vector2(150, 640)
+	history_play_button.pressed.connect(_on_history_play_pressed)
+	add_child(history_play_button)
+
 
 func _on_history_slider_changed(value: float) -> void:
 	if history_viewer:
-		history_viewer.set_index(int(value))
+		history_viewer.set_index(int(value)) # pauses playback, same as any video player's seek bar
+		_update_history_play_button_text()
 	_update_history_time_label()
+
+
+## Play/Pause — see BattleHistoryViewer.toggle_play for what happens when
+## pressed at the battle's final moment (restarts from the beginning).
+## The slider/label/button then stay in sync every frame via _process
+## while is_playing, not just at the moment of the click.
+func _on_history_play_pressed() -> void:
+	if not history_viewer:
+		return
+	history_viewer.toggle_play()
+	_update_history_play_button_text()
+
+
+func _update_history_play_button_text() -> void:
+	if history_play_button and history_viewer:
+		history_play_button.text = "Pause" if history_viewer.is_playing else "Play"
 
 
 func _update_history_time_label() -> void:
@@ -510,13 +549,14 @@ func _update_history_time_label() -> void:
 ## AAR report and the live units' own (final, current) visibility exactly
 ## as they were.
 func _on_history_back_pressed() -> void:
-	for node in [history_viewer, history_slider, history_time_label, history_back_button]:
+	for node in [history_viewer, history_slider, history_time_label, history_back_button, history_play_button]:
 		if node:
 			node.queue_free()
 	history_viewer = null
 	history_slider = null
 	history_time_label = null
 	history_back_button = null
+	history_play_button = null
 
 	_set_live_units_visible(true)
 	if report_background:

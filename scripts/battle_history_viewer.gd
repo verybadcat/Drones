@@ -12,26 +12,89 @@ class_name BattleHistoryViewer
 ## player's own historical knowledge — a deliberate choice for this review
 ## feature, confirmed with the user, unlike the AAR report itself, which
 ## stays honest to what was actually known at the time.
+##
+## Two ways to move through it: manual scrubbing (main.gd's slider calls
+## set_index) or the "Play" button (main.gd calls toggle_play, then ticks
+## advance_playback every frame) — see GameConfig.HISTORY_PLAYBACK_TIME_
+## SCALE for the replay pace. playback_time is the single source of truth
+## for "what moment is currently displayed" either way; set_index just
+## snaps it to a recorded snapshot's exact time and pauses.
 
 var history: Array[Dictionary] = []
+var fire_events: Array[Dictionary] = []
 var current_index: int = 0
+var playback_time: float = 0.0
+var is_playing: bool = false
 
 
-func setup(p_history: Array[Dictionary]) -> void:
+func setup(p_history: Array[Dictionary], p_fire_events: Array[Dictionary]) -> void:
 	history = p_history
+	fire_events = p_fire_events
 	current_index = history.size() - 1 # start at the battle's final moment
+	playback_time = history[current_index].time if not history.is_empty() else 0.0
+	is_playing = false
 	queue_redraw()
 
 
 func set_index(i: int) -> void:
 	current_index = clampi(i, 0, history.size() - 1)
+	if not history.is_empty():
+		playback_time = history[current_index].time
+	is_playing = false # a manual scrub pauses playback, same as any video player's seek bar
 	queue_redraw()
 
 
-func current_time() -> float:
+## Toggles Play/Pause. Restarts from the beginning if pressed while already
+## sitting at the final moment — otherwise "Play" at the end would do
+## nothing, which isn't what pressing it clearly means.
+func toggle_play() -> void:
 	if history.is_empty():
-		return 0.0
-	return history[current_index].time
+		return
+	if is_playing:
+		is_playing = false
+		return
+	if current_index >= history.size() - 1:
+		current_index = 0
+		playback_time = history[0].time
+	is_playing = true
+
+
+## Called every frame from main.gd's own _process while is_playing.
+## delta_real is real engine seconds, same as any other _process delta —
+## converted to tactical time at the replay's own fixed pace (unrelated to
+## whatever time scale was actually in effect during the live battle, which
+## varied and wasn't recorded per snapshot).
+func advance_playback(delta_real: float) -> void:
+	if not is_playing or history.is_empty():
+		return
+	playback_time += delta_real * GameConfig.HISTORY_PLAYBACK_TIME_SCALE
+	var last_time: float = history[-1].time
+	if playback_time >= last_time:
+		playback_time = last_time
+		current_index = history.size() - 1
+		is_playing = false
+	else:
+		current_index = _index_for_time(playback_time)
+	queue_redraw()
+
+
+## Largest index whose recorded time is <= t (binary search — history can
+## run to a couple thousand entries for a long battle at HISTORY_SNAPSHOT_
+## INTERVAL_S, called once per frame during playback).
+func _index_for_time(t: float) -> int:
+	var lo := 0
+	var hi := history.size() - 1
+	while lo < hi:
+		var mid: int = (lo + hi + 1) / 2
+		if history[mid].time <= t:
+			lo = mid
+		else:
+			hi = mid - 1
+	return lo
+
+
+func current_time() -> float:
+	return playback_time
 
 
 func _draw() -> void:
@@ -39,6 +102,8 @@ func _draw() -> void:
 		return
 	for u in history[current_index].units:
 		_draw_unit(u)
+	for f in fire_events:
+		_draw_fire_event(f)
 
 
 ## A simplified, self-contained echo of Unit._draw()'s own color/size
@@ -75,3 +140,33 @@ func _draw_unit(u: Dictionary) -> void:
 		draw_rect(Rect2(pos - Vector2(radius, radius), Vector2(radius * 2.0, radius * 2.0)), color)
 	else:
 		draw_circle(pos, radius, color)
+
+
+## A self-contained echo of BattleManager._draw()'s own fire-flash
+## rendering, keyed on playback_time (tactical) rather than elapsed_time
+## (real) — see fire_events' own doc comment on BattleManager for why a
+## separate recording was needed rather than reusing the live _fire_flashes
+## list. Shows regardless of whether currently playing, so scrubbing the
+## slider to land near a shot's moment shows it too, not just Play.
+func _draw_fire_event(f: Dictionary) -> void:
+	var age: float = playback_time - f.time
+	if age < 0.0 or age > GameConfig.HISTORY_FIRE_FLASH_DURATION_TACTICAL_S:
+		return
+	var alpha: float = 1.0 - age / GameConfig.HISTORY_FIRE_FLASH_DURATION_TACTICAL_S
+	var color: Color = Color(1.0, 0.85, 0.2, alpha) if f.team == Unit.Team.ENEMY else Color(0.3, 0.85, 1.0, alpha)
+	if f.is_mortar:
+		_draw_arc_tracer(f.from, f.to, color)
+	else:
+		draw_line(f.from, f.to, color, 2.0)
+	draw_circle(f.from, 5.0, Color(1.0, 1.0, 0.6, alpha))
+
+
+func _draw_arc_tracer(from: Vector2, to: Vector2, color: Color) -> void:
+	var apex: Vector2 = (from + to) / 2.0 - Vector2(0.0, from.distance_to(to) * 0.2)
+	var points := PackedVector2Array()
+	var segments := 12
+	for i in segments + 1:
+		var t: float = float(i) / float(segments)
+		var one_minus_t: float = 1.0 - t
+		points.append(from * (one_minus_t * one_minus_t) + apex * (2.0 * one_minus_t * t) + to * (t * t))
+	draw_polyline(points, color, 2.0, true)

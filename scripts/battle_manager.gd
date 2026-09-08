@@ -235,6 +235,16 @@ var _heatmap_last_cleared: Dictionary = {}
 var _history: Array[Dictionary] = []
 var _history_last_recorded_time: float = -INF
 
+# Every shot fired, for BattleHistoryViewer's "Play" replay — separate from
+# the live _fire_flashes above (those fade on real elapsed_time, tuned for
+# watching the actual battle; this is keyed on scenario_elapsed_time, the
+# same clock the position snapshots above use, since replay scrubs/plays
+# through tactical time, not real time). Same shape as a _fire_flashes
+# entry minus "time" meaning something different: {"time": scenario_elapsed_
+# time, "from", "to", "team", "is_mortar"}. Recorded at the moment of firing
+# (a mortar's muzzle flash, not its delayed impact), same as the live flash.
+var _history_fire_events: Array[Dictionary] = []
+
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	combat_log = p_combat_log
@@ -267,6 +277,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_heatmap_last_cleared.clear()
 	_history.clear()
 	_history_last_recorded_time = -INF
+	_history_fire_events.clear()
 	_player_sighted_enemy = false
 	_enemy_sighted_enemy = false
 	_mortar_resupply.clear()
@@ -312,6 +323,13 @@ func _record_history_snapshot() -> void:
 ## once per battle, never mutated after the fact.
 func battle_history() -> Array[Dictionary]:
 	return _history
+
+
+## Public accessor for main.gd's BattleHistoryViewer — see _history_fire_
+## events' own doc comment for the shape. Read-only, recorded once per
+## battle, never mutated after the fact.
+func battle_history_fire_events() -> Array[Dictionary]:
+	return _history_fire_events
 
 
 ## True once EITHER side's commander has ordered a general withdrawal — not
@@ -3118,6 +3136,10 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		"from": unit.global_position, "to": target.global_position, "team": unit.team,
 		"time": elapsed_time, "is_mortar": false,
 	})
+	_history_fire_events.append({
+		"from": unit.global_position, "to": target.global_position, "team": unit.team,
+		"time": scenario_elapsed_time, "is_mortar": false,
+	})
 	_seconds_since_last_shot = 0.0
 	_resolve_fire_and_check_bunching(unit, target)
 	unit.fire_timer = unit.fire_interval
@@ -3143,6 +3165,9 @@ func _launch_mortar_shot(mortar: Unit, target: Unit) -> void:
 	})
 	_fire_flashes.append({
 		"from": mortar.global_position, "to": aim_point, "team": mortar.team, "time": elapsed_time, "is_mortar": true,
+	})
+	_history_fire_events.append({
+		"from": mortar.global_position, "to": aim_point, "team": mortar.team, "time": scenario_elapsed_time, "is_mortar": true,
 	})
 	_seconds_since_last_shot = 0.0
 	# Firing is detectable (muzzle blast/trajectory) independent of whether

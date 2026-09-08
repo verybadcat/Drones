@@ -606,6 +606,16 @@ const ENEMY_MORTAR_POSITIONS_M: Array[Vector2] = [Vector2(4700.0, 1300.0), Vecto
 const TIME_SCALE_FAST_FORWARD: float = 300.0
 const TIME_SCALE_NORMAL: float = 60.0
 const TIME_SCALE_GENERAL_RETREAT: float = TIME_SCALE_NORMAL * 2.0
+
+# BattleHistoryViewer's own "Play" button (post-battle replay, unrelated to
+# the live battle's own time scale above): 1 real second = 1 tactical
+# minute, same felt pace as TIME_SCALE_NORMAL's "worth watching closely"
+# rate, since a replay is exactly that. Fire flashes during replay fade over
+# a tactical-time window scaled the same way a real flash's 0.3-real-second
+# fade would look at this rate (0.3 * 60 = 18 tactical seconds) — brief
+# relative to playback, not a lingering marker.
+const HISTORY_PLAYBACK_TIME_SCALE: float = 60.0
+const HISTORY_FIRE_FLASH_DURATION_TACTICAL_S: float = 18.0
 # The tactical clock shown to the player (see BattleManager.clock_string())
 # starts here — the assault kicks off at 0600.
 const SCENARIO_START_HOUR: float = 6.0
