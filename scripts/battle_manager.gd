@@ -2643,36 +2643,58 @@ func _mortar_advance_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 	return mortar.global_position
 
 
-## "Friendly mortar should always try to stay where it won't be seen" — the
-## reactive half of that: the instant it's actually spotted while just
-## sitting there between shots with NOTHING worth shooting at (is_visible,
-## a live fact — see _refresh_visibility, and not already moving for some
-## other reason), it relocates via _relocate_mortar. The other half — a
-## shoot-and-scoot mortar displacing after EVERY shot as standing
-## procedure, whether spotted or not — is handled separately in _tick_fire,
-## since that's doctrine-driven, not purely reactive; a hold-position
-## mortar relies on THIS check alone, so it stays put unless something
-## actually threatens it.
+## "A mortar should always try to stay where it won't be seen, and one
+## that's aware of an approaching threat it isn't currently answering
+## should either fire on it or get out" — two related reactive triggers,
+## both resolved the same way (_relocate_mortar), for a mortar that isn't
+## already doing something else (has_move_target) and isn't currently
+## about to fire (_pick_target(m, ...) != null — something worth
+## shooting at, including an enemy mortar that's wandered into range,
+## means stand and fight rather than flee; concealment/displacement is
+## the fallback when there's nothing to show for standing there, not an
+## automatic reflex to danger alone):
+## 1. Actually spotted (is_visible, a live fact — see _refresh_visibility)
+##    with nothing worth shooting at right now.
+## 2. NOT spotted, but a known enemy is within GameConfig.MORTAR_CREW_
+##    OVERRUN_DANGER_RANGE and still nothing worth shooting at — this is
+##    what stops a mortar from just sitting there while a threat it can
+##    clearly see closes the distance: by the time trigger 2 fires,
+##    _pick_target has already had every chance to engage (including the
+##    ammo-conservation override in _pick_target itself for exactly this
+##    same range), so "nothing to shoot" here genuinely means out of
+##    ammo, reload not up, or state="don't have a shot," not a target
+##    being ignored.
 ##
-## Being spotted alone does NOT mean flee — if it currently HAS a target
-## (including an enemy mortar that's wandered into range), it stands and
-## fights rather than running from a fight it can win; concealment is the
-## fallback when it's exposed with nothing to show for it, not an automatic
-## reflex to being seen.
+## Applies to BOTH sides identically (like _update_mortar_safety_
+## relocation below) — only the player's own move is narrated (see
+## _should_narrate_mortar_logistics's fog-of-war reasoning).
 ##
 ## Runs AFTER _tick_fire each tick, not before — a mortar that's ready to
 ## fire right now gets that shot off first; only if it DIDN'T fire this
-## tick and is sitting there exposed does this apply.
-func _update_friendly_mortar_concealment() -> void:
-	for m in player_units:
+## tick does either trigger apply.
+func _update_mortar_threat_response() -> void:
+	for m in player_units + enemy_units:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE or m.has_move_target:
 			continue
-		if not m.is_visible:
-			continue
-		if _pick_target(m, enemy_units) != null:
+		var opposing_units: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
+		if _pick_target(m, opposing_units) != null:
 			continue # something worth shooting at — stand and fight rather than flee
+		var spotted: bool = m.is_visible
+		var threat_closing := false
+		if not spotted:
+			for pos in _known_enemy_positions(m.team):
+				if m.global_position.distance_to(pos) <= GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE:
+					threat_closing = true
+					break
+		if not spotted and not threat_closing:
+			continue
 		if _relocate_mortar(m):
-			combat_log.log_mortar_relocating_for_cover(m)
+			if not _should_narrate_mortar_logistics(m):
+				continue
+			if spotted:
+				combat_log.log_mortar_relocating_for_cover(m)
+			else:
+				combat_log.log_mortar_relocating_from_threat(m)
 
 
 ## A mortar with zero rounds left can't shoot back — standing its ground
@@ -2685,13 +2707,14 @@ func _update_friendly_mortar_concealment() -> void:
 ## logistics's fog-of-war reasoning — the enemy's resupply runs the same
 ## way, just silently).
 ##
-## Runs before _update_friendly_mortar_concealment so an out-of-ammo mortar
-## that's ALSO currently spotted gets the more specific "out of ammo"
-## framing rather than the generic "spotted" one — both would pick the same
-## destination via _relocate_mortar regardless, this only decides which log
-## message describes it. Naturally defers to a resupply-linkup move already
-## claimed this tick (_update_resupply_linkup runs earlier) via the same
-## has_move_target check every other reactive relocation here uses.
+## Runs before _update_mortar_threat_response so an out-of-ammo mortar
+## that's ALSO currently spotted (or facing a closing threat) gets the more
+## specific "out of ammo" framing rather than the generic one — both would
+## pick the same destination via _relocate_mortar regardless, this only
+## decides which log message describes it. Naturally defers to a
+## resupply-linkup move already claimed this tick (_update_resupply_linkup
+## runs earlier) via the same has_move_target check every other reactive
+## relocation here uses.
 func _update_mortar_safety_relocation() -> void:
 	for m in player_units + enemy_units:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE or m.has_move_target:
@@ -2735,7 +2758,7 @@ func _process(delta: float) -> void:
 		_tick_fire(unit, delta, scenario_delta, player_units)
 
 	_update_mortar_safety_relocation()
-	_update_friendly_mortar_concealment()
+	_update_mortar_threat_response()
 	_resolve_pending_counter_battery()
 	_resolve_pending_mortar_shots()
 	_update_player_intel()
@@ -3801,6 +3824,25 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		var scarcity: float = _mortar_ammo_scarcity(unit)
 		var urgency: float = _mortar_resupply_urgency(unit)
 		var hold_fire_chance: float = scarcity * (1.0 - urgency)
+		# Conserving ammo for later stops making sense the instant "later"
+		# might not come — a squad closing to within genuine overrun range
+		# (the same threshold the crew's own hold-or-flee roll uses once
+		# actually hit, GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE) is
+		# reason enough to take the shot regardless of how scarce ammo is
+		# or how far off resupply might be. Gated on actually HAVING a
+		# round left — this only overrides the CHOICE to hold fire, not
+		# the hard fact of having nothing to fire; without this guard a
+		# truly empty mortar being approached would still read back as
+		# "has a shot" to anything calling _pick_target directly (e.g.
+		# _update_mortar_threat_response's own "is there something to
+		# shoot" check), when _tick_fire's own separate, earlier
+		# mortar_rounds_remaining <= 0 gate means it could never actually
+		# fire regardless of what this function returns.
+		if hold_fire_chance > 0.0 and unit.mortar_rounds_remaining > 0:
+			for c in candidates:
+				if unit.global_position.distance_to(c.global_position) <= GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE:
+					hold_fire_chance = 0.0
+					break
 		if randf() < hold_fire_chance:
 			return null
 		return _weighted_mortar_target_pick(unit, candidates)
