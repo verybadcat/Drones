@@ -2206,6 +2206,30 @@ func _area_confirmed_clear(point: Vector2) -> bool:
 	return false
 
 
+## The commander's own default assumption about where the enemy is likely
+## to be found, absent any actual contact — deliberately NOT a function of
+## elapsed tactical time. A commander has no way of knowing exactly when
+## the enemy's advance actually began, so "more tactical time has passed,
+## therefore they must be further in" would assume knowledge that isn't
+## actually available (see this project's own knowledge-locality
+## principle — a decision should only use what the commander could
+## plausibly know). What IS ordinary, standing knowledge regardless of
+## timing: this is defended ground, and the enemy's own start line and only
+## approach road sit at the map's eastern edge (GameConfig.ENEMY_SPAWN_X)
+## — so absent evidence otherwise, ground closer to that edge is simply
+## more likely to matter than ground toward the friendly rear. A smooth
+## gradient across the map's own width (GameConfig.
+## ENEMY_APPROACH_LIKELIHOOD_MIN at the west edge up to _MAX at the east),
+## not a hard cutoff — "much more likely," not "certain." Real evidence
+## (an actual sighting) overrides this on its own merits via
+## _contact_search_bonus, ADDED on top of whatever this returns rather
+## than replacing it — a confirmed contact deep in the west should still
+## win outright even though this function alone would rate that ground low.
+func _enemy_approach_likelihood(point: Vector2) -> float:
+	var t: float = clamp(point.x / GameConfig.MAP_WIDTH_PX, 0.0, 1.0)
+	return lerp(GameConfig.ENEMY_APPROACH_LIKELIHOOD_MIN, GameConfig.ENEMY_APPROACH_LIKELIHOOD_MAX, t)
+
+
 ## The 25-cell sweep grid as candidates for the shared routine-recon pool
 ## (_drone_routine_recon_target) — one candidate per cell, valued by
 ## GameConfig.DRONE_SWEEP_ROW_WEIGHTS (bias toward the rows nearest the
@@ -2221,11 +2245,15 @@ func _area_confirmed_clear(point: Vector2) -> bool:
 ## PROBABILITY distribution over sweep cells alone; now that recency and
 ## distance cost are handled by one shared formula across sweep AND
 ## flank-watch candidates together, each row's own weight can stand as a
-## genuine per-cell value directly. Also picks up _contact_search_bonus —
-## a cell near a real, recent sighting is worth more than the row-weight
-## bias alone says, which is what makes a discovered enemy actually widen
-## the search around it instead of only being remembered as the one exact
-## spot _area_confirmed_clear will eventually mark clear.
+## genuine per-cell value directly. Also weighted by _enemy_approach_
+## likelihood — a SEPARATE, column/x-axis bias toward the enemy's own
+## known approach edge, independent of the row/y-axis bias above — and
+## picks up _contact_search_bonus, added rather than multiplied so a real,
+## recent sighting is worth more than the row/column bias alone says
+## regardless of where it happens to be, which is what makes a discovered
+## enemy actually widen the search around it instead of only being
+## remembered as the one exact spot _area_confirmed_clear will eventually
+## mark clear.
 func _sweep_candidates() -> Array:
 	var row_count: int = GameConfig.DRONE_SEARCH_GRID_ROWS_M.size()
 	var columns_per_row: int = GameConfig.DRONE_SEARCH_GRID_COLUMNS_M.size()
@@ -2235,7 +2263,7 @@ func _sweep_candidates() -> Array:
 		for col_i in columns_per_row:
 			var idx: int = row_i * columns_per_row + col_i
 			var point: Vector2 = waypoints[idx]
-			var value: float = GameConfig.DRONE_SWEEP_ROW_WEIGHTS[row_i]
+			var value: float = GameConfig.DRONE_SWEEP_ROW_WEIGHTS[row_i] * _enemy_approach_likelihood(point)
 			if _area_confirmed_clear(point):
 				value *= GameConfig.DRONE_SWEEP_CLEARED_WEIGHT_MULTIPLIER
 			value += _contact_search_bonus(point)

@@ -283,6 +283,22 @@ static func drone_search_waypoints_px() -> Array[Vector2]:
 ## just correctly treated as far less likely than the middle of the map.
 const DRONE_SWEEP_ROW_WEIGHTS: Array[float] = [0.05, 0.15, 0.6, 0.15, 0.05]
 
+## The commander's own standing, doctrinal assumption about which HALF of
+## the road's own band is more likely to matter, absent any actual contact
+## — see BattleManager._enemy_approach_likelihood, which turns this into a
+## smooth per-cell multiplier across DRONE_SEARCH_GRID_COLUMNS_M (a
+## SEPARATE axis from DRONE_SWEEP_ROW_WEIGHTS above, which only judges
+## the row/y-band). ENEMY_SPAWN_X sits at the map's own eastern edge — the
+## enemy's only start line and approach road — so ground near it is simply
+## more worth an early look than ground toward the friendly rear, with NO
+## contact needed to justify that: it's public knowledge of the terrain,
+## the same idiom already used for weighting the road's own y-band.
+## MIN (not zero) keeps the west end of the grid a real, if deprioritized,
+## possibility rather than ruled out outright — a smooth gradient, not a
+## hard cutoff, matching "much more likely," not "certain."
+const ENEMY_APPROACH_LIKELIHOOD_MIN: float = 0.1
+const ENEMY_APPROACH_LIKELIHOOD_MAX: float = 1.0
+
 ## Once an enemy unit is confirmed no longer any kind of threat — DESTROYED,
 ## WITHDRAWN, or SURRENDERED, the same "not still a threat" boundary
 ## _known_enemy_positions itself already draws — the ground it was last
