@@ -43,6 +43,17 @@ var enemy_heatmap_overlay
 
 var report_background: Control
 var restart_button: Button
+var review_history_button: Button
+
+# Post-battle "drag through time" replay — see battle_history_viewer.gd.
+# history_viewer is untyped for the same brand-new-class_name reason as
+# drone_debug_panel/enemy_heatmap_overlay above, and lives in map_viewport
+# (map-space rendering). Created/freed per battle-end, not per app
+# lifetime, since it depends on that specific battle's recorded history.
+var history_viewer
+var history_slider: HSlider
+var history_time_label: Label
+var history_back_button: Button
 
 # "See what the drone pilot is thinking" — off by default (see _ready),
 # toggled by the "d" key (_unhandled_input) rather than a sidebar button
@@ -223,7 +234,8 @@ func _draw() -> void:
 func _clear_all() -> void:
 	for node in [level_select_screen, deployment_screen, doctrine_panel, start_button, battle_manager,
 			combat_log, casualty_dashboard, retreat_button, pause_button, drone_debug_panel,
-			enemy_heatmap_overlay, report_background, restart_button]:
+			enemy_heatmap_overlay, report_background, restart_button, review_history_button,
+			history_viewer, history_slider, history_time_label, history_back_button]:
 		if node:
 			node.queue_free()
 	level_select_screen = null
@@ -239,6 +251,11 @@ func _clear_all() -> void:
 	enemy_heatmap_overlay = null
 	report_background = null
 	restart_button = null
+	review_history_button = null
+	history_viewer = null
+	history_slider = null
+	history_time_label = null
+	history_back_button = null
 
 
 func _show_level_select() -> void:
@@ -426,3 +443,92 @@ func _on_battle_ended(report_text: String) -> void:
 	restart_button.position = Vector2(20, 540)
 	restart_button.pressed.connect(_show_deployment)
 	add_child(restart_button)
+
+	review_history_button = Button.new()
+	review_history_button.text = "Review Battle History"
+	review_history_button.position = Vector2(20, 581) # below restart_button (measured 31px tall)
+	review_history_button.pressed.connect(_on_review_history_pressed)
+	add_child(review_history_button)
+
+
+## Enters history-review mode: hides the AAR report and the live units
+## (their FINAL positions would otherwise show through/underneath the
+## historical playback, which draws over the same map), and shows a
+## scrubbable timeline over BattleManager's recorded history. Ground
+## truth, not fog-of-war-limited — see BattleHistoryViewer's own doc
+## comment for why that's a deliberate, confirmed choice for this feature
+## specifically, unlike the AAR report itself.
+func _on_review_history_pressed() -> void:
+	if not battle_manager:
+		return
+	report_background.visible = false
+	restart_button.visible = false
+	review_history_button.visible = false
+	_set_live_units_visible(false)
+
+	history_viewer = preload("res://scripts/battle_history_viewer.gd").new()
+	var history: Array[Dictionary] = battle_manager.battle_history()
+	history_viewer.setup(history)
+	map_viewport.add_child(history_viewer)
+
+	history_slider = HSlider.new()
+	history_slider.position = Vector2(20, 610)
+	history_slider.size = Vector2(700, 20)
+	history_slider.min_value = 0
+	history_slider.max_value = max(history.size() - 1, 0)
+	history_slider.step = 1
+	history_slider.value = history_slider.max_value # start at the battle's final moment
+	history_slider.value_changed.connect(_on_history_slider_changed)
+	add_child(history_slider)
+
+	history_time_label = Label.new()
+	history_time_label.position = Vector2(730, 606)
+	history_time_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.9))
+	add_child(history_time_label)
+	_update_history_time_label()
+
+	history_back_button = Button.new()
+	history_back_button.text = "Back to Report"
+	history_back_button.position = Vector2(20, 640)
+	history_back_button.pressed.connect(_on_history_back_pressed)
+	add_child(history_back_button)
+
+
+func _on_history_slider_changed(value: float) -> void:
+	if history_viewer:
+		history_viewer.set_index(int(value))
+	_update_history_time_label()
+
+
+func _update_history_time_label() -> void:
+	if not history_viewer or not battle_manager:
+		return
+	history_time_label.text = battle_manager.clock_string(history_viewer.current_time())
+
+
+## Leaves history-review mode: tears down the scrubber and restores the
+## AAR report and the live units' own (final, current) visibility exactly
+## as they were.
+func _on_history_back_pressed() -> void:
+	for node in [history_viewer, history_slider, history_time_label, history_back_button]:
+		if node:
+			node.queue_free()
+	history_viewer = null
+	history_slider = null
+	history_time_label = null
+	history_back_button = null
+
+	_set_live_units_visible(true)
+	if report_background:
+		report_background.visible = true
+	if restart_button:
+		restart_button.visible = true
+	if review_history_button:
+		review_history_button.visible = true
+
+
+func _set_live_units_visible(p_visible: bool) -> void:
+	if not battle_manager:
+		return
+	for u in battle_manager.player_units + battle_manager.enemy_units:
+		u.visible = p_visible

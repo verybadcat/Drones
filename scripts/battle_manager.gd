@@ -20,6 +20,13 @@ const FLASH_DURATION: float = 0.3
 # with no LOS to anyone) — end it rather than running out the full clock.
 const STAGNATION_TIMEOUT: float = 15.0
 
+# How often (in tactical seconds) a post-battle history snapshot is
+# recorded — see _record_history_snapshot. Fine enough for smooth-feeling
+# scrubbing (a battle running the usual ~150-170 tactical minutes records
+# on the order of 2000 frames) without being wasteful — each frame is a
+# handful of small values per unit, trivial even at that count.
+const HISTORY_SNAPSHOT_INTERVAL_S: float = 5.0
+
 var player_units: Array[Unit] = []
 var enemy_units: Array[Unit] = []
 var combat_log: CombatLog
@@ -216,6 +223,18 @@ var _drone_pilot_reasoning: Dictionary = {}
 # visualization concept, never consulted by any real decision.
 var _heatmap_last_cleared: Dictionary = {}
 
+# Post-battle history — see _record_history_snapshot/battle_history. Each
+# entry is {"time": scenario_elapsed_time, "units": [{"team","kind","x","y",
+# "state"}, ...]} for every unit (both sides, TRUE ground truth — not
+# fog-of-war-limited, per the AAR's own history-review feature) still known
+# to player_units/enemy_units at that moment. Deliberately plain data, not
+# references to the live Unit nodes — some of those (a destroyed drone, a
+# despawned resupply run) won't even exist any more by the time the battle
+# ends, so a scrubbable history has to stand on its own rather than
+# puppeting nodes whose lifecycle it doesn't control.
+var _history: Array[Dictionary] = []
+var _history_last_recorded_time: float = -INF
+
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	combat_log = p_combat_log
@@ -246,6 +265,8 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drone_current_destination_key = ""
 	_recent_enemy_contacts.clear()
 	_heatmap_last_cleared.clear()
+	_history.clear()
+	_history_last_recorded_time = -INF
 	_player_sighted_enemy = false
 	_enemy_sighted_enemy = false
 	_mortar_resupply.clear()
@@ -264,12 +285,33 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 
 ## HH:MM:SS tactical time-of-day, starting at GameConfig.SCENARIO_START_HOUR
 ## (0600) and advancing with scenario_elapsed_time.
-func clock_string() -> String:
-	var total_seconds: int = int(GameConfig.SCENARIO_START_HOUR * 3600.0 + scenario_elapsed_time)
+## `at_time` defaults to the live scenario_elapsed_time, but the history
+## viewer (see battle_history/BattleHistoryViewer) needs the clock as it
+## read at some earlier recorded moment, not the current one.
+func clock_string(at_time: float = scenario_elapsed_time) -> String:
+	var total_seconds: int = int(GameConfig.SCENARIO_START_HOUR * 3600.0 + at_time)
 	var h: int = (total_seconds / 3600) % 24
 	var m: int = (total_seconds / 60) % 60
 	var s: int = total_seconds % 60
 	return "%02d:%02d:%02d" % [h, m, s]
+
+
+## One frame of the post-battle history — see _history's own doc comment
+## for the exact shape. Called periodically from _process (throttled by
+## HISTORY_SNAPSHOT_INTERVAL_S) and once more, unconditionally, right as
+## the battle ends, so the final moment is always captured exactly even if
+## it falls between two regular intervals.
+func _record_history_snapshot() -> void:
+	var units: Array[Dictionary] = []
+	for u in player_units + enemy_units:
+		units.append({"team": u.team, "kind": u.kind, "x": u.global_position.x, "y": u.global_position.y, "state": u.state})
+	_history.append({"time": scenario_elapsed_time, "units": units})
+
+
+## Public accessor for main.gd's BattleHistoryViewer — read-only, recorded
+## once per battle, never mutated after the fact.
+func battle_history() -> Array[Dictionary]:
+	return _history
 
 
 ## True once EITHER side's commander has ordered a general withdrawal — not
@@ -2736,6 +2778,10 @@ func _process(delta: float) -> void:
 	var scenario_delta: float = delta * _current_time_scale()
 	scenario_elapsed_time += scenario_delta
 
+	if scenario_elapsed_time - _history_last_recorded_time >= HISTORY_SNAPSHOT_INTERVAL_S:
+		_history_last_recorded_time = scenario_elapsed_time
+		_record_history_snapshot()
+
 	_update_sighting_flags()
 	_update_mortar_resupply()
 	_update_mortar_resupply_requests()
@@ -4310,6 +4356,7 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false, is_enemy_s
 ## before the withdrawal physically finishes.
 func _end_battle() -> void:
 	battle_over = true
+	_record_history_snapshot() # the final moment, exactly, regardless of where the regular interval last landed
 
 	var player_stats := _compute_side_stats(player_units)
 	# The verdict itself is always judged on the TRUE outcome — win/loss
