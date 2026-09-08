@@ -2111,9 +2111,44 @@ func _row_bias_at_y(y: float) -> float:
 ## waypoints. Read-only, for the enemy heat-map overlay (main.gd's "e"
 ## key, independent of the drone-pilot debug overlay's "d" key) — never
 ## drives any actual decision itself, the same way drone_pilot_debug_
-## snapshot doesn't.
+## snapshot doesn't. Zero wherever _point_currently_observed says a
+## friendly asset can see this ground right now: we know the enemy isn't
+## there, doctrinal priors and stale contact evidence alike are moot the
+## instant someone is actually looking at empty ground.
 func estimated_enemy_likelihood(point: Vector2) -> float:
+	if _point_currently_observed(point):
+		return 0.0
 	return _row_bias_at_y(point.y) * _enemy_approach_likelihood(point) + _contact_search_bonus(point)
+
+
+## Whether any currently-ACTIVE friendly asset — a ground unit's ordinary
+## detection range and line of sight, or the airborne drone's own wider
+## aerial sensor — could plausibly see `point` right now. Used only to
+## suppress the heat-map's own "possible enemy location" guess over
+## ground we're actually watching; a real commander doesn't keep worrying
+## about a stretch of ground their own people can currently see is empty.
+## Deliberately uses each observer's ORDINARY detection range (not the
+## shorter range CombatResolver.effective_detection_range would apply
+## against a target hidden in cover) — this is "would we likely have
+## noticed an enemy here by now," a debug approximation, not a claim that
+## every conceivable hiding spot within some radius is provably clear.
+func _point_currently_observed(point: Vector2) -> bool:
+	if active_drone != null and active_drone.state == Unit.State.ACTIVE:
+		if active_drone.global_position.distance_to(point) <= GameConfig.DRONE_DETECTION_RANGE and GameConfig.has_aerial_los(active_drone.global_position, point):
+			return true
+	for u in player_units:
+		if u.state != Unit.State.ACTIVE:
+			continue
+		if u.kind != Unit.Kind.SQUAD and u.kind != Unit.Kind.MORTAR and u.kind != Unit.Kind.SPOTTER:
+			continue
+		var range: float = GameConfig.DETECTION_BASE_RANGE
+		if u.kind == Unit.Kind.SPOTTER:
+			range += GameConfig.SPOTTER_DETECTION_RANGE_BONUS
+		if u.elevation() > GameConfig.elevation_m(point) + GameConfig.ELEVATION_ADVANTAGE_THRESHOLD_M:
+			range += GameConfig.DETECTION_ELEVATION_BONUS
+		if u.global_position.distance_to(point) <= range and GameConfig.has_direct_los(u.global_position, point):
+			return true
+	return false
 
 
 ## Read-only introspection into the drone's current reasoning — "what is

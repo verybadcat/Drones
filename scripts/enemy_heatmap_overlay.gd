@@ -17,20 +17,41 @@ class_name EnemyHeatmapOverlay
 ## for actual KNOWN contacts (BattleManager._known_enemy_positions/
 ## _recent_enemy_contacts) — both already fog-of-war-correct (gated on
 ## is_visible), so this never reveals anything the player doesn't already
-## have a legitimate way to know.
+## have a legitimate way to know. The guess layer is also actively
+## suppressed over ground any friendly asset (drone or ground unit) can
+## currently see — a real commander stops guessing an enemy might be
+## somewhere their own people are looking right now and see is empty
+## (BattleManager._point_currently_observed).
 
-const GRID_STEP_PX: float = 150.0 * GameConfig.PIXELS_PER_METER # ~30px cells -- smooth-looking without being wasteful (~1000 cells/frame across the whole map+west flank)
+const GRID_STEP_PX: float = 150.0 * GameConfig.PIXELS_PER_METER # ~30px cells -- smooth-looking without being wasteful
 const KNOWN_RADIUS_PX: float = 60.0 * GameConfig.PIXELS_PER_METER
 const RECENT_RING_RADIUS_PX: float = 45.0 * GameConfig.PIXELS_PER_METER
 
+# estimated_enemy_likelihood now checks every friendly unit's LOS to each
+# cell (see BattleManager._point_currently_observed) — real ray/terrain
+# geometry, not cheap, and re-running it for ~1000 cells every single
+# rendered frame would be wasteful for a toggleable debug view. Recomputed
+# on this slower timer instead; _draw() just paints whatever's cached, so
+# the visible picture is at most RECOMPUTE_INTERVAL_S stale, never wrong.
+const RECOMPUTE_INTERVAL_S: float = 0.4
+
 var battle_manager: BattleManager
+var _cached_values: Array[float] = []
+var _cached_max_value: float = 0.0
+var _cached_cols: int = 0
+var _cached_rows: int = 0
+var _recompute_timer: float = 0.0
 
 
 func setup(p_battle_manager: BattleManager) -> void:
 	battle_manager = p_battle_manager
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_recompute_timer -= delta
+	if _recompute_timer <= 0.0:
+		_recompute_timer = RECOMPUTE_INTERVAL_S
+		_recompute_guessed_grid()
 	queue_redraw()
 
 
@@ -43,27 +64,32 @@ func _draw() -> void:
 
 ## Samples BattleManager.estimated_enemy_likelihood on a coarse grid
 ## covering the whole map (including the west flank, since a real
-## flanking threat can be guessed at just as validly there) and paints
-## each cell's relative share of the current highest value as a warm,
-## low-opacity tint — a genuine heat map, not a handful of isolated
-## sample dots, so the same east/off-road doctrinal bias driving the
-## drone's actual sweep is visible as a continuous field.
-func _draw_guessed_heatmap() -> void:
-	var cols: int = int((GameConfig.MAP_WIDTH_PX + GameConfig.WEST_FLANK_WIDTH_PX) / GRID_STEP_PX) + 1
-	var rows: int = int(GameConfig.MAP_HEIGHT_PX / GRID_STEP_PX) + 1
-	var values: Array[float] = []
-	var max_value := 0.0
-	for row_i in rows:
-		for col_i in cols:
+## flanking threat can be guessed at just as validly there) into the
+## cache _draw() actually paints from.
+func _recompute_guessed_grid() -> void:
+	_cached_cols = int((GameConfig.MAP_WIDTH_PX + GameConfig.WEST_FLANK_WIDTH_PX) / GRID_STEP_PX) + 1
+	_cached_rows = int(GameConfig.MAP_HEIGHT_PX / GRID_STEP_PX) + 1
+	_cached_values.resize(_cached_cols * _cached_rows)
+	_cached_max_value = 0.0
+	for row_i in _cached_rows:
+		for col_i in _cached_cols:
 			var p := Vector2(-GameConfig.WEST_FLANK_WIDTH_PX + col_i * GRID_STEP_PX, row_i * GRID_STEP_PX)
 			var v: float = battle_manager.estimated_enemy_likelihood(p)
-			values.append(v)
-			max_value = max(max_value, v)
-	if max_value <= 0.0:
+			_cached_values[row_i * _cached_cols + col_i] = v
+			_cached_max_value = max(_cached_max_value, v)
+
+
+## Paints the cached grid's relative share of the current highest value as
+## a warm, low-opacity tint — a genuine heat map, not a handful of
+## isolated sample dots, so the same east/off-road doctrinal bias driving
+## the drone's actual sweep (and the "ground we can currently see is
+## empty" suppression) is visible as a continuous field.
+func _draw_guessed_heatmap() -> void:
+	if _cached_max_value <= 0.0:
 		return
-	for row_i in rows:
-		for col_i in cols:
-			var t: float = values[row_i * cols + col_i] / max_value
+	for row_i in _cached_rows:
+		for col_i in _cached_cols:
+			var t: float = _cached_values[row_i * _cached_cols + col_i] / _cached_max_value
 			if t < 0.03:
 				continue
 			var p := Vector2(-GameConfig.WEST_FLANK_WIDTH_PX + col_i * GRID_STEP_PX, row_i * GRID_STEP_PX)
