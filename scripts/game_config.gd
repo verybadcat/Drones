@@ -1965,6 +1965,16 @@ static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2]
 ## like this tends to stay valid even if a threat shifts position somewhat
 ## — the whole hill is still in the way — unlike a point chosen only
 ## because it happens to test clear against today's exact threat positions.
+## The candidate is anchored to the hill's own geometry and the threats'
+## bearing, NOT to `from` -- so a unit already dug in near a hill's reverse
+## slope (a normal, encouraged posture) can end up with a candidate only a
+## few meters from where it already is. That's fine for pure concealment,
+## but useless as a post-shot "scoot": it would leave the unit well within
+## COUNTER_BATTERY_BLAST_RADIUS of the position a counter-battery strike is
+## aimed at. So candidates closer than that radius are rejected outright,
+## falling through to the ring search (nearest_hidden_point's other path),
+## which is guaranteed to clear it by construction (its nearest ring is
+## already farther out than the blast radius).
 ## Returns `from` (no better option this way) if no hill qualifies.
 static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool) -> Vector2:
 	var avg_threat := Vector2.ZERO
@@ -1983,6 +1993,8 @@ static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vect
 		var d: float = from.distance_to(candidate)
 		if d >= best_dist or d > REVERSE_SLOPE_MAX_TRAVEL_M * PIXELS_PER_METER:
 			continue
+		if d < COUNTER_BATTERY_BLAST_RADIUS:
+			continue # too close to be a real scoot -- let the ring search find something further out
 		if avoid_buildings and (is_building_at(candidate) or path_crosses_building(from, candidate)):
 			continue
 		var hidden := true
