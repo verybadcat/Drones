@@ -364,11 +364,25 @@ const DRONE_DESTINATION_RECENTLY_VISITED_COOLDOWN_S: float = 20.0 * 60.0
 ## MORTAR_FLANK_THREAT_RADIUS) are far enough apart that a bare value/
 ## recency comparison alone would happily send the drone clear across the
 ## map for a marginally fresher cell right next to one it's already near.
-## At this rate, crossing a full sweep-grid leg (~170px) costs about 0.085
-## — comparable to a full DRONE_SWEEP_ROW_WEIGHTS step (0.05 to 0.15 or
-## 0.15 to 0.6), so nearby, modest opportunities can genuinely win over
-## distant, marginally better ones instead of distance being negligible.
-const DRONE_DESTINATION_DISTANCE_COST_PER_PX: float = 0.0005
+##
+## Halved from an original 0.0005 once real play showed the problem this
+## was guarding against had flipped direction. _enemy_approach_likelihood
+## and DRONE_MORTAR_HUNT_ROW_WEIGHTS (added later) widened the real value
+## spread across the map considerably — a genuinely hot cell far to the
+## east can now be worth meaningfully more than a mediocre one nearby. At
+## the old rate, that real value advantage lost outright to flank-watch
+## candidates, which sit close to the mortar (and so close to the drone's
+## own launch point) purely by construction: at true battle start, a nearby
+## flank bearing (value 0.5, ~300px away) beat the single hottest sweep
+## cell (value 0.64, ~600px away) by a hair, sending the drone to check the
+## mortar's own doorstep instead of the enemy's actual likely approach —
+## exactly backwards from the whole point of the approach-likelihood bias.
+## At this rate, crossing a full sweep-grid leg (~170px) still costs a real
+## ~0.043 — comparable to a meaningful fraction of a DRONE_SWEEP_ROW_
+## WEIGHTS step — so nearby, modest opportunities can still win over
+## distant, only marginally better ones; it just no longer overrides a
+## genuinely large value gap at long range the way the old rate did.
+const DRONE_DESTINATION_DISTANCE_COST_PER_PX: float = 0.00025
 
 ## A flank-watch bearing's own base value in the shared routine-recon pool
 ## (BattleManager._flank_watch_candidates) — tuned near the top of
