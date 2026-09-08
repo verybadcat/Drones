@@ -55,6 +55,71 @@ const CAMERA_MIN_X: float = 200.0
 const CAMERA_VIEW_MARGIN_PX: float = 100.0 * PIXELS_PER_METER # 500m buffer so a relevant unit that forced the view to move sits comfortably inside it, not pinned to its literal edge (whichever edge — west or east)
 const CAMERA_FOLLOW_LERP_SPEED: float = 2.5 # ~1-1.5s for a full 300px pan — a visible glide, not a snap
 
+## Simultaneous action at both the west flank and the far east side can't be
+## solved by panning alone — the camera's own pan range (CAMERA_MIN_X to
+## CAMERA_DEFAULT_X, 300px wide) forces a choice, and edge-chasing between
+## two things that need OPPOSITE choices at once is exactly what produces a
+## distracting back-and-forth. Rather than zooming out (which would shrink
+## every unit on screen), main.gd instead physically WIDENS the map
+## viewport by exactly WEST_FLANK_WIDTH_PX — reclaiming the casualty
+## dashboard's own screen footprint, which happens to be just wide enough —
+## so the ENTIRE modeled world (west flank through the map's true east
+## edge) is visible at once, at full scale, with no panning needed at all
+## while this is active. See main.gd's _apply_wide_view_state.
+const CAMERA_WIDE_VIEW_WIDTH_PX: float = MAP_WIDTH_PX + WEST_FLANK_WIDTH_PX
+## The camera's fixed x while the wide view is active — the midpoint of the
+## full [-WEST_FLANK_WIDTH_PX, MAP_WIDTH_PX] range. Fixed, not dynamically
+## tracking whatever's relevant: once the viewport is widened to show that
+## entire range, EVERY possible relevant position is already visible
+## regardless of exactly where it sits, so there is nothing left to track.
+const CAMERA_WIDE_VIEW_CENTER_X: float = (-WEST_FLANK_WIDTH_PX + MAP_WIDTH_PX) / 2.0
+## How fast the casualty dashboard fades in/out across the wide-view
+## transition (Control.modulate.a per second) — a visible fade, not an
+## instant pop, since the widened map is revealed out from behind it as it
+## disappears (see main.gd's _apply_wide_view_state for why the actual
+## viewport resize is a discrete step rather than something animated at
+## this same smooth rate).
+const CAMERA_WIDE_VIEW_FADE_SPEED: float = 2.0
+
+## Hysteresis band (in terms of the SPAN — max_x minus min_x — of every
+## camera-relevant position right now) for entering/leaving the wide view.
+## Two thresholds, not one: ENTER is set high enough that ordinary single-
+## front action (even a distant sighting) never trips it — only genuine
+## simultaneous west-flank + far-east action, exactly the configuration
+## that would otherwise force compute_camera_target_x to ping-pong between
+## its own two edge-chasing branches, crosses it. EXIT sits well below
+## ENTER, a real gap rather than a hair's-width below it, so a span
+## sitting anywhere between the two simply keeps whatever state it already
+## had — see camera_wants_wide_view. That's what stops the WIDE STATE
+## ITSELF from oscillating the same way the panning alone used to.
+const CAMERA_WIDE_VIEW_ENTER_SPAN_PX: float = 900.0
+const CAMERA_WIDE_VIEW_EXIT_SPAN_PX: float = 650.0
+
+## The raw span (max_x - min_x) of every camera-relevant position right now
+## — 0.0 if there's nothing to look at. Shared by camera_wants_wide_view
+## (the hysteresis decision) so the "is this spread across both ends"
+## question is answered exactly once, not recomputed slightly differently
+## in two places.
+static func camera_relevant_span_px(relevant_positions: Array[Vector2]) -> float:
+	if relevant_positions.is_empty():
+		return 0.0
+	var min_x: float = INF
+	var max_x: float = -INF
+	for p in relevant_positions:
+		min_x = min(min_x, p.x)
+		max_x = max(max_x, p.x)
+	return max_x - min_x
+
+
+## Whether the camera should be in its wide (viewport-widened) state THIS
+## frame, given the current span and whether it was ALREADY wide last
+## frame — see CAMERA_WIDE_VIEW_ENTER_SPAN_PX/_EXIT_SPAN_PX's own doc
+## comment for why this needs two thresholds, not one.
+static func camera_wants_wide_view(span_px: float, currently_wide: bool) -> bool:
+	if currently_wide:
+		return span_px > CAMERA_WIDE_VIEW_EXIT_SPAN_PX
+	return span_px > CAMERA_WIDE_VIEW_ENTER_SPAN_PX
+
 ## Where the map's camera should be centered (x only) given `current_x`
 ## (wherever it actually is right now) and every unit position the player
 ## is currently allowed to know about — see BattleManager.
@@ -391,6 +456,15 @@ const DRONE_DESTINATION_DISTANCE_COST_PER_PX: float = 0.00025
 ## single most likely sweep area, not something that should always win or
 ## always lose against it outright.
 const DRONE_FLANK_WATCH_BASE_VALUE: float = 0.5
+
+## The floor of BattleManager._flank_watch_plausibility's time-gated
+## discount — a bearing the enemy could not plausibly have reached yet is
+## heavily discounted, not zeroed out entirely (still possible, e.g. an
+## unusually fast probe or a threat this model doesn't otherwise account
+## for). Same floor value and "still possible, not ruled out" reasoning as
+## ENEMY_APPROACH_LIKELIHOOD_MIN, applied to a different axis (time here,
+## not direction).
+const DRONE_FLANK_WATCH_EARLY_DISCOUNT_MIN: float = 0.1
 
 
 # Each zone is a rectangle + terrain type (TREES/BUILDING only — elevation

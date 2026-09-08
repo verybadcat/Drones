@@ -41,6 +41,12 @@ var drone_debug_panel
 # positions and pan correctly with the camera.
 var enemy_heatmap_overlay
 
+## Whether the camera's wide view (see _apply_wide_view_state) is currently
+## active — persisted here (not recomputed fresh each frame) because the
+## hysteresis in GameConfig.camera_wants_wide_view needs to know what state
+## it's ALREADY in to decide whether to change it.
+var _wide_view_active: bool = false
+
 var report_background: Control
 var restart_button: Button
 var review_history_button: Button
@@ -71,14 +77,16 @@ var _drone_debug_enabled: bool = false
 # reasoning as _drone_debug_enabled.
 var _enemy_heatmap_enabled: bool = false
 
-# Where the live drone-pilot debug snapshot is written whenever the
-# overlay above is on, so it can be inspected from OUTSIDE the running
-# game (e.g. by pasting/reading this file) at the exact moment the battle
-# is paused — see DronePilotDebugPanel's own doc comment for why a paused
-# battle still refreshes this correctly (frozen state, re-read and
-# re-written unchanged). res:// resolves to the real project directory in
-# a normal (non-exported) run, which is what makes this externally
-# readable at all.
+# Where the live drone-pilot debug snapshot is written every frame any
+# battle is running — unconditionally, independent of whether the on-screen
+# overlay (_drone_debug_enabled, the "d" key) happens to be visible, so
+# reading this file is a reliable way to get real visibility into the
+# drone's actual live decision (position, current reasoning, top candidates)
+# without depending on the player's screen or a screenshot at all — see
+# DronePilotDebugPanel's own doc comment for why a paused battle still
+# refreshes this correctly (frozen state, re-read and re-written unchanged).
+# res:// resolves to the real project directory in a normal (non-exported)
+# run, which is what makes this externally readable at all.
 const DRONE_DEBUG_SNAPSHOT_PATH: String = "res://debug_state/drone_pilot_snapshot.json"
 
 # Always present, in both the deployment and battle phases — not cleared by
@@ -149,7 +157,12 @@ func _process(delta: float) -> void:
 	_clock_label.text = battle_manager.clock_string() if battle_manager else "%02d:00:00" % int(GameConfig.SCENARIO_START_HOUR)
 
 	if battle_manager and map_camera:
-		var target_x: float = GameConfig.compute_camera_target_x(battle_manager._camera_relevant_positions(), map_camera.position.x)
+		var relevant: Array[Vector2] = battle_manager._camera_relevant_positions()
+		var span: float = GameConfig.camera_relevant_span_px(relevant)
+		_wide_view_active = GameConfig.camera_wants_wide_view(span, _wide_view_active)
+		_apply_wide_view_state(_wide_view_active, delta)
+
+		var target_x: float = GameConfig.CAMERA_WIDE_VIEW_CENTER_X if _wide_view_active else GameConfig.compute_camera_target_x(relevant, map_camera.position.x)
 		map_camera.position.x = lerp(map_camera.position.x, target_x, delta * GameConfig.CAMERA_FOLLOW_LERP_SPEED)
 		# A resupply run spawns at whatever edge of the map is CURRENTLY on
 		# screen (see BattleManager._resupply_entry_point_for) rather than a
@@ -158,14 +171,17 @@ func _process(delta: float) -> void:
 		# reach up to the actual Camera2D node, so this is pushed down to it
 		# every frame instead.
 		battle_manager.current_camera_x = map_camera.position.x
+		battle_manager.current_camera_view_width = map_container.size.x
 
-	# Deliberately NOT gated on battle_manager.is_paused — main.gd's own
-	# _process keeps running regardless (see DronePilotDebugPanel's doc
-	# comment), so a paused battle just means drone_pilot_debug_snapshot()
-	# keeps returning the same frozen values each frame, which get written
-	# out unchanged. That's exactly what makes this externally inspectable
-	# at a paused moment, not a bug to fix.
-	if _drone_debug_enabled and battle_manager:
+	# Deliberately NOT gated on _drone_debug_enabled (the human-facing visual
+	# overlay) or battle_manager.is_paused — this file is how an outside
+	# investigator (reading it directly, not watching the screen) gets
+	# reliable visibility into the drone's actual live decision, and that
+	# has to work whether or not the player happens to have the on-screen
+	# panel toggled on, and needs a paused battle to still reflect the
+	# frozen-in-place state rather than going stale. Writing every frame
+	# regardless is a trivial cost (a tiny JSON dump) for what it buys.
+	if battle_manager:
 		_write_drone_debug_snapshot()
 
 	# History playback: BattleHistoryViewer owns the actual time-advance
@@ -181,6 +197,40 @@ func _process(delta: float) -> void:
 		_update_history_time_label()
 		if not history_viewer.is_playing: # reached the end this frame
 			_update_history_play_button_text()
+
+
+## Reclaims the casualty dashboard's own screen footprint to physically
+## widen the map viewport — not zoom, units stay full-size — exactly
+## enough to show the whole modeled world (west flank through the map's
+## true east edge) at once, so simultaneous action at both ends never has
+## to fight over which one the camera pans to reveal. See GameConfig.
+## camera_wants_wide_view for the hysteresis driving `active`.
+##
+## The dashboard fades rather than snapping invisible, so the wider map
+## behind it is revealed gradually, not with a jarring pop — but the
+## viewport/container resize itself is a discrete step, not something
+## animated at that same smooth rate: continuously resizing a SubViewport's
+## backing render target every frame would reallocate GPU resources for no
+## real benefit, unlike a plain float lerp. Widening happens immediately on
+## entry (the still-opaque, or still-fading, dashboard covers the reveal
+## until its own fade catches up); narrowing back only happens once the
+## dashboard has fully returned to opaque, so the viewport's real edge is
+## never exposed uncovered in either direction.
+func _apply_wide_view_state(active: bool, delta: float) -> void:
+	if not casualty_dashboard:
+		return
+	var target_alpha: float = 0.0 if active else 1.0
+	casualty_dashboard.modulate.a = move_toward(casualty_dashboard.modulate.a, target_alpha, delta * GameConfig.CAMERA_WIDE_VIEW_FADE_SPEED)
+	# Faded (or fading) out of the way — clicks meant for the map underneath
+	# shouldn't be swallowed by an invisible panel still sitting on top of it.
+	casualty_dashboard.mouse_filter = Control.MOUSE_FILTER_IGNORE if active else Control.MOUSE_FILTER_STOP
+
+	if active:
+		map_container.size.x = GameConfig.CAMERA_WIDE_VIEW_WIDTH_PX
+		map_viewport.size.x = int(GameConfig.CAMERA_WIDE_VIEW_WIDTH_PX)
+	elif casualty_dashboard.modulate.a >= 1.0:
+		map_container.size.x = GameConfig.MAP_WIDTH_PX
+		map_viewport.size.x = int(GameConfig.MAP_WIDTH_PX)
 
 
 ## _unhandled_input rather than _input: lets any real UI control (a
@@ -290,6 +340,15 @@ func _on_recon_mode_chosen(mode: GameConfig.ReconMode) -> void:
 func _show_deployment() -> void:
 	_clear_all()
 	map_camera.position = Vector2(GameConfig.CAMERA_DEFAULT_X, GameConfig.MAP_HEIGHT_PX / 2.0) # nobody deploys off-map, so the camera never needs to move during this phase
+	# A battle that ended while the wide view (see _apply_wide_view_state)
+	# was active must not leave the viewport widened into the next phase —
+	# casualty_dashboard itself is about to be freed by _clear_all() above
+	# regardless, but the map_container/map_viewport it borrowed screen
+	# space from live for the app's whole lifetime and need resetting
+	# explicitly.
+	_wide_view_active = false
+	map_container.size.x = GameConfig.MAP_WIDTH_PX
+	map_viewport.size.x = int(GameConfig.MAP_WIDTH_PX)
 
 	deployment_screen = DeploymentScreen.new()
 	deployment_screen.recon_mode = recon_mode

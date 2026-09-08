@@ -86,6 +86,15 @@ var _pending_mortar_shots: Array[Dictionary] = []
 ## the map's ordinary, un-panned view.
 var current_camera_x: float = GameConfig.CAMERA_DEFAULT_X
 
+## Pushed alongside current_camera_x above, same reasoning — the map
+## viewport's own current width, which is GameConfig.MAP_WIDTH_PX normally
+## but temporarily wider while main.gd's wide view is active (see
+## GameConfig.CAMERA_WIDE_VIEW_WIDTH_PX). _resupply_entry_point_for needs
+## the REAL current on-screen half-width, not a hardcoded one, or a
+## resupply run would spawn as if the view were still its normal size even
+## while it's actually wider.
+var current_camera_view_width: float = GameConfig.MAP_WIDTH_PX
+
 # True once a side has EVER sighted the enemy — sticky, not "currently
 # visible right now" (see _update_sighting_flags) — "once the enemy is
 # sighted, resupply can be requested" is a one-time unlock, not something
@@ -282,6 +291,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_enemy_sighted_enemy = false
 	_mortar_resupply.clear()
 	current_camera_x = GameConfig.CAMERA_DEFAULT_X
+	current_camera_view_width = GameConfig.MAP_WIDTH_PX
 
 	for unit in player_units + enemy_units:
 		unit.queue_free()
@@ -788,9 +798,12 @@ func _bunched_ally(defender: Unit) -> Unit:
 ## there, the run should visibly enter from THAT edge, not reappear back
 ## near the original map boundary and cross ground that's already on
 ## screen. See main.gd's own comment on why current_camera_x is pushed
-## down from there every frame instead of read directly.
+## down from there every frame instead of read directly — current_camera_
+## view_width is that same pushed-down value's width counterpart, needed
+## so this still finds the real edge while main.gd's wide view has
+## temporarily widened the viewport past its normal MAP_WIDTH_PX.
 func _resupply_entry_point_for(mortar: Unit) -> Vector2:
-	var half_width: float = GameConfig.MAP_WIDTH_PX / 2.0
+	var half_width: float = current_camera_view_width / 2.0
 	var edge_x: float = (current_camera_x - half_width) if mortar.team == Unit.Team.PLAYER else (current_camera_x + half_width)
 	return Vector2(edge_x, mortar.global_position.y)
 
@@ -2342,6 +2355,10 @@ func _clamp_to_drone_operating_area(point: Vector2) -> Vector2:
 ## why the two were merged, and for _contact_search_bonus, applied here
 ## too: a squad recently seen moving toward one of these bearings is
 ## exactly the "sneaking up on the mortar" case this check exists for.
+## Base value is also discounted by _flank_watch_plausibility — see that
+## function's own doc comment for why this is a TIME gate (implausible this
+## early, regardless of direction) rather than the same permanent
+## directional bias _sweep_candidates uses.
 func _flank_watch_candidates() -> Array:
 	var mortar := _friendly_active_mortar()
 	if mortar == null:
@@ -2376,7 +2393,7 @@ func _flank_watch_candidates() -> Array:
 		# the boundary instead of off it; the bearing itself, and whether
 		# it's worth checking at all, is still judged on the true direction.
 		var flight_point: Vector2 = _clamp_to_drone_operating_area(probe)
-		var value: float = GameConfig.DRONE_FLANK_WATCH_BASE_VALUE + _contact_search_bonus(probe)
+		var value: float = GameConfig.DRONE_FLANK_WATCH_BASE_VALUE * _flank_watch_plausibility(probe) + _contact_search_bonus(probe)
 		out.append({"key": "flank:%d" % int(bearing_deg), "point": flight_point, "value": value})
 	return out
 
@@ -2523,6 +2540,36 @@ func _area_confirmed_clear(point: Vector2) -> bool:
 func _enemy_approach_likelihood(point: Vector2) -> float:
 	var t: float = clamp(point.x / GameConfig.MAP_WIDTH_PX, 0.0, 1.0)
 	return lerp(GameConfig.ENEMY_APPROACH_LIKELIHOOD_MIN, GameConfig.ENEMY_APPROACH_LIKELIHOOD_MAX, t)
+
+
+## A TIME-gated discount for flank-watch candidates specifically — not the
+## same idea as _enemy_approach_likelihood above, and deliberately not
+## reused for it. Flank-watch stays direction-agnostic for the whole battle
+## (see _flank_watch_candidates' own doc comment) so it can still catch a
+## genuine flanking maneuver, including through the west flank, late in a
+## fight — a permanent directional bias there, the same way sweep has one,
+## would defeat that purpose. But in the battle's opening minutes, a bearing
+## point the enemy could not physically have marched to yet from their own
+## known start line is not worth the drone's attention regardless of which
+## way it points — this is public, doctrinal knowledge (where the enemy
+## started, roughly how fast infantry advances), not a secret peek at their
+## actual position, in the same spirit as _enemy_approach_likelihood's own
+## static prior. Modeled as straight-line time-to-reach from
+## GameConfig.ENEMY_SPAWN_X at GameConfig.ENEMY_ADVANCE_SPEED — a
+## deliberately generous (fast) lower bound, since an actual flanking route
+## would only take longer, not less time, than marching straight there.
+## Ramps linearly from DRONE_FLANK_WATCH_EARLY_DISCOUNT_MIN up to 1.0 as
+## scenario_elapsed_time reaches that travel time, so a bearing near the
+## enemy's own spawn edge is treated as plausible almost immediately, while
+## one deep in the friendly rear stays discounted for longer — exactly the
+## asymmetry the reported bug was missing.
+func _flank_watch_plausibility(point: Vector2) -> float:
+	var distance_from_enemy_start: float = absf(GameConfig.ENEMY_SPAWN_X - point.x)
+	var travel_time: float = distance_from_enemy_start / GameConfig.ENEMY_ADVANCE_SPEED
+	if travel_time <= 0.0:
+		return 1.0
+	var t: float = clamp(scenario_elapsed_time / travel_time, 0.0, 1.0)
+	return lerp(GameConfig.DRONE_FLANK_WATCH_EARLY_DISCOUNT_MIN, 1.0, t)
 
 
 ## The 25-cell sweep grid as candidates for the shared routine-recon pool
