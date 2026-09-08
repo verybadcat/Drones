@@ -214,7 +214,7 @@ static func road_waypoints_px() -> Array[Vector2]:
 
 
 ## The drone's OWN default search pattern when it has no better lead (see
-## BattleManager._drone_sweep_target) — deliberately NOT the same list as
+## BattleManager._sweep_candidates) — deliberately NOT the same list as
 ## ROAD_WAYPOINTS_M above. That road is where enemy SQUADS march, but a
 ## real mortar deploys well back from the line, not draped over the march
 ## route (see BattleManager._pick_target's own reasoning for why the two
@@ -267,9 +267,9 @@ static func drone_search_waypoints_px() -> Array[Vector2]:
 
 ## How much search effort DRONE_SEARCH_GRID_ROWS_M's 5 rows each get, from
 ## the map's far north edge (index 0) to its far south edge (index 4) —
-## see BattleManager._weighted_random_sweep_index, used both for where a
-## fresh battle's sweep starts and every subsequent re-roll once it's
-## underway. Row 2 is the same y-band as the road: the single most
+## see BattleManager._sweep_candidates, which feeds these in as each cell's
+## base value in the shared routine-recon pool. Row 2 is the same y-band as
+## the road: the single most
 ## operationally relevant strip, since that's where the enemy squads
 ## actually march and where whatever's supporting them is most likely to
 ## be within reach of. Weighting toward it isn't the same thing as knowing
@@ -288,7 +288,7 @@ const DRONE_SWEEP_ROW_WEIGHTS: Array[float] = [0.05, 0.15, 0.6, 0.15, 0.05]
 ## _known_enemy_positions itself already draws — the ground it was last
 ## known to occupy is genuinely known-clear, real information gained
 ## through play, not a static bias like the road-band weighting above (see
-## BattleManager._area_confirmed_clear/_weighted_random_sweep_index). A
+## BattleManager._area_confirmed_clear/_sweep_candidates). A
 ## sweep waypoint landing within this radius of that position is much less
 ## worth the trip. Sized to roughly match the grid's own leg spacing
 ## (~750-850m between waypoints) so "cleared" tracks an area genuinely
@@ -303,22 +303,44 @@ const DRONE_SWEEP_CLEARED_RADIUS_M: float = 600.0
 const DRONE_SWEEP_CLEARED_WEIGHT_MULTIPLIER: float = 0.15
 
 ## A softer, TEMPORARY counterpart to the permanent "confirmed clear" bias
-## above — see BattleManager._recently_visited_weight_multiplier. The
-## drone's own random re-rolls could otherwise keep bouncing back to a cell
-## it just searched (nothing there is real, hard-won information too, it's
-## just not permanent the way a confirmed kill is — an enemy unit could
-## still walk into that same ground later), spending a lot of time
-## "concentrating" on one area while genuinely unsearched ground sits
+## above — see BattleManager._drone_destination_recency_multiplier. Shared
+## across BOTH sweep cells and flank-watch bearings now that the two
+## compete in one pool (BattleManager._drone_routine_recon_target): the
+## drone's own re-picks could otherwise keep bouncing straight back to a
+## spot it just left (nothing there is real, hard-won information too,
+## it's just not permanent the way a confirmed kill is — an enemy unit
+## could still walk into that same ground later), spending a lot of time
+## "concentrating" on one area while genuinely unchecked ground sits
 ## untouched. Not as severe as the permanent penalty (0.2 vs. 0.15) since
 ## this is weaker, temporary evidence, and it fully decays rather than
 ## staying suppressed forever.
-const DRONE_SWEEP_RECENTLY_VISITED_MIN_WEIGHT_MULTIPLIER: float = 0.2
-## How long "I was just there" keeps suppressing a waypoint's own weight —
+const DRONE_DESTINATION_RECENTLY_VISITED_MIN_WEIGHT_MULTIPLIER: float = 0.2
+## How long "I was just there" keeps suppressing a candidate's own value —
 ## a judgment call, not sourced: long enough that the drone actually
 ## spreads out over the grid instead of thrashing between a couple of
-## favored cells, short enough that a genuinely quiet area doesn't stay
-## permanently under-searched for the whole battle.
-const DRONE_SWEEP_RECENTLY_VISITED_COOLDOWN_S: float = 20.0 * 60.0
+## favored spots, short enough that a genuinely quiet area doesn't stay
+## permanently under-checked for the whole battle.
+const DRONE_DESTINATION_RECENTLY_VISITED_COOLDOWN_S: float = 20.0 * 60.0
+
+## Distance cost applied per pixel in BattleManager._pick_best_drone_
+## destination's value/recency/distance formula — the routine-recon pool's
+## candidates (sweep cells ~850m/~170px apart, flank-watch bearings out at
+## MORTAR_FLANK_THREAT_RADIUS) are far enough apart that a bare value/
+## recency comparison alone would happily send the drone clear across the
+## map for a marginally fresher cell right next to one it's already near.
+## At this rate, crossing a full sweep-grid leg (~170px) costs about 0.085
+## — comparable to a full DRONE_SWEEP_ROW_WEIGHTS step (0.05 to 0.15 or
+## 0.15 to 0.6), so nearby, modest opportunities can genuinely win over
+## distant, marginally better ones instead of distance being negligible.
+const DRONE_DESTINATION_DISTANCE_COST_PER_PX: float = 0.0005
+
+## A flank-watch bearing's own base value in the shared routine-recon pool
+## (BattleManager._flank_watch_candidates) — tuned near the top of
+## DRONE_SWEEP_ROW_WEIGHTS's own range (0.6 for the road's own band) since
+## watching an exposed flank gap is roughly as worth a look as checking the
+## single most likely sweep area, not something that should always win or
+## always lose against it outright.
+const DRONE_FLANK_WATCH_BASE_VALUE: float = 0.5
 
 
 # Each zone is a rectangle + terrain type (TREES/BUILDING only — elevation
@@ -988,8 +1010,8 @@ const MORTAR_FLANK_CORRIDOR_WIDTH: float = 300.0 * PIXELS_PER_METER
 # threat that's still distant, and would abandon the mortar's other flanks).
 const MORTAR_PROTECTIVE_RADIUS: float = 350.0 * PIXELS_PER_METER
 
-## The drone's own flank-watch search (BattleManager._drone_flank_watch_
-## target): a fixed ring of compass bearings around the friendly mortar,
+## The drone's own flank-watch search (BattleManager._flank_watch_
+## candidates): a fixed ring of compass bearings around the friendly mortar,
 ## checked at MORTAR_FLANK_THREAT_RADIUS out — the same distance that
 ## already defines "close enough to be a real threat" for the friendly
 ## squads' own screening behavior, so the drone is watching exactly the
@@ -1001,8 +1023,9 @@ const MORTAR_PROTECTIVE_RADIUS: float = 350.0 * PIXELS_PER_METER
 const DRONE_FLANK_WATCH_BEARINGS_DEG: Array[float] = [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0]
 
 ## Once the drone arrives within this radius of its current flank-watch
-## point (or that bearing stops qualifying — see _drone_flank_watch_target),
-## it picks a new one rather than parking there for the rest of the battle.
+## point (or that bearing stops qualifying — see BattleManager.
+## _flank_watch_candidates/_drone_routine_recon_target), it picks a new one
+## rather than parking there for the rest of the battle.
 const DRONE_FLANK_WATCH_ARRIVE_RADIUS: float = 150.0 * PIXELS_PER_METER
 
 # Limited ammunition — every mortar team on both sides starts with this
@@ -1122,21 +1145,14 @@ const TARGET_PRIORITY_SQUAD_MAX: float = 10.0
 const SQUAD_DANGER_RANGE: float = 1200.0 * PIXELS_PER_METER
 
 ## Checking whether an enemy is currently flanking around toward the
-## mortar's blind side (see BattleManager._drone_flank_watch_target) sits
-## between the two: below any confirmed-or-leaded mortar (100 / 80) — an
-## actual, already-located mortar is still the single biggest, most
-## repeatable threat there is, real ammunition landing on real people every
-## reload, and nothing preventative outweighs that — but well above simply
-## re-confirming a squad already spotted and being watched (TARGET_PRIORITY_
-## SQUAD_MAX = 10). A squad already seen is a squad the friendly side
-## already knows to worry about; a flanking approach nobody has spotted yet
-## is exactly the kind of surprise that turns into "surrounded by enemies
-## under cover" (see the doctrine doc's own v76 follow-ups) before anyone
-## reacts. Set a little above TARGET_PRIORITY_RETREATING_ENEMY (25) too —
-## catching a flanking squad before it ever reaches the mortar is worth
-## more than finishing off one already-broken straggler, even during a
-## general retreat.
-const TARGET_PRIORITY_FLANK_WATCH: float = 30.0
+## mortar's blind side used to be its own outer-tier TARGET_PRIORITY_
+## FLANK_WATCH constant, competing directly against squad-danger/
+## retreating-enemy/sweep as a fifth candidate. It's since been folded into
+## the shared routine-recon pool instead (BattleManager._flank_watch_
+## candidates/_drone_routine_recon_target) — see DRONE_FLANK_WATCH_BASE_
+## VALUE for its value within that pool now that it's judged the same way
+## a sweep cell is (value/recency/distance), not as a fixed priority of its
+## own.
 
 # How a MORTAR weighs which non-mortar candidate to actually fire on — see
 # BattleManager._mortar_target_value/_pick_target's own doc comment. Equal

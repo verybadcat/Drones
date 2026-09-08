@@ -173,17 +173,20 @@ var _drones_ready: Array[float] = [] # charge level of each grounded, battery-in
 var _drones_swapping: Array[Dictionary] = [] # [{"time_left": float, "charge": float}] grounded airframes mid battery-swap
 var _battery_pool: Array[float] = [] # charge level of every battery not currently installed in any airframe
 var _drones_destroyed: int = 0 # airframes permanently lost (shot down, battery and all) this battle
-var _drone_sweep_index: int = 0 # which road waypoint the blind search patrol is currently headed for — see _drone_sweep_target
-# Waypoint index -> scenario_elapsed_time it was last actually reached (not
-# just picked) — see _drone_sweep_target/_recently_visited_weight_multiplier.
-# A cell the drone was just over and saw nothing in is temporarily much
-# less worth an immediate re-roll back to, decaying back to its ordinary
-# weight over GameConfig.DRONE_SWEEP_RECENTLY_VISITED_COOLDOWN_S rather
-# than staying suppressed forever the way a confirmed kill does.
-var _drone_sweep_last_visited: Dictionary = {}
 var _drone_vicinity_search_angle: float = 0.0 # current angle around a spotted squad the drone is circling to — see _drone_vicinity_search_point
-var _drone_flank_watch_point: Vector2 = Vector2.INF # current unscreened bearing around the mortar the drone is checking — see _drone_flank_watch_target
-var _drone_flank_watch_bearing_index: int = 0 # which entry of GameConfig.DRONE_FLANK_WATCH_BEARINGS_DEG _drone_flank_watch_point corresponds to — advances by fixed rotational order, see _drone_flank_watch_target
+# The single candidate key (see _sweep_candidates/_flank_watch_candidates)
+# the drone is currently committed to flying toward or sitting at, for the
+# unified routine-recon pool — see _drone_routine_recon_target. Empty
+# string means no commitment yet (battle start).
+var _drone_current_destination_key: String = ""
+# Candidate key -> scenario_elapsed_time it was last actually arrived at
+# (not just picked) — see _drone_routine_recon_target/_drone_destination_
+# recency_multiplier. A candidate the drone was just at and saw nothing in
+# is temporarily much less worth an immediate return to, decaying back to
+# its ordinary weight over GameConfig.DRONE_DESTINATION_RECENTLY_VISITED_
+# COOLDOWN_S rather than staying suppressed forever the way a confirmed
+# kill does (see _area_confirmed_clear for that permanent case).
+var _drone_destination_last_visited: Dictionary = {}
 
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
@@ -210,11 +213,9 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drones_swapping.clear()
 	_battery_pool.clear()
 	_drones_destroyed = 0
-	_drone_sweep_last_visited.clear()
-	_drone_sweep_index = _weighted_random_sweep_index()
+	_drone_destination_last_visited.clear()
+	_drone_current_destination_key = ""
 	_drone_vicinity_search_angle = 0.0
-	_drone_flank_watch_point = Vector2.INF
-	_drone_flank_watch_bearing_index = 0
 	_player_sighted_enemy = false
 	_enemy_sighted_enemy = false
 	_mortar_resupply.clear()
@@ -1768,8 +1769,9 @@ func _squad_danger_priority(u: Unit, threatened_team: Unit.Team = Unit.Team.PLAY
 ## than parking directly overhead the one unit already confirmed. Circles
 ## `center` at GameConfig.DRONE_VICINITY_SEARCH_RADIUS, advancing to the
 ## next point around the circle once close enough — same
-## arrival-then-advance shape as _drone_sweep_target, just anchored to a
-## live contact instead of a fixed map grid. Re-centers on `center` fresh
+## arrival-then-advance shape as the routine-recon pool's own candidates
+## (_drone_routine_recon_target), just anchored to a live contact instead
+## of a fixed map grid. Re-centers on `center` fresh
 ## every call, so if the squad itself moves (or a different, now more
 ## dangerous squad takes over the tier), the circle follows without
 ## needing to be reset.
@@ -1817,22 +1819,27 @@ func _drone_vicinity_search_point(center: Vector2) -> Vector2:
 ## kill worth finishing) once the enemy's own general retreat means little
 ## else is left to search for; low (TARGET_PRIORITY_RETREATING_ENEMY_LOW)
 ## while the fight is still on, so one broken straggler doesn't distract
-## from whatever's still actually fighting; (6) the ongoing area
-## sweep (_drone_sweep_target), valued as the genuine expected value of
-## what it might still find — TARGET_PRIORITY_MORTAR times
-## _mortar_existence_confidence(). That last term is what lets the drone's
-## default search effort shift naturally toward tracking real, visible
-## squads (advancing OR retreating) instead of an indefinite mortar-shaped
-## sweep once mortar fire hasn't been detected in a long while, or every
-## known enemy mortar is confirmed out of action — without ever
-## hard-coding either condition directly here. Tier (4)'s own candidate
-## pool empties out on its own once the enemy commander orders a general
-## retreat (every ACTIVE squad is pulled into RETREATING in that same
-## instant — see _check_enemy_commander_retreat) — there's usually nothing
-## left "advancing" to search for at that point. Tier (6) is ALSO directly
-## discounted (GameConfig.SWEEP_DISCOUNT_DURING_ENEMY_RETREAT) the instant
-## that same general retreat is ordered, on top of whatever the slower,
-## generic confidence decay has already done — a commander who's just
+## from whatever's still actually fighting; (6) routine background recon
+## (_drone_routine_recon_target) — the area sweep grid and the mortar's
+## flank-watch merged into ONE shared candidate pool, since both are really
+## the same underlying activity (idle patrol with no specific live lead to
+## chase) and a single flight can pick up sweep coverage AND a flank check
+## in the same trip rather than the two competing to be "the" routine
+## choice. Valued as the genuine expected value of what it might still
+## find — TARGET_PRIORITY_MORTAR times _mortar_existence_confidence().
+## That last term is what lets the drone's default search effort shift
+## naturally toward tracking real, visible squads (advancing OR retreating)
+## instead of an indefinite mortar-shaped sweep once mortar fire hasn't
+## been detected in a long while, or every known enemy mortar is confirmed
+## out of action — without ever hard-coding either condition directly
+## here. Tier (4)'s own candidate pool empties out on its own once the
+## enemy commander orders a general retreat (every ACTIVE squad is pulled
+## into RETREATING in that same instant — see _check_enemy_commander_
+## retreat) — there's usually nothing left "advancing" to search for at
+## that point. Tier (6) is ALSO directly discounted (GameConfig.
+## SWEEP_DISCOUNT_DURING_ENEMY_RETREAT) the instant that same general
+## retreat is ordered, on top of whatever the slower, generic confidence
+## decay has already done — a commander who's just
 ## called off the attack has little reason left to keep searching broadly
 ## for new arrivals, and this makes that immediate rather than waiting on
 ## the same decay curve built for "no mortar fire in a while."
@@ -1880,11 +1887,6 @@ func _drone_search_target() -> Vector2:
 			best_score = GameConfig.TARGET_PRIORITY_MORTAR
 			best_pos = joint_pos
 
-	var flank_watch_pos: Vector2 = _drone_flank_watch_target()
-	if not is_inf(flank_watch_pos.x) and GameConfig.TARGET_PRIORITY_FLANK_WATCH > best_score:
-		best_score = GameConfig.TARGET_PRIORITY_FLANK_WATCH
-		best_pos = flank_watch_pos
-
 	var best_squad: Unit = null
 	var best_squad_score := -1.0
 	for u in enemy_units:
@@ -1916,7 +1918,7 @@ func _drone_search_target() -> Vector2:
 			best_score = retreating_score
 			best_pos = best_retreating.global_position
 
-	var sweep_score: float = GameConfig.TARGET_PRIORITY_MORTAR * _mortar_existence_confidence()
+	var routine_score: float = GameConfig.TARGET_PRIORITY_MORTAR * _mortar_existence_confidence()
 	if enemy_general_retreat_ordered:
 		# The enemy commander has already called off the attack — the whole
 		# reason to blindly sweep wide (a fresh SQUAD might be arriving) is
@@ -1927,9 +1929,11 @@ func _drone_search_target() -> Vector2:
 		# (1)/(2) above regardless of this discount, unconditionally. What's
 		# actually left to weigh the sweep against here is real, already-
 		# broken kills in progress (tier 4) — those should win.
-		sweep_score *= GameConfig.SWEEP_DISCOUNT_DURING_ENEMY_RETREAT
-	if sweep_score > best_score or is_inf(best_pos.x):
-		best_pos = _drone_sweep_target()
+		routine_score *= GameConfig.SWEEP_DISCOUNT_DURING_ENEMY_RETREAT
+	if routine_score > best_score or is_inf(best_pos.x):
+		var routine_pick: Dictionary = _drone_routine_recon_target()
+		if not routine_pick.is_empty():
+			best_pos = routine_pick.point
 
 	return best_pos
 
@@ -1943,24 +1947,13 @@ func _drone_search_target() -> Vector2:
 ## friendly squad (_lane_is_screened — that lane already has real coverage)
 ## or sitting on/near an already-known enemy position (already covered by a
 ## higher-priority tier above — no point in redundantly re-watching it).
-##
-## Sticky like _drone_sweep_target's own waypoint: keeps heading to the
-## SAME point once picked, rather than re-rolling every tick, until either
-## the drone actually arrives (DRONE_FLANK_WATCH_ARRIVE_RADIUS) or that
-## bearing stops qualifying (a squad now screens it, or something's been
-## spotted there since) — otherwise a bearing that briefly loses and
-## re-wins the weighted pick against its neighbors would have the drone
-## flitting between them instead of committing to actually checking one.
-## When it DOES need a new bearing, picks whichever qualifying one is
-## nearest to the drone's own current position, not a random one — a
-## random pick could (and did) send it clear across the mortar to an
-## almost-opposite bearing right after finishing the last one, then back
-## again next time: a real, visible back-and-forth crisscross, not the
-## occasional, purposeful repositioning this check is meant to be.
-func _drone_flank_watch_target() -> Vector2:
+## Feeds into the shared routine-recon pool (_drone_routine_recon_target)
+## alongside _sweep_candidates — see that function's own doc comment for
+## why the two were merged.
+func _flank_watch_candidates() -> Array:
 	var mortar := _friendly_active_mortar()
 	if mortar == null:
-		return Vector2.INF
+		return []
 
 	var screening_squads: Array[Unit] = []
 	for u in player_units:
@@ -1968,49 +1961,20 @@ func _drone_flank_watch_target() -> Vector2:
 			screening_squads.append(u)
 	var known_enemies := _known_enemy_positions(Unit.Team.PLAYER)
 
-	var bearings: Array[float] = GameConfig.DRONE_FLANK_WATCH_BEARINGS_DEG
-	var qualifies: Array[bool] = []
-	var probes: Array[Vector2] = []
-	var any_qualifies := false
-	for bearing_deg in bearings:
+	var out: Array = []
+	for bearing_deg in GameConfig.DRONE_FLANK_WATCH_BEARINGS_DEG:
 		var probe: Vector2 = mortar.global_position + Vector2.RIGHT.rotated(deg_to_rad(bearing_deg)) * GameConfig.MORTAR_FLANK_THREAT_RADIUS
-		probes.append(probe)
-		var ok: bool = not _lane_is_screened(probe, mortar.global_position, screening_squads)
-		if ok:
-			for e in known_enemies:
-				if e.distance_to(probe) <= GameConfig.DRONE_FLANK_WATCH_ARRIVE_RADIUS:
-					ok = false
-					break
-		qualifies.append(ok)
-		any_qualifies = any_qualifies or ok
-
-	if not any_qualifies:
-		return Vector2.INF
-
-	var current_still_qualifies: bool = qualifies[_drone_flank_watch_bearing_index] and probes[_drone_flank_watch_bearing_index].distance_to(_drone_flank_watch_point) < 1.0
-	var arrived: bool = active_drone.global_position.distance_to(_drone_flank_watch_point) <= GameConfig.DRONE_FLANK_WATCH_ARRIVE_RADIUS
-	if not current_still_qualifies or arrived:
-		# Step to the NEXT bearing around the compass that currently
-		# qualifies, in fixed order, wrapping around — not a random pick
-		# among all of them, and not "whichever happens to be nearest right
-		# now" either: both of those either crisscross wildly (random) or
-		# lock into a perpetual back-and-forth once only two bearings
-		# remain open (nearest-excluding-current, tried and rejected — with
-		# just two candidates left, "the other one" ping-pongs forever).
-		# Always advancing in the same fixed rotational order is what a real
-		# methodical sweep of the compass around a position actually looks
-		# like: it eventually revisits every open bearing exactly once per
-		# lap, never doubles back, and never gets stuck cycling between the
-		# same two. Mirrors _drone_vicinity_search_point's own step-and-wrap
-		# pattern for circling a spotted squad.
-		var idx: int = _drone_flank_watch_bearing_index
-		for step in bearings.size():
-			idx = (idx + 1) % bearings.size()
-			if qualifies[idx]:
+		if _lane_is_screened(probe, mortar.global_position, screening_squads):
+			continue
+		var already_known := false
+		for e in known_enemies:
+			if e.distance_to(probe) <= GameConfig.DRONE_FLANK_WATCH_ARRIVE_RADIUS:
+				already_known = true
 				break
-		_drone_flank_watch_bearing_index = idx
-		_drone_flank_watch_point = probes[idx]
-	return _drone_flank_watch_point
+		if already_known:
+			continue
+		out.append({"key": "flank:%d" % int(bearing_deg), "point": probe, "value": GameConfig.DRONE_FLANK_WATCH_BASE_VALUE})
+	return out
 
 
 ## The single currently-visible, still-ACTIVE, in-range enemy mortar worth
@@ -2092,7 +2056,7 @@ func _in_friendly_mortar_range(pos: Vector2) -> bool:
 ## No mortar lead at all yet: search the whole contested area
 ## (GameConfig.DRONE_SEARCH_GRID_COLUMNS_M/ROWS_M — the map's full height,
 ## not just the road's own narrow band a mortar would never actually sit
-## on), but not uniformly — see _weighted_random_sweep_index, which
+## on), but not uniformly — see _sweep_candidates, which
 ## focuses this on the rows closest to the road (the enemy's own, openly
 ## visible approach — real activity concentrates near it, not evenly
 ## across the whole map) far more often than the map's own far edges,
@@ -2119,7 +2083,7 @@ const DRONE_SWEEP_WAYPOINT_RADIUS: float = 200.0 * GameConfig.PIXELS_PER_METER
 ## positions itself draws for "still a threat") has its own last-known
 ## position within GameConfig.DRONE_SWEEP_CLEARED_RADIUS_M of `point` — the
 ## enemy is now KNOWN not to be there, so a sweep waypoint landing on it is
-## much less worth the trip (see _weighted_random_sweep_index). Uses the
+## much less worth the trip (see _sweep_candidates). Uses the
 ## real, omniscient unit state rather than requiring THIS drone to have
 ## personally witnessed the kill — the same simplification
 ## _mortar_existence_confidence already relies on ("a real commander
@@ -2133,70 +2097,133 @@ func _area_confirmed_clear(point: Vector2) -> bool:
 	return false
 
 
-## A grid index chosen with GameConfig.DRONE_SWEEP_ROW_WEIGHTS bias toward
-## the rows nearest the road (see _drone_sweep_target's own reasoning),
-## further reduced per-waypoint wherever _area_confirmed_clear says the
-## enemy is already known not to be (permanent — a specific unit died or
-## pulled out there for good) AND wherever the drone itself was recently
-## overhead and found nothing (temporary, see _recently_visited_weight_
-## multiplier — the ground itself hasn't been ruled out, just isn't worth
-## an immediate repeat trip). Shared by the initial pick at battle start
-## (see start_battle) and every subsequent re-roll on arrival, so "where
-## the drone starts" and "where it keeps going" are the same underlying
-## bias instead of two separate, potentially inconsistent mechanisms. A
-## genuine weighted-random pick across all 25 cells at once, not
-## row-then-uniform-column as before — with neither penalty in play this
-## reduces to exactly the same distribution (each cell in a row gets an
-## equal share of that row's own weight), so this is a generalization, not
-## a behavior change, for the common case where nothing's been ruled out
-## yet.
-func _weighted_random_sweep_index() -> int:
+## The 25-cell sweep grid as candidates for the shared routine-recon pool
+## (_drone_routine_recon_target) — one candidate per cell, valued by
+## GameConfig.DRONE_SWEEP_ROW_WEIGHTS (bias toward the rows nearest the
+## road — real activity concentrates near the enemy's own known approach,
+## without ever claiming exact prior knowledge of where they'll actually
+## be) and discounted wherever _area_confirmed_clear says the enemy is
+## already known not to be there (permanent — a specific unit died or
+## pulled out there for good; the TEMPORARY "I was just here" discount is
+## handled generically for the whole merged pool by
+## _drone_destination_recency_multiplier, not per-mechanism any more).
+## Deliberately does NOT divide by the row's column count the way the old
+## sweep-only picker did — that division only mattered for building a
+## PROBABILITY distribution over sweep cells alone; now that recency and
+## distance cost are handled by one shared formula across sweep AND
+## flank-watch candidates together, each row's own weight can stand as a
+## genuine per-cell value directly.
+func _sweep_candidates() -> Array:
 	var row_count: int = GameConfig.DRONE_SEARCH_GRID_ROWS_M.size()
 	var columns_per_row: int = GameConfig.DRONE_SEARCH_GRID_COLUMNS_M.size()
 	var waypoints: Array[Vector2] = GameConfig.drone_search_waypoints_px()
-	var weights: Array[float] = []
-	var total := 0.0
+	var out: Array = []
 	for row_i in row_count:
 		for col_i in columns_per_row:
 			var idx: int = row_i * columns_per_row + col_i
-			var w: float = GameConfig.DRONE_SWEEP_ROW_WEIGHTS[row_i] / float(columns_per_row)
-			if _area_confirmed_clear(waypoints[idx]):
-				w *= GameConfig.DRONE_SWEEP_CLEARED_WEIGHT_MULTIPLIER
-			w *= _recently_visited_weight_multiplier(idx)
-			weights.append(w)
-			total += w
-	var roll: float = randf() * total
-	var cumulative := 0.0
-	for i in weights.size():
-		cumulative += weights[i]
-		if roll <= cumulative:
-			return i
-	return weights.size() - 1
+			var point: Vector2 = waypoints[idx]
+			var value: float = GameConfig.DRONE_SWEEP_ROW_WEIGHTS[row_i]
+			if _area_confirmed_clear(point):
+				value *= GameConfig.DRONE_SWEEP_CLEARED_WEIGHT_MULTIPLIER
+			out.append({"key": "sweep:%d" % idx, "point": point, "value": value})
+	return out
 
 
-## 1.0 with no record of this waypoint at all, or once GameConfig.
-## DRONE_SWEEP_RECENTLY_VISITED_COOLDOWN_S has fully passed since the drone
-## was last actually overhead it — down to DRONE_SWEEP_RECENTLY_VISITED_
-## MIN_WEIGHT_MULTIPLIER the instant it just left, ramping back up linearly
-## as the memory of "I already looked here" goes stale. A softer, decaying
-## version of _area_confirmed_clear's permanent penalty: this is "probably
-## still not worth an immediate repeat trip," not "definitively ruled out."
-func _recently_visited_weight_multiplier(idx: int) -> float:
-	if not _drone_sweep_last_visited.has(idx):
+## 1.0 with no record of this candidate at all, or once GameConfig.
+## DRONE_DESTINATION_RECENTLY_VISITED_COOLDOWN_S has fully passed since the
+## drone last actually arrived there — down to DRONE_DESTINATION_RECENTLY_
+## VISITED_MIN_WEIGHT_MULTIPLIER the instant it just left, ramping back up
+## linearly as the memory of "I already looked here" goes stale. A softer,
+## decaying version of _area_confirmed_clear's permanent penalty: this is
+## "probably still not worth an immediate repeat trip," not "definitively
+## ruled out." Shared across both sweep and flank-watch candidates now that
+## they compete in one pool.
+func _drone_destination_recency_multiplier(key: String) -> float:
+	if not _drone_destination_last_visited.has(key):
 		return 1.0
-	var elapsed: float = scenario_elapsed_time - _drone_sweep_last_visited[idx]
-	if elapsed >= GameConfig.DRONE_SWEEP_RECENTLY_VISITED_COOLDOWN_S:
+	var elapsed: float = scenario_elapsed_time - _drone_destination_last_visited[key]
+	if elapsed >= GameConfig.DRONE_DESTINATION_RECENTLY_VISITED_COOLDOWN_S:
 		return 1.0
-	var t: float = elapsed / GameConfig.DRONE_SWEEP_RECENTLY_VISITED_COOLDOWN_S
-	return lerp(GameConfig.DRONE_SWEEP_RECENTLY_VISITED_MIN_WEIGHT_MULTIPLIER, 1.0, t)
+	var t: float = elapsed / GameConfig.DRONE_DESTINATION_RECENTLY_VISITED_COOLDOWN_S
+	return lerp(GameConfig.DRONE_DESTINATION_RECENTLY_VISITED_MIN_WEIGHT_MULTIPLIER, 1.0, t)
 
 
-func _drone_sweep_target() -> Vector2:
-	var waypoints: Array[Vector2] = GameConfig.drone_search_waypoints_px()
-	if active_drone.global_position.distance_to(waypoints[_drone_sweep_index]) <= DRONE_SWEEP_WAYPOINT_RADIUS:
-		_drone_sweep_last_visited[_drone_sweep_index] = scenario_elapsed_time
-		_drone_sweep_index = _weighted_random_sweep_index()
-	return waypoints[_drone_sweep_index]
+## How far "arrived" means for a given routine-recon candidate — sweep
+## cells and flank-watch bearings kept their own, separately-tuned arrival
+## radii even after being merged into one pool, since they represent
+## different real distances (a sweep leg vs. a close-in compass check).
+func _drone_destination_arrival_radius(key: String) -> float:
+	return GameConfig.DRONE_FLANK_WATCH_ARRIVE_RADIUS if key.begins_with("flank:") else DRONE_SWEEP_WAYPOINT_RADIUS
+
+
+## The genuine argmax over whatever routine-recon candidates are currently
+## on offer — value discounted by recency, discounted further by distance
+## (GameConfig.DRONE_DESTINATION_DISTANCE_COST_PER_PX), so a nearby, modest
+## opportunity can beat a slightly better one that's much further out.
+## Deliberately excludes `_drone_current_destination_key`: a candidate the
+## drone has just arrived at and is sitting on has a zero distance cost
+## that can otherwise out-weigh every real competitor even at that
+## candidate's own steepest recency discount (a candidate right under the
+## drone always beats a real but distant alternative on pure arithmetic) —
+## without this exclusion, the drone would lock onto wherever it happens to
+## already be for a long time instead of the deliberate, brief "just left"
+## discount this is supposed to be. Only called on arrival (or when the
+## current commitment stops qualifying), not every tick — see
+## _drone_routine_recon_target for the sticky-until-arrival wrapper that
+## keeps this from re-running (and re-excluding whatever's currently
+## committed) mid-flight.
+func _pick_best_drone_destination(candidates: Array) -> Dictionary:
+	var best: Dictionary = {}
+	var best_score := -INF
+	for c in candidates:
+		if c.key == _drone_current_destination_key:
+			continue
+		var recency: float = _drone_destination_recency_multiplier(c.key)
+		var distance_cost: float = active_drone.global_position.distance_to(c.point) * GameConfig.DRONE_DESTINATION_DISTANCE_COST_PER_PX
+		var score: float = c.value * recency - distance_cost
+		if score > best_score:
+			best_score = score
+			best = c
+	return best
+
+
+## Where the drone flies for ROUTINE background recon — the merged sweep
+## grid + flank-watch candidate pool, unified because both are really the
+## same underlying activity (idle patrol with no specific live lead to
+## chase yet) and a single flight is allowed to pick up sweep coverage AND
+## a flank check together instead of the two mechanisms competing to be
+## "the" routine choice (see _drone_search_target's own tier-6 doc comment
+## for the outer picture). Sticky exactly like the two separate mechanisms
+## this replaces used to be: keeps heading to the SAME committed candidate
+## every tick until the drone actually arrives, or that candidate stops
+## qualifying (e.g. a flank bearing gets screened mid-flight) — only THEN
+## is a fresh pick actually made, via _pick_best_drone_destination, which
+## excludes the just-left candidate so the recency discount alone (easily
+## beaten by a zero-distance-cost candidate sitting right under the drone,
+## see that function's own doc comment) isn't the only thing keeping the
+## drone moving on.
+func _drone_routine_recon_target() -> Dictionary:
+	var candidates: Array = _sweep_candidates() + _flank_watch_candidates()
+	if candidates.is_empty():
+		return {}
+
+	var current: Dictionary = {}
+	for c in candidates:
+		if c.key == _drone_current_destination_key:
+			current = c
+			break
+
+	if not current.is_empty():
+		var arrived: bool = active_drone.global_position.distance_to(current.point) <= _drone_destination_arrival_radius(current.key)
+		if not arrived:
+			return current # still en route — keep heading there
+		_drone_destination_last_visited[current.key] = scenario_elapsed_time
+
+	var pick := _pick_best_drone_destination(candidates)
+	if pick.is_empty():
+		return current if not current.is_empty() else {}
+	_drone_current_destination_key = pick.key
+	return pick
 
 
 ## A point just inside MORTAR_MAX_RANGE of `target_pos`, along the direct
