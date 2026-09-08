@@ -915,6 +915,23 @@ const DRONE_CONTACT_BONUS_RADIUS: float = 900.0 * PIXELS_PER_METER # a bit more 
 const DRONE_CONTACT_BONUS_EXPIRY: float = 600.0 # tactical seconds — matches DRONE_MORTAR_FIRE_LEAD_EXPIRY's own "how long is a lead still worth acting on" reasoning
 const DRONE_CONTACT_BONUS_VALUE: float = 0.5 # comparable to the sweep grid's own top row weight (0.6) and DRONE_FLANK_WATCH_BASE_VALUE — a real, recent contact is roughly as compelling as the single most likely area to check anyway, not an automatic trump card
 
+## The enemy heat-map overlay's own "just confirmed clear" discount (see
+## BattleManager._heatmap_recently_cleared_multiplier/estimated_enemy_
+## likelihood) — a genuinely separate concept from DRONE_DESTINATION_
+## RECENTLY_VISITED_COOLDOWN_S above, which is about search EFFICIENCY
+## (don't immediately re-check the same spot). This one is about physical
+## PLAUSIBILITY: a real enemy squad moves far slower than the drone does,
+## so ground the drone (or a ground unit) just confirmed empty is unlikely
+## to already have an enemy back in it — not impossible, just unlikely,
+## hence a real minimum rather than a hard zero. A shorter window than the
+## drone's own search-efficiency cooldown (5 vs. 20 tactical minutes) on
+## purpose: this is a genuine claim about how far someone on foot could
+## plausibly have moved, not a "don't bother re-checking yet" heuristic —
+## a judgment call, not sourced, sized to roughly the time a squad moving
+## at ordinary pace could cross one heat-map grid cell's own width.
+const HEATMAP_RECENTLY_CLEARED_COOLDOWN_S: float = 300.0
+const HEATMAP_RECENTLY_CLEARED_MIN_MULTIPLIER: float = 0.05
+
 # A unit caught moving in the open is much easier to hit by DIRECT fire, not
 # just to spot — it has broken cover to advance (or to retreat). See
 # CombatResolver.

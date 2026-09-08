@@ -210,6 +210,11 @@ var _recent_enemy_contacts: Dictionary = {}
 # Read-only introspection for drone_pilot_debug_snapshot (the debug
 # overlay/export — see main.gd) — nothing else may ever branch on this.
 var _drone_pilot_reasoning: Dictionary = {}
+# Rounded-to-the-pixel point -> scenario_elapsed_time it was last confirmed
+# clear by estimated_enemy_likelihood (the enemy heat-map overlay's own
+# read-only estimate, see that function's own doc comment) — purely a
+# visualization concept, never consulted by any real decision.
+var _heatmap_last_cleared: Dictionary = {}
 
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
@@ -240,6 +245,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drone_destination_last_visited.clear()
 	_drone_current_destination_key = ""
 	_recent_enemy_contacts.clear()
+	_heatmap_last_cleared.clear()
 	_player_sighted_enemy = false
 	_enemy_sighted_enemy = false
 	_mortar_resupply.clear()
@@ -2111,14 +2117,61 @@ func _row_bias_at_y(y: float) -> float:
 ## waypoints. Read-only, for the enemy heat-map overlay (main.gd's "e"
 ## key, independent of the drone-pilot debug overlay's "d" key) — never
 ## drives any actual decision itself, the same way drone_pilot_debug_
-## snapshot doesn't. Zero wherever _point_currently_observed says a
-## friendly asset can see this ground right now: we know the enemy isn't
-## there, doctrinal priors and stale contact evidence alike are moot the
-## instant someone is actually looking at empty ground.
+## snapshot doesn't.
+##
+## Three cases, matching three different kinds of knowledge:
+## 1. A real, live contact right here (_contact_search_bonus > 0) wins
+##    outright, even over "currently observed" — that observation is
+##    exactly HOW we know about it, so this reads as maximally hot rather
+##    than being zeroed out as "confirmed empty."
+## 2. Genuinely confirmed empty (currently observed, nothing there) drops
+##    straight to zero — we know the enemy isn't here — but the ground is
+##    also stamped as recently cleared (_heatmap_last_cleared), so once
+##    whatever was watching it moves on, the doctrinal guess doesn't
+##    instantly snap back to full value: a real enemy squad moves far
+##    slower than the drone does, so it's unlikely (not impossible) to
+##    already be back the moment we stop looking. _heatmap_recently_
+##    cleared_multiplier ramps that discount back to 1.0 over
+##    GameConfig.HEATMAP_RECENTLY_CLEARED_COOLDOWN_S.
+## 3. Otherwise, the ordinary doctrinal guess (row/approach bias, itself
+##    discounted if this ground was recently cleared) plus whatever
+##    _contact_search_bonus still lingers from a sighting that's since
+##    fallen out of view — which is what keeps a recently-lost contact's
+##    own area "hot" for a while rather than going cold the instant it's
+##    no longer directly observed.
 func estimated_enemy_likelihood(point: Vector2) -> float:
+	var contact_bonus: float = _contact_search_bonus(point)
+	var key := Vector2(roundi(point.x), roundi(point.y))
+
 	if _point_currently_observed(point):
+		if contact_bonus > 0.0:
+			return contact_bonus
+		_heatmap_last_cleared[key] = scenario_elapsed_time
 		return 0.0
-	return _row_bias_at_y(point.y) * _enemy_approach_likelihood(point) + _contact_search_bonus(point)
+
+	var baseline: float = _row_bias_at_y(point.y) * _enemy_approach_likelihood(point)
+	baseline *= _heatmap_recently_cleared_multiplier(key)
+	return baseline + contact_bonus
+
+
+## 1.0 with no record of `key` ever being confirmed clear, or once
+## GameConfig.HEATMAP_RECENTLY_CLEARED_COOLDOWN_S has fully passed since it
+## last was — down to HEATMAP_RECENTLY_CLEARED_MIN_MULTIPLIER (not zero:
+## "unlikely, not impossible") the instant it's confirmed clear, ramping
+## back up linearly as that confirmation goes stale. Same decaying-
+## discount shape as _drone_destination_recency_multiplier, but a
+## genuinely separate concept and constant: that one is about search
+## EFFICIENCY (don't immediately re-check the same spot), this one is
+## about physical PLAUSIBILITY (an enemy squad moves far slower than the
+## drone, so it can't have already walked back into ground just cleared).
+func _heatmap_recently_cleared_multiplier(key: Vector2) -> float:
+	if not _heatmap_last_cleared.has(key):
+		return 1.0
+	var elapsed: float = scenario_elapsed_time - _heatmap_last_cleared[key]
+	if elapsed >= GameConfig.HEATMAP_RECENTLY_CLEARED_COOLDOWN_S:
+		return 1.0
+	var t: float = elapsed / GameConfig.HEATMAP_RECENTLY_CLEARED_COOLDOWN_S
+	return lerp(GameConfig.HEATMAP_RECENTLY_CLEARED_MIN_MULTIPLIER, 1.0, t)
 
 
 ## Whether any currently-ACTIVE friendly asset — a ground unit's ordinary
@@ -2440,7 +2493,22 @@ func _enemy_approach_likelihood(point: Vector2) -> float:
 ## either doctrinal bias alone says regardless of where it happens to be,
 ## which is what makes a discovered enemy actually widen the search around
 ## it instead of only being remembered as the one exact spot
-## _area_confirmed_clear will eventually mark clear.
+## _area_confirmed_clear will eventually mark clear. Also discounted
+## wherever _point_currently_observed says some OTHER friendly asset (a
+## squad, the mortar, the spotter) can already see this ground right now
+## — the same real-time "we know it's empty" fact the enemy heat-map
+## overlay shows, applied here to the actual decision instead of just the
+## visualization. This is what stops the drone from wastefully flying out
+## to re-check ground immediately around the player's own dug-in units at
+## the start of a battle, which they can already see is clear themselves;
+## by the time the routine-recon tier is even being evaluated, any REAL
+## live enemy nearby would already have been claimed by a higher-priority
+## tier (squad-tracking/mortar-live) in _drone_search_target, so treating
+## "currently observed" as "confirmed empty" here is safe, not just
+## convenient. Reuses DRONE_SWEEP_CLEARED_WEIGHT_MULTIPLIER rather than a
+## separate constant — both represent the same thing (real evidence this
+## spot isn't worth the trip), just from a permanent-kill source versus a
+## live-observation source.
 func _sweep_candidates() -> Array:
 	var row_count: int = GameConfig.DRONE_SEARCH_GRID_ROWS_M.size()
 	var columns_per_row: int = GameConfig.DRONE_SEARCH_GRID_COLUMNS_M.size()
@@ -2452,7 +2520,7 @@ func _sweep_candidates() -> Array:
 			var point: Vector2 = waypoints[idx]
 			var approach: float = _enemy_approach_likelihood(point)
 			var value: float = (GameConfig.DRONE_SWEEP_ROW_WEIGHTS[row_i] + GameConfig.DRONE_MORTAR_HUNT_ROW_WEIGHTS[row_i]) * approach
-			if _area_confirmed_clear(point):
+			if _area_confirmed_clear(point) or _point_currently_observed(point):
 				value *= GameConfig.DRONE_SWEEP_CLEARED_WEIGHT_MULTIPLIER
 			value += _contact_search_bonus(point)
 			out.append({"key": "sweep:%d" % idx, "point": point, "value": value})
