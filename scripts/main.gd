@@ -28,6 +28,7 @@ var battle_manager: BattleManager
 var combat_log: CombatLog
 var casualty_dashboard: CasualtyDashboard
 var retreat_button: Button
+var pause_button: Button
 
 var report_background: Control
 var restart_button: Button
@@ -141,7 +142,7 @@ func _draw() -> void:
 
 func _clear_all() -> void:
 	for node in [level_select_screen, deployment_screen, doctrine_panel, start_button, battle_manager,
-			combat_log, casualty_dashboard, retreat_button, report_background, restart_button]:
+			combat_log, casualty_dashboard, retreat_button, pause_button, report_background, restart_button]:
 		if node:
 			node.queue_free()
 	level_select_screen = null
@@ -152,6 +153,7 @@ func _clear_all() -> void:
 	combat_log = null
 	casualty_dashboard = null
 	retreat_button = null
+	pause_button = null
 	report_background = null
 	restart_button = null
 
@@ -221,19 +223,31 @@ func _on_start_pressed() -> void:
 
 	retreat_button = Button.new()
 	retreat_button.text = "Order General Retreat"
-	retreat_button.position = Vector2(1020, 20) # measured 31px tall — see casualty_dashboard's own y below
+	retreat_button.position = Vector2(1020, 20) # measured 181x31 — see pause_button's own x below; casualty_dashboard's y below is against this row's shared height
 	retreat_button.pressed.connect(_on_retreat_pressed)
 	add_child(retreat_button)
+
+	pause_button = Button.new()
+	pause_button.text = "Pause"
+	# Same row as retreat_button (measured 181px wide) rather than a new row
+	# below it — the sidebar's vertical space is already fully accounted for
+	# down to combat_log's fixed position near the window's own 700px
+	# bottom edge (see combat_log.position below), with no slack left to
+	# push everything down a further button-row's worth.
+	pause_button.position = Vector2(1020 + 181.0 + 14.0, 20)
+	pause_button.pressed.connect(_on_pause_pressed)
+	add_child(pause_button)
 
 	battle_manager = BattleManager.new()
 	battle_manager.battle_ended.connect(_on_battle_ended)
 	map_viewport.add_child(battle_manager)
 
 	casualty_dashboard = CasualtyDashboard.new()
-	# 20 + 31 (retreat_button's real height) + 14px breathing room. Mortar
-	# resupply requests itself automatically now (see BattleManager.
-	# _update_mortar_resupply_requests) — no button for it, so this sidebar
-	# is back to the single button row it had before that was ever added.
+	# 20 + 31 (retreat_button's real height, shared by pause_button on the
+	# same row) + 14px breathing room. Mortar resupply requests itself
+	# automatically now (see BattleManager._update_mortar_resupply_requests)
+	# — no button for it, so this sidebar is back to the single button row
+	# it had before that was ever added, now shared by retreat + pause.
 	casualty_dashboard.position = Vector2(1020, 65)
 	casualty_dashboard.setup(battle_manager)
 	add_child(casualty_dashboard)
@@ -256,10 +270,20 @@ func _on_retreat_pressed() -> void:
 		battle_manager.order_general_retreat()
 
 
+func _on_pause_pressed() -> void:
+	if not battle_manager:
+		return
+	battle_manager.toggle_pause()
+	pause_button.text = "Resume" if battle_manager.is_paused else "Pause"
+
+
 func _on_battle_ended(report_text: String) -> void:
 	if retreat_button:
 		retreat_button.queue_free()
 		retreat_button = null
+	if pause_button:
+		pause_button.queue_free()
+		pause_button = null
 
 	report_background = ColorRect.new()
 	report_background.color = Color(0.05, 0.05, 0.05, 0.85)

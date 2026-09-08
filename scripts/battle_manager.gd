@@ -35,6 +35,15 @@ var elapsed_time: float = 0.0
 # 0600 (see clock_string()).
 var scenario_elapsed_time: float = 0.0
 var battle_over: bool = false
+# User-requested pause (see toggle_pause) — freezes the entire simulation
+# exactly where it stands: _process returns immediately, before either
+# clock advances or any tick logic runs, so nothing (movement, fire,
+# resupply, drone flight, the battle-over check itself) progresses at all
+# until resumed. Nothing outside BattleManager's own _process depends on
+# per-frame simulation time (see Unit — it has no _process of its own,
+# everything is driven centrally from here), so this one early return is
+# sufficient to pause the whole battle.
+var is_paused: bool = false
 var _fire_flashes: Array[Dictionary] = []
 var _seconds_since_last_shot: float = 0.0
 
@@ -201,6 +210,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	elapsed_time = 0.0
 	scenario_elapsed_time = 0.0
 	battle_over = false
+	is_paused = false
 	_fire_flashes.clear()
 	_seconds_since_last_shot = 0.0
 	enemy_alerted = false
@@ -430,6 +440,14 @@ func _log_wounded_evacuation_outcome(unit: Unit) -> void:
 	elif unit.just_abandoned_wounded:
 		unit.just_abandoned_wounded = false
 		combat_log.log_wounded_abandoned(unit, unit.wounded_left_behind_count)
+
+
+## Toggled by the player's own pause control (main.gd) — not gated on
+## battle_over the way order_general_retreat is, since pausing an already-
+## finished battle is simply a no-op either way (there's nothing left for
+## _process to do once battle_over is true regardless of is_paused).
+func toggle_pause() -> void:
+	is_paused = not is_paused
 
 
 func order_general_retreat() -> void:
@@ -2472,7 +2490,7 @@ func _update_mortar_safety_relocation() -> void:
 
 
 func _process(delta: float) -> void:
-	if battle_over or combat_log == null:
+	if battle_over or combat_log == null or is_paused:
 		return
 
 	elapsed_time += delta
