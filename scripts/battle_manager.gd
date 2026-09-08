@@ -3035,19 +3035,39 @@ func _update_player_intel() -> void:
 ## watching. Everything else (squad fire_interval, the has_move_target/
 ## building gates below) stays on `delta` (actual/engine seconds) — those
 ## were never part of this ask, just the mortar's own cycle was.
+##
+## A RETREATING unit has, in general, disengaged — but a genuine fighting
+## withdrawal doesn't mean walking past an enemy unarmed. A SQUAD (both
+## sides identically) that's still within its own normal engagement range
+## and line of sight — exactly what _pick_target below would already
+## consider a legal target if this unit were standing its ground — fires
+## back even while pulling out, rather than presenting a free target the
+## instant it starts moving away. A retreating MORTAR is the one
+## exception: its crew has abandoned the gun itself (see Unit.
+## _mortar_crew_holds_position) the moment they started retreating, so
+## there is nothing left to fire with regardless of how close anyone gets.
 func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[Unit]) -> void:
 	if unit.kind == Unit.Kind.SPOTTER or unit.kind == Unit.Kind.DRONE_TEAM or unit.kind == Unit.Kind.DRONE:
 		return # pure reconnaissance — extends detection only, never fires (see roll_spot)
 	if unit.kind == Unit.Kind.RESUPPLY_RUN:
 		return # unarmed logistics detail — never fires back
-	if unit.state != Unit.State.ACTIVE:
-		return # destroyed/withdrawn/retreating units don't fire
-	if unit.has_move_target:
+	if unit.state == Unit.State.DESTROYED or unit.state == Unit.State.WITHDRAWN or unit.state == Unit.State.SURRENDERED:
+		return # gone, already safe, or has laid down arms — none of these ever fire again
+	var fighting_withdrawal := false
+	if unit.state == Unit.State.RETREATING:
+		if unit.kind != Unit.Kind.SQUAD:
+			return # a retreating mortar crew has abandoned the gun — nothing left to fire with
+		fighting_withdrawal = true # still subject to the normal _pick_target range/LOS check below — this only lifts the "too busy moving" block, not the range one
+	if unit.has_move_target and not fighting_withdrawal:
 		return # moving with intent (road march, diving for cover) — too busy to fire.
 		# Without this, "immediately head for cover" was true mechanically
 		# (seek_cover() redirects movement right away) but invisible in
 		# practice: the unit kept trading fire the whole way there, so a
-		# dash for cover looked identical to just standing and fighting.
+		# dash for cover looked identical to just standing and fighting. A
+		# fighting withdrawal is a deliberate exception to that: it's
+		# already conceding the fight (retreating, not choosing to stand),
+		# and only fires at all because _pick_target finds something close
+		# enough that walking past unarmed wouldn't be realistic.
 	if unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(unit.global_position):
 		return # no overhead clearance to lob a round from inside a building
 	if unit.kind == Unit.Kind.MORTAR and unit.mortar_rounds_remaining <= 0:
