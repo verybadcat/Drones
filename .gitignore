@@ -1,2 +1,6 @@
 # Godot 4+ specific ignores
 .godot/
+
+# Runtime debug output (see main.gd's drone-pilot debug overlay) — a live
+# snapshot written to disk while the overlay is on, not source or data.
+debug_state/

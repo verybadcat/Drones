@@ -29,9 +29,33 @@ var combat_log: CombatLog
 var casualty_dashboard: CasualtyDashboard
 var retreat_button: Button
 var pause_button: Button
+# Untyped (not DronePilotDebugPanel) — a brand-new class_name script isn't
+# resolvable via a static type reference from another script until the
+# Godot editor itself has scanned the project and rebuilt its global class
+# cache, which a plain run (or headless CLI test) never triggers on its
+# own. See _on_start_pressed for the matching preload()-based construction.
+var drone_debug_panel
 
 var report_background: Control
 var restart_button: Button
+
+# "See what the drone pilot is thinking" — off by default (see _ready),
+# toggled by the "d" key (_unhandled_input) rather than a sidebar button
+# since the sidebar has no vertical space left (see the button-row
+# comments in _on_start_pressed). Persists across battles within a
+# session (unlike drone_debug_panel itself, which is recreated per
+# battle) since it's a standing developer preference, not battle state.
+var _drone_debug_enabled: bool = false
+
+# Where the live drone-pilot debug snapshot is written whenever the
+# overlay above is on, so it can be inspected from OUTSIDE the running
+# game (e.g. by pasting/reading this file) at the exact moment the battle
+# is paused — see DronePilotDebugPanel's own doc comment for why a paused
+# battle still refreshes this correctly (frozen state, re-read and
+# re-written unchanged). res:// resolves to the real project directory in
+# a normal (non-exported) run, which is what makes this externally
+# readable at all.
+const DRONE_DEBUG_SNAPSHOT_PATH: String = "res://debug_state/drone_pilot_snapshot.json"
 
 # Always present, in both the deployment and battle phases — not cleared by
 # _clear_all(). A real 5km map needs a frame of reference: this shows real
@@ -111,6 +135,42 @@ func _process(delta: float) -> void:
 		# every frame instead.
 		battle_manager.current_camera_x = map_camera.position.x
 
+	# Deliberately NOT gated on battle_manager.is_paused — main.gd's own
+	# _process keeps running regardless (see DronePilotDebugPanel's doc
+	# comment), so a paused battle just means drone_pilot_debug_snapshot()
+	# keeps returning the same frozen values each frame, which get written
+	# out unchanged. That's exactly what makes this externally inspectable
+	# at a paused moment, not a bug to fix.
+	if _drone_debug_enabled and battle_manager:
+		_write_drone_debug_snapshot()
+
+
+## _unhandled_input rather than _input: lets any real UI control (a
+## button, a text field) consume the key first if it ever legitimately
+## wants "d" for something; this is a global fallback toggle, not a
+## per-control shortcut.
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_D:
+		_drone_debug_enabled = not _drone_debug_enabled
+		if drone_debug_panel:
+			drone_debug_panel.visible = _drone_debug_enabled
+		get_viewport().set_input_as_handled()
+
+
+## Writes battle_manager.drone_pilot_debug_snapshot() to DRONE_DEBUG_
+## SNAPSHOT_PATH as JSON — the snapshot is already JSON-native (see that
+## function's own doc comment), so this is a direct dump, no conversion
+## needed. Overwrites every frame the overlay is on; a tiny dict, so the
+## cost is negligible even at full frame rate.
+func _write_drone_debug_snapshot() -> void:
+	var snap: Dictionary = battle_manager.drone_pilot_debug_snapshot()
+	var dir := DirAccess.open("res://")
+	if dir and not dir.dir_exists("debug_state"):
+		dir.make_dir("debug_state")
+	var f := FileAccess.open(DRONE_DEBUG_SNAPSHOT_PATH, FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify(snap, "\t"))
+
 
 ## The mouse's position in the MAP's own world space, camera pan included —
 ## SubViewport.get_mouse_position() only accounts for the container's
@@ -142,7 +202,8 @@ func _draw() -> void:
 
 func _clear_all() -> void:
 	for node in [level_select_screen, deployment_screen, doctrine_panel, start_button, battle_manager,
-			combat_log, casualty_dashboard, retreat_button, pause_button, report_background, restart_button]:
+			combat_log, casualty_dashboard, retreat_button, pause_button, drone_debug_panel,
+			report_background, restart_button]:
 		if node:
 			node.queue_free()
 	level_select_screen = null
@@ -154,6 +215,7 @@ func _clear_all() -> void:
 	casualty_dashboard = null
 	retreat_button = null
 	pause_button = null
+	drone_debug_panel = null
 	report_background = null
 	restart_button = null
 
@@ -261,6 +323,16 @@ func _on_start_pressed() -> void:
 	# is sized to fill what's left over.
 	combat_log.position = Vector2(1020, 575)
 	add_child(combat_log)
+
+	# Drawn over the map itself, bottom-left, rather than in the sidebar
+	# (which has no vertical space left) — see DronePilotDebugPanel's own
+	# doc comment. Hidden by default; _drone_debug_enabled is a standing
+	# preference toggled via "d" (_unhandled_input), not reset per battle.
+	drone_debug_panel = preload("res://scripts/drone_pilot_debug_panel.gd").new()
+	drone_debug_panel.position = Vector2(8, GameConfig.MAP_HEIGHT_PX - 260.0 - 8.0)
+	drone_debug_panel.setup(battle_manager)
+	drone_debug_panel.visible = _drone_debug_enabled
+	add_child(drone_debug_panel)
 
 	battle_manager.start_battle(doctrine, combat_log)
 

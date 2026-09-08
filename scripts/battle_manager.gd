@@ -203,6 +203,13 @@ var _drone_destination_last_visited: Dictionary = {}
 # drone looks next, fading out the same way a mortar fire-detection lead
 # does rather than vanishing the instant the unit itself drops out of LOS.
 var _recent_enemy_contacts: Dictionary = {}
+# Recorded live, in place, by _drone_search_target itself as it decides —
+# NOT a separate re-derivation of that decision, which would risk drifting
+# out of sync with the real logic. {"tier": String, "detail": String,
+# "target": Vector2} describing whichever branch actually won this tick.
+# Read-only introspection for drone_pilot_debug_snapshot (the debug
+# overlay/export — see main.gd) — nothing else may ever branch on this.
+var _drone_pilot_reasoning: Dictionary = {}
 
 
 func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
@@ -1950,6 +1957,7 @@ func _drone_search_target() -> Vector2:
 	if watched != null:
 		best_score = GameConfig.TARGET_PRIORITY_MORTAR
 		best_pos = watched.global_position
+		_drone_pilot_reasoning = {"tier": "Live mortar contact", "detail": "Watching a confirmed, currently visible enemy mortar directly.", "target": best_pos}
 
 	var lead_pos := Vector2.INF
 	var best_fire_time := -INF
@@ -1971,6 +1979,8 @@ func _drone_search_target() -> Vector2:
 		if lead_score > best_score:
 			best_score = lead_score
 			best_pos = lead_pos
+			var lead_age: float = scenario_elapsed_time - best_fire_time
+			_drone_pilot_reasoning = {"tier": "Fresh mortar fire-detection lead", "detail": "Muzzle-flash/trajectory fix on an enemy mortar, %.0fs old, still in friendly mortar range." % lead_age, "target": best_pos}
 
 	# The team's shared joint commitment (_update_joint_mortar_hunt, run
 	# earlier this same tick) — full mortar priority, and deliberately NOT
@@ -1985,6 +1995,7 @@ func _drone_search_target() -> Vector2:
 		if not is_inf(joint_pos.x) and GameConfig.TARGET_PRIORITY_MORTAR > best_score:
 			best_score = GameConfig.TARGET_PRIORITY_MORTAR
 			best_pos = joint_pos
+			_drone_pilot_reasoning = {"tier": "Joint mortar hunt", "detail": "Staying on-station over a target the friendly mortar is still closing on but hasn't reached range of yet.", "target": best_pos}
 
 	var best_squad: Unit = null
 	var best_squad_score := -1.0
@@ -1997,6 +2008,7 @@ func _drone_search_target() -> Vector2:
 	if best_squad != null and best_squad_score > best_score:
 		best_score = best_squad_score
 		best_pos = best_squad.global_position
+		_drone_pilot_reasoning = {"tier": "Tracking dangerous squad", "detail": "The most dangerous currently-visible enemy squad, danger score %.1f/%.1f (closer to a friendly unit = higher)." % [best_squad_score, GameConfig.TARGET_PRIORITY_SQUAD_MAX], "target": best_pos}
 
 	var best_retreating: Unit = null
 	var best_retreating_dist := INF
@@ -2016,6 +2028,7 @@ func _drone_search_target() -> Vector2:
 		if retreating_score > best_score:
 			best_score = retreating_score
 			best_pos = best_retreating.global_position
+			_drone_pilot_reasoning = {"tier": "Finishing a retreating contact", "detail": "Nearest visible retreating enemy — %s." % ("the fight looks over, worth finishing" if enemy_general_retreat_ordered else "battle still on, so this is a low-priority distraction that still narrowly won"), "target": best_pos}
 
 	var flank_candidates: Array = _flank_watch_candidates()
 
@@ -2041,6 +2054,8 @@ func _drone_search_target() -> Vector2:
 		var routine_pick: Dictionary = _drone_routine_recon_target(flank_candidates)
 		if not routine_pick.is_empty():
 			best_pos = routine_pick.point
+			var kind: String = "an unwatched gap toward our mortar's flank" if routine_pick.key.begins_with("flank:") else "a general-area sweep cell"
+			_drone_pilot_reasoning = {"tier": "Routine background recon", "detail": "No urgent lead — checking %s (candidate value %.2f, mortar-existence confidence %.2f)." % [kind, routine_pick.value, _mortar_existence_confidence()], "target": best_pos}
 
 	# A last, universal guard: every tier above is supposed to only ever
 	# offer a real, in-area position (an actual enemy unit's position, a
@@ -2051,6 +2066,62 @@ func _drone_search_target() -> Vector2:
 	# keeps the drone from following it into ground that belongs to another
 	# unit's sector entirely, regardless of the reason.
 	return _clamp_to_drone_operating_area(best_pos)
+
+
+## `point` as a plain, JSON-safe {"x","y"} dict in whole meters — used only
+## by drone_pilot_debug_snapshot, which must not return raw Vector2 values
+## (main.gd's JSON export of it would otherwise need its own conversion
+## pass; keeping the snapshot itself JSON-native avoids that entirely).
+func _pos_to_debug_dict(point: Vector2) -> Dictionary:
+	return {"x": roundi(point.x / GameConfig.PIXELS_PER_METER), "y": roundi(point.y / GameConfig.PIXELS_PER_METER)}
+
+
+## Read-only introspection into the drone's current reasoning — "what is
+## the drone pilot thinking right now, and why" — for the player-
+## toggleable debug overlay (see main.gd's DronePilotDebugPanel) and, while
+## the battle is paused, for external inspection of exactly what the
+## decision logic sees at that frozen moment (main.gd also exports this to
+## a JSON file whenever the overlay is on, specifically so it can be
+## inspected from outside the running game). Purely descriptive — nothing
+## here may ever feed back into an actual decision. {"active": false} if no
+## drone is currently airborne to report on (SPOTTER recon mode, or a
+## DRONE_TEAM battle between sorties).
+func drone_pilot_debug_snapshot() -> Dictionary:
+	if active_drone == null:
+		return {"active": false}
+
+	var contacts: Array = []
+	for u in _recent_enemy_contacts:
+		var info: Dictionary = _recent_enemy_contacts[u]
+		var entry: Dictionary = _pos_to_debug_dict(info.position)
+		entry["age_s"] = roundi(scenario_elapsed_time - info.time)
+		contacts.append(entry)
+	contacts.sort_custom(func(a, b): return a.age_s < b.age_s)
+
+	# The same candidate pool _drone_routine_recon_target itself competes
+	# over — sorted purely for this readout, not re-used for any decision.
+	var candidates: Array = _sweep_candidates() + _flank_watch_candidates()
+	candidates.sort_custom(func(a, b): return a.value > b.value)
+	var top_candidates: Array = []
+	for i in min(5, candidates.size()):
+		var c: Dictionary = _pos_to_debug_dict(candidates[i].point)
+		c["key"] = candidates[i].key
+		c["value"] = snappedf(candidates[i].value, 0.01)
+		top_candidates.append(c)
+
+	var reasoning: Dictionary = _drone_pilot_reasoning.duplicate()
+	if reasoning.has("target"):
+		reasoning["target"] = _pos_to_debug_dict(reasoning["target"])
+
+	return {
+		"active": true,
+		"drone_position": _pos_to_debug_dict(active_drone.global_position),
+		"drone_battery_charge": snappedf(active_drone.drone_battery_charge, 0.01),
+		"mortar_existence_confidence": snappedf(_mortar_existence_confidence(), 0.01),
+		"current_reasoning": reasoning,
+		"recent_enemy_contacts": contacts,
+		"top_search_candidates": top_candidates,
+	}
 
 
 ## The rectangle a drone's own destination must stay within — MAP_HEIGHT_M
