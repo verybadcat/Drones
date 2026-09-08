@@ -2076,6 +2076,46 @@ func _pos_to_debug_dict(point: Vector2) -> Dictionary:
 	return {"x": roundi(point.x / GameConfig.PIXELS_PER_METER), "y": roundi(point.y / GameConfig.PIXELS_PER_METER)}
 
 
+## A smooth, continuous stand-in for the row bias _sweep_candidates only
+## ever evaluates at its own 25 fixed grid waypoints — linearly
+## interpolated between GameConfig.DRONE_SEARCH_GRID_ROWS_M's row centers
+## (clamped at the map's own north/south edges past the first/last row),
+## summing the same squad- and mortar-hunting weights _sweep_candidates
+## itself adds together. Used by estimated_enemy_likelihood below to paint
+## a full-map gradient for the enemy heat-map overlay (main.gd's "e" key)
+## rather than 25 isolated dots — never used by any actual sweep decision,
+## which still runs on the real discrete grid.
+func _row_bias_at_y(y: float) -> float:
+	var rows_m: Array[float] = GameConfig.DRONE_SEARCH_GRID_ROWS_M
+	var weights: Array[float] = []
+	for i in rows_m.size():
+		weights.append(GameConfig.DRONE_SWEEP_ROW_WEIGHTS[i] + GameConfig.DRONE_MORTAR_HUNT_ROW_WEIGHTS[i])
+	var y_m: float = y / GameConfig.PIXELS_PER_METER
+	if y_m <= rows_m[0]:
+		return weights[0]
+	var last: int = rows_m.size() - 1
+	if y_m >= rows_m[last]:
+		return weights[last]
+	for i in last:
+		if y_m >= rows_m[i] and y_m <= rows_m[i + 1]:
+			var t: float = (y_m - rows_m[i]) / (rows_m[i + 1] - rows_m[i])
+			return lerp(weights[i], weights[i + 1], t)
+	return weights[0] # unreachable given the two clamps above
+
+
+## The commander's combined, continuous estimate of how likely the enemy
+## is to matter near `point` right now — the same ingredients
+## _sweep_candidates itself scores a cell with (off-road/road row bias,
+## east-approach likelihood, real recent-contact evidence), just evaluated
+## smoothly across the whole map instead of only at the 25 fixed sweep
+## waypoints. Read-only, for the enemy heat-map overlay (main.gd's "e"
+## key, independent of the drone-pilot debug overlay's "d" key) — never
+## drives any actual decision itself, the same way drone_pilot_debug_
+## snapshot doesn't.
+func estimated_enemy_likelihood(point: Vector2) -> float:
+	return _row_bias_at_y(point.y) * _enemy_approach_likelihood(point) + _contact_search_bonus(point)
+
+
 ## Read-only introspection into the drone's current reasoning — "what is
 ## the drone pilot thinking right now, and why" — for the player-
 ## toggleable debug overlay (see main.gd's DronePilotDebugPanel) and, while

@@ -35,6 +35,11 @@ var pause_button: Button
 # cache, which a plain run (or headless CLI test) never triggers on its
 # own. See _on_start_pressed for the matching preload()-based construction.
 var drone_debug_panel
+# Untyped for the same class-cache reason as drone_debug_panel above. Added
+# to map_viewport (NOT root, unlike drone_debug_panel) — it draws in MAP
+# space so its heat cells and contact markers line up with real world
+# positions and pan correctly with the camera.
+var enemy_heatmap_overlay
 
 var report_background: Control
 var restart_button: Button
@@ -46,6 +51,13 @@ var restart_button: Button
 # session (unlike drone_debug_panel itself, which is recreated per
 # battle) since it's a standing developer preference, not battle state.
 var _drone_debug_enabled: bool = false
+
+# "Where enemies are known to be, and where the commander's models guess
+# they might be" — the enemy heat-map overlay, toggled independently of
+# the drone-pilot debug overlay above by the "e" key, so either, both, or
+# neither can be on. Same off-by-default/persists-across-battles
+# reasoning as _drone_debug_enabled.
+var _enemy_heatmap_enabled: bool = false
 
 # Where the live drone-pilot debug snapshot is written whenever the
 # overlay above is on, so it can be inspected from OUTSIDE the running
@@ -147,14 +159,22 @@ func _process(delta: float) -> void:
 
 ## _unhandled_input rather than _input: lets any real UI control (a
 ## button, a text field) consume the key first if it ever legitimately
-## wants "d" for something; this is a global fallback toggle, not a
-## per-control shortcut.
+## wants "d"/"e" for something; these are global fallback toggles, not
+## per-control shortcuts. The two are deliberately independent — separate
+## keys, separate flags, separate nodes — so either overlay, both, or
+## neither can be on at once.
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_D:
-		_drone_debug_enabled = not _drone_debug_enabled
-		if drone_debug_panel:
-			drone_debug_panel.visible = _drone_debug_enabled
-		get_viewport().set_input_as_handled()
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_D:
+			_drone_debug_enabled = not _drone_debug_enabled
+			if drone_debug_panel:
+				drone_debug_panel.visible = _drone_debug_enabled
+			get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_E:
+			_enemy_heatmap_enabled = not _enemy_heatmap_enabled
+			if enemy_heatmap_overlay:
+				enemy_heatmap_overlay.visible = _enemy_heatmap_enabled
+			get_viewport().set_input_as_handled()
 
 
 ## Writes battle_manager.drone_pilot_debug_snapshot() to DRONE_DEBUG_
@@ -203,7 +223,7 @@ func _draw() -> void:
 func _clear_all() -> void:
 	for node in [level_select_screen, deployment_screen, doctrine_panel, start_button, battle_manager,
 			combat_log, casualty_dashboard, retreat_button, pause_button, drone_debug_panel,
-			report_background, restart_button]:
+			enemy_heatmap_overlay, report_background, restart_button]:
 		if node:
 			node.queue_free()
 	level_select_screen = null
@@ -216,6 +236,7 @@ func _clear_all() -> void:
 	retreat_button = null
 	pause_button = null
 	drone_debug_panel = null
+	enemy_heatmap_overlay = null
 	report_background = null
 	restart_button = null
 
@@ -333,6 +354,16 @@ func _on_start_pressed() -> void:
 	drone_debug_panel.setup(battle_manager)
 	drone_debug_panel.visible = _drone_debug_enabled
 	add_child(drone_debug_panel)
+
+	# Added to map_viewport, not root — this one draws IN MAP SPACE (heat
+	# cells and contact markers at real world positions), unlike
+	# drone_debug_panel's fixed-position sidebar-style text above. Hidden
+	# by default; independent of _drone_debug_enabled (see EnemyHeatmap
+	# Overlay's own doc comment) — toggled via "e", not "d".
+	enemy_heatmap_overlay = preload("res://scripts/enemy_heatmap_overlay.gd").new()
+	enemy_heatmap_overlay.setup(battle_manager)
+	enemy_heatmap_overlay.visible = _enemy_heatmap_enabled
+	map_viewport.add_child(enemy_heatmap_overlay)
 
 	battle_manager.start_battle(doctrine, combat_log)
 
