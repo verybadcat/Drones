@@ -80,6 +80,15 @@ static func effective_detection_range(observer: Unit, target: Unit) -> float:
 ## nobody has eyes on it any more; visibility is a live, moment-to-moment
 ## fact, not a permanent flag (see Unit.is_visible).
 ##
+## `scenario_delta` must be tactical seconds, matching GameConfig.
+## SPOT_CHANCE_PER_TACTICAL_SECOND — every other rate constant in this
+## game is calibrated against the tactical clock, not real wall-clock time.
+## BattleManager._update_spotting used to pass real elapsed_time here
+## instead, which at TIME_SCALE_NORMAL (60x) alone meant a target sitting
+## in plain view for a real 10 seconds — 30 tactical MINUTES — could still
+## go entirely unspotted, since the roll only accumulated real-world
+## seconds' worth of chance while tactical time raced ahead 60x faster.
+##
 ## Line of sight does not go through buildings — a building between observer
 ## and target blocks the roll outright, same rule as direct fire (see
 ## GameConfig.has_direct_los). This applies to anyone doing the looking,
@@ -110,10 +119,10 @@ static func effective_detection_range(observer: Unit, target: Unit) -> float:
 ## different question — "is anyone glancing at the right patch of sky right
 ## now" — answered separately by _roll_ground_notices_drone below rather
 ## than by any of this ground-spotting machinery.
-static func roll_spot(observer: Unit, target: Unit, delta: float) -> bool:
+static func roll_spot(observer: Unit, target: Unit, scenario_delta: float) -> bool:
 	var observer_is_drone := observer.kind == Unit.Kind.DRONE
 	if target.kind == Unit.Kind.DRONE and not observer_is_drone:
-		return _roll_ground_notices_drone(observer, target, delta)
+		return _roll_ground_notices_drone(observer, target, scenario_delta)
 
 	var has_los: bool = GameConfig.has_aerial_los(observer.global_position, target.global_position) if observer_is_drone \
 		else GameConfig.has_direct_los(observer.global_position, target.global_position)
@@ -125,7 +134,7 @@ static func roll_spot(observer: Unit, target: Unit, delta: float) -> bool:
 	if distance > detection_range:
 		return false
 
-	var chance: float = GameConfig.SPOT_CHANCE_PER_SECOND
+	var chance: float = GameConfig.SPOT_CHANCE_PER_TACTICAL_SECOND
 	var concealment_table: Dictionary = GameConfig.DRONE_CONCEALMENT_MULTIPLIER if observer_is_drone else CONCEALMENT_MULTIPLIER
 	chance *= concealment_table[target.terrain_type()]
 	var target_hidden_spotter := target.kind == Unit.Kind.SPOTTER and GameConfig.is_in_cover(target.terrain_type())
@@ -137,7 +146,7 @@ static func roll_spot(observer: Unit, target: Unit, delta: float) -> bool:
 	if target.activity == Unit.Activity.MOVING:
 		chance *= GameConfig.MOVING_SPOT_MULTIPLIER
 	chance *= clamp(1.0 - (distance / detection_range), 0.0, 1.0)
-	chance *= delta
+	chance *= scenario_delta
 
 	return randf() < chance
 
@@ -153,14 +162,14 @@ static func roll_spot(observer: Unit, target: Unit, delta: float) -> bool:
 ## ground distance everything else here uses. Only a building overhead
 ## still blocks it outright (has_aerial_los) — hills don't; nothing on this
 ## map's terrain is tall enough to occlude a drone flying above every hill.
-static func _roll_ground_notices_drone(observer: Unit, target: Unit, delta: float) -> bool:
+static func _roll_ground_notices_drone(observer: Unit, target: Unit, scenario_delta: float) -> bool:
 	if not GameConfig.has_aerial_los(observer.global_position, target.global_position):
 		return false
 	var horizontal_distance_m: float = observer.global_position.distance_to(target.global_position) / GameConfig.PIXELS_PER_METER
 	var slant_range_m: float = sqrt(horizontal_distance_m * horizontal_distance_m + GameConfig.DRONE_ALTITUDE_M * GameConfig.DRONE_ALTITUDE_M)
 	if slant_range_m > GameConfig.DRONE_GROUND_NOTICE_MAX_RANGE_M:
 		return false
-	var chance_per_tick: float = 1.0 - pow(1.0 - GameConfig.DRONE_GROUND_NOTICE_CHANCE_PER_MINUTE, delta / 60.0)
+	var chance_per_tick: float = 1.0 - pow(1.0 - GameConfig.DRONE_GROUND_NOTICE_CHANCE_PER_MINUTE, scenario_delta / 60.0)
 	return randf() < chance_per_tick
 
 

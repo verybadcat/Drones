@@ -979,7 +979,7 @@ func _resolve_resupply_run_arrivals() -> void:
 			var mortar: Unit = u.resupply_target_mortar
 			if mortar == null or mortar.state != Unit.State.ACTIVE:
 				aborted.append(u)
-			elif u.global_position.distance_to(mortar.global_position) <= Unit.MOVE_ARRIVE_RADIUS:
+			elif u.global_position.distance_to(mortar.global_position) <= GameConfig.MORTAR_RESUPPLY_ARRIVAL_RADIUS:
 				arrived.append(u)
 		for u in arrived:
 			var mortar: Unit = u.resupply_target_mortar
@@ -2743,7 +2743,7 @@ func _process(delta: float) -> void:
 
 	_tick_movement(scenario_delta)
 	_resolve_resupply_run_arrivals()
-	_update_spotting(delta)
+	_update_spotting(scenario_delta)
 	_update_enemy_mortar_positioning()
 	_update_joint_mortar_hunt()
 	_update_friendly_mortar_hunting()
@@ -2907,9 +2907,21 @@ func _sidestep_building(unit: Unit, scenario_delta: float, blocked_pos: Vector2)
 	unit.position.y += dir_y * unit.retreat_speed * scenario_delta
 
 
-func _update_spotting(delta: float) -> void:
-	_refresh_visibility(player_units, enemy_units, delta)
-	_refresh_visibility(enemy_units, player_units, delta)
+## Takes scenario_delta (tactical seconds), not real elapsed_time — every
+## other rate-based system in _process (movement, ammo, resupply timing)
+## is calibrated in tactical time, and CombatResolver.SPOT_CHANCE_PER_
+## SECOND is no exception, despite the generic parameter name. Passing
+## real delta here instead was a genuine bug this project shipped with for
+## a while: at TIME_SCALE_NORMAL (60x) alone, a target sitting in plain,
+## point-blank view for a real 10 seconds — 30 tactical MINUTES — could
+## still go entirely unspotted, since the roll only accumulated real-world
+## seconds' worth of chance while tactical time (and the observer's own
+## movement) raced ahead 60x faster. Confirmed empirically before fixing:
+## a drone and mortar placed exactly on top of each other, in the open,
+## went unspotted for that same 30 simulated minutes in a real trial.
+func _update_spotting(scenario_delta: float) -> void:
+	_refresh_visibility(player_units, enemy_units, scenario_delta)
+	_refresh_visibility(enemy_units, player_units, scenario_delta)
 
 
 ## Visibility is live, not permanent: a target already visible stays that
@@ -2932,7 +2944,7 @@ func _update_spotting(delta: float) -> void:
 ## _known_friendly_mortar_position) is a separate, complementary channel
 ## for a last-known position even without a current visual sighting — not
 ## the only way to ever find it.
-func _refresh_visibility(observers: Array[Unit], targets: Array[Unit], delta: float) -> void:
+func _refresh_visibility(observers: Array[Unit], targets: Array[Unit], scenario_delta: float) -> void:
 	for target in targets:
 		if target.state == Unit.State.DESTROYED or target.state == Unit.State.SURRENDERED:
 			continue
@@ -2945,7 +2957,7 @@ func _refresh_visibility(observers: Array[Unit], targets: Array[Unit], delta: fl
 		for observer in observers:
 			if observer.state != Unit.State.ACTIVE:
 				continue
-			if CombatResolver.roll_spot(observer, target, delta):
+			if CombatResolver.roll_spot(observer, target, scenario_delta):
 				target.is_visible = true
 				target.queue_redraw()
 				combat_log.log_spotted(target)

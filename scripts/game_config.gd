@@ -726,10 +726,16 @@ const RETREAT_DIRECTION_TOLERANCE: float = 100.0 * PIXELS_PER_METER
 # watching time at BATTLE_TIME_LIMIT / TIME_SCALE_NORMAL (240 real seconds).
 const BATTLE_TIME_LIMIT: float = 14400.0
 
-# Spotting.
+# Spotting. Named _PER_TACTICAL_SECOND, not just _PER_SECOND, on purpose —
+# CombatResolver.roll_spot multiplies this by scenario_delta (tactical
+# seconds), matching every other rate constant in this game, after a real
+# bug where it was fed real elapsed_time instead: at TIME_SCALE_NORMAL
+# (60x) alone, a target in plain view for a real 10 seconds — 30 tactical
+# MINUTES — could still go entirely unspotted, since the roll only ever
+# accumulated real-world seconds' worth of chance.
 const DETECTION_BASE_RANGE: float = 900.0 * PIXELS_PER_METER
 const DETECTION_ELEVATION_BONUS: float = 500.0 * PIXELS_PER_METER # added when spotter is higher than target
-const SPOT_CHANCE_PER_SECOND: float = 0.15
+const SPOT_CHANCE_PER_TACTICAL_SECOND: float = 0.15
 const MOVING_SPOT_MULTIPLIER: float = 3.0
 
 # The artillery spotter: a small, fragile, unarmed recon team whose job is
@@ -1188,6 +1194,21 @@ const MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES: float = 30.0
 # armor, no weapon, and a single hit ends it (see Unit.setup's
 # Kind.RESUPPLY_RUN case).
 const MORTAR_RESUPPLY_RUN_SPEED: float = 7.0 * PIXELS_PER_METER
+
+## How close a resupply run needs to get to the mortar for delivery to
+## actually trigger (see BattleManager._resolve_resupply_run_arrivals) —
+## deliberately its OWN constant rather than reusing Unit.MOVE_ARRIVE_
+## RADIUS (5m), which is tuned for a unit reaching its own empty waypoint,
+## not for judging when two DRAWN TOKENS visually look like they've met.
+## The mortar's own icon is drawn at a 10px radius and the run's at 6px
+## (see Unit._draw) — 50m and 30m respectively at this map's scale — so a
+## 5m tolerance leaves a real, visible gap where the two tokens already
+## look like they're touching or overlapping on screen well before the
+## precise delivery condition would actually fire. Set comfortably inside
+## the ~80m distance at which the icons' own edges would touch, so
+## delivery completes while they're still visibly closing the last of the
+## gap rather than needing to sit exactly on top of one another first.
+const MORTAR_RESUPPLY_ARRIVAL_RADIUS: float = 30.0 * PIXELS_PER_METER
 
 # Only worth a mortar actively closing distance toward its own resupply
 # point (a real "linkup," see BattleManager's resupply-linkup idle check)
