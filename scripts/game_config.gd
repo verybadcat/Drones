@@ -671,6 +671,20 @@ const SPOTTER_DETECTION_RANGE_BONUS: float = 500.0 * PIXELS_PER_METER # added to
 const SPOTTER_HIDDEN_DETECTION_RANGE: float = 250.0 * PIXELS_PER_METER # replaces detection range entirely when in cover
 const SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER: float = 0.8 # applies only when NOT in cover
 
+# A mortar crew, same idea as the spotter above: real siting/camouflage
+# doctrine (dug in, netted, tucked into vegetation) makes a well-hidden
+# gun genuinely hard to notice even with clear line of sight to it — but
+# not impossible outright the way a categorical "never visible" rule
+# would claim. This is a SEPARATE, probabilistic layer underneath the
+# hard geometric one: a mortar genuinely masked by a hill (has_direct_los
+# blocked outright) is already fully protected regardless of any of this;
+# this only ever matters once LOS is actually clear, deciding how hard
+# the crew is to spot given real camouflage discipline (hidden in
+# TREES) vs. none at all (caught in the OPEN). Applies to both sides'
+# mortars symmetrically, same as every other detection rule in this file.
+const MORTAR_HIDDEN_DETECTION_RANGE: float = 250.0 * PIXELS_PER_METER # replaces detection range entirely when in cover
+const MORTAR_EXPOSED_CONCEALMENT_MULTIPLIER: float = 0.8 # applies only when NOT in cover
+
 # The drone team (ReconMode.DRONE_TEAM): a 3-person ground crew (ground-side
 # stats mirror the mortar's crew model — see Unit.Kind.DRONE_TEAM/
 # _apply_crew_casualties) operating a rotation of DRONE_FLEET_SIZE small
@@ -1447,10 +1461,21 @@ const ENEMY_FLANK_CHANCE: float = 0.35
 ## in, 500m of buffer before the true world edge) — not just a token step
 ## off the road.
 const ENEMY_FLANK_WAYPOINT_X: float = -1000.0 * PIXELS_PER_METER
-## Tighter than ENEMY_SURROUND_STANDOFF_RADIUS (below) since this is a
-## pass-through waypoint on the way to the real objective, not the
-## objective itself.
-const ENEMY_FLANK_WAYPOINT_ARRIVAL_RADIUS: float = 100.0 * PIXELS_PER_METER
+## Must be LARGER than ENEMY_SURROUND_STANDOFF_RADIUS (below), not
+## tighter — the original, smaller value here was a real bug: _next_
+## advance_point stops requesting any further movement once within
+## ENEMY_SURROUND_STANDOFF_RADIUS of whatever _enemy_advance_objective
+## currently returns (correct for the REAL objective, where you want a
+## squad to stand off rather than walk on top of the mortar/village), but
+## while flanking_route_active is still true, that objective IS this
+## waypoint — so with a tighter arrival radius, the squad reliably halted
+## exactly at the standoff distance and got stuck there forever, having
+## reached the flank but never actually pivoting to approach the real
+## objective from it. Characterization testing (ahead of the tactical
+## rewrite) caught this at 0% of flanking squads ever completing the
+## maneuver across 200 trials. Set comfortably above the standoff radius
+## so arrival is always detected first.
+const ENEMY_FLANK_WAYPOINT_ARRIVAL_RADIUS: float = 350.0 * PIXELS_PER_METER
 
 ## Advance-candidate scoring — see BattleManager._score_advance_candidate.
 ## COVER rewards a candidate that actually lands in TREES/BUILDING terrain,

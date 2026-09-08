@@ -2470,20 +2470,21 @@ func _update_spotting(delta: float) -> void:
 ## visible has a chance each tick to be freshly noticed (CombatResolver.
 ## roll_spot — the existing probabilistic, concealment-aware roll).
 ##
-## The one exception: the friendly (player) mortar is never visually
-## spotted by this at all, categorically — a well-sited, camouflaged crew
-## on a reverse slope isn't something rifle squads happen to notice by
-## scanning the horizon. The ONLY way the enemy ever gets a fix on it is by
-## detecting it actually firing (real counter-battery detection, via
-## muzzle blast/trajectory rather than eyesight — see _launch_mortar_shot's
-## _last_detected_mortar_fire and _known_friendly_mortar_position, which
-## the enemy's counter-battery-range chase already relies on for exactly
-## this case).
+## The friendly (player) mortar goes through exactly this same roll, same
+## as any other unit — it tries to avoid being seen (siting, cover,
+## shoot-and-scoot relocation, all already modeled) via CombatResolver's
+## own mortar-specific hidden/exposed concealment treatment
+## (GameConfig.MORTAR_HIDDEN_DETECTION_RANGE/MORTAR_EXPOSED_CONCEALMENT_
+## MULTIPLIER), but if an enemy genuinely gets within range with clear LOS
+## to it, it CAN and does get spotted and directly engaged, exactly like
+## any other unit would be. Counter-battery detection (muzzle blast/
+## trajectory, see _launch_mortar_shot's _last_detected_mortar_fire and
+## _known_friendly_mortar_position) is a separate, complementary channel
+## for a last-known position even without a current visual sighting — not
+## the only way to ever find it.
 func _refresh_visibility(observers: Array[Unit], targets: Array[Unit], delta: float) -> void:
 	for target in targets:
 		if target.state == Unit.State.DESTROYED or target.state == Unit.State.SURRENDERED:
-			continue
-		if target.kind == Unit.Kind.MORTAR and target.team == Unit.Team.PLAYER:
 			continue
 		if target.is_visible:
 			if not CombatResolver.has_live_observer(target, observers):

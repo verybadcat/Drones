@@ -52,11 +52,13 @@ const CONCEALMENT_MULTIPLIER := {
 ## The detection range between a specific observer/target pair — shared by
 ## both roll_spot (becoming visible) and has_live_observer (staying visible)
 ## so the two can never disagree about how far someone can be seen. A hidden
-## spotter overrides everything else: elevation and a spotter's own extended
-## range don't help you find someone hunkered down and hidden.
+## spotter or mortar overrides everything else: elevation and a spotter's
+## own extended range don't help you find someone hunkered down and hidden.
 static func effective_detection_range(observer: Unit, target: Unit) -> float:
 	if target.kind == Unit.Kind.SPOTTER and GameConfig.is_in_cover(target.terrain_type()):
 		return GameConfig.SPOTTER_HIDDEN_DETECTION_RANGE
+	if target.kind == Unit.Kind.MORTAR and GameConfig.is_in_cover(target.terrain_type()):
+		return GameConfig.MORTAR_HIDDEN_DETECTION_RANGE
 	# A drone's camera at DRONE_ALTITUDE_M is a wholly different sensor, not
 	# the ground-based one with a bonus bolted on — it replaces the whole
 	# calculation, including the elevation-advantage bonus below (a drone is
@@ -87,6 +89,16 @@ static func effective_detection_range(observer: Unit, target: Unit) -> float:
 ## job). Its OWN concealment is two very different stories: hidden in cover,
 ## the enemy effectively can't find it beyond point-blank range; standing in
 ## the open, it's found close to normally.
+##
+## A mortar crew gets the same hidden/exposed treatment (GameConfig.
+## MORTAR_HIDDEN_DETECTION_RANGE/MORTAR_EXPOSED_CONCEALMENT_MULTIPLIER) —
+## real siting/camouflage doctrine makes a well-hidden gun genuinely hard
+## to spot, but never categorically impossible the way an absolute "never
+## visible" rule would claim. This is a probabilistic layer underneath the
+## hard geometric one has_direct_los already provides: a mortar masked by
+## a hill is fully protected regardless of any of this (the roll never
+## even happens, LOS is blocked outright above); this only decides how
+## hard the crew is to spot once LOS is genuinely clear.
 ##
 ## A DRONE observer uses has_aerial_los instead of has_direct_los (see
 ## GameConfig — no ground-elevation blocking, since it's flying well above
@@ -119,6 +131,9 @@ static func roll_spot(observer: Unit, target: Unit, delta: float) -> bool:
 	var target_hidden_spotter := target.kind == Unit.Kind.SPOTTER and GameConfig.is_in_cover(target.terrain_type())
 	if target.kind == Unit.Kind.SPOTTER and not target_hidden_spotter:
 		chance *= GameConfig.SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER
+	var target_hidden_mortar := target.kind == Unit.Kind.MORTAR and GameConfig.is_in_cover(target.terrain_type())
+	if target.kind == Unit.Kind.MORTAR and not target_hidden_mortar:
+		chance *= GameConfig.MORTAR_EXPOSED_CONCEALMENT_MULTIPLIER
 	if target.activity == Unit.Activity.MOVING:
 		chance *= GameConfig.MOVING_SPOT_MULTIPLIER
 	chance *= clamp(1.0 - (distance / detection_range), 0.0, 1.0)
