@@ -4078,8 +4078,10 @@ func _friendly_mortar_is_active() -> bool:
 ## `at_risk` so the pass below never reassigns it to go plug a gap
 ## elsewhere — it's already got its own problem to solve.
 ##
-## (2) MORTAR PROTECTION — for the single nearest known enemy that has an
-## open, unscreened lane to the friendly mortar's own actual position (see
+## (2) MORTAR PROTECTION — for the single nearest known enemy SQUAD still
+## actively pressing the fight (not RETREATING — see
+## _nearest_unscreened_mortar_threat) that has an open, unscreened lane to
+## the friendly mortar's own actual position (see
 ## _nearest_unscreened_mortar_threat/_lane_is_screened), the nearest
 ## still-idle, not-already-at-risk squad moves out to MORTAR_PROTECTIVE_
 ## RADIUS from the mortar, on the bearing toward that threat — directly
@@ -4106,7 +4108,7 @@ func _update_friendly_squad_positioning() -> void:
 	var mortar := _friendly_active_mortar()
 	if mortar == null:
 		return
-	var threat := _nearest_unscreened_mortar_threat(mortar, known_enemies)
+	var threat := _nearest_unscreened_mortar_threat(mortar, enemy_units)
 	if is_inf(threat.x):
 		return
 
@@ -4206,14 +4208,19 @@ func _friendly_active_mortar() -> Unit:
 	return null
 
 
-## The nearest known enemy (from the player's own full knowledge of its own
-## mortar's position — not the enemy's possibly-stale fix on it) within
-## MORTAR_FLANK_THREAT_RADIUS of `mortar` that has no ACTIVE friendly squad
-## currently screening the direct line between the two (_lane_is_screened)
-## — an open lane worth a squad breaking off to plug. Vector2.INF if every
-## nearby threat already has a squad in the way, or nothing is close enough
-## to be a real threat yet.
-func _nearest_unscreened_mortar_threat(mortar: Unit, known_enemies: Array[Vector2]) -> Vector2:
+## The nearest enemy SQUAD (from the player's own full knowledge of its own
+## mortar's position — not the enemy's possibly-stale fix on it) that's
+## still actively pressing the fight — RETREATING is deliberately excluded,
+## same as _target_danger_to_force/_mortar_target_value's own squad-danger
+## exclusion elsewhere: a squad already pulling out of the fight isn't
+## preparing to overrun anything, so it isn't a flank threat worth pulling
+## a squad out of position for. Within MORTAR_FLANK_THREAT_RADIUS of
+## `mortar` and with no ACTIVE friendly squad currently screening the
+## direct line between the two (_lane_is_screened) — an open lane worth a
+## squad breaking off to plug. Vector2.INF if every nearby threat already
+## has a squad in the way, or nothing close enough is still actually a
+## threat.
+func _nearest_unscreened_mortar_threat(mortar: Unit, opposing: Array[Unit]) -> Vector2:
 	var screening_squads: Array[Unit] = []
 	for u in player_units:
 		if u.kind == Unit.Kind.SQUAD and u.state == Unit.State.ACTIVE:
@@ -4221,7 +4228,10 @@ func _nearest_unscreened_mortar_threat(mortar: Unit, known_enemies: Array[Vector
 
 	var best := Vector2.INF
 	var best_dist := INF
-	for p in known_enemies:
+	for e in opposing:
+		if e.kind != Unit.Kind.SQUAD or e.state != Unit.State.ACTIVE or not e.is_visible:
+			continue
+		var p: Vector2 = e.global_position
 		var dist: float = p.distance_to(mortar.global_position)
 		if dist > GameConfig.MORTAR_FLANK_THREAT_RADIUS:
 			continue
