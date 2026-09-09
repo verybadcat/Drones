@@ -29,7 +29,7 @@ const TestCombatLogScript := preload("res://scripts/tests/test_combat_log.gd")
 const TRIALS_PER_MODE := 100
 const MAX_TICKS := 30000
 const TICK_DELTA := 0.5
-const RETREAT_THRESHOLD := 0.30 # DoctrinePanel's own default slider value
+const RETREAT_THRESHOLD := 0.30 # Frozen pre-rewrite baseline value — DoctrinePanel's own default has since changed; kept fixed here so this historical comparison stays apples-to-apples
 
 const OUTPUT_JSON := "res://docs/designs/pre-rewrite-baseline.json"
 const OUTPUT_MD := "res://docs/designs/pre-rewrite-baseline.md"

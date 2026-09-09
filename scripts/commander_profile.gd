@@ -10,7 +10,7 @@ const AXIS_LABELS := ["Protect the force", "Apply pressure", "Counter enemy mort
 static func preset(id: String) -> Dictionary:
 	var p := {"id": id, "protection": 1.0, "pressure": 1.0,
 		"counter_mortar": 1.0, "conservation": 1.0, "deterministic": false,
-		"retreat_threshold": 0.30}
+		"retreat_threshold": 0.50}
 	match id:
 		"cautious":
 			p.merge({"protection": 2.5, "pressure": 0.5, "counter_mortar": 1.0,

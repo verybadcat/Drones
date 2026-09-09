@@ -32,7 +32,7 @@ var unit_label: String = "Squad"
 var max_pips: int = 4
 var pips: int = 4
 var base_hit_chance: float = 0.20
-var retreat_threshold: float = 0.30 # SQUAD only — fraction of pips lost that triggers retreat
+var retreat_threshold: float = 0.50 # SQUAD only — fraction of pips lost that triggers retreat
 var state: State = State.ACTIVE
 var activity: Activity = Activity.STATIONARY
 

@@ -88,12 +88,12 @@ func _build_retreat_section() -> Control:
 	threshold_slider.min_value = 10
 	threshold_slider.max_value = 90
 	threshold_slider.step = 5
-	threshold_slider.value = 30
+	threshold_slider.value = 50
 	threshold_slider.custom_minimum_size = Vector2(140, 0)
 	box.add_child(threshold_slider)
 
 	_threshold_value = Label.new()
-	_threshold_value.text = "30% casualties"
+	_threshold_value.text = "50% casualties"
 	box.add_child(_threshold_value)
 	threshold_slider.value_changed.connect(func(value): _threshold_value.text = "%d%% casualties" % int(value))
 	_threshold_slider = threshold_slider
@@ -117,6 +117,7 @@ func _build_mortar_section() -> Control:
 	# used to push this past the panel's width with nothing to clip the
 	# overflow. The detail lives in the note below instead.
 	scoot_check.text = "Shoot and scoot"
+	scoot_check.button_pressed = true
 	scoot_row.add_child(scoot_check)
 	box.add_child(scoot_row)
 	_mortar_shoot_and_scoot = scoot_check
