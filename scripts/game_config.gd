@@ -1193,6 +1193,25 @@ const DRONE_FLANK_WATCH_STANDING_PRIORITY: float = 30.0
 const MORTAR_STARTING_AMMO: int = 20
 const MORTAR_RESUPPLY_ROUNDS: int = 20
 
+## How much a crew keeps on hand at the firing position at all, on top of
+## what it's already carrying — a real position doesn't have unlimited pit
+## storage, and it isn't realistic to hand-carry a large surplus through
+## every shoot-and-scoot displacement either (the tube, base plate, and
+## bipod are already a multi-man carry on their own; each round is close to
+## 10 lb). Real logistics doctrine backs the shape of this even without a
+## single precise "rounds per tube" figure to cite: a unit keeps a
+## prescribed "basic load" on hand to sustain it until the next resupply,
+## with the bulk of any surplus deliberately staged/cached farther back
+## (an ammunition supply point, not piled at an exposed forward position)
+## rather than pushed all the way forward "just in case." A modest 1.5x the
+## starting load reflects a slightly-larger-than-initial ready pit, not a
+## second full load sitting exposed next to the gun. See
+## _update_mortar_resupply's arrival handling for how a wave actually gets
+## held back (never dispatched at all) once the position is already at
+## this ceiling, rather than a run walking all the way up only to be
+## capped/wasted on arrival.
+const MORTAR_MAX_AMMO_ON_HAND: int = 30
+
 # A resupply run's delay from the moment it's requested — genuinely random,
 # not a fixed countdown, modeled as log-normal (right-skewed: it can run
 # late by a lot more than it can ever run early) with the requested MEDIAN,

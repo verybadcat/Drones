@@ -1201,6 +1201,20 @@ func _update_mortar_resupply() -> void:
 				resolved[i] = true
 				if m.state != Unit.State.ACTIVE:
 					pass # the position is gone — nothing to send a run toward
+				elif m.mortar_rounds_remaining >= GameConfig.MORTAR_MAX_AMMO_ON_HAND:
+					# The position is already about as stocked as a forward
+					# firing point realistically keeps — the run simply never
+					# leaves the rear (an ammunition supply point, not an
+					# exposed load sitting next to the gun) rather than
+					# walking all the way up only to be capped or wasted on
+					# arrival. Requests were never gated on ammo level in the
+					# first place (see _update_mortar_resupply_requests'
+					# own doc comment) specifically so this can be checked
+					# late, right before actually committing a physical run
+					# to the trip, without ever having blocked the supply
+					# chain from starting to move.
+					if _should_narrate_mortar_logistics(m):
+						combat_log.log_mortar_resupply_held(m)
 				elif randf() < GameConfig.MORTAR_RESUPPLY_FAILURE_CHANCE:
 					if _should_narrate_mortar_logistics(m):
 						combat_log.log_mortar_resupply_failed(m)
@@ -1350,9 +1364,19 @@ func _resolve_resupply_run_arrivals() -> void:
 				arrived.append(u)
 		for u in arrived:
 			var mortar: Unit = u.resupply_target_mortar
-			mortar.mortar_rounds_remaining += GameConfig.MORTAR_RESUPPLY_ROUNDS
+			# Capped at delivery too, not just at dispatch (_update_mortar_
+			# resupply's own hold-back check): the mortar could have simply
+			# not fired much in the transit time between the two, so a run
+			# that was a legitimate top-up when it left the rear can still
+			# arrive to find the position closer to full than expected.
+			# Delivering only what actually fits keeps the same realistic
+			# ceiling either way, without wasting the run outright — full
+			# credit for the trip, just not more rounds than the position
+			# has anywhere to put.
+			var delivered: int = clampi(GameConfig.MORTAR_RESUPPLY_ROUNDS, 0, GameConfig.MORTAR_MAX_AMMO_ON_HAND - mortar.mortar_rounds_remaining)
+			mortar.mortar_rounds_remaining += delivered
 			if _should_narrate_mortar_logistics(mortar):
-				combat_log.log_mortar_resupply_delivered(mortar, GameConfig.MORTAR_RESUPPLY_ROUNDS)
+				combat_log.log_mortar_resupply_delivered(mortar, delivered)
 			side.erase(u)
 			u.queue_free()
 		for u in aborted:
