@@ -10,12 +10,13 @@ var level_select_screen: LevelSelectScreen
 var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
 
 # The map (deployment_screen/battle_manager) lives inside this SubViewport
-# rather than directly under root, so a Camera2D can pan just the map
-# without dragging the sidebar (a direct sibling of root, outside the
-# viewport) along with it — see _ready() for the full setup and
-# GameConfig.WEST_FLANK_WIDTH_PX for why a camera is needed here at all.
-# Built once and kept for the app's whole lifetime, unlike the phase nodes
-# below which _clear_all() tears down and recreates every phase.
+# rather than directly under root so it can have its own Camera2D, kept
+# permanently fixed at GameConfig.CAMERA_CENTER_X showing the ENTIRE
+# modeled world (GameConfig.CAMERA_VIEWPORT_WIDTH_PX wide — see that
+# constant's own doc comment for why this is wider than just MAP_WIDTH_PX,
+# and why nothing here ever pans any more) — see _ready() for the full
+# setup. Built once and kept for the app's whole lifetime, unlike the phase
+# nodes below which _clear_all() tears down and recreates every phase.
 var map_container: SubViewportContainer
 var map_viewport: SubViewport
 var map_camera: Camera2D
@@ -40,12 +41,6 @@ var drone_debug_panel
 # space so its heat cells and contact markers line up with real world
 # positions and pan correctly with the camera.
 var enemy_heatmap_overlay
-
-## Whether the camera's wide view (see _apply_wide_view_state) is currently
-## active — persisted here (not recomputed fresh each frame) because the
-## hysteresis in GameConfig.camera_wants_wide_view needs to know what state
-## it's ALREADY in to decide whether to change it.
-var _wide_view_active: bool = false
 
 var report_background: Control
 var restart_button: Button
@@ -103,16 +98,16 @@ var _clock_label: Label
 func _ready() -> void:
 	map_container = SubViewportContainer.new()
 	map_container.position = Vector2(0, 0)
-	map_container.size = Vector2(GameConfig.MAP_WIDTH_PX, GameConfig.MAP_HEIGHT_PX)
+	map_container.size = Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX, GameConfig.MAP_HEIGHT_PX)
 	map_container.stretch = true
 	add_child(map_container)
 
 	map_viewport = SubViewport.new()
-	map_viewport.size = Vector2i(int(GameConfig.MAP_WIDTH_PX), int(GameConfig.MAP_HEIGHT_PX))
+	map_viewport.size = Vector2i(int(GameConfig.CAMERA_VIEWPORT_WIDTH_PX), int(GameConfig.MAP_HEIGHT_PX))
 	map_container.add_child(map_viewport)
 
 	map_camera = Camera2D.new()
-	map_camera.position = Vector2(GameConfig.CAMERA_DEFAULT_X, GameConfig.MAP_HEIGHT_PX / 2.0)
+	map_camera.position = Vector2(GameConfig.CAMERA_CENTER_X, GameConfig.MAP_HEIGHT_PX / 2.0)
 	map_camera.limit_left = int(-GameConfig.WEST_FLANK_WIDTH_PX)
 	map_camera.limit_right = int(GameConfig.MAP_WIDTH_PX)
 	map_camera.limit_top = 0
@@ -129,7 +124,7 @@ func _ready() -> void:
 	add_child(_elevation_label)
 
 	_clock_label = Label.new()
-	_clock_label.position = Vector2(GameConfig.MAP_WIDTH_PX - 90, 4)
+	_clock_label.position = Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX - 90, 4)
 	_clock_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.85))
 	_clock_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
 	_clock_label.add_theme_constant_override("shadow_offset_x", 1)
@@ -143,11 +138,12 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	# Root itself carries no camera, so this stays exactly screen-anchored
-	# and still matches map_container's fixed 1000x700 screen rect — only
-	# the elevation VALUE (below) needs to account for the map's own
-	# camera pan.
+	# and matches map_container's own fixed screen rect (GameConfig.
+	# CAMERA_VIEWPORT_WIDTH_PX x MAP_HEIGHT_PX) — _map_mouse_world_position
+	# below still goes through the inner Camera2D's transform to get the
+	# actual world position for the elevation lookup itself.
 	var mouse_pos := get_global_mouse_position()
-	if mouse_pos.x < 0.0 or mouse_pos.x > GameConfig.MAP_WIDTH_PX or mouse_pos.y < 0.0 or mouse_pos.y > GameConfig.MAP_HEIGHT_PX:
+	if mouse_pos.x < 0.0 or mouse_pos.x > GameConfig.CAMERA_VIEWPORT_WIDTH_PX or mouse_pos.y < 0.0 or mouse_pos.y > GameConfig.MAP_HEIGHT_PX:
 		_elevation_label.visible = false
 	else:
 		_elevation_label.visible = true
@@ -155,23 +151,6 @@ func _process(delta: float) -> void:
 		_elevation_label.text = "Elevation: %dm" % int(round(elevation_m))
 
 	_clock_label.text = battle_manager.clock_string() if battle_manager else "%02d:00:00" % int(GameConfig.SCENARIO_START_HOUR)
-
-	if battle_manager and map_camera:
-		var relevant: Array[Vector2] = battle_manager._camera_relevant_positions()
-		var span: float = GameConfig.camera_relevant_span_px(relevant)
-		_wide_view_active = GameConfig.camera_wants_wide_view(span, _wide_view_active)
-		_apply_wide_view_state(_wide_view_active, delta)
-
-		var target_x: float = GameConfig.CAMERA_WIDE_VIEW_CENTER_X if _wide_view_active else GameConfig.compute_camera_target_x(relevant, map_camera.position.x)
-		map_camera.position.x = lerp(map_camera.position.x, target_x, delta * GameConfig.CAMERA_FOLLOW_LERP_SPEED)
-		# A resupply run spawns at whatever edge of the map is CURRENTLY on
-		# screen (see BattleManager._resupply_entry_point_for) rather than a
-		# fixed pre-placed point, so it always visually enters from off-map
-		# instead of popping into existence mid-view — battle_manager has no
-		# reach up to the actual Camera2D node, so this is pushed down to it
-		# every frame instead.
-		battle_manager.current_camera_x = map_camera.position.x
-		battle_manager.current_camera_view_width = map_container.size.x
 
 	# Deliberately NOT gated on _drone_debug_enabled (the human-facing visual
 	# overlay) or battle_manager.is_paused — this file is how an outside
@@ -197,40 +176,6 @@ func _process(delta: float) -> void:
 		_update_history_time_label()
 		if not history_viewer.is_playing: # reached the end this frame
 			_update_history_play_button_text()
-
-
-## Reclaims the casualty dashboard's own screen footprint to physically
-## widen the map viewport — not zoom, units stay full-size — exactly
-## enough to show the whole modeled world (west flank through the map's
-## true east edge) at once, so simultaneous action at both ends never has
-## to fight over which one the camera pans to reveal. See GameConfig.
-## camera_wants_wide_view for the hysteresis driving `active`.
-##
-## The dashboard fades rather than snapping invisible, so the wider map
-## behind it is revealed gradually, not with a jarring pop — but the
-## viewport/container resize itself is a discrete step, not something
-## animated at that same smooth rate: continuously resizing a SubViewport's
-## backing render target every frame would reallocate GPU resources for no
-## real benefit, unlike a plain float lerp. Widening happens immediately on
-## entry (the still-opaque, or still-fading, dashboard covers the reveal
-## until its own fade catches up); narrowing back only happens once the
-## dashboard has fully returned to opaque, so the viewport's real edge is
-## never exposed uncovered in either direction.
-func _apply_wide_view_state(active: bool, delta: float) -> void:
-	if not casualty_dashboard:
-		return
-	var target_alpha: float = 0.0 if active else 1.0
-	casualty_dashboard.modulate.a = move_toward(casualty_dashboard.modulate.a, target_alpha, delta * GameConfig.CAMERA_WIDE_VIEW_FADE_SPEED)
-	# Faded (or fading) out of the way — clicks meant for the map underneath
-	# shouldn't be swallowed by an invisible panel still sitting on top of it.
-	casualty_dashboard.mouse_filter = Control.MOUSE_FILTER_IGNORE if active else Control.MOUSE_FILTER_STOP
-
-	if active:
-		map_container.size.x = GameConfig.CAMERA_WIDE_VIEW_WIDTH_PX
-		map_viewport.size.x = int(GameConfig.CAMERA_WIDE_VIEW_WIDTH_PX)
-	elif casualty_dashboard.modulate.a >= 1.0:
-		map_container.size.x = GameConfig.MAP_WIDTH_PX
-		map_viewport.size.x = int(GameConfig.MAP_WIDTH_PX)
 
 
 ## _unhandled_input rather than _input: lets any real UI control (a
@@ -339,28 +284,18 @@ func _on_recon_mode_chosen(mode: GameConfig.ReconMode) -> void:
 
 func _show_deployment() -> void:
 	_clear_all()
-	map_camera.position = Vector2(GameConfig.CAMERA_DEFAULT_X, GameConfig.MAP_HEIGHT_PX / 2.0) # nobody deploys off-map, so the camera never needs to move during this phase
-	# A battle that ended while the wide view (see _apply_wide_view_state)
-	# was active must not leave the viewport widened into the next phase —
-	# casualty_dashboard itself is about to be freed by _clear_all() above
-	# regardless, but the map_container/map_viewport it borrowed screen
-	# space from live for the app's whole lifetime and need resetting
-	# explicitly.
-	_wide_view_active = false
-	map_container.size.x = GameConfig.MAP_WIDTH_PX
-	map_viewport.size.x = int(GameConfig.MAP_WIDTH_PX)
 
 	deployment_screen = DeploymentScreen.new()
 	deployment_screen.recon_mode = recon_mode
 	map_viewport.add_child(deployment_screen)
 
 	doctrine_panel = DoctrinePanel.new()
-	doctrine_panel.position = Vector2(1020, 20)
+	doctrine_panel.position = Vector2(GameConfig.SIDEBAR_X, 20)
 	add_child(doctrine_panel)
 
 	start_button = Button.new()
 	start_button.text = "Start Battle"
-	start_button.position = Vector2(1020, 540)
+	start_button.position = Vector2(GameConfig.SIDEBAR_X, 540)
 	start_button.pressed.connect(_on_start_pressed)
 	add_child(start_button)
 
@@ -398,7 +333,7 @@ func _on_start_pressed() -> void:
 
 	retreat_button = Button.new()
 	retreat_button.text = "Order General Retreat"
-	retreat_button.position = Vector2(1020, 20) # measured 181x31 — see pause_button's own x below; casualty_dashboard's y below is against this row's shared height
+	retreat_button.position = Vector2(GameConfig.SIDEBAR_X, 20) # measured 181x31 — see pause_button's own x below; casualty_dashboard's y below is against this row's shared height
 	retreat_button.pressed.connect(_on_retreat_pressed)
 	add_child(retreat_button)
 
@@ -409,7 +344,7 @@ func _on_start_pressed() -> void:
 	# down to combat_log's fixed position near the window's own 700px
 	# bottom edge (see combat_log.position below), with no slack left to
 	# push everything down a further button-row's worth.
-	pause_button.position = Vector2(1020 + 181.0 + 14.0, 20)
+	pause_button.position = Vector2(GameConfig.SIDEBAR_X + 181.0 + 14.0, 20)
 	pause_button.pressed.connect(_on_pause_pressed)
 	add_child(pause_button)
 
@@ -423,7 +358,7 @@ func _on_start_pressed() -> void:
 	# automatically now (see BattleManager._update_mortar_resupply_requests)
 	# — no button for it, so this sidebar is back to the single button row
 	# it had before that was ever added, now shared by retreat + pause.
-	casualty_dashboard.position = Vector2(1020, 65)
+	casualty_dashboard.position = Vector2(GameConfig.SIDEBAR_X, 65)
 	casualty_dashboard.setup(battle_manager)
 	add_child(casualty_dashboard)
 
@@ -434,7 +369,7 @@ func _on_start_pressed() -> void:
 	# multi-line worst case included. The window is a fixed 700px tall (see
 	# project.godot); CombatLog's own declared SIZE.y (see combat_log.gd)
 	# is sized to fill what's left over.
-	combat_log.position = Vector2(1020, 575)
+	combat_log.position = Vector2(GameConfig.SIDEBAR_X, 575)
 	add_child(combat_log)
 
 	# Drawn over the map itself, bottom-left, rather than in the sidebar

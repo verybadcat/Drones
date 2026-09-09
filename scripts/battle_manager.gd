@@ -77,23 +77,6 @@ var _pending_counter_battery: Array[Dictionary] = []
 # "aim_point": Vector2, "impact_time": float}
 var _pending_mortar_shots: Array[Dictionary] = []
 
-## Pushed every frame by main.gd (which owns the actual Camera2D — see its
-## own _process) — the map camera's current x, so a spawning resupply run
-## can enter from whatever edge of the map is CURRENTLY on screen rather
-## than a fixed pre-placed point (see _resupply_entry_point_for). Defaults
-## to GameConfig.CAMERA_DEFAULT_X so a stray call before the first frame
-## (or in a headless test with no main.gd driving it) still resolves to
-## the map's ordinary, un-panned view.
-var current_camera_x: float = GameConfig.CAMERA_DEFAULT_X
-
-## Pushed alongside current_camera_x above, same reasoning — the map
-## viewport's own current width, which is GameConfig.MAP_WIDTH_PX normally
-## but temporarily wider while main.gd's wide view is active (see
-## GameConfig.CAMERA_WIDE_VIEW_WIDTH_PX). _resupply_entry_point_for needs
-## the REAL current on-screen half-width, not a hardcoded one, or a
-## resupply run would spawn as if the view were still its normal size even
-## while it's actually wider.
-var current_camera_view_width: float = GameConfig.MAP_WIDTH_PX
 
 # True once a side has EVER sighted the enemy — sticky, not "currently
 # visible right now" (see _update_sighting_flags) — "once the enemy is
@@ -290,8 +273,6 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_player_sighted_enemy = false
 	_enemy_sighted_enemy = false
 	_mortar_resupply.clear()
-	current_camera_x = GameConfig.CAMERA_DEFAULT_X
-	current_camera_view_width = GameConfig.MAP_WIDTH_PX
 
 	for unit in player_units + enemy_units:
 		unit.queue_free()
@@ -695,26 +676,6 @@ func _known_enemy_positions(team: Unit.Team) -> Array[Vector2]:
 	return positions
 
 
-## Feeds GameConfig.compute_camera_target_x — every unit position the
-## player is currently allowed to know about. Player units always count
-## (nothing to hide from the player about their own force, regardless of
-## is_visible); an enemy unit only counts once actually spotted — panning
-## the camera toward an unspotted enemy would hand the player its position
-## for free, the exact fog-of-war leak this whole session has been careful
-## to avoid elsewhere (see _update_player_intel). WITHDRAWN/DESTROYED/
-## SURRENDERED units are done moving, so the camera has no reason to keep
-## tracking them once a more active thing needs the frame.
-func _camera_relevant_positions() -> Array[Vector2]:
-	var out: Array[Vector2] = []
-	for u in player_units:
-		if u.state == Unit.State.ACTIVE or u.state == Unit.State.RETREATING:
-			out.append(u.global_position)
-	for u in enemy_units:
-		if (u.state == Unit.State.ACTIVE or u.state == Unit.State.RETREATING) and u.is_visible:
-			out.append(u.global_position)
-	return out
-
-
 ## Other ACTIVE units on `unit`'s own side (never `unit` itself) — used both
 ## to steer a squad's own cover choice away from an ally already there (see
 ## Unit.seek_cover's avoid_positions) and to find a bunched-up neighbor a
@@ -788,23 +749,17 @@ func _bunched_ally(defender: Unit) -> Unit:
 	return null
 
 
-## Where a resupply run for `mortar` actually enters the map: whatever edge
-## of the map is CURRENTLY on screen (see current_camera_x), on `mortar`'s
-## own side — the west edge for the player (its rear is west), the east
-## edge for the enemy (its rear is east) — at the mortar's own current y,
-## so it heads straight in toward the mortar rather than on a diagonal.
-## Deliberately dynamic rather than a fixed pre-placed point: if the camera
-## has panned to show the west flank because the mortar relocated out
-## there, the run should visibly enter from THAT edge, not reappear back
-## near the original map boundary and cross ground that's already on
-## screen. See main.gd's own comment on why current_camera_x is pushed
-## down from there every frame instead of read directly — current_camera_
-## view_width is that same pushed-down value's width counterpart, needed
-## so this still finds the real edge while main.gd's wide view has
-## temporarily widened the viewport past its normal MAP_WIDTH_PX.
+## Where a resupply run for `mortar` actually enters the map: the true edge
+## of the modeled world on `mortar`'s own side — the west edge for the
+## player (its rear is west), the east edge for the enemy (its rear is
+## east) — at the mortar's own current y, so it heads straight in toward
+## the mortar rather than on a diagonal. The map viewport is always wide
+## enough to show both true edges at once now (GameConfig.
+## CAMERA_VIEWPORT_WIDTH_PX — no panning, unlike an earlier version of this
+## game), so there's no "wherever the camera currently happens to be
+## showing" to track any more; the edges are simply fixed.
 func _resupply_entry_point_for(mortar: Unit) -> Vector2:
-	var half_width: float = current_camera_view_width / 2.0
-	var edge_x: float = (current_camera_x - half_width) if mortar.team == Unit.Team.PLAYER else (current_camera_x + half_width)
+	var edge_x: float = -GameConfig.WEST_FLANK_WIDTH_PX if mortar.team == Unit.Team.PLAYER else GameConfig.MAP_WIDTH_PX
 	return Vector2(edge_x, mortar.global_position.y)
 
 
@@ -3123,7 +3078,7 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		if unit.kind != Unit.Kind.SQUAD:
 			return # a retreating mortar crew has abandoned the gun — nothing left to fire with
 		fighting_withdrawal = true # still subject to the normal _pick_target range/LOS check below — this only lifts the "too busy moving" block, not the range one
-	if unit.has_move_target and not fighting_withdrawal:
+	if unit.has_move_target and not fighting_withdrawal and unit.kind != Unit.Kind.MORTAR:
 		return # moving with intent (road march, diving for cover) — too busy to fire.
 		# Without this, "immediately head for cover" was true mechanically
 		# (seek_cover() redirects movement right away) but invisible in
@@ -3132,7 +3087,9 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		# fighting withdrawal is a deliberate exception to that: it's
 		# already conceding the fight (retreating, not choosing to stand),
 		# and only fires at all because _pick_target finds something close
-		# enough that walking past unarmed wouldn't be realistic.
+		# enough that walking past unarmed wouldn't be realistic. A MORTAR
+		# gets its own, broader exception below — see the has_move_target
+		# check right before _launch_mortar_shot.
 	if unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(unit.global_position):
 		return # no overhead clearance to lob a round from inside a building
 	if unit.kind == Unit.Kind.MORTAR and unit.mortar_rounds_remaining <= 0:
@@ -3148,6 +3105,25 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		return
 
 	if unit.kind == Unit.Kind.MORTAR:
+		if unit.has_move_target:
+			# A real, in-range, ammo-available target just turned up while
+			# this mortar was mid-relocation (shoot-and-scoot, a threat-
+			# response displacement, a hunt toward a suspected enemy
+			# mortar — any of them) — stop and take the shot rather than
+			# walking past it, the same "stop and get to work" idiom
+			# _update_friendly_mortar_hunting/_update_enemy_mortar_
+			# positioning already use once back in range of THEIR target.
+			# Unlike a squad on the march, a mortar crew mid-relocation
+			# hasn't abandoned the gun (that's what RETREATING means) —
+			# it's just walking it somewhere else, and a real crew sets the
+			# tube down and fires rather than passing up a shot dead to
+			# rights. Deliberately uniform across every reason the mortar
+			# might currently be moving, including an urgent counter-
+			# battery evasion already in progress — a finer "is THIS
+			# specific walk safety-critical" distinction is real but out of
+			# scope for this fix; see the tactical-rewrite doctrine doc.
+			unit.has_move_target = false
+			unit.activity = Unit.Activity.STATIONARY
 		_launch_mortar_shot(unit, target)
 		unit.fire_timer = unit.reload_time
 		# Shoot-and-scoot doctrine: displace after EVERY shot, procedurally,
