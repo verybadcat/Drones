@@ -733,6 +733,8 @@ func _draw() -> void:
 	if color.a <= 0.0:
 		return
 
+	draw_string(ThemeDB.fallback_font, Vector2(-24, 29), unit_label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, color.lightened(0.3))
+
 	var radius := 14.0 if kind == Kind.SQUAD else (8.0 if (kind == Kind.SPOTTER or kind == Kind.DRONE_TEAM) else (6.0 if kind == Kind.RESUPPLY_RUN else (5.0 if kind == Kind.DRONE else 10.0)))
 	if kind == Kind.RESUPPLY_RUN:
 		# A square, not a circle — same non-combat visual language as the

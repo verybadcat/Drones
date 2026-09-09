@@ -15,12 +15,181 @@ signal battle_ended(report_text: String)
 const FLASH_DURATION: float = 0.3
 const CommanderProfile = preload("res://scripts/commander_profile.gd")
 const DecisionRecorder = preload("res://scripts/decision_recorder.gd")
+const UnitDoctrine = preload("res://scripts/unit_doctrine.gd")
+const RiskForecast = preload("res://scripts/risk_forecast.gd")
+const UnitCombatStats = preload("res://scripts/unit_combat_stats.gd")
+var unit_type_doctrines := {Unit.Team.PLAYER: UnitDoctrine.sanitize({}), Unit.Team.ENEMY: UnitDoctrine.sanitize({})}
+var unit_combat_stats = UnitCombatStats.new()
+var _risk_holds: Dictionary = {}
+var _unit_name_counts: Dictionary = {}
 var commander_profiles: Dictionary = {
 	Unit.Team.PLAYER: CommanderProfile.preset("baseline"),
 	Unit.Team.ENEMY: CommanderProfile.preset("baseline"),
 }
 var decisions = DecisionRecorder.new()
 var battle_seed: int = -1
+
+func unit_doctrine_for(unit: Unit) -> Dictionary:
+	return unit_type_doctrines[unit.team][UnitDoctrine.type_key(unit.kind)]
+
+
+func _type_target_score(unit: Unit, target: Unit) -> float:
+	match unit_doctrine_for(unit).targeting:
+		"nearest": return 1.0 / (1.0 + unit.global_position.distance_to(target.global_position))
+		"weakest": return 1.0 / (1.0 + target.pips)
+		"threat": return 0.01 + _target_danger_to_force(unit, target)
+		"mortars": return 100.0 if target.kind == Unit.Kind.MORTAR and target.state == Unit.State.ACTIVE else 1.0
+		"best_chance":
+			if unit.kind == Unit.Kind.DRONE:
+				var distance: float = unit.global_position.distance_to(target.global_position)
+				var visible_path := GameConfig.has_aerial_los(unit.global_position, target.global_position)
+				var concealment: float = GameConfig.DRONE_CONCEALMENT_MULTIPLIER[target.terrain_type()]
+				return maxf(0.0, 1.0 - distance / GameConfig.DRONE_DETECTION_RANGE) * concealment if visible_path else 0.0
+			return CombatResolver.hit_probability(unit, target, _drone_directing_mortar_fire(unit))
+	return 1.0
+
+
+func _forecast_target(unit: Unit) -> Unit:
+	# Preview only: no _pick_target, randomness, or decision mutation.
+	var opposing: Array[Unit] = enemy_units if unit.team == Unit.Team.PLAYER else player_units
+	var best: Unit = null
+	var best_score := -INF
+	for candidate in opposing:
+		if not candidate.is_targetable(): continue
+		if unit.kind == Unit.Kind.SQUAD:
+			if unit.global_position.distance_to(candidate.global_position) > GameConfig.SQUAD_ENGAGEMENT_RANGE: continue
+			if not GameConfig.has_direct_los(unit.global_position, candidate.global_position): continue
+		elif unit.kind == Unit.Kind.MORTAR:
+			if unit.global_position.distance_to(candidate.global_position) > GameConfig.MORTAR_MAX_RANGE: continue
+		elif unit.kind != Unit.Kind.DRONE:
+			continue
+		var score := _enemy_target_value(unit, candidate)
+		if score > best_score:
+			best = candidate
+			best_score = score
+	return best
+
+
+func _risk_forecast(unit: Unit, target: Unit, point: Vector2) -> Dictionary:
+	var threats: Array[Dictionary] = []
+	var opposing: Array[Unit] = enemy_units if unit.team == Unit.Team.PLAYER else player_units
+	for enemy in opposing:
+		if enemy.kind not in [Unit.Kind.SQUAD, Unit.Kind.MORTAR]: continue
+		var known_position: Vector2
+		var confidence := 1.0
+		if enemy.is_visible:
+			if enemy.state not in [Unit.State.ACTIVE, Unit.State.RETREATING]: continue
+			known_position = enemy.global_position
+		else:
+			var lead: Dictionary = _last_detected_mortar_fire.get(enemy, {})
+			if enemy.kind != Unit.Kind.MORTAR or lead.is_empty(): continue
+			var age: float = scenario_elapsed_time - lead.time
+			if age > GameConfig.MORTAR_FIRE_DETECTION_EXPIRY: continue
+			known_position = lead.position
+			confidence = clampf(1.0 - age / GameConfig.MORTAR_FIRE_DETECTION_EXPIRY, 0.0, 1.0)
+		var max_range: float = GameConfig.MORTAR_MAX_RANGE if enemy.kind == Unit.Kind.MORTAR else GameConfig.SQUAD_ENGAGEMENT_RANGE
+		if point.distance_to(known_position) > max_range: continue
+		if enemy.kind == Unit.Kind.SQUAD and not GameConfig.has_direct_los(known_position, point): continue
+		if enemy.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(known_position): continue
+		var probability := CombatResolver.hit_probability(enemy, unit, false, point, known_position) * confidence
+		threats.append({"chance": probability, "shots": RiskForecast.shot_count(enemy, RiskForecast.HORIZON_SECONDS, GameConfig.TIME_SCALE_NORMAL, false), "mortar": enemy.kind == Unit.Kind.MORTAR})
+	# Incoming fire is already announced to the target's side. The source
+	# and other hidden artillery are not exposed by this calculation.
+	for strike in _pending_counter_battery:
+		if strike.target == unit and strike.impact_time - scenario_elapsed_time <= RiskForecast.HORIZON_SECONDS:
+			var chance := clampf(1.0 - point.distance_to(strike.impact_position) / GameConfig.COUNTER_BATTERY_BLAST_RADIUS, 0.0, 1.0)
+			threats.append({"chance": chance, "shots": 1, "mortar": true})
+	var forecast := RiskForecast.damage_distribution(unit, threats)
+	forecast["horizon_seconds"] = RiskForecast.HORIZON_SECONDS
+	forecast["known_threats"] = threats.size()
+	forecast["goal_probability"] = -1.0
+	forecast["goal"] = "Continue the assigned support or movement task (success not forecast)."
+	if target != null and unit.kind in [Unit.Kind.SQUAD, Unit.Kind.MORTAR]:
+		var shots := RiskForecast.shot_count(unit, RiskForecast.HORIZON_SECONDS, GameConfig.TIME_SCALE_NORMAL, true)
+		var hit := CombatResolver.hit_probability(unit, target, _drone_directing_mortar_fire(unit))
+		forecast.goal_probability = 1.0 - pow(1.0 - hit, shots)
+		forecast.goal = "Land at least one damaging hit on %s." % target.display_name()
+	forecast["assumptions"] = "Next 3 tactical minutes at fixed positions/current posture. Known threats assumed able to focus fire; unseen threats, future movement, morale, splash and cook-offs are not forecast. This estimates elimination by damage, not everyone's death."
+	return forecast
+
+
+func _record_risk(unit: Unit, forecast: Dictionary, accepted: bool) -> void:
+	var policy: Dictionary = unit_doctrine_for(unit)
+	decisions.record(unit, scenario_elapsed_time, "Self-risk assessment", {
+		"choice": "Accept task risk" if accepted else "Reduce exposure / withhold fire",
+		"reason": "%s: %s" % [UnitDoctrine.RISK_LABELS[UnitDoctrine.RISK_IDS.find(policy.risk)], forecast.goal],
+		"forecast": forecast, "limits": UnitDoctrine.risk_limits(policy.risk)})
+
+
+func _update_ground_risk_orders() -> void:
+	for unit in player_units + enemy_units:
+		if unit.state != Unit.State.ACTIVE or unit.kind == Unit.Kind.DRONE: continue
+		var risk: String = unit_doctrine_for(unit).risk
+		if risk == "inherit": continue
+		if _risk_holds.has(unit) and unit.has_move_target:
+			continue # Finish the chosen safety move before reconsidering.
+		_risk_holds.erase(unit)
+		var target := _forecast_target(unit)
+		var forecast := _risk_forecast(unit, target, unit.global_position)
+		if unit.has_move_target:
+			# Check both the destination and a point en route; no omniscient
+			# route search. Use the worst sampled exposure, not their product.
+			for point in [unit.global_position.lerp(unit.move_target, 0.5), unit.move_target]:
+				var route := _risk_forecast(unit, target, point)
+				forecast.loss_probability = maxf(forecast.loss_probability, route.loss_probability)
+				forecast.hit_probability = maxf(forecast.hit_probability, route.hit_probability)
+		var accepted := UnitDoctrine.accepts(risk, forecast)
+		_record_risk(unit, forecast, accepted)
+		if accepted: continue
+		_relocate_for_risk(unit)
+
+
+func _relocate_for_risk(unit: Unit) -> void:
+	_risk_holds[unit] = true
+	unit.last_order_reason = "Self-risk policy rejected the current exposure; moving to safer cover or withholding fire."
+	var known := _known_enemy_positions(unit.team)
+	var choices: Array[Vector2] = [unit.global_position,
+		GameConfig.nearest_hidden_point(unit.global_position, known, unit.kind == Unit.Kind.MORTAR),
+		GameConfig.nearest_cover_point(unit.global_position, 0.0, unit.kind == Unit.Kind.MORTAR, _ally_positions_for(unit), known)]
+	var best: Vector2 = unit.global_position
+	var best_risk := INF
+	for point in choices:
+		if unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(point): continue
+		var alternative := _risk_forecast(unit, null, point)
+		var cost: float = alternative.loss_probability + alternative.hit_probability
+		if cost < best_risk:
+			best = point
+			best_risk = cost
+	unit.move_queue.clear()
+	if unit.kind == Unit.Kind.MORTAR:
+		_clear_mortar_move(unit)
+		if best.distance_to(unit.global_position) > Unit.MOVE_ARRIVE_RADIUS:
+			_issue_mortar_move(unit, best, GameConfig.MORTAR_RELOCATE_SPEED, "risk")
+	else:
+		unit.has_move_target = best.distance_to(unit.global_position) > Unit.MOVE_ARRIVE_RADIUS
+		unit.move_target = best
+		unit.activity = Unit.Activity.MOVING if unit.has_move_target else Unit.Activity.STATIONARY
+		unit.move_speed = GameConfig.REPOSITION_SPEED
+		unit.movement_predictable = false
+
+
+func _drone_risk_accepts(drone: Unit, destination: Vector2) -> bool:
+	var policy: Dictionary = unit_doctrine_for(drone)
+	if policy.risk == "inherit": return true
+	var forecast := _risk_forecast(drone, null, destination)
+	var battery_seconds: float = maxf(drone.drone_battery_charge - GameConfig.DRONE_LANDING_CHARGE_COST, 0.0) * GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME
+	var outbound: float = drone.global_position.distance_to(destination) / GameConfig.DRONE_CRUISE_SPEED
+	var homeward: float = destination.distance_to(drone_team.global_position) / GameConfig.DRONE_CRUISE_SPEED
+	forecast.goal = "Reach the observation point and provide 30 seconds of coverage."
+	forecast.goal_probability = (1.0 - forecast.loss_probability) if battery_seconds >= outbound + 30.0 else 0.0
+	if battery_seconds < outbound + 30.0 + homeward:
+		forecast.loss_probability = 1.0
+	forecast["battery_seconds"] = battery_seconds
+	forecast["task_and_return_seconds"] = outbound + 30.0 + homeward
+	var accepted := UnitDoctrine.accepts(policy.risk, forecast)
+	_record_risk(drone, forecast, accepted)
+	return accepted
+
 
 func profile_for(team: Unit.Team) -> Dictionary:
 	return commander_profiles[team]
@@ -30,6 +199,8 @@ func _profile_weight(team: Unit.Team, axis: String) -> float:
 
 # These components are game heuristics, not predicted casualties or win odds.
 func target_score_components(unit: Unit, target: Unit) -> Dictionary:
+	if unit_doctrine_for(unit).targeting != "inherit":
+		return {unit_doctrine_for(unit).targeting: _type_target_score(unit, target)}
 	var profile: Dictionary = profile_for(unit.team)
 	if profile.id == "baseline":
 		return {"original target value": _enemy_target_value(unit, target)}
@@ -40,6 +211,17 @@ func target_score_components(unit: Unit, target: Unit) -> Dictionary:
 	}
 
 func _record_target_choice(unit: Unit, candidates: Array[Unit], chosen: Unit, reason: String, evidence: Dictionary = {}) -> Unit:
+	# Validate the actual selection too: a weighted policy may choose a
+	# different target from the opportunity used by the movement forecast.
+	if chosen != null and unit.state == Unit.State.ACTIVE and unit_doctrine_for(unit).risk != "inherit":
+		var forecast := _risk_forecast(unit, chosen, unit.global_position)
+		var accepted := UnitDoctrine.accepts(unit_doctrine_for(unit).risk, forecast)
+		_record_risk(unit, forecast, accepted)
+		if not accepted:
+			chosen = null
+			reason = "Self-risk policy rejected this firing opportunity after target selection."
+			evidence = evidence.merged({"risk_forecast": forecast})
+			_relocate_for_risk(unit)
 	var rows: Array[Dictionary] = []
 	var opposing: Array[Unit] = enemy_units if unit.team == Unit.Team.PLAYER else player_units
 	for target in opposing:
@@ -58,12 +240,14 @@ func _record_target_choice(unit: Unit, candidates: Array[Unit], chosen: Unit, re
 			"components": target_score_components(unit, target) if eligible else {}})
 	var data := {"choice": decisions.label_for(chosen) if chosen != null else "No target selected",
 		"reason": reason, "candidates": rows, "evidence": evidence,
-		"profile": profile_for(unit.team).duplicate(true)}
+		"profile": profile_for(unit.team).duplicate(true), "unit_doctrine": unit_doctrine_for(unit).duplicate(true)}
 	decisions.record(unit, scenario_elapsed_time, "Target evaluation", data)
 	return chosen
 
 
 func _record_shot(unit: Unit, target: Unit) -> void:
+	unit_combat_stats.register(unit, unit.display_name())
+	unit_combat_stats.shot(unit)
 	decisions.record(unit, scenario_elapsed_time, "Shot fired", {
 		"choice": decisions.label_for(target), "reason": "Firing gates passed; round fired.",
 		"sequence": _history_fire_events.size(),
@@ -92,6 +276,7 @@ func _record_unit_decisions() -> void:
 			"position": _pos_to_debug_dict(unit.global_position),
 			"pips": unit.pips, "max_pips": unit.max_pips,
 			"profile": profile_for(unit.team).duplicate(true),
+			"unit_doctrine": unit_doctrine_for(unit).duplicate(true),
 			"rounds": unit.mortar_rounds_remaining if unit.kind == Unit.Kind.MORTAR else -1,
 			"reload_remaining": maxf(unit.fire_timer, 0.0),
 			"retreat_threshold": unit.retreat_threshold if unit.kind == Unit.Kind.SQUAD else -1.0})
@@ -358,6 +543,11 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	commander_profiles[Unit.Team.PLAYER] = CommanderProfile.sanitize(doctrine.get("player_profile", {}))
 	commander_profiles[Unit.Team.ENEMY] = CommanderProfile.sanitize(doctrine.get("enemy_profile", {}))
 	decisions = DecisionRecorder.new()
+	unit_type_doctrines[Unit.Team.PLAYER] = UnitDoctrine.sanitize(doctrine.get("player_unit_types", {}))
+	unit_type_doctrines[Unit.Team.ENEMY] = UnitDoctrine.sanitize(doctrine.get("enemy_unit_types", {}))
+	unit_combat_stats = UnitCombatStats.new()
+	_risk_holds.clear()
+	_unit_name_counts.clear()
 	battle_seed = int(doctrine.get("seed", -1))
 	if battle_seed >= 0:
 		seed(battle_seed)
@@ -605,6 +795,10 @@ func _make_unit(team: Unit.Team, kind: Unit.Kind, pos: Vector2) -> Unit:
 	var unit := Unit.new()
 	add_child(unit)
 	unit.setup(team, kind, pos)
+	var key := "%d:%d" % [team, kind]
+	_unit_name_counts[key] = int(_unit_name_counts.get(key, 0)) + 1
+	unit.unit_label += " %d" % _unit_name_counts[key]
+	unit_combat_stats.register(unit, unit.display_name())
 	unit.fire_timer = randf_range(0.0, unit.fire_interval)
 	return unit
 
@@ -843,8 +1037,11 @@ func _ally_positions_for(unit: Unit) -> Array[Vector2]:
 ## cover instead of piling into the same one (see Unit.seek_cover /
 ## GameConfig.nearest_cover_point's avoid_positions).
 func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit) -> void:
+	var before := UnitCombatStats.before_hit(target)
+	unit_combat_stats.register(attacker, attacker.display_name())
 	var target_was_active := target.state == Unit.State.ACTIVE
 	var hit := CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team), _drone_directing_mortar_fire(attacker))
+	unit_combat_stats.damage(attacker, target, before, target.display_name())
 	_log_hit_consequence(target, target_was_active)
 	if not hit or target.kind != Unit.Kind.SQUAD:
 		return
@@ -852,7 +1049,9 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit) -> void:
 	if spillover == null:
 		return
 	var spillover_was_active := spillover.state == Unit.State.ACTIVE
+	var before_spillover := UnitCombatStats.before_hit(spillover)
 	spillover.take_hit(attacker.kind == Unit.Kind.MORTAR, _ally_positions_for(spillover), _known_enemy_positions(spillover.team))
+	unit_combat_stats.damage(attacker, spillover, before_spillover, spillover.display_name())
 	combat_log.log_bunching_spillover(target, spillover)
 	_log_hit_consequence(spillover, spillover_was_active)
 
@@ -1119,6 +1318,7 @@ func _active_resupply_run_for(mortar: Unit) -> Unit:
 ## whatever move_target says this tick.
 func _update_resupply_run_targets() -> void:
 	for m in player_units + enemy_units:
+		if _risk_holds.has(m): continue
 		if m.kind != Unit.Kind.RESUPPLY_RUN or m.state != Unit.State.ACTIVE:
 			continue
 		if m.resupply_target_mortar == null or m.resupply_target_mortar.state != Unit.State.ACTIVE:
@@ -1596,6 +1796,7 @@ func _update_drone_operations(scenario_delta: float) -> void:
 ## known threat, same `max`-across-candidates pattern the mortar's own
 ## danger scoring uses, not an average.
 func _update_drone_team_evasion() -> void:
+	if drone_team != null and unit_doctrine_for(drone_team).risk != "inherit": return
 	if recon_mode != GameConfig.ReconMode.DRONE_TEAM or drone_team == null:
 		return
 	if drone_team.state != Unit.State.ACTIVE or drone_team.has_move_target:
@@ -1733,13 +1934,21 @@ func _update_active_drone(scenario_delta: float) -> void:
 		active_drone = null
 		return
 
+	var planned_destination := Vector2.INF
+	if unit_doctrine_for(d).risk != "inherit":
+		planned_destination = _drone_search_target()
+		if not _drone_risk_accepts(d, planned_destination):
+			_send_drone_home(d)
+			active_drone = null
+			return
+
 	if _drone_should_rtb(d):
 		if backup_drone == null:
 			var watched: Unit = _visible_engageable_mortar()
 			if watched != null and _can_engage_position(watched.global_position):
 				# Sacrifice continues -- fall through to keep watching,
 				# ignoring RTB, until the zero-charge check above ends it.
-				d.move_target = _drone_search_target()
+				d.move_target = _drone_search_target() if is_inf(planned_destination.x) else planned_destination
 				d.has_move_target = true
 				d.move_queue.clear()
 				d.move_speed = GameConfig.DRONE_CRUISE_SPEED
@@ -1749,7 +1958,7 @@ func _update_active_drone(scenario_delta: float) -> void:
 		active_drone = null
 		return
 
-	d.move_target = _drone_search_target()
+	d.move_target = _drone_search_target() if is_inf(planned_destination.x) else planned_destination
 	d.has_move_target = true
 	d.move_queue.clear()
 	d.move_speed = GameConfig.DRONE_CRUISE_SPEED
@@ -1780,7 +1989,7 @@ func _update_backup_drone(scenario_delta: float) -> void:
 		return
 
 	var watched: Unit = _visible_engageable_mortar()
-	if watched == null or _drone_should_rtb(d):
+	if watched == null or _drone_should_rtb(d) or not _drone_risk_accepts(d, watched.global_position):
 		_send_drone_home(d)
 		backup_drone = null
 		return
@@ -2126,6 +2335,12 @@ func _contact_search_bonus(point: Vector2) -> float:
 ## not the enemy has called a general retreat.
 func _drone_search_target() -> Vector2:
 	_update_recent_enemy_contacts()
+	if active_drone != null and unit_doctrine_for(active_drone).targeting != "inherit":
+		var chosen := _forecast_target(active_drone)
+		if chosen != null:
+			_drone_pilot_reasoning = {"tier": "Per-type observation priority", "detail": "%s selected %s." % [unit_doctrine_for(active_drone).targeting, chosen.display_name()], "target": chosen.global_position}
+			return _clamp_to_drone_operating_area(chosen.global_position)
+
 
 	var best_score := -1.0
 	var best_pos := Vector2.INF
@@ -2976,6 +3191,9 @@ func _decide_mortar_action(m: Unit) -> void:
 	# actually fire regardless of what _pick_target returns, hence the
 	# ammo conjunct here).
 	var target: Unit = _mortar_shot_this_tick(m, opposing)
+	if _risk_holds.has(m):
+		_mortar_reasoning[m] = {"tier": "Self-risk policy", "detail": m.last_order_reason}
+		return
 	var has_shot: bool = target != null and m.mortar_rounds_remaining > 0
 	if has_shot:
 		_mortar_reasoning[m] = {"tier": "Target available", "detail": "A target is selected; no new movement order from this decision. Reload and firing gates still apply."}
@@ -3016,7 +3234,7 @@ func _decide_mortar_action(m: Unit) -> void:
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Out of ammunition — wanted to relocate, no route this tick."}
 		return
 
-	if m.evading_counter_battery:
+	if m.evading_counter_battery and unit_doctrine_for(m).risk == "inherit":
 		# A near-miss/hit just landed (_resolve_pending_counter_battery) —
 		# previously this flag only ever modified the SPEED of whatever
 		# relocation happened to run next, and could sit set indefinitely
@@ -3033,7 +3251,7 @@ func _decide_mortar_action(m: Unit) -> void:
 
 	var spotted: bool = m.is_visible
 	var threat_closing: bool = not spotted and _unwatched_threat_closing(m)
-	if spotted or threat_closing:
+	if (spotted or threat_closing) and unit_doctrine_for(m).risk == "inherit":
 		# By this point _pick_target has already had every chance to
 		# engage (including its own ammo-conservation override for this
 		# exact range), so "nothing to shoot" here genuinely means out of
@@ -3155,6 +3373,7 @@ func _process(delta: float) -> void:
 	_update_joint_mortar_hunt()
 	_update_enemy_squad_advance()
 	_update_friendly_squad_positioning()
+	_update_ground_risk_orders()
 	_update_drone_operations(scenario_delta)
 	_update_drone_team_evasion()
 
@@ -3384,6 +3603,7 @@ func _update_player_intel() -> void:
 ## retreat), in which case there's nothing left to fire with regardless of
 ## how close anyone gets.
 func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[Unit]) -> void:
+	if unit.state == Unit.State.ACTIVE and _risk_holds.has(unit): return
 	if unit.kind == Unit.Kind.SPOTTER or unit.kind == Unit.Kind.DRONE_TEAM or unit.kind == Unit.Kind.DRONE:
 		return # pure reconnaissance — extends detection only, never fires (see roll_spot)
 	if unit.kind == Unit.Kind.RESUPPLY_RUN:
@@ -3681,7 +3901,7 @@ func _update_enemy_squad_advance() -> void:
 			continue
 		if not u.sought_cover:
 			continue
-		if _pick_target(u, player_units) != null:
+		if _pick_target(u, player_units) != null or _risk_holds.has(u):
 			continue # something to shoot at right now — stay and fight
 		var rush_target := _next_advance_point(u)
 		if rush_target == u.global_position:
@@ -3868,7 +4088,7 @@ func _update_friendly_squad_positioning() -> void:
 	for u in player_units:
 		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or u.has_move_target:
 			continue
-		if _pick_target(u, enemy_units) != null:
+		if _pick_target(u, enemy_units) != null or _risk_holds.has(u):
 			continue # something to shoot at right now — stand and fight
 		if _reposition_for_encirclement(u, known_enemies):
 			at_risk[u] = true
@@ -3885,7 +4105,7 @@ func _update_friendly_squad_positioning() -> void:
 	for u in player_units:
 		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or u.has_move_target or at_risk.has(u):
 			continue
-		if _pick_target(u, enemy_units) != null:
+		if _pick_target(u, enemy_units) != null or _risk_holds.has(u):
 			continue
 		var d: float = u.global_position.distance_to(mortar.global_position)
 		if d < best_dist:
@@ -4117,7 +4337,10 @@ func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 			continue # out of range — this mortar physically cannot reach back
 		if randf() < chance:
 			var delay: float = randf_range(GameConfig.COUNTER_BATTERY_DELAY_MIN, GameConfig.COUNTER_BATTERY_DELAY_MAX)
+			unit_combat_stats.register(m, m.display_name())
+			unit_combat_stats.shot(m, true)
 			_pending_counter_battery.append({
+				"attacker": m,
 				"target": firing_mortar,
 				"impact_position": firing_mortar.global_position,
 				"impact_time": scenario_elapsed_time + delay,
@@ -4150,7 +4373,10 @@ func _resolve_pending_counter_battery() -> void:
 		target.evading_counter_battery = true
 		var impact_chance: float = clamp(1.0 - distance / GameConfig.COUNTER_BATTERY_BLAST_RADIUS, 0.0, 1.0)
 		if randf() < impact_chance:
+			var before := UnitCombatStats.before_hit(target)
 			target.take_hit(true, [], _known_enemy_positions(target.team))
+			if strike.has("attacker") and is_instance_valid(strike.attacker):
+				unit_combat_stats.damage(strike.attacker, target, before, target.display_name())
 			combat_log.log_counter_battery(target)
 			_log_hit_consequence(target, true)
 		else:
@@ -4321,11 +4547,13 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 			if unit.global_position.distance_to(e.global_position) > GameConfig.MORTAR_MAX_RANGE:
 				continue
 		candidates.append(e)
+	if _risk_holds.has(unit) and unit.state == Unit.State.ACTIVE:
+		return _record_target_choice(unit, candidates, null, "Self-risk policy: displacing or withholding fire.")
 	if candidates.is_empty():
 		return _record_target_choice(unit, candidates, null, "No eligible visible target.")
 
 	var mortar_candidates: Array[Unit] = candidates.filter(func(c): return c.kind == Unit.Kind.MORTAR and c.state == Unit.State.ACTIVE)
-	if not mortar_candidates.is_empty() and profile_for(unit.team).id == "baseline":
+	if not mortar_candidates.is_empty() and profile_for(unit.team).id == "baseline" and unit_doctrine_for(unit).targeting == "inherit":
 		var chosen: Unit = mortar_candidates[randi() % mortar_candidates.size()]
 		return _record_target_choice(unit, candidates, chosen, "Original rule: active mortars override other targets; uniform choice among mortars.", {"conditional_probability": 1.0 / mortar_candidates.size()})
 	if unit.kind == Unit.Kind.MORTAR:
@@ -4381,7 +4609,7 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# kind. The only reason today's only such opportunity happens to
 		# be an enemy mortar is that mortars are the only kind anything
 		# currently tracks a remembered, out-of-reach fix on at all.
-		if not enemy_mortar_fix.is_empty() and mortar_candidates.is_empty() and not unit.is_visible and not any_overrun:
+		if not enemy_mortar_fix.is_empty() and unit_doctrine_for(unit).targeting in ["inherit", "mortars"] and mortar_candidates.is_empty() and not unit.is_visible and not any_overrun:
 			# A remembered position, not a live Unit — its value is
 			# discounted by how much this side actually trusts the fix, a
 			# confidence axis _enemy_target_value has no notion of (that
@@ -4413,7 +4641,7 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# more than a merely suspected lead, mirroring the same trusted/
 		# untrusted distinction the hunting tier itself already draws.
 		var ammo_reserve: int = 0
-		if not enemy_mortar_fix.is_empty():
+		if not enemy_mortar_fix.is_empty() and unit_doctrine_for(unit).targeting in ["inherit", "mortars"]:
 			ammo_reserve = GameConfig.MORTAR_AMMO_RESERVE_FOR_ENEMY_MORTAR_TRUSTED if enemy_mortar_fix.trusted else GameConfig.MORTAR_AMMO_RESERVE_FOR_ENEMY_MORTAR_UNTRUSTED
 		var scarcity: float = _mortar_ammo_scarcity(unit, ammo_reserve)
 		var urgency: float = _mortar_resupply_urgency(unit)
@@ -4450,7 +4678,7 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 			return _record_target_choice(unit, candidates, null, "Hold fire to conserve ammunition.", {"hold_probability": hold_fire_chance, "roll_or_cutoff": ammo_roll, "scarcity": scarcity, "resupply_urgency": urgency, "reserved_rounds": ammo_reserve})
 		gate_evidence["ammunition"] = {"hold_probability": hold_fire_chance, "roll_or_cutoff": ammo_roll, "scarcity": scarcity, "resupply_urgency": urgency, "reserved_rounds": ammo_reserve}
 		return _weighted_mortar_target_pick(unit, candidates, gate_evidence)
-	if profile_for(unit.team).id != "baseline":
+	if profile_for(unit.team).id != "baseline" or unit_doctrine_for(unit).targeting != "inherit":
 		return _weighted_mortar_target_pick(unit, candidates)
 	var chosen: Unit = candidates[randi() % candidates.size()]
 	return _record_target_choice(unit, candidates, chosen, "Original squad rule: uniform choice among eligible targets.", {"conditional_probability": 1.0 / candidates.size()})
@@ -4606,6 +4834,8 @@ func _target_danger_to_force(assessing_unit: Unit, target: Unit) -> float:
 ## weighs engaging any of them this way) reads as 0, not because they're
 ## worthless in reality, just because nothing needs an opinion on them yet.
 func _enemy_target_value(assessing_unit: Unit, target: Unit) -> float:
+	if unit_doctrine_for(assessing_unit).targeting != "inherit":
+		return _type_target_score(assessing_unit, target)
 	if profile_for(assessing_unit.team).id != "baseline":
 		var score := 0.0
 		for value in target_score_components(assessing_unit, target).values():
@@ -4635,7 +4865,7 @@ func _weighted_mortar_target_pick(unit: Unit, candidates: Array[Unit], evidence:
 		var w: float = _enemy_target_value(unit, c)
 		weights.append(w)
 		total += w
-	if profile_for(unit.team).deterministic:
+	if profile_for(unit.team).deterministic or unit_doctrine_for(unit).targeting != "inherit":
 		var best := 0
 		for i in weights.size():
 			if weights[i] > weights[best]:
@@ -5078,6 +5308,7 @@ func _end_battle() -> void:
 	if not enemy_stats.surrendered.is_empty():
 		lines.append("Enemy surrendered: %s" % ", ".join(enemy_stats.surrendered))
 
+	lines.append_array(unit_combat_stats.report_lines())
 	var report_text := "\n".join(lines)
 	battle_ended.emit(report_text)
 

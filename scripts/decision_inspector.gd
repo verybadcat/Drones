@@ -112,12 +112,25 @@ func _refresh() -> void:
 		entries = [history[int(_history.value)]]
 	var lines: Array[String] = []
 	lines.append("%s | seed %s" % [battle_manager.clock_string(), str(battle_manager.battle_seed) if battle_manager.battle_seed >= 0 else "random"])
-	lines.append("Target evaluation is a choice, not proof a shot fired. Records keep their decision-time evidence.")
-	lines.append("History: latest %d changes across all units; current orders take precedence over older target evaluations." % battle_manager.decisions.MAX_EVENTS)
+	for entry in entries:
+		if entry.has("forecast"):
+			var f: Dictionary = entry.forecast
+			var goal := "%.0f%%" % (f.goal_probability * 100.0) if f.goal_probability >= 0.0 else "not forecast"
+			lines.append("Risk forecast at %s: goal %s / elimination %.0f%% / hit %.0f%%" % [battle_manager.clock_string(entry.time), goal, f.loss_probability * 100.0, f.hit_probability * 100.0])
+			lines.append(entry.choice)
+	lines.append("Recorded choices; 'Shot fired' confirms execution.")
 	for entry in entries:
 		lines.append("")
 		lines.append("%s at %s" % [entry.channel, battle_manager.clock_string(entry.time)])
 		lines.append("Choice: %s\nWhy: %s" % [entry.choice, entry.reason])
+		if entry.has("unit_doctrine"):
+			lines.append("Type orders: targeting = %s; self-risk = %s" % [entry.unit_doctrine.targeting, entry.unit_doctrine.risk])
+		if entry.has("forecast"):
+			var f: Dictionary = entry.forecast
+			lines.append("Estimated goal success: %.0f%%" % (f.goal_probability * 100.0) if f.goal_probability >= 0.0 else "Goal success: not forecast for this task.")
+			lines.append("Estimated elimination risk: %.0f%% | chance of taking a hit: %.0f%%" % [f.loss_probability * 100.0, f.hit_probability * 100.0])
+			lines.append("Policy limits: %.0f%% elimination risk, %.0f%% hit risk." % [entry.limits.max_loss * 100.0, entry.limits.max_hit * 100.0])
+			lines.append(f.assumptions)
 		if entry.has("profile"):
 			var p: Dictionary = entry.profile
 			lines.append("Profile: %s | protection %.1f, pressure %.1f, counter mortar %.1f, conservation %.1f" % [CommanderProfile.label(p), p.protection, p.pressure, p.counter_mortar, p.conservation])

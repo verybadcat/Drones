@@ -11,6 +11,13 @@ class_name DoctrinePanel
 ## the way a squad is — see Unit.take_hit().
 
 const CommanderProfile = preload("res://scripts/commander_profile.gd")
+const UnitDoctrine = preload("res://scripts/unit_doctrine.gd")
+var _type_orders := {0: UnitDoctrine.sanitize({}), 1: UnitDoctrine.sanitize({})}
+var _type_side: OptionButton
+var _unit_type: OptionButton
+var _type_target: OptionButton
+var _type_risk: OptionButton
+var _type_note: RichTextLabel
 var _player_profile: OptionButton
 var _enemy_profile: OptionButton
 var _profile_note: RichTextLabel
@@ -39,6 +46,8 @@ func _ready() -> void:
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(title)
 
+	root.add_child(_build_unit_orders())
+	root.add_child(HSeparator.new())
 	root.add_child(_build_retreat_section())
 	root.add_child(HSeparator.new())
 	root.add_child(_build_mortar_section())
@@ -189,4 +198,67 @@ func get_commander_doctrine() -> Dictionary:
 	p.retreat_threshold = get_retreat_threshold()
 	return {"player_profile": p,
 		"enemy_profile": CommanderProfile.preset(CommanderProfile.IDS[_enemy_profile.selected]),
+		"player_unit_types": _type_orders[0].duplicate(true),
+		"enemy_unit_types": _type_orders[1].duplicate(true),
 		"seed": int(_seed.value)}
+
+
+func _build_unit_orders() -> Control:
+	var box := VBoxContainer.new()
+	box.add_child(GameConfig.make_selectable_label("Orders by unit type"))
+	_type_side = OptionButton.new()
+	_type_side.add_item("Your army")
+	_type_side.add_item("Enemy army")
+	box.add_child(_type_side)
+	_unit_type = OptionButton.new()
+	for label in UnitDoctrine.TYPE_LABELS: _unit_type.add_item(label)
+	box.add_child(_unit_type)
+	box.add_child(GameConfig.make_selectable_label("Targeting / observation priority"))
+	_type_target = OptionButton.new()
+	box.add_child(_type_target)
+	box.add_child(GameConfig.make_selectable_label("Self-risk tolerance"))
+	_type_risk = OptionButton.new()
+	for label in UnitDoctrine.RISK_LABELS: _type_risk.add_item(label)
+	box.add_child(_type_risk)
+	_type_note = GameConfig.make_selectable_label()
+	_type_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(_type_note)
+	_type_side.item_selected.connect(func(_index): _load_unit_orders())
+	_unit_type.item_selected.connect(func(_index): _load_unit_orders())
+	_type_target.item_selected.connect(func(_index): _save_unit_orders())
+	_type_risk.item_selected.connect(func(_index): _save_unit_orders())
+	_load_unit_orders()
+	return box
+
+
+func _load_unit_orders() -> void:
+	var key: String = UnitDoctrine.TYPES[_unit_type.selected]
+	var orders: Dictionary = _type_orders[_type_side.selected][key]
+	_type_target.clear()
+	var unarmed := key in ["spotter", "drone_team", "resupply_run"]
+	if unarmed:
+		_type_target.add_item("Assigned support task (unarmed)")
+	else:
+		for label in UnitDoctrine.TARGET_LABELS:
+			_type_target.add_item("Clearest observation" if key == "drone" and label == "Best hit chance" else label)
+	_type_target.disabled = unarmed
+	_type_target.select(0 if unarmed else UnitDoctrine.TARGET_IDS.find(orders.targeting))
+	_type_risk.select(UnitDoctrine.RISK_IDS.find(orders.risk))
+	_update_type_note()
+
+
+func _save_unit_orders() -> void:
+	var key: String = UnitDoctrine.TYPES[_unit_type.selected]
+	_type_orders[_type_side.selected][key] = {"targeting": UnitDoctrine.TARGET_IDS[_type_target.selected], "risk": UnitDoctrine.RISK_IDS[_type_risk.selected]}
+	_update_type_note()
+
+
+func _update_type_note() -> void:
+	var id: String = UnitDoctrine.RISK_IDS[_type_risk.selected]
+	var text := "Target priorities apply to every unit of this type, separately from commander preferences. Ground support units have assigned tasks; drones prioritize observation. "
+	if id == "inherit":
+		text += "Self-risk follows the existing behavior. Choose a risk policy to compare task success with danger before acting."
+	else:
+		var limits := UnitDoctrine.risk_limits(id)
+		text += "Over the next 3 tactical minutes, accepts up to %.0f%% estimated elimination risk and %.0f%% chance of taking a hit. Goal success must justify that risk. Estimates use known threats; they are not guarantees. Squad casualty withdrawal orders still apply." % [limits.max_loss * 100, limits.max_hit * 100]
+	_type_note.text = text
