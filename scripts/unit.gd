@@ -82,6 +82,8 @@ var evading_counter_battery: bool = false
 # retreat_target_x instead (see below).
 var move_target: Vector2 = Vector2.ZERO
 var has_move_target: bool = false
+# Captured where an order is issued; used only by the decision inspector.
+var last_order_reason: String = ""
 var move_queue: Array[Vector2] = []
 var move_speed: float = 40.0
 const MOVE_ARRIVE_RADIUS: float = 5.0 * GameConfig.PIXELS_PER_METER # "close enough" to a move target
@@ -371,6 +373,7 @@ func _check_retreat(known_enemy_positions: Array[Vector2] = [], ally_positions: 
 	var fraction_lost: float = float(max_pips - pips) / float(max_pips)
 	if fraction_lost >= retreat_threshold:
 		order_retreat(known_enemy_positions, ally_positions)
+		last_order_reason = "Casualties reached the standing withdrawal threshold."
 	elif not reported_issue and fraction_lost >= concern_threshold:
 		reported_issue = true
 
@@ -546,6 +549,7 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 	if state != State.ACTIVE:
 		return
 	state = State.RETREATING
+	last_order_reason = "Withdrawal ordered."
 	movement_predictable = false # pulling out under pressure, not a calm march
 
 	if kind == Kind.MORTAR:
@@ -642,6 +646,7 @@ func _resolve_wounded_evacuation(known_enemy_positions: Array[Vector2]) -> float
 ## it") instead of a single beeline. BattleManager._step_toward_target pops
 ## the next waypoint off move_queue each time one is reached.
 func set_path(waypoints: Array[Vector2]) -> void:
+	last_order_reason = "Following the assigned march route."
 	if waypoints.is_empty():
 		has_move_target = false
 		move_queue.clear()
@@ -671,6 +676,7 @@ func set_path(waypoints: Array[Vector2]) -> void:
 ## standing near it — including, in the worst case, running straight
 ## toward a cluster of enemy squads it already knows are right there.
 func seek_cover(avoid_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = []) -> void:
+	last_order_reason = "Seeking cover in response to contact or incoming fire."
 	move_target = GameConfig.nearest_cover_point(global_position, 0.0, false, avoid_positions, known_enemy_positions)
 	has_move_target = true
 	move_queue.clear()
