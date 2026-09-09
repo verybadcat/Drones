@@ -201,6 +201,16 @@ const MORTAR_CREW_SIZE: int = 4
 var crew_size: int = 0
 var crew_casualties: int = 0
 
+# MORTAR only: set the moment this crew starts retreating (see
+# order_retreat()) — whether the tube itself came out with them or got left
+# behind. A crew that's already taken a hit always leaves it (same as
+# before this field existed); an untouched crew ordered to retreat
+# typically brings it and can still fire on the way out, only leaving it
+# behind under genuinely severe danger — see order_retreat's own reasoning.
+# Meaningless (stays false) until RETREATING; _tick_fire is what actually
+# reads it.
+var mortar_gun_abandoned: bool = false
+
 # MORTAR only: real, finite ammunition — see GameConfig.MORTAR_STARTING_AMMO
 # and BattleManager's whole request/arrival/pickup resupply pipeline. Never
 # reloads on its own; only a completed resupply run (Unit.setup() sets the
@@ -538,6 +548,15 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 	state = State.RETREATING
 	movement_predictable = false # pulling out under pressure, not a calm march
 
+	if kind == Kind.MORTAR:
+		# A crew that's already taken a hit has already made its own call to
+		# flee instead of holding (see _apply_crew_casualties/
+		# _mortar_crew_holds_position) — that decision always leaves the gun,
+		# same as before this ever branched. An untouched crew being ordered
+		# to retreat (a general retreat order, having never taken a hit this
+		# battle) hasn't made any such call yet — that's decided fresh here.
+		mortar_gun_abandoned = true if crew_casualties > 0 else _mortar_gun_abandoned_on_unhit_retreat(known_enemy_positions)
+
 	var speed_multiplier := 1.0
 	if kind == Kind.SQUAD and heavily_wounded_count > 0:
 		speed_multiplier = _resolve_wounded_evacuation(known_enemy_positions)
@@ -556,6 +575,25 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 	else:
 		has_move_target = false
 	state_changed.emit(self)
+
+
+## Whether an untouched MORTAR crew (never hit this battle) ordered to
+## retreat leaves the gun behind. Real crew-served-weapon doctrine — same
+## source as _mortar_crew_holds_position — favors bringing a functional tube
+## out rather than ditching it for no reason, so this is biased hard toward
+## keeping it: risk scales with the same GameConfig.
+## MORTAR_CREW_OVERRUN_DANGER_RANGE proximity _mortar_crew_holds_position
+## uses, squared so a merely moderate threat still doesn't cost the gun —
+## only something that's actually closed to real overrun range reliably
+## does. A genuine roll, not a hard cutoff, matching this game's standing
+## "real decisions aren't perfectly rational" idiom.
+func _mortar_gun_abandoned_on_unhit_retreat(known_enemy_positions: Array[Vector2]) -> bool:
+	var nearest_threat_dist := INF
+	for p in known_enemy_positions:
+		nearest_threat_dist = min(nearest_threat_dist, global_position.distance_to(p))
+	var overrun_risk: float = clamp(1.0 - nearest_threat_dist / GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE, 0.0, 1.0)
+	var abandon_chance: float = overrun_risk * overrun_risk
+	return randf() < abandon_chance
 
 
 ## The one real decision this feature adds: what happens to this SQUAD's own

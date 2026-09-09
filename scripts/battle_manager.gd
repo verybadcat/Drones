@@ -452,14 +452,29 @@ func _spawn_player_units(doctrine: Dictionary) -> void:
 		player_units.append(spotter)
 
 
+## The attacking force's size, rolled once per battle — not always the same
+## strength (see GameConfig.ENEMY_MORTAR_COUNT_MIN/MAX etc.). Squad count
+## targets ENEMY_SQUAD_PER_MORTAR_RATIO times the mortar count, jittered by
+## ENEMY_SQUAD_COUNT_JITTER so it's roughly that ratio, not exactly it, then
+## clamped into its own separate min/max range.
+func roll_enemy_force_size() -> Dictionary:
+	var mortars: int = randi_range(GameConfig.ENEMY_MORTAR_COUNT_MIN, GameConfig.ENEMY_MORTAR_COUNT_MAX)
+	var target_squads: int = roundi(mortars * GameConfig.ENEMY_SQUAD_PER_MORTAR_RATIO)
+	var jitter: int = randi_range(-GameConfig.ENEMY_SQUAD_COUNT_JITTER, GameConfig.ENEMY_SQUAD_COUNT_JITTER)
+	var squads: int = clampi(target_squads + jitter, GameConfig.ENEMY_SQUAD_COUNT_MIN, GameConfig.ENEMY_SQUAD_COUNT_MAX)
+	return {"mortars": mortars, "squads": squads}
+
+
 func _spawn_enemy_units() -> void:
 	var road_px: Array[Vector2] = GameConfig.road_waypoints_px()
+	var force_size: Dictionary = roll_enemy_force_size()
+	var squad_y_offsets_m: Array[float] = GameConfig.enemy_squad_y_offsets_m(force_size.squads)
 	# A real road march down the winding road (see GameConfig.ROAD_WAYPOINTS_M),
 	# not a straight line. Each squad's whole path is the same road shifted by
 	# its own fixed y offset — a loose spread advancing near the road, not
 	# single file on top of it or on top of each other.
-	for i in GameConfig.ENEMY_SQUAD_Y_OFFSETS_M.size():
-		var y_offset: float = GameConfig.ENEMY_SQUAD_Y_OFFSETS_M[i] * GameConfig.PIXELS_PER_METER
+	for i in squad_y_offsets_m.size():
+		var y_offset: float = squad_y_offsets_m[i] * GameConfig.PIXELS_PER_METER
 		var start_pos := Vector2(GameConfig.ENEMY_SPAWN_X, road_px[0].y + y_offset)
 		var squad := _make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, start_pos)
 		squad.retreat_threshold = GameConfig.ENEMY_RETREAT_THRESHOLD
@@ -482,7 +497,7 @@ func _spawn_enemy_units() -> void:
 			squad.flank_waypoint_y = start_pos.y
 		enemy_units.append(squad)
 
-	for mortar_pos_m in GameConfig.ENEMY_MORTAR_POSITIONS_M:
+	for mortar_pos_m in GameConfig.enemy_mortar_positions_m(force_size.mortars):
 		var em := _make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, mortar_pos_m * GameConfig.PIXELS_PER_METER)
 		em.shoot_and_scoot = false
 		_set_retreat_profile(em, Unit.Team.ENEMY)
@@ -3095,10 +3110,12 @@ func _update_player_intel() -> void:
 ## and line of sight — exactly what _pick_target below would already
 ## consider a legal target if this unit were standing its ground — fires
 ## back even while pulling out, rather than presenting a free target the
-## instant it starts moving away. A retreating MORTAR is the one
-## exception: its crew has abandoned the gun itself (see Unit.
-## _mortar_crew_holds_position) the moment they started retreating, so
-## there is nothing left to fire with regardless of how close anyone gets.
+## instant it starts moving away. A retreating MORTAR fires the same way,
+## UNLESS its crew left the gun behind (Unit.mortar_gun_abandoned — always
+## true after a hit decisive enough to retreat over; otherwise decided once,
+## at the moment retreat starts, by Unit._mortar_gun_abandoned_on_unhit_
+## retreat), in which case there's nothing left to fire with regardless of
+## how close anyone gets.
 func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[Unit]) -> void:
 	if unit.kind == Unit.Kind.SPOTTER or unit.kind == Unit.Kind.DRONE_TEAM or unit.kind == Unit.Kind.DRONE:
 		return # pure reconnaissance — extends detection only, never fires (see roll_spot)
@@ -3108,8 +3125,8 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		return # gone, already safe, or has laid down arms — none of these ever fire again
 	var fighting_withdrawal := false
 	if unit.state == Unit.State.RETREATING:
-		if unit.kind != Unit.Kind.SQUAD:
-			return # a retreating mortar crew has abandoned the gun — nothing left to fire with
+		if unit.kind == Unit.Kind.MORTAR and unit.mortar_gun_abandoned:
+			return # gun left behind — nothing left to fire with
 		fighting_withdrawal = true # still subject to the normal _pick_target range/LOS check below — this only lifts the "too busy moving" block, not the range one
 	if unit.has_move_target and not fighting_withdrawal and unit.kind != Unit.Kind.MORTAR:
 		return # moving with intent (road march, diving for cover) — too busy to fire.

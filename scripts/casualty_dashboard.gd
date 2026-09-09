@@ -211,7 +211,9 @@ func _mortar_status_text(u: Unit) -> String:
 		Unit.State.ACTIVE:
 			return "in action (%s%s)" % [GameConfig.round_count_text(u.mortar_rounds_remaining), _resupply_status_suffix(u)]
 		Unit.State.RETREATING:
-			return "abandoned, crew fleeing (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
+			if u.mortar_gun_abandoned:
+				return "abandoned, crew fleeing (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
+			return "falling back with the gun" if u.crew_casualties == 0 else "falling back with the gun (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
 		Unit.State.WITHDRAWN:
 			return "withdrew safely" if u.crew_casualties == 0 else "withdrew (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
 		Unit.State.DESTROYED:
@@ -247,7 +249,9 @@ func _enemy_mortar_status_text(u: Unit) -> String:
 		Unit.State.ACTIVE:
 			return "in action" if known_crew_casualties == 0 else "in action (%d/%d, last seen)" % [known_crew_casualties, u.crew_size]
 		Unit.State.RETREATING:
-			return "fleeing, gun abandoned (%d/%d)" % [known_crew_casualties, u.crew_size]
+			if u.mortar_gun_abandoned:
+				return "fleeing, gun abandoned (%d/%d)" % [known_crew_casualties, u.crew_size]
+			return "falling back with the gun (%d/%d)" % [known_crew_casualties, u.crew_size]
 		Unit.State.WITHDRAWN:
 			return "withdrew safely" if known_crew_casualties == 0 else "withdrew (%d/%d)" % [known_crew_casualties, u.crew_size]
 		Unit.State.DESTROYED:

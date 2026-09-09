@@ -566,13 +566,62 @@ const PLAYER_MORTAR_DEFAULT_POSITION: Vector2 = Vector2(1400.0 * PIXELS_PER_METE
 
 # Enemy squads start at the map's eastern edge, march down the winding road
 # (ROAD_WAYPOINTS_M above) in a loose spread rather than single file, then
-# break off toward cover once they take fire. The enemy's two mortars deploy
-# at fixed rear positions and never advance.
+# break off toward cover once they take fire. The enemy's mortars deploy at
+# fixed rear positions and never advance.
 const ENEMY_SPAWN_X: float = 4950.0 * PIXELS_PER_METER
-# Perpendicular-ish spread off the road's line, per squad — six squads
-# advancing near, not literally on top of, each other and the road.
-const ENEMY_SQUAD_Y_OFFSETS_M: Array[float] = [-420.0, -250.0, -80.0, 80.0, 250.0, 420.0]
-const ENEMY_MORTAR_POSITIONS_M: Array[Vector2] = [Vector2(4700.0, 1300.0), Vector2(4700.0, 2500.0)]
+
+# Attacking force size, rolled once per battle (see
+# BattleManager.roll_enemy_force_size) — a real attack isn't always the
+# same size. Squad count deliberately isn't a clean multiple of mortar
+# count: ENEMY_SQUAD_PER_MORTAR_RATIO is a target, not a formula, jittered
+# by ENEMY_SQUAD_COUNT_JITTER before being clamped into range.
+const ENEMY_MORTAR_COUNT_MIN: int = 1
+const ENEMY_MORTAR_COUNT_MAX: int = 3
+const ENEMY_SQUAD_COUNT_MIN: int = 2
+const ENEMY_SQUAD_COUNT_MAX: int = 10
+const ENEMY_SQUAD_PER_MORTAR_RATIO: float = 3.0
+const ENEMY_SQUAD_COUNT_JITTER: int = 2
+
+# Perpendicular-ish spread off the road's line, per squad — evenly spaced
+# across the same total span the original fixed 6-squad layout used
+# (-420m to +420m), so 6 squads still spread almost exactly as before; any
+# other count spreads that same width more or less densely. A lone squad
+# sits dead center on the road.
+const ENEMY_SQUAD_SPREAD_MIN_OFFSET_M: float = -420.0
+const ENEMY_SQUAD_SPREAD_MAX_OFFSET_M: float = 420.0
+
+# Rear mortar positions: fixed x, y spread evenly across the same span the
+# original fixed 2-mortar layout used (1300m to 2500m) — 2 mortars still
+# land exactly there. A lone mortar sits at the midpoint.
+const ENEMY_MORTAR_REAR_X_M: float = 4700.0
+const ENEMY_MORTAR_SPREAD_MIN_Y_M: float = 1300.0
+const ENEMY_MORTAR_SPREAD_MAX_Y_M: float = 2500.0
+
+
+## Perpendicular-ish y offsets for `n` enemy squads — see
+## ENEMY_SQUAD_SPREAD_MIN/MAX_OFFSET_M above.
+static func enemy_squad_y_offsets_m(n: int) -> Array[float]:
+	var out: Array[float] = []
+	if n <= 1:
+		out.append(0.0)
+		return out
+	var span: float = ENEMY_SQUAD_SPREAD_MAX_OFFSET_M - ENEMY_SQUAD_SPREAD_MIN_OFFSET_M
+	for i in n:
+		out.append(ENEMY_SQUAD_SPREAD_MIN_OFFSET_M + i * span / float(n - 1))
+	return out
+
+
+## Rear mortar positions for `n` enemy mortars — see
+## ENEMY_MORTAR_REAR_X_M/ENEMY_MORTAR_SPREAD_MIN/MAX_Y_M above.
+static func enemy_mortar_positions_m(n: int) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	if n <= 1:
+		out.append(Vector2(ENEMY_MORTAR_REAR_X_M, (ENEMY_MORTAR_SPREAD_MIN_Y_M + ENEMY_MORTAR_SPREAD_MAX_Y_M) / 2.0))
+		return out
+	var span: float = ENEMY_MORTAR_SPREAD_MAX_Y_M - ENEMY_MORTAR_SPREAD_MIN_Y_M
+	for i in n:
+		out.append(Vector2(ENEMY_MORTAR_REAR_X_M, ENEMY_MORTAR_SPREAD_MIN_Y_M + i * span / float(n - 1)))
+	return out
 
 # The tactical clock runs faster than the actual time you spend watching —
 # without this, a battle at real distances/speeds would take the better
