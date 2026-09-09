@@ -2,6 +2,29 @@
 
 This implementation gives William a way to inspect decisions, compare fictional commander styles, and identify the next decisions worth improving. It does not establish that a style models a real army or that a high-scoring choice is objectively optimal.
 
+## Per-unit-type targeting, risk, and damage results
+
+The deployment sidebar now starts with **Orders by unit type**. Choose your army or the enemy army, then a type. Settings are stored independently for infantry, mortars, spotters, drone ground teams, airborne drones, and resupply teams. Changing the commander preset does not erase type orders.
+
+Armed units can inherit commander priorities or explicitly choose nearest, lowest remaining strength, threat to allies, enemy mortars first, or best hit chance. Explicit type priorities choose the highest matching score with stable ties. Existing ammunition conservation remains a separate gate; mortar-pursuit reservations apply only when compatible with the targeting policy. Drone priorities select observation contacts rather than weapon targets; its “clearest observation” option uses aerial line of sight, range, and terrain concealment. Ground support units have assigned tasks and no weapon-target selector.
+
+Self-risk is independent of targeting:
+
+| Policy | Maximum estimated elimination risk | Maximum chance of taking a hit | Goal-success requirement |
+| --- | ---: | ---: | --- |
+| Existing behavior | Existing rules | Existing rules | Existing rules |
+| Preserve the unit | 10% | 35% | Success probability ≥ 2 × elimination probability |
+| Calculated risk | 40% | 80% | Success probability ≥ elimination probability |
+| Mission first / expendable | 100% | 100% | Success probability ≥ 0.15 × elimination probability |
+
+The forecast covers the next **three tactical minutes** using the same hit-chance calculation as combat resolution and an independent-shot model for remaining strength. It considers visible armed enemies, remembered mortar firing positions discounted with age, and announced incoming counter-battery strikes. It does not access an unseen enemy's current position or ammunition. Enemy weapons are conservatively treated as ready and supplied, and known threats are assumed able to focus fire. Movement, discovery by unseen enemies, morale, splash and cook-offs are not simulated in the estimate. **Elimination means all remaining unit strength lost to damage; it does not mean every person died.**
+
+For firing, the stated goal is landing at least one damaging hit, not destroying the target or winning the battle. Ground movement checks current position, midpoint, and destination and uses the worst sampled exposure. Support-task success is marked “not forecast” rather than given an invented percentage. Drones additionally compare battery endurance against travel, 30 seconds of observation, and return; an expendable profile can accept losing the airframe to complete useful observation. These are limited, uncalibrated forecasts, not guarantees.
+
+Risk rejection is executed before firing and checked again against the actual selected target. Ground units choose a safer cover candidate or withhold fire if none improves exposure. Safety moves are committed until arrival so the existing mortar ladder cannot overwrite them. Explicit risk acceptance replaces the old automatic mortar reaction to being exposed; ammunition, physical firing rules, casualty withdrawal thresholds, and general retreat orders still apply. Drone risk rejection sends the aircraft home. The inspector records the type orders, forecast, policy limits, and acceptance or rejection.
+
+The final report now has a **Damage by unit** button and a damage section. Each uniquely named unit gets lifetime shot/strike counts, damaging impacts, personnel casualties inflicted (killed plus wounded), drone kills, and a breakdown by target. Normal hits, bunching splash, ammunition cook-off damage caused by a hit, delayed mortar impacts and counter-battery strikes credit the original attacker. A destroyed shooter can still receive credit for its round landing later. Support units are labeled as unarmed. These totals are retained independently of the bounded decision history and explicitly labeled **exact simulation results**, separate from the fog-of-war battlefield estimates.
+
 ## Try it
 
 1. Choose reconnaissance mode and deploy normally. Scroll down the doctrine sidebar to **Commander profiles**.
@@ -54,7 +77,7 @@ These are deliberately simple preference heuristics, not expected damage, hit pr
 
 A mortar still considers a remembered opportunity before spending a shot on another kind of target, using profile-adjusted opportunity value. Its ammunition hold probability is multiplied by the conservation preference and clamped to `[0, 1]`. Existing immediate-threat overrides and firing legality remain in effect. The deliberate evaluator uses a fixed 0.5 cutoff for these hold decisions and chooses the highest target score. Other profiles sample weighted choices, so a lower score can legitimately win.
 
-These preferences apply symmetrically to **firing choices on both sides**. They do not change weapon accuracy, health, force size, or perception. Drone reconnaissance, movement selection, emergency mortar displacement, crew survival reactions, and army-level withdrawal still use their existing rules. In particular, “deliberate” is a deterministic targeting policy, not an LLM, a planner, or a fully deterministic army.
+These preferences apply symmetrically to **firing choices on both sides**. They do not change weapon accuracy, health, force size, or perception. The per-type orders above now provide separate targeting and pre-action risk overrides. Without those overrides, reconnaissance, movement, emergency displacement, crew reactions, and army-level withdrawal retain their existing rules. In particular, “deliberate” is a deterministic targeting policy, not an LLM, a planner, or a fully deterministic army.
 
 ## What the inspector can establish
 
@@ -78,7 +101,7 @@ Useful measures include objective outcome, friendly casualties, resources spent,
 
 ## Next architecture for broader desires and agent controllers
 
-The first extension should compare **actions**, not just firing targets: keep observing, act now, continue a commitment, reposition, resupply, or withdraw. Keep each change bounded and compare it against the original behavior.
+The new per-type risk checks cover selected firing and movement decisions. A broader future extension should compare **actions**, not just firing targets: keep observing, act now, continue a commitment, reposition, resupply, or withdraw. Keep each change bounded and compare it against the original behavior.
 
 1. **Observation:** build a side-specific immutable snapshot of known contacts, report ages/confidence, own units/resources, orders, and current commitments. Keep engine truth out of the controller input.
 2. **Legal actions:** generate concrete alternatives and rejected-action reasons. Constraints such as ammunition, movement feasibility, and forbidden orders belong here rather than being disguised as low preference scores.
@@ -96,8 +119,11 @@ Run:
 godot --headless --editor --path . --quit
 godot --headless --path . --script scripts/tests/test_decision_ai.gd
 godot --headless --path . --script scripts/tests/test_decision_ui.gd
+godot --headless --path . --script scripts/tests/test_unit_doctrine.gd
 ```
 
 The suite checks preference-driven choices, visibility/range rejection, immutable records, reads that preserve RNG state, a complete seeded battle with and without the inspector, and completion under every profile in both reconnaissance modes. The UI suite also checks profile wiring, frozen review history, enemy filtering on export, and restart cleanup. Four additional fixed-step battles (seeds 7 and 731, both reconnaissance modes) matched the pre-change implementation in final state and firing history.
 
 These are correctness checks, not a claim that the archetypes are balanced or realistic.
+
+The per-type suite additionally checks independent targeting policies, hidden-contact exclusion, forecasts that preserve RNG state, actual hold/fire differences between risk profiles, safety-order precedence, direct/splash/counter-battery attribution, and complete configured battles in both reconnaissance modes.

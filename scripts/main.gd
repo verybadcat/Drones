@@ -465,8 +465,8 @@ func _on_battle_ended(report_text: String) -> void:
 	# the outside and clips anything that still doesn't fit, exactly like
 	# CombatLog already does — so wrapping actually takes effect here too.
 	var report_scroll := ScrollContainer.new()
-	report_scroll.position = Vector2(10, 10)
-	report_scroll.custom_minimum_size = Vector2(540, 480)
+	report_scroll.position = Vector2(10, 50)
+	report_scroll.custom_minimum_size = Vector2(540, 440)
 	report_scroll.size = report_scroll.custom_minimum_size
 	report_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	report_background.add_child(report_scroll)
@@ -482,6 +482,17 @@ func _on_battle_ended(report_text: String) -> void:
 	report_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	report_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	report_scroll.add_child(report_label)
+	var summary_tab := Button.new()
+	summary_tab.text = "Battle summary"
+	summary_tab.position = Vector2(10, 10)
+	summary_tab.pressed.connect(func(): report_label.text = report_text; report_scroll.scroll_vertical = 0)
+	report_background.add_child(summary_tab)
+	var damage_tab := Button.new()
+	damage_tab.name = "DamageByUnit"
+	damage_tab.text = "Damage by unit"
+	damage_tab.position = Vector2(165, 10)
+	damage_tab.pressed.connect(func(): report_label.text = "\n".join(battle_manager.unit_combat_stats.report_lines()); report_scroll.scroll_vertical = 0)
+	report_background.add_child(damage_tab)
 
 	restart_button = Button.new()
 	restart_button.text = "Choose new setup and try again"

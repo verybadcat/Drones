@@ -13,6 +13,18 @@ func run():
 	panel._player_profile.select(3)
 	panel._on_profile_selected(3)
 	panel._enemy_profile.select(2)
+	panel._unit_type.select(1)
+	panel._load_unit_orders()
+	panel._type_target.select(4)
+	panel._type_risk.select(2)
+	panel._save_unit_orders()
+	panel._unit_type.select(0)
+	panel._load_unit_orders()
+	assert(panel._type_target.selected == 0)
+	panel._type_side.select(1)
+	panel._load_unit_orders()
+	panel._type_target.select(1)
+	panel._save_unit_orders()
 	panel._seed.value = 731
 	panel.get_child(0).scroll_vertical = 340
 	await process_frame
@@ -26,6 +38,8 @@ func run():
 	await process_frame
 	assert(main.battle_manager.profile_for(Unit.Team.PLAYER).id == "deliberate")
 	assert(main.battle_manager.profile_for(Unit.Team.ENEMY).id == "aggressive")
+	assert(main.battle_manager.unit_type_doctrines[Unit.Team.PLAYER].mortar.risk == "balanced")
+	assert(main.battle_manager.unit_type_doctrines[Unit.Team.ENEMY].squad.targeting == "nearest")
 	for entry in main.decision_inspector._unit_ids:
 		for record in main.battle_manager.decisions.records_for(entry):
 			assert(record.team == Unit.Team.PLAYER)
@@ -49,6 +63,7 @@ func run():
 	assert(exported.events.any(func(e): return e.team == Unit.Team.ENEMY))
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(export_path))
 	main._on_battle_ended("UI transition test")
+	main.report_background.get_node("DamageByUnit").pressed.emit()
 	main._show_level_select()
 	await process_frame
 	assert(main.decision_inspector == null)

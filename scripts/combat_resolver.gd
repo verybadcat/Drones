@@ -243,17 +243,20 @@ static func has_live_observer(target: Unit, observers: Array[Unit]) -> bool:
 ## standing on any ground to take cover in — in favor of a flat, severe
 ## DRONE_HIT_CHANCE_MULTIPLIER: altitude, not a foxhole, is what protects it,
 ## and that protection doesn't depend on whether it happens to be moving.
-static func resolve_fire(attacker: Unit, defender: Unit, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], drone_directed: bool = false) -> bool:
+## The same hit model used for resolution and read-only forecasts.
+static func hit_probability(attacker: Unit, defender: Unit, drone_directed: bool = false, defender_position: Vector2 = Vector2.INF, attacker_position: Vector2 = Vector2.INF) -> float:
+	var point: Vector2 = defender.global_position if is_inf(defender_position.x) else defender_position
+	var origin: Vector2 = attacker.global_position if is_inf(attacker_position.x) else attacker_position
 	var chance: float
 	if defender.kind == Unit.Kind.DRONE:
 		chance = attacker.base_hit_chance * GameConfig.DRONE_HIT_CHANCE_MULTIPLIER
 	else:
 		var moving := defender.activity == Unit.Activity.MOVING
 		var cover_table: Dictionary = MORTAR_COVER_MULTIPLIER if attacker.kind == Unit.Kind.MORTAR else SQUAD_COVER_MULTIPLIER
-		var cover_multiplier: float = 1.0 if moving else cover_table[defender.terrain_type()]
+		var cover_multiplier: float = 1.0 if moving else cover_table[GameConfig.get_terrain_type_at(point)]
 		chance = attacker.base_hit_chance * cover_multiplier
 		if attacker.kind != Unit.Kind.MORTAR:
-			var distance: float = attacker.global_position.distance_to(defender.global_position)
+			var distance: float = origin.distance_to(point)
 			var decay: float = exp(-distance / GameConfig.SQUAD_CLOSE_RANGE_DECAY_M)
 			chance *= 1.0 + (GameConfig.SQUAD_CLOSE_RANGE_HIT_MULTIPLIER - 1.0) * decay
 		if moving:
@@ -263,6 +266,11 @@ static func resolve_fire(attacker: Unit, defender: Unit, ally_positions: Array[V
 				chance *= GameConfig.MOVING_HIT_MULTIPLIER
 		if attacker.kind == Unit.Kind.MORTAR and drone_directed:
 			chance *= GameConfig.DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER
+	return clampf(chance, 0.0, 1.0)
+
+
+static func resolve_fire(attacker: Unit, defender: Unit, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], drone_directed: bool = false) -> bool:
+	var chance := hit_probability(attacker, defender, drone_directed)
 	var hit: bool = randf() < chance
 	if hit:
 		defender.take_hit(attacker.kind == Unit.Kind.MORTAR, ally_positions, known_enemy_positions)
