@@ -1481,6 +1481,58 @@ func _update_drone_operations(scenario_delta: float) -> void:
 				_launch_backup_drone(watched)
 
 
+## The ground crew's own self-preservation, mirroring the mortar's tier-1
+## "spotted/threat closing" relocation but for an unarmed rear element that
+## never fires and has nothing to hold onto — "would consider evasive
+## action, especially if [a threat] appears likely to come very close," not
+## a hard trigger the moment anything is merely nearby. Only reconsiders
+## while not already mid-relocation (has_move_target) — once moving, it
+## just walks there rather than restarting toward a new pick every tick a
+## threat happens to still qualify.
+##
+## A known enemy only counts if it's actually CLOSING — heading roughly
+## toward the crew's own current position (_estimate_unit_velocity's
+## direction has a positive component toward it), not just happening to sit
+## within range while moving away or across. Risk slides with proximity
+## (0 at DRONE_TEAM_EVASION_RANGE, 1.0 at zero distance) and the actual
+## roll uses risk squared — a threat that's merely inside the watch range
+## barely registers, one that's genuinely closed to danger range reliably
+## triggers, matching "especially if... very close" rather than an equal
+## chance across the whole watch range. Takes the single most dangerous
+## known threat, same `max`-across-candidates pattern the mortar's own
+## danger scoring uses, not an average.
+func _update_drone_team_evasion() -> void:
+	if recon_mode != GameConfig.ReconMode.DRONE_TEAM or drone_team == null:
+		return
+	if drone_team.state != Unit.State.ACTIVE or drone_team.has_move_target:
+		return
+	var risk := 0.0
+	for e in enemy_units:
+		var still_a_threat: bool = e.state == Unit.State.ACTIVE or e.state == Unit.State.RETREATING
+		if not still_a_threat or not e.is_visible:
+			continue
+		var to_team: Vector2 = drone_team.global_position - e.global_position
+		var dist: float = to_team.length()
+		if dist > GameConfig.DRONE_TEAM_EVASION_RANGE:
+			continue
+		var velocity: Vector2 = _estimate_unit_velocity(e)
+		if velocity == Vector2.ZERO or velocity.normalized().dot(to_team.normalized()) <= 0.0:
+			continue # stationary, or heading away/across rather than toward the team
+		risk = max(risk, clamp(1.0 - dist / GameConfig.DRONE_TEAM_EVASION_RANGE, 0.0, 1.0))
+	if risk <= 0.0 or randf() >= risk * risk:
+		return
+	var threats := _known_enemy_positions(Unit.Team.PLAYER)
+	var destination: Vector2 = GameConfig.nearest_hidden_point(drone_team.global_position, threats, false)
+	if destination == drone_team.global_position:
+		return # nowhere better to go this tick — try again next tick if the threat's still closing
+	drone_team.move_target = destination
+	drone_team.has_move_target = true
+	drone_team.move_queue.clear()
+	drone_team.move_speed = GameConfig.REPOSITION_SPEED
+	drone_team.movement_predictable = false
+	combat_log.log_drone_team_evading(drone_team)
+
+
 ## Removes and returns the single highest-charge battery from `pool`
 ## (which is always non-empty when this is called on _battery_pool — see
 ## GameConfig's comment on why 8 batteries for 4 airframes guarantees
@@ -1725,6 +1777,12 @@ func _update_returning_drones() -> void:
 	for i in range(returning_drones.size() - 1, -1, -1):
 		var d: Unit = returning_drones[i]
 		if d.has_move_target:
+			# Re-aimed every tick at wherever the ground crew currently is,
+			# not just wherever it was the instant RTB was ordered — see
+			# _update_drone_team_evasion, which can move it mid-flight.
+			# Mirrors the mortar resupply run's own "always chase the
+			# mortar's current position" tracking for the same reason.
+			d.move_target = drone_team.global_position
 			continue # still en route
 		returning_drones.remove_at(i)
 		player_units.erase(d)
@@ -2891,6 +2949,7 @@ func _process(delta: float) -> void:
 	_update_enemy_squad_advance()
 	_update_friendly_squad_positioning()
 	_update_drone_operations(scenario_delta)
+	_update_drone_team_evasion()
 
 	for unit in player_units:
 		_tick_fire(unit, delta, scenario_delta, enemy_units)
@@ -3272,20 +3331,31 @@ func _launch_mortar_shot(mortar: Unit, target: Unit) -> void:
 func _mortar_aim_point(target: Unit) -> Vector2:
 	if target.activity != Unit.Activity.MOVING:
 		return target.global_position
-	var velocity := Vector2.ZERO
-	if target.has_move_target:
-		var to_target: Vector2 = target.move_target - target.global_position
-		if to_target.length() > 0.01:
-			velocity = to_target.normalized() * target.move_speed
-	elif target.state == Unit.State.RETREATING:
-		# The final leg: no move_target, just a straight dash at constant y
-		# toward the safe line (see _step_retreat) — direction is fixed by
-		# team, so this heading is exactly known even with no move_target.
-		var dir_x: float = -1.0 if target.team == Unit.Team.PLAYER else 1.0
-		velocity = Vector2(dir_x * target.retreat_speed, 0.0)
+	var velocity: Vector2 = _estimate_unit_velocity(target)
 	if velocity == Vector2.ZERO:
 		return target.global_position
 	return target.global_position + velocity * GameConfig.MORTAR_FLIGHT_TIME
+
+
+## A unit's current real-world velocity vector — its own move_target at its
+## own move_speed if it has one, or a retreat's final, un-pathed leg at
+## retreat_speed (direction fixed by team — see _step_retreat) if it's on
+## that instead. Vector2.ZERO if neither applies (stationary, or between
+## path waypoints with no target currently set). Shared by anything that
+## needs to know where a unit is actually heading right now: _mortar_aim_
+## point's own lead calculation, and the drone team's evasion check (does a
+## known threat's current heading actually point toward it, not just happen
+## to be nearby).
+func _estimate_unit_velocity(u: Unit) -> Vector2:
+	if u.has_move_target:
+		var to_target: Vector2 = u.move_target - u.global_position
+		if to_target.length() > 0.01:
+			return to_target.normalized() * u.move_speed
+		return Vector2.ZERO
+	if u.state == Unit.State.RETREATING:
+		var dir_x: float = -1.0 if u.team == Unit.Team.PLAYER else 1.0
+		return Vector2(dir_x * u.retreat_speed, 0.0)
+	return Vector2.ZERO
 
 
 ## Resolves any mortar shots whose flight time has elapsed. A target that's
@@ -4053,7 +4123,26 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# holds almost every time, and relief expected soon makes firing
 		# more attractive even while genuinely low. See GameConfig.
 		# MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES for the full reasoning.
-		var scarcity: float = _mortar_ammo_scarcity(unit)
+		#
+		# Ammo scarcity on its own has no way to know a specific reason to
+		# hold back exists — a known (or suspected) enemy mortar, tracked by
+		# the exact same fix the movement side of tier 2 already hunts
+		# toward (_mortar_hunt_fix_for), currently out of range but not
+		# forever. A real crew keeps a reserve in the tube for the highest-
+		# value target on the field rather than spending down to nothing on
+		# ordinary squads first — reflected as rounds taken off the top
+		# before scarcity is even computed, not a flat "always hold" rule:
+		# a well-stocked mortar still spends fairly freely (a handful
+		# reserved barely dents a generous load), it's specifically a
+		# mortar that's already not exactly flush with ammo that this makes
+		# meaningfully more conservative. A trusted (confirmed) fix reserves
+		# more than a merely suspected lead, mirroring the same trusted/
+		# untrusted distinction the hunting tier itself already draws.
+		var enemy_mortar_fix: Dictionary = _mortar_hunt_fix_for(unit)
+		var ammo_reserve: int = 0
+		if not enemy_mortar_fix.is_empty():
+			ammo_reserve = GameConfig.MORTAR_AMMO_RESERVE_FOR_ENEMY_MORTAR_TRUSTED if enemy_mortar_fix.trusted else GameConfig.MORTAR_AMMO_RESERVE_FOR_ENEMY_MORTAR_UNTRUSTED
+		var scarcity: float = _mortar_ammo_scarcity(unit, ammo_reserve)
 		var urgency: float = _mortar_resupply_urgency(unit)
 		var hold_fire_chance: float = scarcity * (1.0 - urgency)
 		# Tier 3 of the mortar decision ladder ("destroy dangerous squads")
@@ -4125,8 +4214,17 @@ func _mortar_resupply_urgency(mortar: Unit) -> float:
 ## GameConfig.MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES's own comment for the
 ## full reasoning. 0.0 at a full GameConfig.MORTAR_STARTING_AMMO load
 ## (spend freely), ramping linearly to 1.0 as rounds approach zero.
-func _mortar_ammo_scarcity(mortar: Unit) -> float:
-	return clamp(1.0 - float(mortar.mortar_rounds_remaining) / float(GameConfig.MORTAR_STARTING_AMMO), 0.0, 1.0)
+##
+## `reserve` (see _pick_target's own use of it, via _mortar_hunt_fix_for)
+## is rounds treated as already spent for THIS purpose only — real ammo
+## held back for the highest-value target on the battlefield rather than
+## burned on an ordinary squad. A generous load barely notices a handful
+## reserved (still reads as abundant, still spends fairly freely); a
+## mortar already running low reads as scarcer than its raw count alone
+## would say the moment there's something specific worth saving for.
+func _mortar_ammo_scarcity(mortar: Unit, reserve: int = 0) -> float:
+	var effective_remaining: int = max(0, mortar.mortar_rounds_remaining - reserve)
+	return clamp(1.0 - float(effective_remaining) / float(GameConfig.MORTAR_STARTING_AMMO), 0.0, 1.0)
 
 
 ## Public accessor for CasualtyDashboard's live per-mortar readout — never

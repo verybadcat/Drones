@@ -1344,6 +1344,19 @@ const MORTAR_TARGET_DANGER_WEIGHT: float = 1.0
 ## the mortar; a squad at half that danger only halves it.
 const MORTAR_DANGER_HOLD_FIRE_OVERRIDE: float = 1.0
 
+## Rounds a MORTAR treats as already spent, for squad-targeting purposes
+## only, the moment BattleManager._mortar_hunt_fix_for(unit) returns a real
+## fix — see _pick_target/_mortar_ammo_scarcity for how this actually bites
+## (a slice off a generous load, not a flat "always hold" rule). A trusted
+## (confirmed-position) fix reserves more than a bare, unconfirmed lead —
+## worth being more careful for a mortar you know exactly where to find
+## than one you're only guessing at. Judgment calls, not cited, same as
+## every other probability in this file: enough of MORTAR_STARTING_AMMO's
+## 20-round load to actually change behavior on a mortar that's already
+## partway through it, small enough that a fresh load barely notices.
+const MORTAR_AMMO_RESERVE_FOR_ENEMY_MORTAR_TRUSTED: int = 6
+const MORTAR_AMMO_RESERVE_FOR_ENEMY_MORTAR_UNTRUSTED: int = 3
+
 # A safety valve on the mortar/drone team's shared commitment to hunting
 # one specific enemy mortar together (see BattleManager.
 # _update_joint_mortar_hunt) — a generous ceiling, not a normal expiry.
@@ -1575,6 +1588,16 @@ const WOUNDED_ABANDON_MAX_CHANCE: float = 0.85
 ## able to overrun the position; beyond it, the position itself is safe
 ## enough that only crew strength (not proximity) drives the decision.
 const MORTAR_CREW_OVERRUN_DANGER_RANGE: float = 600.0 * PIXELS_PER_METER
+
+## How far out a known enemy actually CLOSING on the drone team's ground
+## position (see BattleManager._update_drone_team_evasion) starts to be
+## worth considering relocating over — an unarmed rear element with no
+## crew-served weapon to hold onto, so this is a proactive "would consider
+## moving" watch range, not a last-second "must move now" one, and wider
+## than MORTAR_CREW_OVERRUN_DANGER_RANGE accordingly. Matches SQUAD_DANGER_
+## RANGE's own scale — the same distance at which a squad starts reading as
+## a live threat to anyone else.
+const DRONE_TEAM_EVASION_RANGE: float = 1200.0 * PIXELS_PER_METER
 
 ## A hit that lands on/near a mortar position can set off its OWN stored
 ## rounds in a secondary explosion ("cook-off" — a well-documented real
