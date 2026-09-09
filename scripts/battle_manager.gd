@@ -1396,9 +1396,25 @@ func _mortar_hunt_fix_for(m: Unit) -> Dictionary:
 		var known_pos: Vector2 = _joint_mortar_hunt_known_position()
 		return {} if is_inf(known_pos.x) else {"position": known_pos, "trusted": true, "unit": _joint_mortar_hunt_target}
 	var lead: Dictionary = _known_enemy_mortar_lead()
-	if lead.is_empty() or lead.trusted:
-		return {} # a trusted lead is entirely the joint commitment's business, handled above
-	return {"position": lead.position, "trusted": false, "unit": lead.unit}
+	if lead.is_empty():
+		return {}
+	# A trusted lead falls through here whenever the team-wide joint
+	# commitment hasn't formed for it — not just "hasn't formed YET," but
+	# possibly never will: _update_joint_mortar_hunt declines a trusted
+	# lead outright if the resulting hunt point would land outside
+	# MORTAR_HUNT_MAX_RANGE_FROM_HOME or read as reckless, among other
+	# gates. A trusted, currently-visible enemy mortar doesn't stop being
+	# real or worth pursuing just because the drone-escorted TEAM version
+	# of the hunt isn't viable — the mortar's own solo pursuit
+	# (_mortar_hunt_destination_for) re-applies those exact same safety
+	# checks independently anyway, so this can never send it somewhere the
+	# joint path itself would have refused; it just stops silently
+	# discarding a perfectly good, low-risk (this mortar hasn't been
+	# scouted) opportunity to hunt when the team commitment alone can't
+	# form. `lead.trusted` is passed through as-is (not hardcoded true or
+	# false) so a genuinely untrusted lead still gets the untrusted-only
+	# relocate cap in _mortar_hunt_destination_for.
+	return {"position": lead.position, "trusted": lead.trusted, "unit": lead.unit}
 
 
 ## The other half of tier 2 — the destination `m` should advance to in
@@ -4612,11 +4628,15 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# This isn't mortar-hunting-specific logic — it's the general
 		# principle that a known, more valuable target worth maneuvering
 		# for can be worth forgoing a lesser one already in hand, gated on
-		# it actually being safe to try: not already spotted (a spotted
-		# crew's own "get the shot off, then find cover" behavior a few
-		# tiers up is untouched by this — this only ever forgoes a shot,
-		# never costs one already being taken while exposed) and nothing
-		# close enough to force a shot regardless (any_overrun, above). A
+		# it actually being safe to try: nothing close enough to force a
+		# shot regardless (any_overrun, above). Deliberately NOT gated on
+		# unit.is_visible (whether THIS crew has been spotted) — being
+		# spotted doesn't make the enemy mortar any less worth pursuing,
+		# and holding fire here doesn't strand an exposed crew doing
+		# nothing: if the hold leaves this mortar with no shot,
+		# _decide_mortar_action's own tier 1 ("Spotted... relocating for
+		# cover") reacts to that exact same spotted state on this exact
+		# same tick regardless of whether a shot was taken this tick. A
 		# genuine value comparison, not a hard rule: the chance of holding
 		# this shot scales with how much more the known opportunity is
 		# actually worth than the best candidate available right now, both
@@ -4629,7 +4649,7 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# kind. The only reason today's only such opportunity happens to
 		# be an enemy mortar is that mortars are the only kind anything
 		# currently tracks a remembered, out-of-reach fix on at all.
-		if not enemy_mortar_fix.is_empty() and unit_doctrine_for(unit).targeting in ["inherit", "mortars"] and mortar_candidates.is_empty() and not unit.is_visible and not any_overrun:
+		if not enemy_mortar_fix.is_empty() and unit_doctrine_for(unit).targeting in ["inherit", "mortars"] and mortar_candidates.is_empty() and not any_overrun:
 			# A remembered position, not a live Unit — its value is
 			# discounted by how much this side actually trusts the fix, a
 			# confidence axis _enemy_target_value has no notion of (that
@@ -4646,24 +4666,17 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 			if pursuit_roll < hold_for_pursuit_chance:
 				return _record_target_choice(unit, candidates, null, "Hold this shot to pursue a remembered mortar opportunity.", {"hold_probability": hold_for_pursuit_chance, "roll_or_cutoff": pursuit_roll, "known_opportunity_value": known_target_value, "best_available_value": best_available_value, "trusted_fix": enemy_mortar_fix.trusted})
 
-		# Ammo scarcity on its own has no way to know a specific reason to
-		# hold back exists — a known (or suspected) enemy mortar, tracked by
-		# the exact same fix the movement side of tier 2 already hunts
-		# toward (_mortar_hunt_fix_for), currently out of range but not
-		# forever. A real crew keeps a reserve in the tube for the highest-
-		# value target on the field rather than spending down to nothing on
-		# ordinary squads first — reflected as rounds taken off the top
-		# before scarcity is even computed, not a flat "always hold" rule:
-		# a well-stocked mortar still spends fairly freely (a handful
-		# reserved barely dents a generous load), it's specifically a
-		# mortar that's already not exactly flush with ammo that this makes
-		# meaningfully more conservative. A trusted (confirmed) fix reserves
-		# more than a merely suspected lead, mirroring the same trusted/
-		# untrusted distinction the hunting tier itself already draws.
-		var ammo_reserve: int = 0
-		if not enemy_mortar_fix.is_empty() and unit_doctrine_for(unit).targeting in ["inherit", "mortars"]:
-			ammo_reserve = GameConfig.MORTAR_AMMO_RESERVE_FOR_ENEMY_MORTAR_TRUSTED if enemy_mortar_fix.trusted else GameConfig.MORTAR_AMMO_RESERVE_FOR_ENEMY_MORTAR_UNTRUSTED
-		var scarcity: float = _mortar_ammo_scarcity(unit, ammo_reserve)
+		# A known enemy mortar's own claim on ammo conservation is handled
+		# entirely by the value-based pursuit hold above now, not by a flat
+		# reserved-rounds count here — a fixed reserve (formerly a few
+		# rounds, trusted vs. untrusted) is an arbitrary number with no real
+		# relationship to how much the opportunity is actually worth,
+		# exactly the kind of "five shots remaining should never be a
+		# magical number" case the rest of this ammo model deliberately
+		# avoids elsewhere. General ammo scarcity below is about the
+		# mortar's own dwindling supply overall, independent of any specific
+		# known target.
+		var scarcity: float = _mortar_ammo_scarcity(unit)
 		var urgency: float = _mortar_resupply_urgency(unit)
 		var hold_fire_chance: float = scarcity * (1.0 - urgency)
 		# Tier 3 of the mortar decision ladder ("destroy dangerous squads")
@@ -4695,8 +4708,8 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		hold_fire_chance = clampf(hold_fire_chance * _profile_weight(unit.team, "conservation"), 0.0, 1.0)
 		var ammo_roll: float = 0.5 if profile_for(unit.team).deterministic else randf()
 		if ammo_roll < hold_fire_chance:
-			return _record_target_choice(unit, candidates, null, "Hold fire to conserve ammunition.", {"hold_probability": hold_fire_chance, "roll_or_cutoff": ammo_roll, "scarcity": scarcity, "resupply_urgency": urgency, "reserved_rounds": ammo_reserve})
-		gate_evidence["ammunition"] = {"hold_probability": hold_fire_chance, "roll_or_cutoff": ammo_roll, "scarcity": scarcity, "resupply_urgency": urgency, "reserved_rounds": ammo_reserve}
+			return _record_target_choice(unit, candidates, null, "Hold fire to conserve ammunition.", {"hold_probability": hold_fire_chance, "roll_or_cutoff": ammo_roll, "scarcity": scarcity, "resupply_urgency": urgency})
+		gate_evidence["ammunition"] = {"hold_probability": hold_fire_chance, "roll_or_cutoff": ammo_roll, "scarcity": scarcity, "resupply_urgency": urgency}
 		return _weighted_mortar_target_pick(unit, candidates, gate_evidence)
 	if profile_for(unit.team).id != "baseline" or unit_doctrine_for(unit).targeting != "inherit":
 		return _weighted_mortar_target_pick(unit, candidates)
@@ -4735,18 +4748,13 @@ func _mortar_resupply_urgency(mortar: Unit) -> float:
 ## any resupply timing), argues for holding back a squad shot — see
 ## GameConfig.MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES's own comment for the
 ## full reasoning. 0.0 at a full GameConfig.MORTAR_STARTING_AMMO load
-## (spend freely), ramping linearly to 1.0 as rounds approach zero.
-##
-## `reserve` (see _pick_target's own use of it, via _mortar_hunt_fix_for)
-## is rounds treated as already spent for THIS purpose only — real ammo
-## held back for the highest-value target on the battlefield rather than
-## burned on an ordinary squad. A generous load barely notices a handful
-## reserved (still reads as abundant, still spends fairly freely); a
-## mortar already running low reads as scarcer than its raw count alone
-## would say the moment there's something specific worth saving for.
-func _mortar_ammo_scarcity(mortar: Unit, reserve: int = 0) -> float:
-	var effective_remaining: int = max(0, mortar.mortar_rounds_remaining - reserve)
-	return clamp(1.0 - float(effective_remaining) / float(GameConfig.MORTAR_STARTING_AMMO), 0.0, 1.0)
+## (spend freely), ramping linearly to 1.0 as rounds approach zero. A known
+## enemy mortar's own claim on ammo is handled separately, by the
+## value-based pursuit hold in _pick_target — this is only ever about the
+## mortar's own dwindling supply in general, independent of any specific
+## known target.
+func _mortar_ammo_scarcity(mortar: Unit) -> float:
+	return clamp(1.0 - float(mortar.mortar_rounds_remaining) / float(GameConfig.MORTAR_STARTING_AMMO), 0.0, 1.0)
 
 
 ## Public accessor for CasualtyDashboard's live per-mortar readout — never

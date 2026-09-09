@@ -1390,19 +1390,6 @@ const MORTAR_TARGET_DANGER_WEIGHT: float = 1.0
 ## the mortar; a squad at half that danger only halves it.
 const MORTAR_DANGER_HOLD_FIRE_OVERRIDE: float = 1.0
 
-## Rounds a MORTAR treats as already spent, for squad-targeting purposes
-## only, the moment BattleManager._mortar_hunt_fix_for(unit) returns a real
-## fix — see _pick_target/_mortar_ammo_scarcity for how this actually bites
-## (a slice off a generous load, not a flat "always hold" rule). A trusted
-## (confirmed-position) fix reserves more than a bare, unconfirmed lead —
-## worth being more careful for a mortar you know exactly where to find
-## than one you're only guessing at. Judgment calls, not cited, same as
-## every other probability in this file: enough of MORTAR_STARTING_AMMO's
-## 20-round load to actually change behavior on a mortar that's already
-## partway through it, small enough that a fresh load barely notices.
-const MORTAR_AMMO_RESERVE_FOR_ENEMY_MORTAR_TRUSTED: int = 6
-const MORTAR_AMMO_RESERVE_FOR_ENEMY_MORTAR_UNTRUSTED: int = 3
-
 # A safety valve on the mortar/drone team's shared commitment to hunting
 # one specific enemy mortar together (see BattleManager.
 # _update_joint_mortar_hunt) — a generous ceiling, not a normal expiry.
