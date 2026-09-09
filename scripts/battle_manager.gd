@@ -4316,6 +4316,18 @@ func mortar_recently_detected_firing(mortar: Unit) -> bool:
 	return scenario_elapsed_time - info.time <= GameConfig.MORTAR_FIRE_DETECTION_EXPIRY
 
 
+## Public accessor for CasualtyDashboard's enemy mortar row: true the
+## instant a mortar has EVER been detected firing, permanently, unlike
+## mortar_recently_detected_firing's own EXPIRY-windowed version above —
+## this is "do we know this specific mortar exists at all," not "is it
+## still fresh enough to read as currently active." A stale detection
+## still means the player's side has learned this mortar is real, even
+## once too old to say anything about whether it's still in action right
+## now.
+func mortar_ever_detected_firing(mortar: Unit) -> bool:
+	return not _last_detected_mortar_fire.get(mortar, {}).is_empty()
+
+
 ## Minutes since `mortar` was last detected firing, for the same "detected
 ## firing" dashboard case above — INF if it's never been detected at all
 ## (callers should already have checked mortar_recently_detected_firing).

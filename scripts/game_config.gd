@@ -27,8 +27,18 @@ enum ReconMode { SPOTTER, DRONE_TEAM }
 ## battle canvas's width; the actual map VIEWPORT is wider still (see
 ## CAMERA_VIEWPORT_WIDTH_PX below — it also shows WEST_FLANK_WIDTH_PX of
 ## ground to the west), with the sidebar UI starting at GameConfig.
-## SIDEBAR_X (see main.gd). MAP_HEIGHT_PX is the full window height. Works
-## out to a 5000m x 3500m core battlefield.
+## SIDEBAR_X (see main.gd). Works out to a 5000m x 3500m core battlefield.
+##
+## MAP_HEIGHT_PX is the map viewport's OWN fixed height — main.gd sizes
+## map_container/map_viewport to exactly this, independent of the actual
+## window height in project.godot. The two used to be numerically equal
+## (700) back when the sidebar's own stacked elements always fit within
+## that same height; the window has since been made taller than this
+## (CasualtyDashboard needing room for a variable number of enemy mortar
+## rows) purely to give the sidebar column more vertical space below the
+## map — that's always safe to do on its own, since nothing about the
+## map/world's own scale is tied to the window's height, only to this
+## constant.
 const MAP_WIDTH_PX: float = 1000.0
 const MAP_HEIGHT_PX: float = 700.0
 const MAP_WIDTH_M: float = 5000.0

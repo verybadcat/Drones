@@ -351,10 +351,8 @@ func _on_start_pressed() -> void:
 	pause_button = Button.new()
 	pause_button.text = "Pause"
 	# Same row as retreat_button (measured 181px wide) rather than a new row
-	# below it — the sidebar's vertical space is already fully accounted for
-	# down to combat_log's fixed position near the window's own 700px
-	# bottom edge (see combat_log.position below), with no slack left to
-	# push everything down a further button-row's worth.
+	# below it — casualty_dashboard's own fixed y (below) leaves no gap here
+	# for a further button-row's worth of height.
 	pause_button.position = Vector2(GameConfig.SIDEBAR_X + 181.0 + 14.0, 20)
 	pause_button.pressed.connect(_on_pause_pressed)
 	add_child(pause_button)
@@ -374,13 +372,16 @@ func _on_start_pressed() -> void:
 	add_child(casualty_dashboard)
 
 	combat_log = CombatLog.new()
-	# 65 (dashboard's own y) + 500 (its real measured worst-case height, see
+	# 65 (dashboard's own y) + 550 (its real measured worst-case height, see
 	# CasualtyDashboard._ready) + 10px breathing room — clears the dashboard
 	# even with every row showing, drone fleet row wrapped to its full
-	# multi-line worst case included. The window is a fixed 700px tall (see
-	# project.godot); CombatLog's own declared SIZE.y (see combat_log.gd)
-	# is sized to fill what's left over.
-	combat_log.position = Vector2(GameConfig.SIDEBAR_X, 575)
+	# multi-line worst case AND up to GameConfig.ENEMY_MORTAR_COUNT_MAX
+	# known enemy mortar rows all included. The window is 760px tall (see
+	# project.godot — taller than GameConfig.MAP_HEIGHT_PX's own fixed
+	# 700px specifically to give this column the extra room, see that
+	# constant's own comment); CombatLog's own declared SIZE.y (see
+	# combat_log.gd) is sized to fill what's left over.
+	combat_log.position = Vector2(GameConfig.SIDEBAR_X, 625)
 	add_child(combat_log)
 
 	# Drawn over the map itself, bottom-left, rather than in the sidebar

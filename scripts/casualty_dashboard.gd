@@ -15,7 +15,12 @@ class_name CasualtyDashboard
 ## not for reading the state of the battle in one look.
 
 const BAR_SIZE: Vector2 = Vector2(280.0, 16.0)
-const MAX_MORTARS_PER_SIDE: int = 2 # the enemy fields two; the player fields one
+# The player always fields exactly one mortar (see BattleManager.
+# _spawn_player_units); the enemy's own count is rolled per battle (see
+# GameConfig.roll_enemy_force_size) up to ENEMY_MORTAR_COUNT_MAX — read
+# directly from there rather than a separate local constant, so this can
+# never again silently drift out of sync with the real spawn-side maximum.
+const MAX_PLAYER_MORTARS: int = 1
 
 const STATUS_COLOR := {
 	Unit.State.ACTIVE: Color(0.25, 0.85, 0.35),
@@ -49,21 +54,28 @@ func setup(p_battle_manager: BattleManager) -> void:
 
 func _ready() -> void:
 	# Measured directly (a headless layout diagnostic, not a guess), with
-	# every row actually showing its full text, including the two cases
-	# that wrap to a second line at this panel's 320px width: a mortar row
-	# once its status grows a resupply suffix ("in action (22 rounds,
-	# resupply ~25m out)"), and — the tallest case by far — the drone fleet
-	# row once every one of its status components is populated at once
-	# ("1 airborne ..., 1 backup ..., N inbound, N ready ..., N swapping
-	# battery, N spare batteries ..., N lost"), a real state normal play can
-	# reach given enough battle duration, not a contrived one. That worst
-	# case measures 478px real height; 400 was sized for the single-line
-	# assumption from before these rows could wrap at all, so it overlapped
-	# main.gd's CombatLog (positioned below this panel at a fixed y) by as
-	# much as 78px. Sized here with real margin over the measured worst
+	# every row actually showing its full text, including the cases that
+	# wrap to a second line at this panel's 320px width: a mortar row once
+	# its status grows a resupply suffix ("in action (22 rounds, resupply
+	# ~25m out)"), the drone fleet row once every one of its status
+	# components is populated at once ("1 airborne ..., 1 backup ..., N
+	# inbound, N ready ..., N swapping battery, N spare batteries ..., N
+	# lost"), a real state normal play can reach given enough battle
+	# duration — and now up to GameConfig.ENEMY_MORTAR_COUNT_MAX (3) known
+	# enemy mortar rows at once, not the fixed 2 this was originally sized
+	# for, since the enemy's own mortar count is rolled per battle (see
+	# GameConfig.roll_enemy_force_size). Each additional wrapped mortar row
+	# costs ~47px (measured directly, isolating just that one row's own
+	# marginal contribution); the worst case with 3 known enemy rows
+	# projects to ~525px against the old 2-row worst case's own measured
+	# 478px. main.gd's CombatLog (positioned below this panel at a fixed y)
+	# was moved down by the same amount this grew, and the window itself
+	# was made taller to make room — see GameConfig.MAP_HEIGHT_PX's own
+	# comment for why that's safe to do without touching the map/world
+	# scale at all. Sized here with real margin over the measured worst
 	# case, not to the exact minimum, since text metrics can shift slightly
 	# across fonts/platforms.
-	custom_minimum_size = Vector2(320, 500)
+	custom_minimum_size = Vector2(320, 550)
 
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.07, 0.07, 0.07, 0.9)
@@ -83,7 +95,7 @@ func _ready() -> void:
 	_player_label = GameConfig.make_selectable_label()
 	root.add_child(_player_label)
 	_player_bar = _build_bar(root, Color(0.3, 0.85, 1.0))
-	_player_mortar_rows = _build_mortar_rows(root)
+	_player_mortar_rows = _build_mortar_rows(root, MAX_PLAYER_MORTARS)
 
 	_drone_label = GameConfig.make_selectable_label()
 	root.add_child(_drone_label)
@@ -100,7 +112,7 @@ func _ready() -> void:
 	_enemy_label = GameConfig.make_selectable_label()
 	root.add_child(_enemy_label)
 	_enemy_bar = _build_bar(root, Color(1.0, 0.55, 0.15))
-	_enemy_mortar_rows = _build_mortar_rows(root)
+	_enemy_mortar_rows = _build_mortar_rows(root, GameConfig.ENEMY_MORTAR_COUNT_MAX)
 
 	_refresh() # show correct values immediately, don't wait a frame
 
@@ -121,11 +133,14 @@ func _build_bar(root: VBoxContainer, fill_color: Color) -> ColorRect:
 ## casualty label above it — no smaller, no dimmer) plus its own colored
 ## status bar (same size as the casualty percentage bar) instead of a raw
 ## percentage — green/orange/gray/red for active/fleeing/withdrawn/destroyed.
-## Pre-allocated up to MAX_MORTARS_PER_SIDE and hidden per-refresh when a
-## side has fewer than that.
-func _build_mortar_rows(root: VBoxContainer) -> Array[Dictionary]:
+## Pre-allocated up to `max_rows` and hidden per-refresh when a side
+## actually has fewer than that many KNOWN mortars right now (see
+## _update_mortar_rows — for the enemy side, "known" excludes any mortar
+## the player's side hasn't actually discovered yet, not just however many
+## the enemy happens to field).
+func _build_mortar_rows(root: VBoxContainer, max_rows: int) -> Array[Dictionary]:
 	var rows: Array[Dictionary] = []
-	for i in MAX_MORTARS_PER_SIDE:
+	for i in max_rows:
 		var label := GameConfig.make_selectable_label()
 		root.add_child(label)
 		var bg := ColorRect.new()
@@ -147,10 +162,10 @@ func _refresh() -> void:
 	if battle_manager == null:
 		return
 	_update_side(battle_manager.casualty_stats(Unit.Team.PLAYER), _player_label, _player_bar, "Player")
-	_update_mortar_rows(battle_manager.player_units, _player_mortar_rows)
+	_update_mortar_rows(battle_manager.player_units, _player_mortar_rows, false)
 	_update_drone_row()
 	_update_side(battle_manager.casualty_stats(Unit.Team.ENEMY), _enemy_label, _enemy_bar, "Enemy")
-	_update_mortar_rows(battle_manager.enemy_units, _enemy_mortar_rows)
+	_update_mortar_rows(battle_manager.enemy_units, _enemy_mortar_rows, true)
 
 
 ## `stats.estimated` (see BattleManager._compute_side_stats) marks the
@@ -166,11 +181,25 @@ func _update_side(stats: Dictionary, label: RichTextLabel, bar: ColorRect, side_
 	bar.size = Vector2(BAR_SIZE.x * frac, BAR_SIZE.y)
 
 
-func _update_mortar_rows(units: Array[Unit], rows: Array[Dictionary]) -> void:
+## `units` is the whole side's roster (player_units or enemy_units); only
+## MORTAR-kind ones are pulled out. For the ENEMY side specifically, a
+## mortar the player's side hasn't actually discovered yet — never sighted
+## (Unit.player_has_been_sighted, set by _refresh_visibility for ANY
+## player-side observer that spots it, a drone's own detection included,
+## not just ground-unit LOS) and never even caught firing once
+## (BattleManager.mortar_ever_detected_firing) — is dropped entirely
+## rather than shown as an "unknown" row: the row's mere presence would
+## itself reveal that a mortar exists there, exactly the omniscience this
+## dashboard otherwise avoids for the enemy side. The player's own mortar
+## needs no such filter — there's no fog of war on your own units.
+func _update_mortar_rows(units: Array[Unit], rows: Array[Dictionary], is_enemy: bool) -> void:
 	var mortars: Array[Unit] = []
 	for u in units:
-		if u.kind == Unit.Kind.MORTAR:
-			mortars.append(u)
+		if u.kind != Unit.Kind.MORTAR:
+			continue
+		if is_enemy and not u.player_has_been_sighted and not battle_manager.mortar_ever_detected_firing(u):
+			continue
+		mortars.append(u)
 
 	for i in rows.size():
 		var row: Dictionary = rows[i]
