@@ -1427,8 +1427,8 @@ func _mortar_hunt_destination_for(m: Unit, target_pos: Vector2, trusted: bool) -
 		return m.global_position # no safe route found this tick — try again next tick
 	if dest.distance_to(_friendly_mortar_home_position) > GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME:
 		return m.global_position # too far from what the crew considers safe territory, trusted lead or not
-	if _friendly_mortar_hunt_destination_is_reckless(dest):
-		return m.global_position # would put the mortar ahead of, or outside the band held by, its own infantry screen
+	if _friendly_mortar_hunt_destination_is_reckless(m, dest):
+		return m.global_position # would newly put the mortar ahead of, or outside the band held by, its own infantry screen
 	if not trusted and m.global_position.distance_to(dest) > GameConfig.MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE:
 		return m.global_position # too big a gamble on a lead nobody's actually watching
 	return dest
@@ -1544,18 +1544,22 @@ func _friendly_mortar() -> Unit:
 
 
 ## Whether a candidate hunt destination would put the mortar somewhere no
-## real crew would ever go: AHEAD of its own infantry screen. A mortar is
-## fire support — it stays BEHIND the friendly squads holding the line,
-## never advances past the frontmost one (`dest.x` beyond the highest x
-## among active friendly squads — "in front of" the line) and never drifts
-## outside the vertical band those squads actually occupy either (above
-## the northmost or below the southmost one) — either way, wandering out
-## from under its own infantry's protection is reckless regardless of how
-## good the intel on the target is, or how far MORTAR_HUNT_MAX_RANGE_FROM_
-## HOME would otherwise allow. With no active friendly squad left at all
-## to judge a "line" against, there's nothing to violate — the home-radius
-## cap is left to do the only judging left possible in that case.
-func _friendly_mortar_hunt_destination_is_reckless(dest: Vector2) -> bool:
+## real crew would ever go: newly AHEAD of its own infantry screen, or
+## newly outside the vertical band those squads actually occupy, relative
+## to where the mortar already is right now — not an absolute "must
+## already be within the line" rule. A mortar is fire support — it stays
+## BEHIND the friendly squads holding the line and within the vertical
+## band they occupy WHILE ADVANCING toward a hunt, but a crew that's
+## already outside that footprint (drifted there by an earlier, unrelated
+## self-preservation relocation — shoot-and-scoot, evading a threat,
+## whatever pushed it there had nothing to do with hunting) isn't thereby
+## permanently barred from ever hunting again just because it can't
+## un-drift in one step: only a destination that makes its OWN exposure
+## worse than it already is gets rejected here. With no active friendly
+## squad left at all to judge a "line" against, there's nothing to violate
+## — the home-radius cap is left to do the only judging left possible in
+## that case.
+func _friendly_mortar_hunt_destination_is_reckless(mortar: Unit, dest: Vector2) -> bool:
 	var frontmost_x := -INF
 	var min_y := INF
 	var max_y := -INF
@@ -1568,7 +1572,13 @@ func _friendly_mortar_hunt_destination_is_reckless(dest: Vector2) -> bool:
 			max_y = max(max_y, u.global_position.y)
 	if not found:
 		return false
-	return dest.x > frontmost_x or dest.y < min_y or dest.y > max_y
+	var already_ahead: bool = mortar.global_position.x > frontmost_x
+	var already_outside_band: bool = mortar.global_position.y < min_y or mortar.global_position.y > max_y
+	if dest.x > frontmost_x and not already_ahead:
+		return true
+	if (dest.y < min_y or dest.y > max_y) and not already_outside_band:
+		return true
+	return false
 
 
 ## Forms and maintains the mortar/drone team's SHARED commitment to
@@ -1623,8 +1633,8 @@ func _update_joint_mortar_hunt() -> void:
 	var dest := _friendly_mortar_hunt_point(fm, lead.position)
 	if dest == fm.global_position or dest.distance_to(_friendly_mortar_home_position) > GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME:
 		return # outside what the crew considers safe territory — not worth the drone escorting a hunt that will never actually happen
-	if _friendly_mortar_hunt_destination_is_reckless(dest):
-		return # would put the mortar ahead of, or outside the band held by, its own infantry screen
+	if _friendly_mortar_hunt_destination_is_reckless(fm, dest):
+		return # would newly put the mortar ahead of, or outside the band held by, its own infantry screen
 
 	_joint_mortar_hunt_target = lead.unit
 	_joint_mortar_hunt_start_time = scenario_elapsed_time
