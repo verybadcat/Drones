@@ -1956,7 +1956,15 @@ func _contact_search_bonus(point: Vector2) -> float:
 ## priority and deliberately NOT range-gated the way (1)/(2) are, since
 ## its entire purpose is keeping the drone on-station over a target the
 ## friendly mortar is still walking toward and hasn't reached range of
-## yet; (4) the single most dangerous currently-visible ACTIVE enemy
+## yet; (3b) the general case behind (3) — the drone backs up whatever
+## important friendly action is actually committed to and in progress
+## right now, not just a formally-promoted shared commitment; today's
+## only instance is any individual friendly mortar's OWN hunt, live and
+## already committed to (_mortar_move_intent == "hunt"), even when it
+## never qualified for (3)'s team-wide commitment (that one only ever
+## forms for a TRUSTED lead — a mortar acting alone on a bare, untrusted
+## one is a real, deliberate solo gamble the drone still needs to
+## support, not a plan it's unaware of); (4) the single most dangerous currently-visible ACTIVE enemy
 ## squad — scored AND flown at that squad's own live position
 ## (_squad_danger_priority): an active, closing threat is worth keeping
 ## direct eyes on for its own sake. Whether more enemies might be nearby
@@ -2082,6 +2090,38 @@ func _drone_search_target() -> Vector2:
 			best_score = GameConfig.TARGET_PRIORITY_MORTAR
 			best_pos = joint_pos
 			_drone_pilot_reasoning = {"tier": "Joint mortar hunt", "detail": "Staying on-station over a target the friendly mortar is still closing on but hasn't reached range of yet.", "target": best_pos}
+
+	# The general principle behind the tier just above, not something
+	# specific to it: the drone should back up whatever important friendly
+	# action is actually in progress right now, not just a shared, formally-
+	# promoted commitment. Today the only such action this game models is a
+	# mortar's own hunt — including a bare, UNTRUSTED lead the shared joint
+	# commitment above deliberately never covers (that one only ever forms
+	# for a trusted lead, a real team-wide commitment; an untrusted lead is
+	# a solo gamble by design — see _update_joint_mortar_hunt/_mortar_hunt_
+	# fix_for's own doc comments) — so this is where that plays out for now.
+	# Without it, the drone had no way to know the mortar had committed to
+	# one at all: it could keep watching an entirely different known mortar
+	# while the crew walked toward this one, exactly the "the drone should
+	# have been supporting what the mortar was doing" report this answers.
+	# Reads the mortar's OWN live, already-decided intent
+	# (_mortar_move_intent, set the instant _decide_mortar_action's tier 2
+	# commits to the move) rather than re-deriving a hunt fix independently,
+	# so the drone can never end up disagreeing with what the mortar itself
+	# actually chose. Should another kind of important, committed friendly
+	# action ever get its own state to read this same way, it belongs here
+	# too, not as a second copy of this tier.
+	for fm in player_units:
+		if fm.kind != Unit.Kind.MORTAR or fm.state != Unit.State.ACTIVE:
+			continue
+		if _mortar_move_intent.get(fm, "") != "hunt":
+			continue
+		var own_fix: Dictionary = _mortar_hunt_fix_for(fm)
+		if own_fix.is_empty() or GameConfig.TARGET_PRIORITY_MORTAR <= best_score:
+			continue
+		best_score = GameConfig.TARGET_PRIORITY_MORTAR
+		best_pos = own_fix.position
+		_drone_pilot_reasoning = {"tier": "Supporting important friendly action", "detail": "The friendly mortar has committed to closing on a known enemy mortar (own lead, not yet a team-wide commitment) — staying on the same target.", "target": best_pos}
 
 	var best_squad: Unit = null
 	var best_squad_score := -1.0
@@ -2789,6 +2829,27 @@ func _mortar_advance_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 	return mortar.global_position
 
 
+## Whether an UNWATCHED (not currently is_visible — that's its own,
+## separate "spotted" trigger, checked before this is even called) known
+## enemy has actually closed to genuine overrun danger of `m`'s crew.
+## Proximity alone isn't the real question — a known enemy unit merely
+## being nearby doesn't mean it can actually find this position; it needs
+## real line of sight to it, same as any other spotting-adjacent check in
+## this file. Without this, a mortar would panic and abandon a perfectly
+## good, still-concealed position just because an enemy happened to pass
+## within range while blind to it (terrain in the way) — "the self risk
+## would be low because we don't think the enemy has scouting on our
+## position" is exactly the case this excludes. A stronger, deterministic
+## check than waiting on the real (probabilistic, gradual) spot roll:
+## genuinely blocked LOS means no route to being found exists right now,
+## not just "hasn't happened yet."
+func _unwatched_threat_closing(m: Unit) -> bool:
+	for pos in _known_enemy_positions(m.team):
+		if m.global_position.distance_to(pos) <= GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE and GameConfig.has_direct_los(pos, m.global_position):
+			return true
+	return false
+
+
 ## The single authoritative per-mortar-per-tick decision, replacing what
 ## used to be five independent functions racing to claim a mortar's move
 ## order via an informal has_move_target mutex (_update_resupply_linkup,
@@ -2883,12 +2944,7 @@ func _decide_mortar_action(m: Unit) -> void:
 		return
 
 	var spotted: bool = m.is_visible
-	var threat_closing := false
-	if not spotted:
-		for pos in _known_enemy_positions(m.team):
-			if m.global_position.distance_to(pos) <= GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE:
-				threat_closing = true
-				break
+	var threat_closing: bool = not spotted and _unwatched_threat_closing(m)
 	if spotted or threat_closing:
 		# By this point _pick_target has already had every chance to
 		# engage (including its own ammo-conservation override for this
@@ -2900,7 +2956,7 @@ func _decide_mortar_action(m: Unit) -> void:
 					combat_log.log_mortar_relocating_for_cover(m)
 				else:
 					combat_log.log_mortar_relocating_from_threat(m)
-			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Spotted with nothing to shoot — relocating for cover." if spotted else "An unwatched threat is closing — relocating."}
+			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Spotted with nothing to shoot — relocating for cover." if spotted else "A threat with a clear line of sight is closing — relocating."}
 		else:
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Wanted to relocate, no route this tick."}
 		return
@@ -4191,10 +4247,13 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# self-preservation (tier 1) always wins regardless of ammo,
 		# danger-to-the-force, or any hunting opportunity below. Computed
 		# once, up front, since it now gates more than just the final
-		# override at the bottom of this branch.
+		# override at the bottom of this branch. Requires actual line of
+		# sight back to the crew's own position, same as _unwatched_threat_
+		# closing — a nearby candidate that can't actually see this mortar
+		# isn't genuinely closing in on it, whatever else it might be doing.
 		var any_overrun := false
 		for c in candidates:
-			if unit.global_position.distance_to(c.global_position) <= GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE:
+			if unit.global_position.distance_to(c.global_position) <= GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE and GameConfig.has_direct_los(c.global_position, unit.global_position):
 				any_overrun = true
 				break
 

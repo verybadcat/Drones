@@ -1634,6 +1634,20 @@ const WOUNDED_ABANDON_MAX_CHANCE: float = 0.85
 ## DANGER_RANGE's own scale — inside it, a known threat reads as realistically
 ## able to overrun the position; beyond it, the position itself is safe
 ## enough that only crew strength (not proximity) drives the decision.
+##
+## Proximity alone, though: whether that's enough on its own to call a
+## known enemy a real threat varies by call site. BattleManager._decide_
+## mortar_action's own proactive "is anything closing in on us" check
+## additionally requires genuine line of sight from the threat to the
+## crew's own position (GameConfig.has_direct_los) — a nearby-but-blind
+## enemy (terrain in the way) isn't actually a reason to abandon a
+## perfectly concealed position. The REACTIVE checks (_mortar_crew_holds_
+## position's post-hit hold-or-flee roll, _pick_target's own overrun
+## override) don't add that requirement — by the time either of those
+## runs, the crew has either already been hit (so something can already
+## reach them regardless of this range) or is actively choosing whether
+## to spend a round on a candidate already inside normal engagement
+## range, a different question than "is anything about to find us."
 const MORTAR_CREW_OVERRUN_DANGER_RANGE: float = 600.0 * PIXELS_PER_METER
 
 ## How far out a known enemy actually CLOSING on the drone team's ground
