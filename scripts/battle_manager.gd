@@ -1827,7 +1827,7 @@ func _mortar_existence_confidence() -> float:
 ## default, unless told otherwise), or INF if none remain — shared by
 ## _squad_danger_priority (how threatening an advancing enemy is — to the
 ## drone's own PLAYER side by default, or to whichever side is doing the
-## judging when _mortar_target_value asks on a MORTAR's behalf) and
+## judging when _target_danger_to_force asks on a MORTAR's behalf) and
 ## _drone_search_target's own tie-break among multiple visible retreating
 ## enemies (which one's actually closest to being able to fight, or be
 ## fought, right now).
@@ -1844,8 +1844,8 @@ func _nearest_active_friendly_distance(pos: Vector2, team: Unit.Team = Unit.Team
 ## GameConfig.TARGET_PRIORITY_SQUAD_MAX/SQUAD_DANGER_RANGE. Danger is
 ## judged by proximity to the nearest ACTIVE unit of `threatened_team`
 ## (PLAYER by default, matching the drone's own — always PLAYER-side —
-## use of this; _mortar_target_value passes the firing mortar's own team
-## instead, since a mortar judges danger to ITS side, not unconditionally
+## use of this; _target_danger_to_force passes the assessing unit's own
+## team instead, since a mortar judges danger to ITS side, not unconditionally
 ## the player's) — the closer `u` is to actually being able to fight
 ## someone, the more it matters, ramping smoothly from 0 at
 ## SQUAD_DANGER_RANGE up to the max right at contact, rather than a hard
@@ -2742,19 +2742,27 @@ func _mortar_advance_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 ## deleted). Tiered by the user's own explicitly stated priority order:
 ## preserve self > destroy enemy mortars > destroy dangerous squads >
 ## destroy other squads. Runs AFTER _tick_fire each tick, not before — a
-## mortar that's ready to fire right now gets that shot off first; only if
-## it didn't fire this tick does any of this apply. Applies to BOTH sides
-## identically (only the player's own move is narrated in the combat log —
-## see _should_narrate_mortar_logistics's fog-of-war reasoning — but the
-## decision logic itself is symmetric).
+## mortar that took a shot this tick has that already reflected in
+## `has_shot` below and stands fast; only if it didn't fire this tick does
+## any of this apply. Applies to BOTH sides identically (only the player's
+## own move is narrated in the combat log — see _should_narrate_mortar_
+## logistics's fog-of-war reasoning — but the decision logic itself is
+## symmetric).
 ##
 ## Tiers 3 and 4 ("destroy dangerous/other squads") are target-SELECTION,
 ## not movement — a mortar never chases a squad (MORTAR_MAX_RANGE already
 ## dwarfs SQUAD_DANGER_RANGE, and _friendly_mortar_hunt_destination_is_
 ## reckless exists specifically to keep the crew behind its own infantry
 ## screen). Their outcome is already fully reflected in `has_shot`/
-## `target` below via _pick_target's own weighting (_mortar_target_value)
+## `target` below via _pick_target's own weighting (_enemy_target_value)
 ## and ammo-conservation override — nothing left to decide here for them.
+## Tier 2 actually outranks 3/4 there too now: _pick_target itself can
+## choose to hold an available squad shot in favor of a known, far more
+## valuable opportunity when it's safe to pursue (unspotted, nothing close
+## enough to force the shot) — see its own doc comment. When that happens
+## `has_shot` below is correctly false and this tier's own movement logic
+## picks up the pursuit, exactly as if nothing had been available to
+## shoot at all.
 func _decide_mortar_action(m: Unit) -> void:
 	var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
 
@@ -4051,7 +4059,7 @@ func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
 ## Among non-mortar candidates, a SQUAD's own direct fire still just picks
 ## uniformly at random (a rifle squad isn't out here doing fire-support
 ## math) — but a MORTAR's choice among them is a genuine weighted pick via
-## _mortar_target_value, not uniform: a fuller unit is a juicier target
+## _enemy_target_value, not uniform: a fuller unit is a juicier target
 ## (more casualties per hit — see Unit.take_hit's own from_mortar
 ## scaling), and a target currently dangerous to the mortar's own side
 ## matters too, whether or not it happens to also be full-strength. Both
@@ -4124,6 +4132,52 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# more attractive even while genuinely low. See GameConfig.
 		# MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES for the full reasoning.
 		#
+		# A candidate this close is a physical threat to the crew right now —
+		# self-preservation (tier 1) always wins regardless of ammo,
+		# danger-to-the-force, or any hunting opportunity below. Computed
+		# once, up front, since it now gates more than just the final
+		# override at the bottom of this branch.
+		var any_overrun := false
+		for c in candidates:
+			if unit.global_position.distance_to(c.global_position) <= GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE:
+				any_overrun = true
+				break
+
+		var enemy_mortar_fix: Dictionary = _mortar_hunt_fix_for(unit)
+
+		# This isn't mortar-hunting-specific logic — it's the general
+		# principle that a known, more valuable target worth maneuvering
+		# for can be worth forgoing a lesser one already in hand, gated on
+		# it actually being safe to try: not already spotted (a spotted
+		# crew's own "get the shot off, then find cover" behavior a few
+		# tiers up is untouched by this — this only ever forgoes a shot,
+		# never costs one already being taken while exposed) and nothing
+		# close enough to force a shot regardless (any_overrun, above). A
+		# genuine value comparison, not a hard rule: the chance of holding
+		# this shot scales with how much more the known opportunity is
+		# actually worth than the best candidate available right now, both
+		# read off the exact same _enemy_target_value scale everything
+		# else here uses. TARGET_PRIORITY_MORTAR so thoroughly outweighs
+		# any single squad's own value that this reliably (not absolutely)
+		# favors the pursuit whenever a fix is live and safe to chase —
+		# that falls naturally out of the value gap already encoded in
+		# GameConfig, not a special case bolted on for this one target
+		# kind. The only reason today's only such opportunity happens to
+		# be an enemy mortar is that mortars are the only kind anything
+		# currently tracks a remembered, out-of-reach fix on at all.
+		if not enemy_mortar_fix.is_empty() and not unit.is_visible and not any_overrun:
+			# A remembered position, not a live Unit — its value is
+			# discounted by how much this side actually trusts the fix, a
+			# confidence axis _enemy_target_value has no notion of (that
+			# function only ever sees real, currently-known units).
+			var known_target_value: float = GameConfig.TARGET_PRIORITY_MORTAR * (1.0 if enemy_mortar_fix.trusted else GameConfig.TARGET_PRIORITY_MORTAR_LEAD_DISCOUNT)
+			var best_available_value := 0.0
+			for c in candidates:
+				best_available_value = max(best_available_value, _enemy_target_value(unit, c))
+			var hold_for_pursuit_chance: float = known_target_value / (known_target_value + best_available_value)
+			if randf() < hold_for_pursuit_chance:
+				return null
+
 		# Ammo scarcity on its own has no way to know a specific reason to
 		# hold back exists — a known (or suspected) enemy mortar, tracked by
 		# the exact same fix the movement side of tier 2 already hunts
@@ -4138,7 +4192,6 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# meaningfully more conservative. A trusted (confirmed) fix reserves
 		# more than a merely suspected lead, mirroring the same trusted/
 		# untrusted distinction the hunting tier itself already draws.
-		var enemy_mortar_fix: Dictionary = _mortar_hunt_fix_for(unit)
 		var ammo_reserve: int = 0
 		if not enemy_mortar_fix.is_empty():
 			ammo_reserve = GameConfig.MORTAR_AMMO_RESERVE_FOR_ENEMY_MORTAR_TRUSTED if enemy_mortar_fix.trusted else GameConfig.MORTAR_AMMO_RESERVE_FOR_ENEMY_MORTAR_UNTRUSTED
@@ -4149,20 +4202,18 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# — a genuinely different axis from the overrun-range override just
 		# below (that one measures danger to the CREW, distance to the
 		# mortar itself; this one measures danger to the FORCE, via
-		# _mortar_candidate_danger's own distance-to-nearest-friendly). Only
+		# _target_danger_to_force's own distance-to-nearest-friendly). Only
 		# gated on having a round to fire, same reasoning as the overrun
 		# override below — this only overrides the CHOICE to hold fire.
 		if hold_fire_chance > 0.0 and unit.mortar_rounds_remaining > 0:
 			var best_danger := 0.0
 			for c in candidates:
-				best_danger = max(best_danger, _mortar_candidate_danger(unit, c))
+				best_danger = max(best_danger, _target_danger_to_force(unit, c))
 			hold_fire_chance *= 1.0 - GameConfig.MORTAR_DANGER_HOLD_FIRE_OVERRIDE * (best_danger / GameConfig.TARGET_PRIORITY_SQUAD_MAX)
 		# Conserving ammo for later stops making sense the instant "later"
 		# might not come — a squad closing to within genuine overrun range
-		# (the same threshold the crew's own hold-or-flee roll uses once
-		# actually hit, GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE) is
-		# reason enough to take the shot regardless of how scarce ammo is
-		# or how far off resupply might be. Gated on actually HAVING a
+		# is reason enough to take the shot regardless of how scarce ammo
+		# is or how far off resupply might be. Gated on actually HAVING a
 		# round left — this only overrides the CHOICE to hold fire, not
 		# the hard fact of having nothing to fire; without this guard a
 		# truly empty mortar being approached would still read back as
@@ -4171,11 +4222,8 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# shoot" check), when _tick_fire's own separate, earlier
 		# mortar_rounds_remaining <= 0 gate means it could never actually
 		# fire regardless of what this function returns.
-		if hold_fire_chance > 0.0 and unit.mortar_rounds_remaining > 0:
-			for c in candidates:
-				if unit.global_position.distance_to(c.global_position) <= GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE:
-					hold_fire_chance = 0.0
-					break
+		if hold_fire_chance > 0.0 and unit.mortar_rounds_remaining > 0 and any_overrun:
+			hold_fire_chance = 0.0
 		if randf() < hold_fire_chance:
 			return null
 		return _weighted_mortar_target_pick(unit, candidates)
@@ -4285,36 +4333,52 @@ func mortar_minutes_since_detected_firing(mortar: Unit) -> float:
 ## not fighting, so proximity to a friendly alone shouldn't read as a
 ## threat; matches the same state == ACTIVE gate _drone_search_target
 ## already applies to its own squad-danger scoring), otherwise
-## _squad_danger_priority judged against `unit`'s OWN side (not
+## _squad_danger_priority judged against `assessing_unit`'s OWN side (not
 ## unconditionally the player's — an enemy mortar weighing this cares
 ## about danger to the ENEMY side). Extracted as its own function so
-## _mortar_target_value's existing target-ranking use and _pick_target's
-## ammo-conservation override (GameConfig.MORTAR_DANGER_HOLD_FIRE_OVERRIDE)
+## _enemy_target_value's target-ranking use and _pick_target's own ammo-
+## conservation override (GameConfig.MORTAR_DANGER_HOLD_FIRE_OVERRIDE)
 ## can never drift apart on what "dangerous" means — in particular, so the
 ## override can never be fooled into reading a RETREATING squad as a
-## reason to burn ammo, the same trap _mortar_target_value was already
-## built to avoid.
-func _mortar_candidate_danger(unit: Unit, target: Unit) -> float:
+## reason to burn ammo, the same trap _enemy_target_value is already built
+## to avoid.
+func _target_danger_to_force(assessing_unit: Unit, target: Unit) -> float:
 	var is_active_squad: bool = target.kind == Unit.Kind.SQUAD and target.state == Unit.State.ACTIVE
-	return _squad_danger_priority(target, unit.team) if is_active_squad else 0.0
+	return _squad_danger_priority(target, assessing_unit.team) if is_active_squad else 0.0
 
 
-## How much a MORTAR would value firing on `target` right now — see
-## _pick_target's own doc comment for the two factors this weighs.
-## Casualty potential is just the target's own current pip count (more
-## people actually there to hit); danger is _mortar_candidate_danger.
-## Both terms land on roughly the same 0-10ish scale by construction (max
-## pips 9, TARGET_PRIORITY_SQUAD_MAX 10), so equal weights (GameConfig.
-## MORTAR_TARGET_CASUALTY_WEIGHT/_DANGER_WEIGHT) already balance them
-## reasonably without needing wildly different magnitudes.
-func _mortar_target_value(unit: Unit, target: Unit) -> float:
-	var casualty_value: float = float(target.pips)
-	var danger_value: float = _mortar_candidate_danger(unit, target)
-	return GameConfig.MORTAR_TARGET_CASUALTY_WEIGHT * casualty_value + GameConfig.MORTAR_TARGET_DANGER_WEIGHT * danger_value
+## How much destroying/neutralizing `target` is actually worth, from
+## `assessing_unit`'s own side's perspective — a general notion any
+## friendly unit's decisionmaking can weigh options against, not a
+## mortar-specific one bolted onto one particular behavior. An ACTIVE
+## mortar is worth taking out almost on sight, a fixed high value
+## (GameConfig.TARGET_PRIORITY_MORTAR) essentially regardless of its own
+## remaining strength — a crew-served indirect-fire weapon's worth isn't
+## really about how many of its crew are still standing, unlike a rifle
+## squad's. A SQUAD's value instead combines what it would actually cost
+## to lose (casualty_value, its own current pip count — more people
+## actually there to hit) with how much danger it currently poses to
+## assessing_unit's own side (_target_danger_to_force) — a damaged-but-
+## threatening squad can still outweigh an undamaged-but-harmless one.
+## Both squad terms land on roughly the same 0-10ish scale by construction
+## (max pips 9, TARGET_PRIORITY_SQUAD_MAX 10), so equal weights
+## (GameConfig.MORTAR_TARGET_CASUALTY_WEIGHT/_DANGER_WEIGHT) already
+## balance them without needing wildly different magnitudes. Everything
+## else (spotter, drone team, drone, resupply run — nothing currently
+## weighs engaging any of them this way) reads as 0, not because they're
+## worthless in reality, just because nothing needs an opinion on them yet.
+func _enemy_target_value(assessing_unit: Unit, target: Unit) -> float:
+	if target.kind == Unit.Kind.MORTAR and target.state == Unit.State.ACTIVE:
+		return GameConfig.TARGET_PRIORITY_MORTAR
+	if target.kind == Unit.Kind.SQUAD:
+		var casualty_value: float = float(target.pips)
+		var danger_value: float = _target_danger_to_force(assessing_unit, target)
+		return GameConfig.MORTAR_TARGET_CASUALTY_WEIGHT * casualty_value + GameConfig.MORTAR_TARGET_DANGER_WEIGHT * danger_value
+	return 0.0
 
 
 ## A genuine weighted-random choice among `candidates` (each one's own
-## _mortar_target_value as its weight), not a deterministic "always the
+## _enemy_target_value as its weight), not a deterministic "always the
 ## single best one" — real fire-mission targeting isn't perfectly
 ## rational, and this keeps the mortar's target choice from being
 ## trivially predictable the way always picking the objective maximum
@@ -4325,7 +4389,7 @@ func _weighted_mortar_target_pick(unit: Unit, candidates: Array[Unit]) -> Unit:
 	var weights: Array[float] = []
 	var total := 0.0
 	for c in candidates:
-		var w: float = _mortar_target_value(unit, c)
+		var w: float = _enemy_target_value(unit, c)
 		weights.append(w)
 		total += w
 	var roll: float = randf() * total

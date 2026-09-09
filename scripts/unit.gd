@@ -316,7 +316,7 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], kn
 	# GameConfig.MORTAR_CASUALTY_FRACTION) — a full 9-person squad is a
 	# genuinely costlier hit to take than a squad already worn down to a
 	# handful, which is exactly why it's also a more attractive TARGET in
-	# the first place (see BattleManager._mortar_target_value).
+	# the first place (see BattleManager._enemy_target_value).
 	var casualties: int = GameConfig.mortar_casualty_count(pips) if from_mortar else 1
 	# SPOTTER (one-hit-fragile, max_pips == 1) gets the same categorization
 	# roll as a SQUAD's casualties — no reason a spotter's single casualty

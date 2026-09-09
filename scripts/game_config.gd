@@ -1317,7 +1317,7 @@ const SQUAD_DANGER_RANGE: float = 1200.0 * PIXELS_PER_METER
 ## own.
 
 # How a MORTAR weighs which non-mortar candidate to actually fire on — see
-# BattleManager._mortar_target_value/_pick_target's own doc comment. Equal
+# BattleManager._enemy_target_value/_pick_target's own doc comment. Equal
 # weights on purpose: casualty potential (a target's own current pips,
 # capped at 9) and danger (_squad_danger_priority, capped at
 # TARGET_PRIORITY_SQUAD_MAX = 10) already land on comparable scales by
@@ -1329,7 +1329,7 @@ const MORTAR_TARGET_DANGER_WEIGHT: float = 1.0
 
 ## Tier 3 of the mortar decision ladder ("destroy dangerous squads") — how
 ## completely an especially dangerous candidate overrides ammo-conservation
-## hold-fire, sliding with BattleManager._mortar_candidate_danger's own
+## hold-fire, sliding with BattleManager._target_danger_to_force's own
 ## 0..TARGET_PRIORITY_SQUAD_MAX scale rather than a threshold ("five shots
 ## remaining should never be a magical number," the same principle behind
 ## the existing sliding-scale hold-fire chance itself). A genuinely
@@ -1518,7 +1518,7 @@ const RELOCATE_ON_MORTAR_HIT_CHANCE: float = 0.35
 
 # A mortar round's fragmentation covers an area, not one aimed person —
 # see Unit.take_hit's own from_mortar branch, and BattleManager.
-# _mortar_target_value, which is why a fuller unit is also a more
+# _enemy_target_value, which is why a fuller unit is also a more
 # attractive target in the first place. 20% of a unit's CURRENT strength,
 # rounded, floored at 1 (a "hit" that costs nothing would read as a
 # non-event) and never more than what's actually there to lose. A full
