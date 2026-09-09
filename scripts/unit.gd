@@ -53,6 +53,15 @@ var is_visible: bool = false
 var player_has_been_sighted: bool = false
 var player_known_pips: int = 0
 var player_known_state: State = State.ACTIVE
+# Where this unit was standing the last time it was actually observed, and
+# when — Vector2.INF / -INF until first sighted. Currently only consulted
+# for an enemy MORTAR (see BattleManager._known_enemy_mortar_lead's third,
+# untrusted fallback): a real commander doesn't forget where a gun was
+# last seen just because it went quiet again, even though it might have
+# moved since — that's exactly why this feeds an UNTRUSTED lead, not a
+# trusted one.
+var player_known_position: Vector2 = Vector2.INF
+var player_known_position_time: float = -INF
 
 var fire_interval: float = 2.0 # seconds between fire attempts
 var fire_timer: float = 0.0
@@ -684,8 +693,16 @@ func seek_cover(avoid_positions: Array[Vector2] = [], known_enemy_positions: Arr
 	movement_predictable = false
 
 
+## ACTIVE or RETREATING — still present, still a real unit in the fight,
+## as opposed to DESTROYED/WITHDRAWN/SURRENDERED. Visibility-independent;
+## see is_targetable() for the full "can actually be fired at right now"
+## check, and BattleManager._known_enemy_positions for the analogous
+## "still a threat" standard applied to squad danger elsewhere.
+func is_targetable_state() -> bool:
+	return state == State.ACTIVE or state == State.RETREATING
+
 func is_targetable() -> bool:
-	return state != State.DESTROYED and state != State.WITHDRAWN and state != State.SURRENDERED and is_visible
+	return is_targetable_state() and is_visible
 
 
 func display_name() -> String:

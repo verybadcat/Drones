@@ -31,6 +31,11 @@ func _ready() -> void:
 	title.text = "BATTLE AI / DECISION INSPECTOR"
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	heading.add_child(title)
+	var copy := Button.new()
+	copy.text = "Copy"
+	copy.tooltip_text = "Copy the text below to the clipboard."
+	copy.pressed.connect(func(): DisplayServer.clipboard_set(_text.text))
+	heading.add_child(copy)
 	var close := Button.new()
 	close.text = "Close (i)"
 	close.pressed.connect(func(): hide())

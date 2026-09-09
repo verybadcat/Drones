@@ -1493,16 +1493,40 @@ func _known_friendly_mortar_position() -> Vector2:
 ## and aged out on the much shorter MORTAR_FIRE_DETECTION_EXPIRY window
 ## instead of DRONE_MORTAR_FIRE_LEAD_EXPIRY, since nothing is keeping it
 ## current the way a live drone (or eyes) would.
+##
+## THIRD fallback, once both of those come up empty: Unit.player_known_
+## position, the last spot this mortar was actually SEEN (not just heard
+## firing), with no expiry at all. Without this, an enemy mortar that goes
+## quiet for longer than the short fire-detection window (very common —
+## it isn't obligated to fire every reload cycle, and a real one often
+## doesn't) was being treated as if it had never been found at all, the
+## instant that short window lapsed — silently forfeiting the whole
+## ammo-conservation/pursuit mechanism for a target that's still very
+## much real and still very much known to exist, just not RECENTLY heard
+## from. Reported untrusted (never trusted, regardless of drone coverage)
+## since the mortar could genuinely have relocated since — a real crew
+## would still send a probing advance on a last-known position, not
+## commit the whole team to it the way a live or freshly-detected fix
+## earns.
 func _known_enemy_mortar_lead() -> Dictionary:
+	# ACTIVE or RETREATING, never DESTROYED/WITHDRAWN/SURRENDERED — the same
+	# "still a threat, still a real target" standard _known_enemy_positions
+	# already applies elsewhere in this file, and the same one Unit.
+	# is_targetable() itself allows a shot at. A crew that's pulling its gun
+	# back after taking a hit hasn't abandoned it (see order_retreat's own
+	# reasoning) and is very much still worth catching — excluding
+	# RETREATING here meant a mortar the player had just damaged enough to
+	# make it flee immediately became untrackable, the exact tick it
+	# actually mattered most.
 	for u in enemy_units:
-		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE and u.is_visible:
+		if u.kind == Unit.Kind.MORTAR and u.is_targetable_state() and u.is_visible:
 			return {"position": u.global_position, "trusted": true, "unit": u}
 
 	var best_pos := Vector2.INF
 	var best_time := -INF
 	var best_unit: Unit = null
 	for u in enemy_units:
-		if u.kind != Unit.Kind.MORTAR or u.state != Unit.State.ACTIVE:
+		if u.kind != Unit.Kind.MORTAR or not u.is_targetable_state():
 			continue
 		var info: Dictionary = _last_detected_mortar_fire.get(u, {})
 		if info.is_empty():
@@ -1511,20 +1535,30 @@ func _known_enemy_mortar_lead() -> Dictionary:
 			best_time = info.time
 			best_pos = info.position
 			best_unit = u
-	if best_unit == null:
+
+	if best_unit != null:
+		var drone_covering_it := false
+		for d in [active_drone, backup_drone]:
+			if d != null and d.has_move_target and d.move_target.distance_to(best_pos) < 1.0:
+				drone_covering_it = true
+				break
+		var expiry: float = GameConfig.DRONE_MORTAR_FIRE_LEAD_EXPIRY if drone_covering_it else GameConfig.MORTAR_FIRE_DETECTION_EXPIRY
+		if scenario_elapsed_time - best_time <= expiry:
+			return {"position": best_pos, "trusted": drone_covering_it, "unit": best_unit}
+
+	var seen_pos := Vector2.INF
+	var seen_time := -INF
+	var seen_unit: Unit = null
+	for u in enemy_units:
+		if u.kind != Unit.Kind.MORTAR or not u.is_targetable_state() or is_inf(u.player_known_position.x):
+			continue
+		if u.player_known_position_time > seen_time:
+			seen_time = u.player_known_position_time
+			seen_pos = u.player_known_position
+			seen_unit = u
+	if seen_unit == null:
 		return {}
-
-	var drone_covering_it := false
-	for d in [active_drone, backup_drone]:
-		if d != null and d.has_move_target and d.move_target.distance_to(best_pos) < 1.0:
-			drone_covering_it = true
-			break
-
-	var expiry: float = GameConfig.DRONE_MORTAR_FIRE_LEAD_EXPIRY if drone_covering_it else GameConfig.MORTAR_FIRE_DETECTION_EXPIRY
-	if scenario_elapsed_time - best_time > expiry:
-		return {}
-
-	return {"position": best_pos, "trusted": drone_covering_it, "unit": best_unit}
+	return {"position": seen_pos, "trusted": false, "unit": seen_unit}
 
 
 ## The single position the mortar/drone team's current joint commitment
@@ -3225,15 +3259,32 @@ func _decide_mortar_action(m: Unit) -> void:
 		_mortar_reasoning[m] = {"tier": "Target available", "detail": "A target is selected; no new movement order from this decision. Reload and firing gates still apply."}
 		return
 
-	# Step 0b — an in-progress SELF-PRESERVATION walk isn't interruptible
-	# by a lower tier (hunting). This is what actually fixes the bug where
-	# hunting could silently overwrite a shoot-and-scoot displacement mid-
-	# stride, and what stops an is_visible blink or a _pick_target coin-
-	# flip from restarting the whole ladder mid-walk — the mortar's own
-	# version of the sticky-until-arrival commitment the drone rewrite
-	# needed for the same reason.
+	# Step 0b — an in-progress EMERGENCY self-preservation walk isn't
+	# interruptible by a lower tier (hunting): evade/conceal/out_of_ammo/
+	# linkup are all real, immediate necessities (a closing threat, being
+	# spotted, no ammo to fight with at all), not something a known-mortar
+	# opportunity should ever pull the crew off of mid-stride. This also
+	# stops an is_visible blink or a _pick_target coin-flip from restarting
+	# the whole ladder mid-walk — the mortar's own version of the
+	# sticky-until-arrival commitment the drone rewrite needed for the
+	# same reason.
+	#
+	# "scoot" is deliberately NOT on this list. Shoot-and-scoot's post-fire
+	# reposition is a routine precaution, not an emergency — and unlike the
+	# others, a single scoot leg can legitimately take several minutes of
+	# tactical time to walk (real m/s speeds over real distances), which
+	# was silently locking tier 2 hunting out for that whole stretch even
+	# when a known, low-risk enemy mortar opportunity was sitting right
+	# there — backwards from what "destroy enemy mortars" outranking a
+	# mere precaution actually means. Falling through here still can't
+	# actually disrupt the walk itself: every tier below only ever
+	# OVERWRITES move_target when it finds something more important to do
+	# (a fresh evade/conceal reason, or a viable hunt destination) — with
+	# nothing more important going on, the ladder just reports "Holding"
+	# and the scoot already under way keeps walking untouched via
+	# _tick_movement, exactly as before.
 	var current_intent: String = _mortar_move_intent.get(m, "")
-	if m.has_move_target and current_intent in ["scoot", "evade", "conceal", "out_of_ammo", "linkup"]:
+	if m.has_move_target and current_intent in ["evade", "conceal", "out_of_ammo", "linkup"]:
 		_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Continuing a displacement already under way (%s)." % current_intent}
 		return
 
@@ -3339,7 +3390,16 @@ func _decide_mortar_action(m: Unit) -> void:
 ## same way every other tier already was) closes that gap.
 func _update_mortar_decisions() -> void:
 	for m in player_units + enemy_units:
-		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
+		if m.kind != Unit.Kind.MORTAR:
+			continue
+		if m.state != Unit.State.ACTIVE:
+			# Otherwise _mortar_reasoning[m] would simply freeze at whatever
+			# it last said while still ACTIVE (e.g. "Target available") —
+			# misleading in the Decision Inspector for a crew that's since
+			# retreated or been destroyed, well past the point that
+			# reasoning was ever accurate.
+			if _mortar_reasoning.has(m):
+				_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "No longer in action (%s)." % Unit.State.keys()[m.state].to_lower()}
 			continue
 		_decide_mortar_action(m)
 
@@ -3607,6 +3667,8 @@ func _update_player_intel() -> void:
 			u.player_has_been_sighted = true
 			u.player_known_pips = u.pips
 			u.player_known_state = u.state
+			u.player_known_position = u.global_position
+			u.player_known_position_time = scenario_elapsed_time
 
 
 ## `scenario_delta` (tactical seconds) drives a MORTAR's reload timer — a
