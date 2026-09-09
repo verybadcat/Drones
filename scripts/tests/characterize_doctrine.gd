@@ -144,15 +144,12 @@ func _run_one_trial(mode: GameConfig.ReconMode) -> Dictionary:
 		verdict = "DEFEAT"
 
 	var player_surrendered := 0
-	var player_retreat_extended := 0
 	var player_ever_retreated := 0
 	var player_mortar_lost := 0
 	for u in bm.player_units:
 		if u.state == Unit.State.SURRENDERED:
 			player_surrendered += 1
-		if u.retreat_extended:
-			player_retreat_extended += 1
-		if u.state == Unit.State.RETREATING or u.state == Unit.State.WITHDRAWN or u.retreat_extended:
+		if u.state == Unit.State.RETREATING or u.state == Unit.State.WITHDRAWN:
 			player_ever_retreated += 1
 		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.DESTROYED:
 			player_mortar_lost += 1
@@ -189,7 +186,6 @@ func _run_one_trial(mode: GameConfig.ReconMode) -> Dictionary:
 		"enemy_killed": true_enemy_stats.killed,
 		"player_surrendered": player_surrendered,
 		"enemy_surrendered": enemy_surrendered,
-		"player_retreat_extended": player_retreat_extended,
 		"player_ever_retreated": player_ever_retreated,
 		"player_mortar_lost": player_mortar_lost,
 		"enemy_mortar_out_true": enemy_mortar_out_true,
@@ -241,7 +237,6 @@ func _aggregate(trials: Array[Dictionary]) -> Dictionary:
 		"enemy_pips_total_sum": 0,
 		"player_surrendered_sum": 0,
 		"enemy_surrendered_sum": 0,
-		"player_retreat_extended_sum": 0,
 		"player_ever_retreated_sum": 0,
 		"target_picks": {},
 		"resupply_spawned": {},
@@ -287,7 +282,6 @@ func _aggregate(trials: Array[Dictionary]) -> Dictionary:
 		agg.enemy_pips_total_sum += t.enemy_pips_total
 		agg.player_surrendered_sum += t.player_surrendered
 		agg.enemy_surrendered_sum += t.enemy_surrendered
-		agg.player_retreat_extended_sum += t.player_retreat_extended
 		agg.player_ever_retreated_sum += t.player_ever_retreated
 		_merge_count_dict(agg.target_picks, t.target_picks)
 		_merge_count_dict(agg.resupply_spawned, t.resupply_spawned)
@@ -346,7 +340,6 @@ func _md_for_mode(mode_name: String, agg: Dictionary) -> String:
 	lines.append("")
 	lines.append("### Retreat")
 	lines.append("- Player units that ever retreated/withdrew: %.2f per battle" % (agg.player_ever_retreated_sum / n))
-	lines.append("- Of those, escalated to the extended (deep) safe line: %s" % _pct(agg.player_retreat_extended_sum, agg.player_ever_retreated_sum))
 	lines.append("- Threat-avoidance steering active (of all checks made): %s" % _pct(agg.retreat_avoidance_active_sum, agg.retreat_avoidance_checks_sum))
 	lines.append("")
 	lines.append("### Targeting (does a squad ever fire on an enemy mortar?)")

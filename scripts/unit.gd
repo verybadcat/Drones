@@ -131,14 +131,6 @@ var ammo_cooked_off: bool = false
 var retreat_speed: float = 0.0
 var retreat_target_x: float = 0.0 # x that means "reached safety" while retreating
 
-# PLAYER only: true once retreat_target_x has already been escalated from
-# GameConfig.PLAYER_SAFE_X to PLAYER_EXTENDED_SAFE_X because this unit was
-# still under pressure the moment it reached the ordinary line — see
-# BattleManager._step_retreat/_still_under_pressure. A one-time, one-way
-# upgrade; never reset (retreat is already one-way per battle, same as
-# every other retreat field here).
-var retreat_extended: bool = false
-
 # SQUAD only — every pip actually lost (see take_hit) is sorted into exactly
 # one of these three (GameConfig.CASUALTY_*_FRACTION) instead of just
 # vanishing from `pips` as an undifferentiated loss. KILLED needs nothing

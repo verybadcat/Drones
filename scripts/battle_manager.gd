@@ -2965,35 +2965,10 @@ func _step_retreat(unit: Unit, scenario_delta: float) -> void:
 	unit.position = next_pos
 	var reached: bool = (unit.position.x <= unit.retreat_target_x) if unit.team == Unit.Team.PLAYER else (unit.position.x >= unit.retreat_target_x)
 	if reached:
-		# PLAYER only: a unit still genuinely under pressure the moment it
-		# reaches the ordinary safe line has somewhere deeper to go now (the
-		# west flank) rather than always stopping at the same fixed line
-		# regardless of the tactical picture — see GameConfig.
-		# PLAYER_EXTENDED_SAFE_X and _still_under_pressure. One-time
-		# escalation (retreat_extended guards against re-triggering every
-		# tick once already on the deeper line); enemy retreat, toward its
-		# own home edge, is untouched.
-		if unit.team == Unit.Team.PLAYER and not unit.retreat_extended and _still_under_pressure(unit):
-			unit.retreat_extended = true
-			unit.retreat_target_x = GameConfig.PLAYER_EXTENDED_SAFE_X
-			return
 		unit.position.x = unit.retreat_target_x
 		unit.state = Unit.State.WITHDRAWN
 		unit.queue_redraw()
 		combat_log.log_withdrawn(unit)
-
-
-## Whether `unit` still has a known enemy close enough to count as a live
-## threat right where it's standing right now — reuses the same danger-
-## range framing _mortar_crew_holds_position already applies to a mortar
-## crew's own hold-or-flee decision, just as the bar for "still worth
-## falling back further" rather than "safe to call it withdrawn."
-func _still_under_pressure(unit: Unit) -> bool:
-	var range_m: float = GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE if unit.kind == Unit.Kind.MORTAR else GameConfig.SQUAD_DANGER_RANGE
-	for p in _known_enemy_positions(unit.team):
-		if unit.global_position.distance_to(p) <= range_m:
-			return true
-	return false
 
 
 ## Signed lateral steering strength for _step_retreat's final dash: 0.0

@@ -689,15 +689,18 @@ const SURRENDER_WILLINGNESS_MULTIPLIER_ENEMY: float = 1.0
 # longer part of the fight, but its casualties still count in the AAR.
 const ENEMY_SAFE_X: float = ENEMY_SPAWN_X + 150.0 * PIXELS_PER_METER
 const PLAYER_RETREAT_SPEED: float = 2.0 * PIXELS_PER_METER
-const PLAYER_SAFE_X: float = 60.0 * PIXELS_PER_METER
 
-## A unit still genuinely under pressure (see BattleManager.
-## _still_under_pressure) the moment it reaches PLAYER_SAFE_X doesn't stop
-## there — it keeps falling back, into the west flank, until it reaches
-## this deeper line instead (see BattleManager._step_retreat). A buffer
-## short of the true world edge (-WEST_FLANK_WIDTH_PX) so an escalated
-## retreat never ends literally on the map boundary.
-const PLAYER_EXTENDED_SAFE_X: float = -(WEST_FLANK_WIDTH_M - 100.0) * PIXELS_PER_METER # -280px / -1400m
+## The true world edge is -WEST_FLANK_WIDTH_PX; this stays 100m short of it
+## so a retreat never ends literally on the map boundary. Used to be a
+## shallower "ordinary" line near the old map's own edge (x=0), reached
+## before the west flank instead, with a deeper escalation only for a unit
+## still under pressure there — that made sense back when the camera only
+## panned into the west flank on demand, so most retreats never needed to
+## reveal it. Now that the viewport is permanently wide and the west flank
+## is always on screen (see CAMERA_VIEWPORT_WIDTH_PX), stopping at the old
+## shallow line just reads as stopping in the middle of visible ground for
+## no reason — every player retreat now goes all the way to the real edge.
+const PLAYER_SAFE_X: float = -(WEST_FLANK_WIDTH_M - 100.0) * PIXELS_PER_METER # -280px / -1400m
 
 ## The final retreat leg's straight dash (see BattleManager._step_retreat)
 ## bends laterally away from the single nearest known threat once it's

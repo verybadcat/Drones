@@ -52,28 +52,22 @@ func _build_retreat_section() -> Control:
 	var label := GameConfig.make_selectable_label("Standing order, whole force")
 	box.add_child(label)
 
-	var threshold_row := HBoxContainer.new()
+	# Stacked (label above, slider below) rather than side by side — packed
+	# into an HBoxContainer, the label's own single-line width (~264px) plus
+	# the slider's 140px minimum summed to more than this panel's fixed
+	# 320px width, with nothing clipping the overflow: the excess just drew
+	# straight past the sidebar and off the right edge of the window. Each
+	# on its own line comfortably fits the panel's width alone.
 	var threshold_label := GameConfig.make_selectable_label("Retreat threshold (%% casualties):")
-	# Sitting in an HBoxContainer (the horizontal/main axis, unlike every
-	# other converted label here which stretches to a VBoxContainer's full
-	# width on the cross axis), this RichTextLabel never gets a real width to
-	# wrap against before computing its own minimum size — with autowrap
-	# left on, that produced a wildly inflated height (~760px measured,
-	# wrapped as if against a near-zero-width column), pushing every section
-	# below it off the visible panel. This label was never meant to wrap
-	# anyway — it's a short inline caption next to a slider — so turning
-	# autowrap off restores exactly the single-line sizing the plain Label
-	# it replaced always had.
 	threshold_label.autowrap_mode = TextServer.AUTOWRAP_OFF
-	threshold_row.add_child(threshold_label)
+	box.add_child(threshold_label)
 	var threshold_slider := HSlider.new()
 	threshold_slider.min_value = 10
 	threshold_slider.max_value = 90
 	threshold_slider.step = 5
 	threshold_slider.value = 30
 	threshold_slider.custom_minimum_size = Vector2(140, 0)
-	threshold_row.add_child(threshold_slider)
-	box.add_child(threshold_row)
+	box.add_child(threshold_slider)
 
 	_threshold_slider = threshold_slider
 	return box
@@ -91,12 +85,16 @@ func _build_mortar_section() -> Control:
 
 	var scoot_row := HBoxContainer.new()
 	var scoot_check := CheckBox.new()
-	scoot_check.text = "Shoot and scoot (relocate after every shot)"
+	# Kept short deliberately — a CheckBox draws its own text on one line
+	# with no wrapping, and the fuller "(relocate after every shot)" phrasing
+	# used to push this past the panel's width with nothing to clip the
+	# overflow. The detail lives in the note below instead.
+	scoot_check.text = "Shoot and scoot"
 	scoot_row.add_child(scoot_check)
 	box.add_child(scoot_row)
 	_mortar_shoot_and_scoot = scoot_check
 
-	var scoot_note := GameConfig.make_selectable_label("Relocation itself takes as long as the walk does, at a realistic pace — no separate cooldown to set.")
+	var scoot_note := GameConfig.make_selectable_label("Relocates after every shot. The walk itself takes as long as it takes, at a realistic pace — no separate cooldown to set.")
 	scoot_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(scoot_note)
 
