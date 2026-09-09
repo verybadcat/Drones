@@ -5018,10 +5018,12 @@ func drone_fleet_status() -> Dictionary:
 ## what's actually been scouted, live or in the AAR — see _end_battle's own
 ## reasoning for when the AAR still gets the true figures anyway (holding
 ## the position for a battlefield sweep). A unit never sighted at all
-## contributes to the known TOTAL order of battle (pips_total) but not a
-## single casualty — assumed still active and undamaged, not "unknown,"
-## since crediting losses nobody actually confirmed would be worse than
-## just not knowing.
+## doesn't contribute to pips_total either, not just pips_lost — the
+## enemy's own total order of battle (how many personnel it fields at all)
+## is exactly the kind of fact real fog of war withholds until it's
+## actually been scouted, the same as any individual unit's condition; a
+## unit sighted at some point and later lost track of still counts, since
+## its existence was genuinely confirmed even if its current state wasn't.
 ##
 ## Even when the OVERALL call is the confirmed one (`estimated = false`,
 ## `is_enemy_side = true` — the position was held), a unit's OWN casualties
@@ -5089,7 +5091,18 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false, is_enemy_s
 		# part of the original order of battle — counting it here would
 		# make the AAR's personnel baseline drift depending on whether a
 		# run happened to be alive at the moment stats were computed.
-		if u.kind != Unit.Kind.DRONE and u.kind != Unit.Kind.RESUPPLY_RUN:
+		#
+		# For an ESTIMATED enemy-side view specifically, a unit never once
+		# sighted doesn't even count toward the TOTAL — "how many personnel
+		# does the enemy have" is itself something the player has to have
+		# actually scouted, not a fact handed over for free just because
+		# BattleManager itself is omniscient. A unit sighted at some point
+		# and later lost track of (retreated, withdrawn) still counts —
+		# its existence was genuinely confirmed, even if its current
+		# condition wasn't; this only ever excludes one nobody has ever
+		# actually seen at all.
+		var counts_toward_known_total: bool = not (estimated and is_enemy_side) or u.player_has_been_sighted
+		if u.kind != Unit.Kind.DRONE and u.kind != Unit.Kind.RESUPPLY_RUN and counts_toward_known_total:
 			pips_total += u.max_pips
 		# Only ever relevant for the ENEMY side — the player's own units are
 		# always fully known regardless of state; a friendly mortar crew
