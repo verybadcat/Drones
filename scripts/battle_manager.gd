@@ -1094,17 +1094,23 @@ func _resolve_resupply_run_arrivals() -> void:
 ##   resolves to a real position, else a bare, uncovered fire-detection
 ##   lead — no active joint commitment at all — as an explicitly untrusted
 ##   fix (a solo gamble, capped harder in _mortar_hunt_destination_for).
+## `unit`, when present, is the specific enemy mortar Unit this fix
+## actually points at — carried through so callers that need to match a
+## fix against a real, currently-visible unit (see _is_priority_hunt_
+## target) can, without re-deriving the same lookup. Absent on the enemy
+## branch (_known_friendly_mortar_position has no unit reference to give,
+## and nothing currently needs one there).
 func _mortar_hunt_fix_for(m: Unit) -> Dictionary:
 	if m.team == Unit.Team.ENEMY:
 		var pos: Vector2 = _known_friendly_mortar_position()
 		return {} if is_inf(pos.x) else {"position": pos, "trusted": true}
 	if _joint_mortar_hunt_target != null:
 		var known_pos: Vector2 = _joint_mortar_hunt_known_position()
-		return {} if is_inf(known_pos.x) else {"position": known_pos, "trusted": true}
+		return {} if is_inf(known_pos.x) else {"position": known_pos, "trusted": true, "unit": _joint_mortar_hunt_target}
 	var lead: Dictionary = _known_enemy_mortar_lead()
 	if lead.is_empty() or lead.trusted:
 		return {} # a trusted lead is entirely the joint commitment's business, handled above
-	return {"position": lead.position, "trusted": false}
+	return {"position": lead.position, "trusted": false, "unit": lead.unit}
 
 
 ## The other half of tier 2 — the destination `m` should advance to in
@@ -1928,14 +1934,20 @@ func _contact_search_bonus(point: Vector2) -> float:
 ## so a future third target kind only needs its own scoring term, not a
 ## rewrite of this decision. Candidates, each mapped to an actual position:
 ## (1) any currently visible, still-ACTIVE enemy mortar at all
-## (_visible_active_enemy_mortar) — deliberately NOT gated on whether it's
-## currently engageable (that stricter question is _visible_engageable_
-## mortar's own, used only by the backup/self-sacrifice decisions): losing
-## contact on a confirmed live mortar just because the friendly mortar
-## can't reach it THIS INSTANT would waste the one asset actually watching
-## it, and the situation can change (either mortar can reposition).
-## Practically always the winner when one exists, since TARGET_PRIORITY_
-## MORTAR sits far above anything else; (2) the freshest in-range fire-
+## (_priority_visible_enemy_mortar) — deliberately NOT gated on whether
+## it's currently engageable (that stricter question is _visible_
+## engageable_mortar's own, used only by the backup/self-sacrifice
+## decisions): losing contact on a confirmed live mortar just because the
+## friendly mortar can't reach it THIS INSTANT would waste the one asset
+## actually watching it, and the situation can change (either mortar can
+## reposition). One matching some active friendly mortar's own hunt-fix
+## (_is_priority_hunt_target — i.e. actually oriented toward engaging it,
+## soon or already) scores the full TARGET_PRIORITY_MORTAR and practically
+## always wins outright; one nobody has any near-term plan for scores the
+## much lower DRONE_NON_PRIORITY_MORTAR_WATCH_VALUE instead, so a real
+## squad threat (below) can compete for the drone's attention rather than
+## it hanging over every mortar it's ever spotted regardless of whether
+## anything's about to be done about it; (2) the freshest in-range fire-
 ## detection lead on any ACTIVE mortar, discounted somewhat for being a
 ## stale position rather than a live one, but still real evidence rather
 ## than speculation; (3) the mortar/drone team's own shared joint hunting
@@ -1977,8 +1989,14 @@ func _contact_search_bonus(point: Vector2) -> float:
 ## Whether this WHOLE tier is worth doing at all (as opposed to tiers 1-5
 ## above) is `max` of two independently-judged things, not one blended
 ## number: the genuine expected value of an as-yet-undiscovered mortar
-## (TARGET_PRIORITY_MORTAR times _mortar_existence_confidence(), which
-## naturally decays the longer no mortar fire is detected anywhere) OR a
+## (GameConfig.TARGET_PRIORITY_UNDISCOVERED_MORTAR_SWEEP times
+## _mortar_existence_confidence(), which naturally decays the longer no
+## mortar fire is detected anywhere — deliberately its own, lower-valued
+## constant rather than reusing TARGET_PRIORITY_MORTAR: that one prices a
+## mortar we can actually act on, seen or committed to; a merely POSSIBLE
+## second mortar nobody's found yet is a fundamentally more speculative
+## question and shouldn't inherit the same weight, or it could out-bid a
+## genuinely dangerous, already-visible squad on pure conjecture) OR a
 ## fixed standing value whenever the mortar's flank-watch actually has an
 ## open gap to check right now (GameConfig.DRONE_FLANK_WATCH_STANDING_
 ## PRIORITY). These have to stay independent: watching the mortar's blind
@@ -2016,11 +2034,16 @@ func _drone_search_target() -> Vector2:
 	var best_score := -1.0
 	var best_pos := Vector2.INF
 
-	var watched: Unit = _visible_active_enemy_mortar()
-	if watched != null:
-		best_score = GameConfig.TARGET_PRIORITY_MORTAR
+	var watched_mortar: Dictionary = _priority_visible_enemy_mortar()
+	if not watched_mortar.is_empty():
+		var watched: Unit = watched_mortar.unit
 		best_pos = watched.global_position
-		_drone_pilot_reasoning = {"tier": "Live mortar contact", "detail": "Watching a confirmed, currently visible enemy mortar directly.", "target": best_pos}
+		if watched_mortar.priority:
+			best_score = GameConfig.TARGET_PRIORITY_MORTAR
+			_drone_pilot_reasoning = {"tier": "Live mortar contact", "detail": "Watching a confirmed, currently visible enemy mortar we're actually oriented to engage.", "target": best_pos}
+		else:
+			best_score = GameConfig.DRONE_NON_PRIORITY_MORTAR_WATCH_VALUE
+			_drone_pilot_reasoning = {"tier": "Live mortar contact (no near-term plan)", "detail": "Watching a visible enemy mortar, but nothing's currently oriented to actually engage it — discounted so a real squad threat can compete for attention.", "target": best_pos}
 
 	var lead_pos := Vector2.INF
 	var best_fire_time := -INF
@@ -2095,7 +2118,7 @@ func _drone_search_target() -> Vector2:
 
 	var flank_candidates: Array = _flank_watch_candidates()
 
-	var routine_score: float = GameConfig.TARGET_PRIORITY_MORTAR * _mortar_existence_confidence()
+	var routine_score: float = GameConfig.TARGET_PRIORITY_UNDISCOVERED_MORTAR_SWEEP * _mortar_existence_confidence()
 	if enemy_general_retreat_ordered:
 		# The enemy commander has already called off the attack — the whole
 		# reason to blindly sweep wide (a fresh SQUAD might be arriving) is
@@ -2387,10 +2410,11 @@ func _flank_watch_candidates() -> Array:
 ## _update_active_drone/_update_backup_drone/the backup-launch trigger in
 ## _update_drone_operations, all of which are asking "is there one right
 ## now we can actually DO something about," not just "is there one worth
-## watching" (see _visible_active_enemy_mortar for that, weaker, question
-## — _drone_search_target's own top tier). A RETREATING mortar has already
-## had its crew abandon the gun for good (Unit._apply_crew_casualties — it
-## will never fire again no matter how well it's watched), and one outside
+## watching" (see _priority_visible_enemy_mortar for that, weaker
+## question — _drone_search_target's own top tier). A RETREATING mortar
+## has already had its crew abandon the gun for good (Unit.
+## _apply_crew_casualties — it will never fire again no matter how well
+## it's watched), and one outside
 ## GameConfig.MORTAR_MAX_RANGE of the friendly mortar can't be engaged
 ## right now regardless of visibility — sacrificing a drone, or spending a
 ## backup's own limited flight time, over either just wastes an asset that
@@ -2402,24 +2426,55 @@ func _visible_engageable_mortar() -> Unit:
 	return null
 
 
+## Whether some ACTIVE friendly mortar's own hunt-fix (_mortar_hunt_fix_
+## for — the exact same resolver _pick_target's pursuit-preference and
+## _decide_mortar_action's tier 2 movement both already use) currently
+## points at `target` specifically — i.e., is this THE enemy mortar the
+## friendly force is actually oriented toward, not just any enemy mortar
+## that happens to be visible. Checks every active friendly mortar, not
+## just one, so with more than one fielded on our own side, a lead either
+## of them is individually pursuing still counts.
+func _is_priority_hunt_target(target: Unit) -> bool:
+	for m in player_units:
+		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
+			continue
+		var fix: Dictionary = _mortar_hunt_fix_for(m)
+		if fix.get("unit", null) == target:
+			return true
+	return false
+
+
 ## Any currently visible, still-ACTIVE enemy mortar at all — unlike
 ## _visible_engageable_mortar, NOT gated on whether it's currently in
-## range of friendly fire. This is _drone_search_target's own top tier:
-## the question there is simply "is this worth the drone's attention,"
-## and a live enemy mortar always is, regardless of whether it happens to
-## be engageable this exact instant — the friendly mortar can reposition
-## too, and simply maintaining contact on a confirmed, live mortar has
-## real value on its own (an early-warning asset that's found the enemy's
-## fire support and then wandered off the moment engaging it wasn't
-## IMMEDIATELY feasible was the actual bug this fixes: the range-gate in
-## _visible_engageable_mortar only ever belonged to the backup/self-
-## sacrifice decisions above, which really do need "can we act on this
-## right now," not to the much more basic "should we keep watching it."
-func _visible_active_enemy_mortar() -> Unit:
+## range of friendly fire, since simply maintaining contact on a
+## confirmed, live mortar has real value on its own even before it's
+## reachable (an early-warning asset that wandered off the moment
+## engaging it wasn't IMMEDIATELY feasible was a real, previously-fixed
+## bug — the range-gate in _visible_engageable_mortar only ever belonged
+## to the backup/self-sacrifice decisions, which really do need "can we
+## act on this right now," not to this much more basic "should we keep
+## watching it").
+##
+## What IS gated here: when more than one is visible at once, one that
+## matches _is_priority_hunt_target — a mortar the friendly force is
+## actually oriented toward engaging, soon or already — is preferred
+## outright over one nobody has any near-term plan for, and the returned
+## `priority` flag tells _drone_search_target's own top tier which value
+## to score it at (GameConfig.TARGET_PRIORITY_MORTAR vs the much lower
+## DRONE_NON_PRIORITY_MORTAR_WATCH_VALUE). A visible mortar with no
+## current plan still falls back to being returned (never {} while ANY
+## are visible) — general awareness still beats losing contact outright,
+## it just no longer unconditionally outranks a real squad threat.
+func _priority_visible_enemy_mortar() -> Dictionary:
+	var fallback: Unit = null
 	for u in enemy_units:
-		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE and u.is_visible:
-			return u
-	return null
+		if u.kind != Unit.Kind.MORTAR or u.state != Unit.State.ACTIVE or not u.is_visible:
+			continue
+		if _is_priority_hunt_target(u):
+			return {"unit": u, "priority": true}
+		if fallback == null:
+			fallback = u
+	return {} if fallback == null else {"unit": fallback, "priority": false}
 
 
 ## THE single point of truth for "can any friendly asset actually strike

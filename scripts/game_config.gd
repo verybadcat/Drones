@@ -1301,19 +1301,55 @@ static func sample_resupply_delay(median: float, sigma: float) -> float:
 # confidence) — a general "how urgent is this to watch" scale, not
 # hard-coded "if it's a mortar" branching, so a future third target kind
 # only needs its own priority term added here, not a rewrite of the
-# decision logic itself. A confirmed mortar (seen live, or a fresh,
-# specific fire-detection lead) sits far above anything a squad can ever
-# reach — real mortars are simply the bigger threat — while a squad's own
+# decision logic itself. A mortar we're actually oriented to engage soon
+# (seen live AND matching some active friendly mortar's own hunt-fix —
+# see BattleManager._is_priority_hunt_target —, a fresh specific fire-
+# detection lead, or an active joint hunt commitment) sits far above
+# anything a squad can ever reach — real mortars are simply the bigger
+# threat once we're actually going to act on one — while a squad's own
 # priority is genuinely variable, scaling with how close it's gotten to
 # any friendly unit (SQUAD_DANGER_RANGE: beyond it, a squad isn't yet a
 # real threat and scores 0; within it, danger ramps up to
-# TARGET_PRIORITY_SQUAD_MAX right at contact). A live-visible mortar
-# always wins outright; a bare fire-detection lead (real evidence, but a
-# stale position estimate rather than a live one) is discounted somewhat
-# but still normally beats any squad.
-const TARGET_PRIORITY_MORTAR: float = 100.0
+# TARGET_PRIORITY_SQUAD_MAX right at contact). Bumped from the original
+# 100 — "the value of an enemy mortar is still not high enough relative
+# to a squad" for the cases where we genuinely are going after one, a
+# judgment call, not cited. A live-visible mortar with no such near-term
+# plan (DRONE_NON_PRIORITY_MORTAR_WATCH_VALUE below) is worth
+# meaningfully less than a squad already in real contact — a drone
+# doesn't need to hang over every mortar it's ever spotted regardless of
+# whether anything's about to be done about it; a bare fire-detection
+# lead (real evidence, but a stale position estimate rather than a live
+# one) is discounted somewhat but still normally beats any squad.
+const TARGET_PRIORITY_MORTAR: float = 150.0
 const TARGET_PRIORITY_MORTAR_LEAD_DISCOUNT: float = 0.8
 const TARGET_PRIORITY_SQUAD_MAX: float = 10.0
+
+## A confirmed-visible enemy mortar NOBODY on the friendly side currently
+## has any hunt-fix pointed at (see BattleManager._is_priority_hunt_
+## target) — no joint commitment, no individual mortar's own lead — reads
+## as this instead of the full TARGET_PRIORITY_MORTAR. Deliberately below
+## TARGET_PRIORITY_SQUAD_MAX (a squad already in real contact should
+## usually win the drone's attention over a mortar nothing is currently
+## planning to shoot), but still comfortably above 0 — general awareness
+## of a found mortar's position still has some standing value even with
+## no near-term plan for it, just not enough to justify parking over it
+## indefinitely while a real threat goes unwatched.
+const DRONE_NON_PRIORITY_MORTAR_WATCH_VALUE: float = 6.0
+
+## How worried the drone's routine background recon (BattleManager.
+## _drone_search_target's tier 6) should be about a SECOND enemy mortar
+## nobody's found yet — scaled by _mortar_existence_confidence(), which
+## decays the longer no mortar fire is detected anywhere. Deliberately its
+## own, separate constant from TARGET_PRIORITY_MORTAR (kept at its
+## original, pre-bump value) rather than reusing that one: TARGET_
+## PRIORITY_MORTAR now prices a mortar we can actually act on — seen live,
+## or committed to via a hunt-fix — a fundamentally more certain, more
+## valuable case than a merely POSSIBLE undiscovered one. Sharing the same
+## bumped value would have let pure speculation about a second mortar
+## out-bid a squad already in real, visible contact — exactly backwards
+## from wanting a real threat to be able to compete for the drone's
+## attention.
+const TARGET_PRIORITY_UNDISCOVERED_MORTAR_SWEEP: float = 100.0
 const SQUAD_DANGER_RANGE: float = 1200.0 * PIXELS_PER_METER
 
 ## Checking whether an enemy is currently flanking around toward the
@@ -1413,8 +1449,9 @@ const SWEEP_DISCOUNT_DURING_ENEMY_RETREAT: float = 0.2
 
 # How much the drone team should still bother sweeping wide for an
 # as-yet-undiscovered enemy mortar, expressed as a genuine expected value:
-# TARGET_PRIORITY_MORTAR (what finding one would be worth) times this
-# confidence (the estimated odds one is actually still out there to find).
+# TARGET_PRIORITY_UNDISCOVERED_MORTAR_SWEEP (what finding one would be
+# worth) times this confidence (the estimated odds one is actually still
+# out there to find).
 # Early in the battle a mortar may simply not have had a target yet, or be
 # holding fire waiting for one — confidence starts high (see the decay
 # function's own t=0 behavior) — but the longer real tactical time passes

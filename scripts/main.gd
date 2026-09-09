@@ -2,9 +2,9 @@ extends Node2D
 ## Root scene: a level-select screen (spotter vs. drone team — see
 ## GameConfig.ReconMode), then deployment (drag units + set doctrine), then
 ## the battle (with a general retreat order the player can give at any
-## time), then the AAR report with a restart so you can change doctrine and
-## try again. Restarting keeps the recon mode chosen at the start — level
-## select only appears once, at launch.
+## time), then the AAR report with a restart back to level select — so
+## trying again can change the reconnaissance setup itself, not just
+## doctrine, rather than being stuck with whatever was chosen at launch.
 
 var level_select_screen: LevelSelectScreen
 var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
@@ -461,9 +461,9 @@ func _on_battle_ended(report_text: String) -> void:
 	report_scroll.add_child(report_label)
 
 	restart_button = Button.new()
-	restart_button.text = "Set new doctrine and try again"
+	restart_button.text = "Choose new setup and try again"
 	restart_button.position = Vector2(20, 540)
-	restart_button.pressed.connect(_show_deployment)
+	restart_button.pressed.connect(_show_level_select)
 	add_child(restart_button)
 
 	review_history_button = Button.new()
