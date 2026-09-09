@@ -84,6 +84,13 @@ var _enemy_heatmap_enabled: bool = false
 # run, which is what makes this externally readable at all.
 const DRONE_DEBUG_SNAPSHOT_PATH: String = "res://debug_state/drone_pilot_snapshot.json"
 
+# Same reasoning as DRONE_DEBUG_SNAPSHOT_PATH above, for battle_manager.
+# mortar_decision_debug_snapshot() — every mortar on BOTH sides, since this
+# is an out-of-band developer file, not something the player sees (see
+# that function's own doc comment for why that's fine here but wouldn't be
+# for an on-screen panel).
+const MORTAR_DEBUG_SNAPSHOT_PATH: String = "res://debug_state/mortar_decision_snapshot.json"
+
 # Always present, in both the deployment and battle phases — not cleared by
 # _clear_all(). A real 5km map needs a frame of reference: this shows real
 # ground elevation under the cursor, and a fixed-length scale bar gives a
@@ -160,8 +167,12 @@ func _process(delta: float) -> void:
 	# panel toggled on, and needs a paused battle to still reflect the
 	# frozen-in-place state rather than going stale. Writing every frame
 	# regardless is a trivial cost (a tiny JSON dump) for what it buys.
+	# Same reasoning for the mortar decision snapshot below — this is what
+	# actually diagnosed the mortar-not-firing report that led to the
+	# mortar decisionmaking rewrite.
 	if battle_manager:
-		_write_drone_debug_snapshot()
+		_write_debug_snapshot(DRONE_DEBUG_SNAPSHOT_PATH, battle_manager.drone_pilot_debug_snapshot())
+		_write_debug_snapshot(MORTAR_DEBUG_SNAPSHOT_PATH, battle_manager.mortar_decision_debug_snapshot())
 
 	# History playback: BattleHistoryViewer owns the actual time-advance
 	# logic (advance_playback); this just drives it every frame and keeps
@@ -198,17 +209,17 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 
 
-## Writes battle_manager.drone_pilot_debug_snapshot() to DRONE_DEBUG_
-## SNAPSHOT_PATH as JSON — the snapshot is already JSON-native (see that
-## function's own doc comment), so this is a direct dump, no conversion
-## needed. Overwrites every frame the overlay is on; a tiny dict, so the
-## cost is negligible even at full frame rate.
-func _write_drone_debug_snapshot() -> void:
-	var snap: Dictionary = battle_manager.drone_pilot_debug_snapshot()
+## Writes `snap` to `path` as JSON — shared by both the drone and mortar
+## debug snapshots (drone_pilot_debug_snapshot()/mortar_decision_debug_
+## snapshot(), both already JSON-native, so this is a direct dump, no
+## conversion needed). Called unconditionally every frame any battle is
+## running (see _process) — a tiny dict each, so the cost is negligible
+## even at full frame rate.
+func _write_debug_snapshot(path: String, snap: Dictionary) -> void:
 	var dir := DirAccess.open("res://")
 	if dir and not dir.dir_exists("debug_state"):
 		dir.make_dir("debug_state")
-	var f := FileAccess.open(DRONE_DEBUG_SNAPSHOT_PATH, FileAccess.WRITE)
+	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(snap, "\t"))
 

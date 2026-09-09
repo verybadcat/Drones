@@ -1275,6 +1275,23 @@ const SQUAD_DANGER_RANGE: float = 1200.0 * PIXELS_PER_METER
 const MORTAR_TARGET_CASUALTY_WEIGHT: float = 1.0
 const MORTAR_TARGET_DANGER_WEIGHT: float = 1.0
 
+## Tier 3 of the mortar decision ladder ("destroy dangerous squads") — how
+## completely an especially dangerous candidate overrides ammo-conservation
+## hold-fire, sliding with BattleManager._mortar_candidate_danger's own
+## 0..TARGET_PRIORITY_SQUAD_MAX scale rather than a threshold ("five shots
+## remaining should never be a magical number," the same principle behind
+## the existing sliding-scale hold-fire chance itself). A genuinely
+## different axis from the existing overrun-range override just below
+## _pick_target's hold_fire_chance computation: that one measures danger
+## to the CREW (distance to the mortar itself — a tier-1, self-preservation
+## question); this one measures danger to the FORCE (_squad_danger_
+## priority's own distance-to-nearest-friendly, via _mortar_candidate_
+## danger) — both matter, as parallel terms, not one replacing the other.
+## At 1.0, a squad already in contact with a friendly (danger at its own
+## maximum) fully cancels ammo conservation regardless of distance from
+## the mortar; a squad at half that danger only halves it.
+const MORTAR_DANGER_HOLD_FIRE_OVERRIDE: float = 1.0
+
 # A safety valve on the mortar/drone team's shared commitment to hunting
 # one specific enemy mortar together (see BattleManager.
 # _update_joint_mortar_hunt) — a generous ceiling, not a normal expiry.

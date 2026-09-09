@@ -103,10 +103,43 @@ var _mortar_resupply: Dictionary = {}
 # mortar isn't currently visible either).
 var _last_detected_mortar_fire: Dictionary = {}
 
+# Unit (a mortar) -> Unit (the target it can fire on right now, or literally
+# absent from this dict if not yet resolved this tick) — memoizes _pick_
+# target's own result for a mortar across the several things that ask "does
+# this mortar have a shot right now" in the same tick (the resupply-linkup
+# check, _tick_fire's own real fire attempt, the mortar decision ladder's
+# own tier-1 gate). _pick_target is NOT idempotent — it rolls real
+# randomness (the ammo hold-fire chance, the weighted target pick) — so
+# without this, the same mortar could get a different answer to different
+# callers in the same tick, occasionally flickering between "I have a
+# shot, stand and fight" and "nothing to shoot, retreat for safety" like a
+# coin flip. See _mortar_shot_this_tick, the only function allowed to read
+# or write this. Cleared at the top of every _process tick, before
+# anything (including _tick_fire) runs — see _process.
+var _mortar_tick_shot: Dictionary = {}
+
+# Unit (a mortar) -> String, one of "scoot"/"evade"/"conceal"/"out_of_ammo"/
+# "linkup"/"hunt" — why this mortar currently has an active move order, set
+# by _issue_mortar_move and cleared by _clear_mortar_move. The mortar
+# decision ladder (_decide_mortar_action) uses this to keep a
+# self-preservation walk (scoot/evade/conceal/out_of_ammo/linkup) sticky
+# against being overwritten by a lower-tier move (hunt) mid-stride — a real
+# bug in the old, per-function architecture this replaces, where hunting
+# could silently steal a shoot-and-scoot displacement out from under a
+# mortar that had just fired.
+var _mortar_move_intent: Dictionary = {}
+
+# Unit (a mortar) -> {"tier": String, "detail": String} — the mortar
+# decision ladder's own live reasoning trail, mirroring _drone_pilot_
+# reasoning/drone_pilot_debug_snapshot for the drone. Written exactly once
+# per mortar per tick, on every path including "holding, nothing to do" —
+# see _decide_mortar_action and mortar_decision_debug_snapshot.
+var _mortar_reasoning: Dictionary = {}
+
 # The single enemy mortar the friendly mortar and the drone/spotter are
 # CURRENTLY, JOINTLY committed to running down together, or null if
 # nothing's being hunted right now — see _update_joint_mortar_hunt. Exists
-# because the mortar's own hunt decision (_update_friendly_mortar_hunting)
+# because the mortar's own hunt decision (_decide_mortar_action's tier 2)
 # and the drone's own search-target priority (_drone_search_target) used
 # to each independently re-derive "is this still worth it" every tick from
 # the same raw signals (_known_enemy_mortar_lead) with slightly different
@@ -250,6 +283,9 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	player_general_retreat_ordered = false
 	enemy_general_retreat_ordered = false
 	_last_detected_mortar_fire.clear()
+	_mortar_tick_shot.clear()
+	_mortar_move_intent.clear()
+	_mortar_reasoning.clear()
 	_joint_mortar_hunt_target = null
 	_joint_mortar_hunt_start_time = 0.0
 	_pending_counter_battery.clear()
@@ -973,7 +1009,7 @@ func _active_resupply_run_for(mortar: Unit) -> Unit:
 ## Keeps every in-flight run's destination locked onto its mortar's CURRENT
 ## position, not wherever the mortar happened to be when the run set out —
 ## this is the entire mechanism behind the mortar "falling back to meet"
-## an inbound run (see _update_resupply_linkup): both sides closing
+## an inbound run (see _decide_mortar_action's tier-1 linkup case): both sides closing
 ## distance toward each other's live position naturally converges faster,
 ## with no extra coordination needed between the two systems. Must run
 ## before _tick_movement, which is what actually steps the run toward
@@ -1024,78 +1060,69 @@ func _resolve_resupply_run_arrivals() -> void:
 			u.queue_free()
 
 
-## A mortar with an inbound run still well short of it (see GameConfig.
-## MORTAR_RESUPPLY_LINKUP_TRIGGER_RANGE) can close some of that distance
-## itself — a real doctrinal linkup, not a new coordination mechanism (the
-## run's own move_target already tracks the mortar live either way, see
-## _update_resupply_run_targets, so closing from both sides converges
-## faster with zero extra coordination). Moves toward the run's own
-## CURRENT position, not a fixed resupply point — there is no fixed point
-## any more (see _resupply_entry_point_for). Lowest priority: only when
-## the mortar isn't firing, isn't evading counter-battery, and has nothing
-## else already claiming its movement this tick — "if it seems sensible,"
-## not something that ever interrupts an actual fire mission or a genuine
-## evasion.
-func _update_resupply_linkup() -> void:
-	for m in player_units + enemy_units:
-		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
-			continue
-		if m.has_move_target or m.evading_counter_battery:
-			continue
-		var run := _active_resupply_run_for(m)
-		if run == null:
-			continue
-		if m.global_position.distance_to(run.global_position) <= GameConfig.MORTAR_RESUPPLY_LINKUP_TRIGGER_RANGE:
-			continue
-		var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
-		if _pick_target(m, opposing) != null:
-			continue # something worth engaging right now beats a logistics move
-		m.move_target = run.global_position
-		m.has_move_target = true
-		m.move_speed = GameConfig.MORTAR_RELOCATE_SPEED
-		m.movement_predictable = false
+## Part of _decide_mortar_action's tier 2 ("destroy enemy mortars") — the
+## current best "fix" this mortar's OWN team has on the opposing mortar
+## worth hunting, or {} if there's nothing to go on. Two genuinely
+## different per-team policies sharing one call site rather than one
+## merged body (see the tactical-rewrite doctrine doc's "on merging the
+## hunting functions" entry for the full reasoning — 8 real differences,
+## and a real merge would either become an unreadable per-team branch or
+## silently hand the enemy concealment-aware routing/an infantry-screen
+## check it doesn't have today, an actual enemy-behavior change that's out
+## of scope):
+## - Enemy: _known_friendly_mortar_position() — currently visible OR
+##   detected firing recently, NOT a permanent memory of where it used to
+##   be — wrapped as always "trusted" (the enemy has no separate
+##   trusted/untrusted distinction; a real detection is a real detection).
+## - Player: the team's shared joint commitment (_update_joint_mortar_hunt,
+##   which runs earlier this same tick) if one is active and still
+##   resolves to a real position, else a bare, uncovered fire-detection
+##   lead — no active joint commitment at all — as an explicitly untrusted
+##   fix (a solo gamble, capped harder in _mortar_hunt_destination_for).
+func _mortar_hunt_fix_for(m: Unit) -> Dictionary:
+	if m.team == Unit.Team.ENEMY:
+		var pos: Vector2 = _known_friendly_mortar_position()
+		return {} if is_inf(pos.x) else {"position": pos, "trusted": true}
+	if _joint_mortar_hunt_target != null:
+		var known_pos: Vector2 = _joint_mortar_hunt_known_position()
+		return {} if is_inf(known_pos.x) else {"position": known_pos, "trusted": true}
+	var lead: Dictionary = _known_enemy_mortar_lead()
+	if lead.is_empty() or lead.trusted:
+		return {} # a trusted lead is entirely the joint commitment's business, handled above
+	return {"position": lead.position, "trusted": false}
 
 
-## The enemy actively hunts for counter-battery range on the friendly
-## mortar now that range is a real, physical requirement (see
-## _resolve_mortar_counter_battery) — a player who digs in far enough to
-## the rear to be out of range of both enemy tubes doesn't get permanent
-## immunity, just a head start; once the enemy has a fix on that mortar and
-## it's out of range, they close the distance toward it (to just inside
-## MORTAR_MAX_RANGE, not all the way to it) rather than sitting uselessly
-## out of reach forever. "Has a fix on it" — see
-## _known_friendly_mortar_position — means currently visible OR detected
-## firing recently, NOT a permanent memory of where it used to be.
-##
-## HIGH PRIORITY: unlike most movement decisions in this game (made once,
-## then left alone until arrival), this re-aims every single tick there's a
-## fix on the friendly mortar and it's still out of range — not just when
-## idle — so a mortar already advancing keeps correcting toward the best
-## currently-known position instead of plodding on toward a possibly-stale
-## point, and stops the INSTANT it comes into range rather than finishing
-## out a march to a farther point computed earlier.
-func _update_enemy_mortar_positioning() -> void:
-	var target_pos: Vector2 = _known_friendly_mortar_position()
-	if is_inf(target_pos.x):
-		return
-	for m in enemy_units:
-		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
-			continue
-		if m.global_position.distance_to(target_pos) <= GameConfig.MORTAR_MAX_RANGE:
-			if m.has_move_target:
-				# Now in range — stop closing and get to work, rather than
-				# finishing the walk to a farther point computed earlier.
-				m.has_move_target = false
-				m.activity = Unit.Activity.STATIONARY
-			continue
-		var target := _mortar_advance_point(m, target_pos)
-		if target == m.global_position:
-			continue # no safe route found this tick — try again next tick
-		m.move_target = target
-		m.has_move_target = true
-		m.move_queue.clear()
-		m.move_speed = GameConfig.REPOSITION_SPEED
-		m.movement_predictable = false
+## The other half of tier 2 — the destination `m` should advance to in
+## order to bring `target_pos` (from _mortar_hunt_fix_for) into range.
+## Returns `m`'s own current position to mean "no acceptable destination
+## this tick." Same two-policies-one-call-site split as _mortar_hunt_fix_
+## for, for the same reason:
+## - Enemy: just needs to avoid buildings on the way in
+##   (_mortar_advance_point) — re-aimed fresh every tick there's still a
+##   fix and it's still out of range, so an already-advancing mortar keeps
+##   correcting toward the best currently-known position instead of
+##   plodding toward a possibly-stale point.
+## - Player: additionally needs to stay unseen while closing
+##   (_friendly_mortar_hunt_point, unlike the enemy's plain building-
+##   avoidance), stay within GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME of
+##   wherever the crew was actually deployed, stay behind its own infantry
+##   screen (_friendly_mortar_hunt_destination_is_reckless), and — for a
+##   bare, untrusted lead specifically — risk at most a modest walk
+##   (GameConfig.MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE), since there's no
+##   drone coverage backing an uncovered gamble.
+func _mortar_hunt_destination_for(m: Unit, target_pos: Vector2, trusted: bool) -> Vector2:
+	if m.team == Unit.Team.ENEMY:
+		return _mortar_advance_point(m, target_pos)
+	var dest := _friendly_mortar_hunt_point(m, target_pos)
+	if dest == m.global_position:
+		return m.global_position # no safe route found this tick — try again next tick
+	if dest.distance_to(_friendly_mortar_home_position) > GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME:
+		return m.global_position # too far from what the crew considers safe territory, trusted lead or not
+	if _friendly_mortar_hunt_destination_is_reckless(dest):
+		return m.global_position # would put the mortar ahead of, or outside the band held by, its own infantry screen
+	if not trusted and m.global_position.distance_to(dest) > GameConfig.MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE:
+		return m.global_position # too big a gamble on a lead nobody's actually watching
+	return dest
 
 
 ## The best position the enemy currently has on the friendly mortar, or
@@ -1130,7 +1157,7 @@ func _known_friendly_mortar_position() -> Vector2:
 
 ## The best current fix on the highest-priority known ACTIVE enemy mortar,
 ## for the friendly mortar's OWN cat-and-mouse hunting (see
-## _update_friendly_mortar_hunting) — Vector2.INF / not `trusted` at all if
+## _mortar_hunt_fix_for) — Vector2.INF / not `trusted` at all if
 ## nothing is known. Mirrors _known_friendly_mortar_position's two sources
 ## (live visibility first, then the same muzzle-flash fire-detection lead
 ## used everywhere else), but ALSO reports whether that fix is `trusted`:
@@ -1237,8 +1264,8 @@ func _friendly_mortar_hunt_destination_is_reckless(dest: Vector2) -> bool:
 
 ## Forms and maintains the mortar/drone team's SHARED commitment to
 ## hunting one specific enemy mortar together — consulted by both
-## _update_friendly_mortar_hunting (where to walk) and _drone_search_target
-## (where to fly), instead of each independently re-deriving "is this
+## _mortar_hunt_fix_for/_mortar_hunt_destination_for (where to walk) and
+## _drone_search_target (where to fly), instead of each independently re-deriving "is this
 ## still worth it" every tick from the same raw signal
 ## (_known_enemy_mortar_lead) with slightly different math of its own (a
 ## moving mortar's own range check here, a fire-lead's own expiry there).
@@ -1293,77 +1320,6 @@ func _update_joint_mortar_hunt() -> void:
 	_joint_mortar_hunt_target = lead.unit
 	_joint_mortar_hunt_start_time = scenario_elapsed_time
 	combat_log.log_joint_mortar_hunt(lead.unit)
-
-
-## The friendly mirror of _update_enemy_mortar_positioning — closing the
-## distance on a known enemy mortar to bring it into range, re-aiming every
-## tick there's still a fix and it's still out of range, same as that
-## function — but with two things the enemy's simpler version doesn't need
-## to weigh: unlike the enemy just running down a fix on us, this crew
-## still very much does NOT want to be spotted while doing it (see
-## _friendly_mortar_hunt_point, chosen with that in mind, unlike
-## _mortar_advance_point's plain building-avoidance), and a TRUSTED lead is
-## no longer decided here at all — it's the team's shared joint commitment
-## (_update_joint_mortar_hunt, which runs first each tick) that this just
-## walks toward for as long as that commitment holds, unconditional on
-## distance from the CURRENT position (same as the enemy's own
-## unconditional chase) — but every candidate destination, trusted or not,
-## still has to fall within GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME of
-## home, AND still has to stay behind its own infantry screen (see
-## _friendly_mortar_hunt_destination_is_reckless — never ahead of the
-## frontmost friendly squad, never outside the band those squads actually
-## occupy), full stop; _update_joint_mortar_hunt already screens for both
-## before a commitment ever forms, but a fresh, still-untrusted lead never
-## gets that upfront check, so both are re-verified here too. Only a bare,
-## uncovered fire-detection lead — no active joint commitment at all — is
-## still this function's OWN call to make: a solo gamble, worth at most a
-## modest walk (MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE), since there's no drone
-## coverage backing it up.
-func _update_friendly_mortar_hunting() -> void:
-	var target_pos: Vector2
-	var trusted: bool
-
-	if _joint_mortar_hunt_target != null:
-		target_pos = _joint_mortar_hunt_known_position()
-		if is_inf(target_pos.x):
-			return # the commitment holds, but nothing usable is known this exact tick
-		trusted = true
-	else:
-		var lead: Dictionary = _known_enemy_mortar_lead()
-		if lead.is_empty() or lead.trusted:
-			return # a trusted lead is entirely the joint commitment's business, handled above
-		target_pos = lead.position
-		trusted = false
-
-	for m in player_units:
-		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
-			continue
-		if m.global_position.distance_to(target_pos) <= GameConfig.MORTAR_MAX_RANGE:
-			if m.has_move_target:
-				# Now in range — stop closing and get to work, rather than
-				# finishing the walk to a farther point computed earlier.
-				m.has_move_target = false
-				m.activity = Unit.Activity.STATIONARY
-			continue
-
-		var dest := _friendly_mortar_hunt_point(m, target_pos)
-		if dest == m.global_position:
-			continue # no safe route found this tick — try again next tick
-		if dest.distance_to(_friendly_mortar_home_position) > GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME:
-			continue # too far from what the crew considers safe territory, trusted lead or not
-		if _friendly_mortar_hunt_destination_is_reckless(dest):
-			continue # would put the mortar ahead of, or outside the band held by, its own infantry screen
-		if not trusted and m.global_position.distance_to(dest) > GameConfig.MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE:
-			continue # too big a gamble on a lead nobody's actually watching
-
-		var was_already_hunting := m.has_move_target
-		m.move_target = dest
-		m.has_move_target = true
-		m.move_queue.clear()
-		m.move_speed = GameConfig.MORTAR_RELOCATE_SPEED
-		m.movement_predictable = false
-		if not was_already_hunting:
-			combat_log.log_mortar_hunting(m, trusted)
 
 
 ## Like _mortar_advance_point (a point just inside MORTAR_MAX_RANGE of
@@ -2705,87 +2661,189 @@ func _mortar_advance_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 	return mortar.global_position
 
 
-## "A mortar should always try to stay where it won't be seen, and one
-## that's aware of an approaching threat it isn't currently answering
-## should either fire on it or get out" — two related reactive triggers,
-## both resolved the same way (_relocate_mortar), for a mortar that isn't
-## already doing something else (has_move_target) and isn't currently
-## about to fire (_pick_target(m, ...) != null — something worth
-## shooting at, including an enemy mortar that's wandered into range,
-## means stand and fight rather than flee; concealment/displacement is
-## the fallback when there's nothing to show for standing there, not an
-## automatic reflex to danger alone):
-## 1. Actually spotted (is_visible, a live fact — see _refresh_visibility)
-##    with nothing worth shooting at right now.
-## 2. NOT spotted, but a known enemy is within GameConfig.MORTAR_CREW_
-##    OVERRUN_DANGER_RANGE and still nothing worth shooting at — this is
-##    what stops a mortar from just sitting there while a threat it can
-##    clearly see closes the distance: by the time trigger 2 fires,
-##    _pick_target has already had every chance to engage (including the
-##    ammo-conservation override in _pick_target itself for exactly this
-##    same range), so "nothing to shoot" here genuinely means out of
-##    ammo, reload not up, or state="don't have a shot," not a target
-##    being ignored.
+## The single authoritative per-mortar-per-tick decision, replacing what
+## used to be five independent functions racing to claim a mortar's move
+## order via an informal has_move_target mutex (_update_resupply_linkup,
+## _update_enemy_mortar_positioning, _update_friendly_mortar_hunting,
+## _update_mortar_safety_relocation, _update_mortar_threat_response — all
+## deleted). Tiered by the user's own explicitly stated priority order:
+## preserve self > destroy enemy mortars > destroy dangerous squads >
+## destroy other squads. Runs AFTER _tick_fire each tick, not before — a
+## mortar that's ready to fire right now gets that shot off first; only if
+## it didn't fire this tick does any of this apply. Applies to BOTH sides
+## identically (only the player's own move is narrated in the combat log —
+## see _should_narrate_mortar_logistics's fog-of-war reasoning — but the
+## decision logic itself is symmetric).
 ##
-## Applies to BOTH sides identically (like _update_mortar_safety_
-## relocation below) — only the player's own move is narrated (see
-## _should_narrate_mortar_logistics's fog-of-war reasoning).
-##
-## Runs AFTER _tick_fire each tick, not before — a mortar that's ready to
-## fire right now gets that shot off first; only if it DIDN'T fire this
-## tick does either trigger apply.
-func _update_mortar_threat_response() -> void:
-	for m in player_units + enemy_units:
-		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE or m.has_move_target:
-			continue
-		var opposing_units: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
-		if _pick_target(m, opposing_units) != null:
-			continue # something worth shooting at — stand and fight rather than flee
-		var spotted: bool = m.is_visible
-		var threat_closing := false
-		if not spotted:
-			for pos in _known_enemy_positions(m.team):
-				if m.global_position.distance_to(pos) <= GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE:
-					threat_closing = true
-					break
-		if not spotted and not threat_closing:
-			continue
-		if _relocate_mortar(m):
-			if not _should_narrate_mortar_logistics(m):
-				continue
-			if spotted:
-				combat_log.log_mortar_relocating_for_cover(m)
-			else:
-				combat_log.log_mortar_relocating_from_threat(m)
+## Tiers 3 and 4 ("destroy dangerous/other squads") are target-SELECTION,
+## not movement — a mortar never chases a squad (MORTAR_MAX_RANGE already
+## dwarfs SQUAD_DANGER_RANGE, and _friendly_mortar_hunt_destination_is_
+## reckless exists specifically to keep the crew behind its own infantry
+## screen). Their outcome is already fully reflected in `has_shot`/
+## `target` below via _pick_target's own weighting (_mortar_target_value)
+## and ammo-conservation override — nothing left to decide here for them.
+func _decide_mortar_action(m: Unit) -> void:
+	var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
 
+	# Step 0 — resolve this tick's shot exactly once, through the memoized
+	# accessor, so every tier below sees the identical answer _tick_fire
+	# already acted on (or will act on — a genuinely dry mortar can never
+	# actually fire regardless of what _pick_target returns, hence the
+	# ammo conjunct here).
+	var target: Unit = _mortar_shot_this_tick(m, opposing)
+	var has_shot: bool = target != null and m.mortar_rounds_remaining > 0
+	if has_shot:
+		_mortar_reasoning[m] = {"tier": "Engaging", "detail": "Has a live shot — standing and fighting rather than relocating."}
+		return
 
-## A mortar with zero rounds left can't shoot back — standing its ground
-## serves no purpose while it waits for resupply, and it's still exactly as
-## vulnerable as an armed one would be. Applies to BOTH sides identically
-## (unlike _update_friendly_mortar_concealment above, this isn't gated on
-## being currently spotted — being defenseless is reason enough on its own
-## to seek better concealment, not just a reaction to being seen), though
-## only the player's own move is narrated (see _should_narrate_mortar_
-## logistics's fog-of-war reasoning — the enemy's resupply runs the same
-## way, just silently).
-##
-## Runs before _update_mortar_threat_response so an out-of-ammo mortar
-## that's ALSO currently spotted (or facing a closing threat) gets the more
-## specific "out of ammo" framing rather than the generic one — both would
-## pick the same destination via _relocate_mortar regardless, this only
-## decides which log message describes it. Naturally defers to a
-## resupply-linkup move already claimed this tick (_update_resupply_linkup
-## runs earlier) via the same has_move_target check every other reactive
-## relocation here uses.
-func _update_mortar_safety_relocation() -> void:
-	for m in player_units + enemy_units:
-		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE or m.has_move_target:
-			continue
-		if m.mortar_rounds_remaining > 0:
-			continue
-		if _relocate_mortar(m):
+	# Step 0b — an in-progress SELF-PRESERVATION walk isn't interruptible
+	# by a lower tier (hunting). This is what actually fixes the bug where
+	# hunting could silently overwrite a shoot-and-scoot displacement mid-
+	# stride, and what stops an is_visible blink or a _pick_target coin-
+	# flip from restarting the whole ladder mid-walk — the mortar's own
+	# version of the sticky-until-arrival commitment the drone rewrite
+	# needed for the same reason.
+	var current_intent: String = _mortar_move_intent.get(m, "")
+	if m.has_move_target and current_intent in ["scoot", "evade", "conceal", "out_of_ammo", "linkup"]:
+		_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Continuing a displacement already under way (%s)." % current_intent}
+		return
+
+	# Tier 1 — Preserve self. Precedence among sub-reasons matches the
+	# functions this replaces: out-of-ammo framing wins over a merely
+	# spotted/threatened framing when both would apply.
+	if m.mortar_rounds_remaining <= 0:
+		var run := _active_resupply_run_for(m)
+		if run != null and not m.evading_counter_battery and m.global_position.distance_to(run.global_position) > GameConfig.MORTAR_RESUPPLY_LINKUP_TRIGGER_RANGE:
+			# A real doctrinal linkup, not a new coordination mechanism —
+			# the run's own move_target already tracks the mortar live
+			# either way (_update_resupply_run_targets), so closing from
+			# both sides converges faster with zero extra coordination.
+			# Skipped while evading counter-battery: survival beats
+			# logistics, matching this trigger's old precedence.
+			_issue_mortar_move(m, run.global_position, GameConfig.MORTAR_RELOCATE_SPEED, "linkup")
+			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Out of ammunition — closing on an inbound resupply run."}
+			return
+		if _relocate_mortar(m, "out_of_ammo"):
 			if _should_narrate_mortar_logistics(m):
 				combat_log.log_mortar_relocating_out_of_ammo(m)
+			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Out of ammunition — relocating."}
+		else:
+			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Out of ammunition — wanted to relocate, no route this tick."}
+		return
+
+	if m.evading_counter_battery:
+		# A near-miss/hit just landed (_resolve_pending_counter_battery) —
+		# previously this flag only ever modified the SPEED of whatever
+		# relocation happened to run next, and could sit set indefinitely
+		# on a hold-position mortar (always true for the enemy) that never
+		# got one. Now it's a first-class reason to displace on its own —
+		# "they've found us" is exactly what "preserve self" as the top
+		# goal means.
+		if _relocate_mortar(m, "evade"):
+			combat_log.log_relocate(m, true)
+			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Just took counter-battery fire — displacing."}
+		else:
+			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Just took counter-battery fire — wanted to displace, no route this tick."}
+		return
+
+	var spotted: bool = m.is_visible
+	var threat_closing := false
+	if not spotted:
+		for pos in _known_enemy_positions(m.team):
+			if m.global_position.distance_to(pos) <= GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE:
+				threat_closing = true
+				break
+	if spotted or threat_closing:
+		# By this point _pick_target has already had every chance to
+		# engage (including its own ammo-conservation override for this
+		# exact range), so "nothing to shoot" here genuinely means out of
+		# ammo, reload not up, or no real target — not one being ignored.
+		if _relocate_mortar(m, "conceal" if spotted else "evade"):
+			if _should_narrate_mortar_logistics(m):
+				if spotted:
+					combat_log.log_mortar_relocating_for_cover(m)
+				else:
+					combat_log.log_mortar_relocating_from_threat(m)
+			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Spotted with nothing to shoot — relocating for cover." if spotted else "An unwatched threat is closing — relocating."}
+		else:
+			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Wanted to relocate, no route this tick."}
+		return
+
+	# Tier 2 — Destroy enemy mortars (the MOVEMENT half only — the
+	# targeting half, "an enemy mortar candidate always wins," already
+	# lives unconditionally in _pick_target and is reflected in `target`
+	# above whenever one's actually in range).
+	var fix := _mortar_hunt_fix_for(m)
+	if not fix.is_empty():
+		if m.global_position.distance_to(fix.position) <= GameConfig.MORTAR_MAX_RANGE:
+			if current_intent == "hunt":
+				# Now in range — stop closing and get to work, rather than
+				# finishing the walk to a farther point computed earlier.
+				_clear_mortar_move(m)
+			_mortar_reasoning[m] = {"tier": "Destroy enemy mortars", "detail": "In range of a known enemy mortar."}
+			return
+		var dest := _mortar_hunt_destination_for(m, fix.position, fix.trusted)
+		if dest != m.global_position:
+			var was_already_hunting: bool = current_intent == "hunt"
+			var speed: float = GameConfig.MORTAR_RELOCATE_SPEED if m.team == Unit.Team.PLAYER else GameConfig.REPOSITION_SPEED
+			_issue_mortar_move(m, dest, speed, "hunt")
+			# Silent for the enemy, matching _update_enemy_mortar_
+			# positioning's own original behavior — only the player's own
+			# hunt is ever narrated.
+			if not was_already_hunting and m.team == Unit.Team.PLAYER:
+				combat_log.log_mortar_hunting(m, fix.trusted)
+			_mortar_reasoning[m] = {"tier": "Destroy enemy mortars", "detail": "Closing on a known enemy mortar position."}
+			return
+		_mortar_reasoning[m] = {"tier": "Destroy enemy mortars", "detail": "Wants to close on a known enemy mortar, no acceptable route this tick."}
+		return
+
+	_mortar_reasoning[m] = {"tier": "Holding", "detail": "Nothing worth shooting, moving for, or relocating away from right now."}
+
+
+## Iterates every ACTIVE mortar on both sides and hands each one to
+## _decide_mortar_action — the single call site _process now uses in place
+## of the five separate functions that used to run at different points in
+## the tick (see _decide_mortar_action's own doc comment for the full
+## list). Runs where _update_mortar_safety_relocation/_update_mortar_
+## threat_response used to, after _tick_fire — deliberately AFTER the two
+## mortar-hunting functions used to run too (they ran before _tick_fire),
+## which fixes a real, previously-undiscovered bug: hunting never checked
+## has_move_target before overwriting a mortar's move order, so it could
+## silently steal a shoot-and-scoot displacement out from under a mortar
+## that had just fired, defeating the whole point of scooting. Moving
+## hunting to run after _tick_fire (and gating it, via step 0b above, the
+## same way every other tier already was) closes that gap.
+func _update_mortar_decisions() -> void:
+	for m in player_units + enemy_units:
+		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
+			continue
+		_decide_mortar_action(m)
+
+
+## Public accessor for an out-of-band developer view of live mortar
+## decisions, mirroring drone_pilot_debug_snapshot() — see main.gd's
+## _write_debug_snapshot for why this is written unconditionally, every
+## frame, rather than gated on any on-screen toggle. Deliberately includes
+## BOTH sides (an out-of-band developer file, not something the player
+## sees — same precedent as battle_history_viewer.gd's own deliberate
+## ground-truth omniscience); if a future on-screen panel is ever built
+## from this, THAT should stay player-mortars-only, matching _should_
+## narrate_mortar_logistics's existing fog-of-war boundary.
+func mortar_decision_debug_snapshot() -> Dictionary:
+	var out: Dictionary = {}
+	for m in player_units + enemy_units:
+		if m.kind != Unit.Kind.MORTAR:
+			continue
+		var reasoning: Dictionary = _mortar_reasoning.get(m, {"tier": "N/A", "detail": "no decision recorded yet"})
+		out[m.display_name()] = {
+			"team": "player" if m.team == Unit.Team.PLAYER else "enemy",
+			"position": _pos_to_debug_dict(m.global_position),
+			"rounds_remaining": m.mortar_rounds_remaining,
+			"state": Unit.State.keys()[m.state],
+			"move_intent": _mortar_move_intent.get(m, "none"),
+			"reasoning": reasoning,
+		}
+	return out
 
 
 func _process(delta: float) -> void:
@@ -2797,6 +2855,10 @@ func _process(delta: float) -> void:
 
 	var scenario_delta: float = delta * _current_time_scale()
 	scenario_elapsed_time += scenario_delta
+
+	# Cleared here, before anything (including _tick_fire, later this same
+	# tick) can populate it — see _mortar_tick_shot's own doc comment.
+	_mortar_tick_shot.clear()
 
 	if scenario_elapsed_time - _history_last_recorded_time >= HISTORY_SNAPSHOT_INTERVAL_S:
 		_history_last_recorded_time = scenario_elapsed_time
@@ -2810,10 +2872,7 @@ func _process(delta: float) -> void:
 	_tick_movement(scenario_delta)
 	_resolve_resupply_run_arrivals()
 	_update_spotting(scenario_delta)
-	_update_enemy_mortar_positioning()
 	_update_joint_mortar_hunt()
-	_update_friendly_mortar_hunting()
-	_update_resupply_linkup()
 	_update_enemy_squad_advance()
 	_update_friendly_squad_positioning()
 	_update_drone_operations(scenario_delta)
@@ -2823,8 +2882,7 @@ func _process(delta: float) -> void:
 	for unit in enemy_units:
 		_tick_fire(unit, delta, scenario_delta, player_units)
 
-	_update_mortar_safety_relocation()
-	_update_mortar_threat_response()
+	_update_mortar_decisions()
 	_resolve_pending_counter_battery()
 	_resolve_pending_mortar_shots()
 	_update_player_intel()
@@ -3099,7 +3157,7 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 	if unit.fire_timer > 0.0:
 		return
 
-	var target := _pick_target(unit, enemies)
+	var target := _mortar_shot_this_tick(unit, enemies) if unit.kind == Unit.Kind.MORTAR else _pick_target(unit, enemies)
 	if target == null:
 		unit.fire_timer = unit.fire_interval
 		return
@@ -3111,8 +3169,8 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 			# response displacement, a hunt toward a suspected enemy
 			# mortar — any of them) — stop and take the shot rather than
 			# walking past it, the same "stop and get to work" idiom
-			# _update_friendly_mortar_hunting/_update_enemy_mortar_
-			# positioning already use once back in range of THEIR target.
+			# _decide_mortar_action's own tier 2 already uses once back in
+			# range of a hunted enemy mortar.
 			# Unlike a squad on the march, a mortar crew mid-relocation
 			# hasn't abandoned the gun (that's what RETREATING means) —
 			# it's just walking it somewhere else, and a real crew sets the
@@ -3122,8 +3180,7 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 			# battery evasion already in progress — a finer "is THIS
 			# specific walk safety-critical" distinction is real but out of
 			# scope for this fix; see the tactical-rewrite doctrine doc.
-			unit.has_move_target = false
-			unit.activity = Unit.Activity.STATIONARY
+			_clear_mortar_move(unit)
 		_launch_mortar_shot(unit, target)
 		unit.fire_timer = unit.reload_time
 		# Shoot-and-scoot doctrine: displace after EVERY shot, procedurally,
@@ -3135,7 +3192,7 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		# exposed it) — no separate trigger needed here for that case.
 		if unit.shoot_and_scoot:
 			var urgent := unit.evading_counter_battery
-			if _relocate_mortar(unit):
+			if _relocate_mortar(unit, "scoot"):
 				combat_log.log_relocate(unit, urgent)
 		return
 
@@ -3196,7 +3253,7 @@ func _launch_mortar_shot(mortar: Unit, target: Unit) -> void:
 	# Firing is detectable (muzzle blast/trajectory) independent of whether
 	# the mortar is otherwise visually spotted — see
 	# _known_friendly_mortar_position, which the enemy's counter-battery-range
-	# chase (_update_enemy_mortar_positioning) relies on for exactly this case.
+	# chase (_mortar_hunt_fix_for) relies on for exactly this case.
 	_last_detected_mortar_fire[mortar] = {"position": mortar.global_position, "time": scenario_elapsed_time}
 	_resolve_mortar_counter_battery(mortar)
 
@@ -3824,6 +3881,35 @@ func _resolve_pending_counter_battery() -> void:
 	_pending_counter_battery = still_pending
 
 
+## The single writer of a mortar's own move order — every relocation call
+## site (shoot-and-scoot, threat-response, out-of-ammo safety, resupply
+## linkup, mortar-hunting) used to repeat the same five-line block, which is
+## exactly the kind of duplication that let shoot-and-scoot silently drift
+## out of sync with the actual mutex logic. `intent` is recorded in
+## _mortar_move_intent so the mortar decision ladder can tell a self-
+## preservation walk apart from a mere hunt and keep the former sticky
+## against the latter — see that dict's own doc comment. Deliberately does
+## NOT touch `activity` — that stays owned by _tick_movement/
+## _step_toward_target, which _mortar_aim_point branches on; setting it
+## here would start leading a mortar that hasn't actually taken a step yet.
+func _issue_mortar_move(m: Unit, dest: Vector2, speed: float, intent: String) -> void:
+	m.move_target = dest
+	m.has_move_target = true
+	m.move_queue.clear()
+	m.move_speed = speed
+	m.movement_predictable = false
+	_mortar_move_intent[m] = intent
+
+
+## The "now in range/now have a real reason to stand and fight — stop and
+## get to work" idiom, previously duplicated in both mortar-hunting
+## functions and now also used by _tick_fire's own interrupt-to-fire path.
+func _clear_mortar_move(m: Unit) -> void:
+	m.has_move_target = false
+	m.activity = Unit.Activity.STATIONARY
+	_mortar_move_intent.erase(m)
+
+
 ## Relocates `mortar` to wherever it now considers desirable — the nearest
 ## point with no direct line of sight from any currently-known enemy (real
 ## concealment, not just reduced spot-chance cover), or, with no known
@@ -3834,8 +3920,10 @@ func _resolve_pending_counter_battery() -> void:
 ## Unit.reload_time) — faster and farther if the crew has actually taken
 ## counter-battery fire recently (Unit.evading_counter_battery, consumed
 ## here), slower moving into trees than open ground. Returns false (no-op)
-## if there's nowhere better to go right now.
-func _relocate_mortar(mortar: Unit) -> bool:
+## if there's nowhere better to go right now. `intent` is recorded via
+## _issue_mortar_move (see that function's own doc comment) so the mortar
+## decision ladder knows WHY this walk is happening.
+func _relocate_mortar(mortar: Unit, intent: String) -> bool:
 	var urgent: bool = mortar.evading_counter_battery
 	mortar.evading_counter_battery = false
 	var threats := _known_enemy_positions(mortar.team)
@@ -3851,11 +3939,7 @@ func _relocate_mortar(mortar: Unit) -> bool:
 	if GameConfig.get_terrain_type_at(destination) == GameConfig.TerrainType.TREES:
 		speed *= GameConfig.MORTAR_RELOCATE_TREES_MULTIPLIER
 
-	mortar.move_target = destination
-	mortar.has_move_target = true
-	mortar.move_queue.clear()
-	mortar.move_speed = speed
-	mortar.movement_predictable = false
+	_issue_mortar_move(mortar, destination, speed, intent)
 	return true
 
 
@@ -3912,6 +3996,36 @@ func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
 ## real considerations, weighted rather than either one deciding outright
 ## — a damaged-but-threatening squad can still outweigh an
 ## undamaged-but-harmless one.
+##
+## _pick_target itself is NOT idempotent for a mortar — it rolls real
+## randomness (the ammo hold-fire chance, the weighted target pick among
+## squads) — so calling it directly more than once for the same mortar in
+## the same tick can get two different answers. _mortar_shot_this_tick,
+## immediately below, is the memoizing wrapper every mortar-relevant call
+## site should go through instead; only that function and _tick_fire
+## (which populates the cache when it actually resolves a shot) are
+## expected to call this directly for a mortar.
+
+
+## The one place anything asks "does this mortar have a shot RIGHT NOW" —
+## every mortar-relevant caller (the resupply-linkup check, the mortar
+## decision ladder's own tier-1 gate) routes through here instead of
+## calling _pick_target directly, so the same tick's answer is consistent
+## everywhere it's asked. Returns the cached result from _mortar_tick_shot
+## if _tick_fire already resolved one THIS tick (the common case — most
+## ticks a mortar's fire_timer hasn't reached zero yet, so _tick_fire
+## returns before ever reaching _pick_target, and there is nothing to
+## reuse); otherwise computes it now, lazily, and caches it for whoever
+## else asks later in the same tick. See _mortar_tick_shot's own doc
+## comment for why this must be cleared at the top of _process, before
+## _tick_fire runs, not merely read here.
+func _mortar_shot_this_tick(m: Unit, opposing: Array[Unit]) -> Unit:
+	var cached: Dictionary = _mortar_tick_shot.get(m, {})
+	if cached.get("resolved", false):
+		return cached.target
+	var target := _pick_target(m, opposing)
+	_mortar_tick_shot[m] = {"resolved": true, "target": target}
+	return target
 func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 	var candidates: Array[Unit] = []
 	for e in enemies:
@@ -3950,6 +4064,18 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		var scarcity: float = _mortar_ammo_scarcity(unit)
 		var urgency: float = _mortar_resupply_urgency(unit)
 		var hold_fire_chance: float = scarcity * (1.0 - urgency)
+		# Tier 3 of the mortar decision ladder ("destroy dangerous squads")
+		# — a genuinely different axis from the overrun-range override just
+		# below (that one measures danger to the CREW, distance to the
+		# mortar itself; this one measures danger to the FORCE, via
+		# _mortar_candidate_danger's own distance-to-nearest-friendly). Only
+		# gated on having a round to fire, same reasoning as the overrun
+		# override below — this only overrides the CHOICE to hold fire.
+		if hold_fire_chance > 0.0 and unit.mortar_rounds_remaining > 0:
+			var best_danger := 0.0
+			for c in candidates:
+				best_danger = max(best_danger, _mortar_candidate_danger(unit, c))
+			hold_fire_chance *= 1.0 - GameConfig.MORTAR_DANGER_HOLD_FIRE_OVERRIDE * (best_danger / GameConfig.TARGET_PRIORITY_SQUAD_MAX)
 		# Conserving ammo for later stops making sense the instant "later"
 		# might not come — a squad closing to within genuine overrun range
 		# (the same threshold the crew's own hold-or-flee roll uses once
@@ -3960,7 +4086,7 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# the hard fact of having nothing to fire; without this guard a
 		# truly empty mortar being approached would still read back as
 		# "has a shot" to anything calling _pick_target directly (e.g.
-		# _update_mortar_threat_response's own "is there something to
+		# _decide_mortar_action's own step 0 "is there something to
 		# shoot" check), when _tick_fire's own separate, earlier
 		# mortar_rounds_remaining <= 0 gate means it could never actually
 		# fire regardless of what this function returns.
@@ -4062,26 +4188,38 @@ func mortar_minutes_since_detected_firing(mortar: Unit) -> float:
 	return (scenario_elapsed_time - info.time) / 60.0
 
 
+## How dangerous `target` is to `unit`'s OWN side right now, from a
+## MORTAR's perspective — zero for anything that isn't a squad currently
+## ACTIVE (a spotter, an already-fleeing mortar crew, or a squad that's
+## itself RETREATING poses no real danger to anyone — it's pulling out,
+## not fighting, so proximity to a friendly alone shouldn't read as a
+## threat; matches the same state == ACTIVE gate _drone_search_target
+## already applies to its own squad-danger scoring), otherwise
+## _squad_danger_priority judged against `unit`'s OWN side (not
+## unconditionally the player's — an enemy mortar weighing this cares
+## about danger to the ENEMY side). Extracted as its own function so
+## _mortar_target_value's existing target-ranking use and _pick_target's
+## ammo-conservation override (GameConfig.MORTAR_DANGER_HOLD_FIRE_OVERRIDE)
+## can never drift apart on what "dangerous" means — in particular, so the
+## override can never be fooled into reading a RETREATING squad as a
+## reason to burn ammo, the same trap _mortar_target_value was already
+## built to avoid.
+func _mortar_candidate_danger(unit: Unit, target: Unit) -> float:
+	var is_active_squad: bool = target.kind == Unit.Kind.SQUAD and target.state == Unit.State.ACTIVE
+	return _squad_danger_priority(target, unit.team) if is_active_squad else 0.0
+
+
 ## How much a MORTAR would value firing on `target` right now — see
 ## _pick_target's own doc comment for the two factors this weighs.
 ## Casualty potential is just the target's own current pip count (more
-## people actually there to hit); danger is _squad_danger_priority judged
-## against `unit`'s OWN side (not unconditionally the player's — an enemy
-## mortar weighing this cares about danger to the ENEMY side), zero for
-## anything that isn't a squad currently ACTIVE (a spotter, an
-## already-fleeing mortar crew, or a squad that's itself RETREATING poses
-## no real danger to anyone — it's pulling out, not fighting, so proximity
-## to a friendly alone shouldn't read as a threat; matches the same
-## state == ACTIVE gate _drone_search_target already applies to its own
-## squad-danger scoring). Both terms land on roughly the same 0-10ish
-## scale by construction (max pips 9, TARGET_PRIORITY_SQUAD_MAX 10), so
-## equal weights (GameConfig.MORTAR_TARGET_CASUALTY_WEIGHT/_DANGER_WEIGHT)
-## already balance them reasonably without needing wildly different
-## magnitudes.
+## people actually there to hit); danger is _mortar_candidate_danger.
+## Both terms land on roughly the same 0-10ish scale by construction (max
+## pips 9, TARGET_PRIORITY_SQUAD_MAX 10), so equal weights (GameConfig.
+## MORTAR_TARGET_CASUALTY_WEIGHT/_DANGER_WEIGHT) already balance them
+## reasonably without needing wildly different magnitudes.
 func _mortar_target_value(unit: Unit, target: Unit) -> float:
 	var casualty_value: float = float(target.pips)
-	var is_active_squad: bool = target.kind == Unit.Kind.SQUAD and target.state == Unit.State.ACTIVE
-	var danger_value: float = _squad_danger_priority(target, unit.team) if is_active_squad else 0.0
+	var danger_value: float = _mortar_candidate_danger(unit, target)
 	return GameConfig.MORTAR_TARGET_CASUALTY_WEIGHT * casualty_value + GameConfig.MORTAR_TARGET_DANGER_WEIGHT * danger_value
 
 
