@@ -36,6 +36,8 @@ var pause_button: Button
 # cache, which a plain run (or headless CLI test) never triggers on its
 # own. See _on_start_pressed for the matching preload()-based construction.
 var drone_debug_panel
+var decision_inspector
+var inspect_button: Button
 # Untyped for the same class-cache reason as drone_debug_panel above. Added
 # to map_viewport (NOT root, unlike drone_debug_panel) — it draws in MAP
 # space so its heat cells and contact markers line up with real world
@@ -202,6 +204,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			if drone_debug_panel:
 				drone_debug_panel.visible = _drone_debug_enabled
 			get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_I:
+			if decision_inspector:
+				decision_inspector.visible = not decision_inspector.visible
+			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_E:
 			_enemy_heatmap_enabled = not _enemy_heatmap_enabled
 			if enemy_heatmap_overlay:
@@ -254,7 +260,7 @@ func _draw() -> void:
 
 func _clear_all() -> void:
 	for node in [level_select_screen, deployment_screen, doctrine_panel, start_button, battle_manager,
-			combat_log, casualty_dashboard, retreat_button, pause_button, drone_debug_panel,
+			combat_log, casualty_dashboard, retreat_button, pause_button, drone_debug_panel, decision_inspector, inspect_button,
 			enemy_heatmap_overlay, report_background, restart_button, review_history_button,
 			history_viewer, history_slider, history_time_label, history_back_button, history_play_button]:
 		if node:
@@ -269,6 +275,8 @@ func _clear_all() -> void:
 	retreat_button = null
 	pause_button = null
 	drone_debug_panel = null
+	decision_inspector = null
+	inspect_button = null
 	enemy_heatmap_overlay = null
 	report_background = null
 	restart_button = null
@@ -334,6 +342,8 @@ func _on_start_pressed() -> void:
 		"spotter": {"position": positions.spotter_position},
 		"recon_mode": recon_mode,
 	}
+
+	doctrine.merge(doctrine_panel.get_commander_doctrine())
 
 	deployment_screen.queue_free()
 	deployment_screen = null
@@ -405,6 +415,16 @@ func _on_start_pressed() -> void:
 	map_viewport.add_child(enemy_heatmap_overlay)
 
 	battle_manager.start_battle(doctrine, combat_log)
+	decision_inspector = preload("res://scripts/decision_inspector.gd").new()
+	decision_inspector.setup(battle_manager)
+	decision_inspector.position = Vector2(12, 50)
+	decision_inspector.visible = false
+	add_child(decision_inspector)
+	inspect_button = Button.new()
+	inspect_button.text = "Inspect AI (i)"
+	inspect_button.position = Vector2(140, 8)
+	inspect_button.pressed.connect(func(): decision_inspector.visible = not decision_inspector.visible)
+	add_child(inspect_button)
 
 
 func _on_retreat_pressed() -> void:
@@ -432,6 +452,9 @@ func _on_battle_ended(report_text: String) -> void:
 	report_background.position = Vector2(20, 20)
 	report_background.size = Vector2(560, 500)
 	add_child(report_background)
+	if decision_inspector:
+		move_child(decision_inspector, -1)
+		move_child(inspect_button, -1)
 
 	# A bare Label outside any Container never actually respects a width
 	# smaller than its own natural (unwrapped) content size — custom_min_size
