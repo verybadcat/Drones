@@ -804,6 +804,20 @@ const DETECTION_ELEVATION_BONUS: float = 500.0 * PIXELS_PER_METER # added when s
 const SPOT_CHANCE_PER_TACTICAL_SECOND: float = 0.15
 const MOVING_SPOT_MULTIPLIER: float = 3.0
 
+## How long (tactical seconds) the MOVING_SPOT_MULTIPLIER bonus takes to
+## fade back to 1.0 after a unit actually stops — see Unit.seconds_
+## stationary/CombatResolver.roll_spot. A unit that's JUST halted hasn't
+## thereby become as hard to notice as one that's been sitting still the
+## whole time: real movement leaves a lingering signature behind it
+## (settling dust, a thermal bloom, foliage that hasn't sprung back) —
+## exact persistence times aren't something published research quantifies
+## cleanly, so this is a judgment call, not cited, same as every other
+## probability in this file — sized to a few tactical minutes, the same
+## rough order of magnitude as this file's other short-lived "how long
+## does recent evidence stay meaningful" windows (HEATMAP_RECENTLY_
+## CLEARED_COOLDOWN_S, DRONE_CONTACT_BONUS_EXPIRY).
+const RECENT_MOVEMENT_SIGNATURE_DECAY_S: float = 240.0
+
 # The artillery spotter: a small, fragile, unarmed recon team whose job is
 # purely to extend detection for the mortar. Better trained to spot at range
 # than a rifle squad is. Concealment is two very different stories depending

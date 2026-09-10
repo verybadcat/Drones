@@ -143,9 +143,37 @@ static func roll_spot(observer: Unit, target: Unit, scenario_delta: float) -> bo
 	var target_hidden_mortar := target.kind == Unit.Kind.MORTAR and GameConfig.is_in_cover(target.terrain_type())
 	if target.kind == Unit.Kind.MORTAR and not target_hidden_mortar:
 		chance *= GameConfig.MORTAR_EXPOSED_CONCEALMENT_MULTIPLIER
-	if target.activity == Unit.Activity.MOVING:
-		chance *= GameConfig.MOVING_SPOT_MULTIPLIER
-	chance *= clamp(1.0 - (distance / detection_range), 0.0, 1.0)
+	# A unit that's JUST stopped moving hasn't thereby become as hard to
+	# spot as one that's been sitting still the whole time — real movement
+	# leaves a lingering signature (settling dust, a thermal bloom,
+	# disturbed foliage) that fades rather than vanishing the instant the
+	# unit halts. Full MOVING_SPOT_MULTIPLIER while actually moving
+	# (seconds_stationary is reset to 0 every tick it moves — see
+	# BattleManager._tick_movement), decaying linearly back to no bonus
+	# at all over GameConfig.RECENT_MOVEMENT_SIGNATURE_DECAY_S. This can
+	# still never make a concealed-but-recently-moved target easier to
+	# spot than one caught fully in the open: the concealment multiplier
+	# above already applies first, and OPEN's own multiplier is 1.0 with
+	# no further discount, so a concealed target's combined chance stays
+	# below an open one's as long as the concealment discount is stronger
+	# than this bonus can offset (true for every concealment value in
+	# either table below the full recency bonus itself).
+	var recency_t: float = clamp(target.seconds_stationary / GameConfig.RECENT_MOVEMENT_SIGNATURE_DECAY_S, 0.0, 1.0)
+	chance *= lerp(GameConfig.MOVING_SPOT_MULTIPLIER, 1.0, recency_t)
+	# Distance falloff is steeper than linear for a DRONE specifically:
+	# an overhead sensor's own footprint is a cone, not a flat disk — near
+	# the center (close to directly overhead) the look angle is steep and
+	# resolution is at its best across the whole footprint; toward the
+	# edge of that footprint the same target is seen from a far more
+	# oblique angle, where residual foliage/structure much more easily
+	# breaks the sightline even within nominal detection range. Squaring
+	# the linear falloff keeps the near-full-strength "core" directly
+	# under the drone narrower and drops off faster toward the edge,
+	# rather than a uniform straight-line decline across the whole
+	# footprint. A ground observer's own falloff is about eye/optics
+	# range, not sensor-cone geometry, so it stays linear.
+	var falloff: float = clamp(1.0 - (distance / detection_range), 0.0, 1.0)
+	chance *= falloff * falloff if observer_is_drone else falloff
 	chance *= scenario_delta
 
 	return randf() < chance

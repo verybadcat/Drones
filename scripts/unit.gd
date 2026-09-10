@@ -35,6 +35,17 @@ var base_hit_chance: float = 0.20
 var retreat_threshold: float = 0.50 # SQUAD only — fraction of pips lost that triggers retreat
 var state: State = State.ACTIVE
 var activity: Activity = Activity.STATIONARY
+# How long (tactical seconds) this unit has been STATIONARY, reset to 0
+# the instant it stops MOVING — see BattleManager._tick_movement, which
+# maintains this every tick for every unit regardless of side. Feeds
+# CombatResolver.roll_spot's decaying "recently moved" signature bonus:
+# a unit that's JUST stopped still carries the same elevated signature
+# (dust, disturbed foliage, thermal bloom) a currently-moving one does,
+# fading back to baseline over GameConfig.RECENT_MOVEMENT_SIGNATURE_
+# DECAY_S. Starts effectively infinite — a unit that's never moved at
+# all (e.g. still in its initial deployed position) has no recent-
+# movement signature to decay from.
+var seconds_stationary: float = 1e9
 
 # Is this unit currently visible to the OPPOSING side, right now? This is a
 # live, moment-to-moment fact recomputed by BattleManager every tick — not a

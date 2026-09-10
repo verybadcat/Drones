@@ -3659,6 +3659,10 @@ func _tick_movement(scenario_delta: float) -> void:
 				_step_retreat(unit, scenario_delta)
 		elif unit.state == Unit.State.ACTIVE and unit.has_move_target:
 			_step_toward_target(unit, scenario_delta)
+		if unit.activity == Unit.Activity.MOVING:
+			unit.seconds_stationary = 0.0
+		else:
+			unit.seconds_stationary += scenario_delta
 
 
 func _step_toward_target(unit: Unit, scenario_delta: float) -> void:
