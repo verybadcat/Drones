@@ -4520,6 +4520,15 @@ func _friendly_mortar_is_active() -> bool:
 func _update_friendly_squad_positioning() -> void:
 	var known_enemies := _known_enemy_positions(Unit.Team.PLAYER)
 	var at_risk: Dictionary = {}
+	# Several squads can go idle-and-uncovered in the very same tick (e.g.
+	# right after a lull ends, or at battle start) and this loop processes
+	# all of them in one pass — without tracking what's already been
+	# claimed THIS pass, each one independently asks "what's the nearest
+	# cover to ME" from ally positions that haven't moved yet, and reliably
+	# picks the same single nearby zone. Same bunching order_general_
+	# retreat's own `claimed` accumulator already exists to prevent for a
+	# mass retreat; this tier needed the identical treatment.
+	var claimed: Array[Vector2] = []
 	for u in player_units:
 		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or u.has_move_target:
 			continue
@@ -4542,7 +4551,7 @@ func _update_friendly_squad_positioning() -> void:
 		# there, not just once something's spotted approaching.
 		if GameConfig.is_in_cover(u.terrain_type()):
 			continue
-		var cover_dest: Vector2 = GameConfig.nearest_cover_point(u.global_position, 0.0, false, _ally_positions_for(u), known_enemies)
+		var cover_dest: Vector2 = GameConfig.nearest_cover_point(u.global_position, 0.0, false, _ally_positions_for(u) + claimed, known_enemies)
 		if cover_dest == u.global_position:
 			continue # nothing better nearby this tick
 		u.last_order_reason = "Moving into available cover."
@@ -4552,6 +4561,7 @@ func _update_friendly_squad_positioning() -> void:
 		u.move_speed = GameConfig.REPOSITION_SPEED
 		u.movement_predictable = false
 		at_risk[u] = true
+		claimed.append(cover_dest)
 		combat_log.log_seeking_cover(u)
 
 	var mortar := _friendly_active_mortar()
