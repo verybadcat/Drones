@@ -2125,7 +2125,18 @@ static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2]
 				continue
 			var hidden := true
 			for threat in threat_positions:
-				if has_direct_los(candidate, threat):
+				# Being out of direct LOS alone isn't real safety on its
+				# own — a candidate can be LOS-blocked by a single wall or
+				# fold in the ground while still standing right around the
+				# corner from a known enemy: one step by either side, or a
+				# threat this search simply doesn't know about yet, and
+				# it's exposed again with no warning. MORTAR_CREW_OVERRUN_
+				# DANGER_RANGE is reused here as a general "too close to
+				# read as a real hiding spot" standoff, not a mortar-only
+				# concept — the same "close enough that a small shift ruins
+				# it" reasoning applies to any ground unit relocating for
+				# safety (see this function's three call sites).
+				if has_direct_los(candidate, threat) or candidate.distance_to(threat) < MORTAR_CREW_OVERRUN_DANGER_RANGE:
 					hidden = false
 					break
 			if hidden:
