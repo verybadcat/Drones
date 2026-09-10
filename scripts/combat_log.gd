@@ -187,6 +187,16 @@ func log_mortar_resupply_held(unit: Unit) -> void:
 	add_entry("%s: resupply held in the rear — position already well-stocked (%s on hand)" % [unit.display_name(), GameConfig.round_count_text(unit.mortar_rounds_remaining)])
 
 
+## A general retreat was just ordered while a resupply wave was still
+## scheduled but hadn't actually left the rear yet (see BattleManager.
+## order_general_retreat) — cancelled outright rather than sent to chase a
+## position that's being abandoned. A run already physically on the map
+## when the retreat is ordered isn't affected by this; see
+## log_resupply_run_aborted for that separate case.
+func log_mortar_resupply_cancelled(unit: Unit) -> void:
+	add_entry("%s: resupply request cancelled — general retreat ordered" % unit.display_name())
+
+
 ## The run actually reached `unit` and handed off its rounds — the payoff
 ## moment of the whole direct-delivery redesign (see BattleManager.
 ## _resolve_resupply_run_arrivals).

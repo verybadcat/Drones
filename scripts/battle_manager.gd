@@ -884,6 +884,19 @@ func order_general_retreat() -> void:
 			combat_log.log_ordered_retreat(unit)
 			_log_wounded_evacuation_outcome(unit)
 			any_ordered = true
+			# A resupply run still just a scheduled wave time (see
+			# _mortar_resupply/_update_mortar_resupply) hasn't actually left
+			# the rear yet — nothing physical to recall, just a request to
+			# cancel. A run that's ALREADY a real Unit on the map is left
+			# alone; that's a separate, already-in-motion trip, not
+			# something this handles (the mortar's own retreat state
+			# already keeps _update_mortar_resupply_requests from asking
+			# for a fresh one afterward — see that function's own ACTIVE
+			# gate).
+			if unit.kind == Unit.Kind.MORTAR and _mortar_resupply.has(unit):
+				_mortar_resupply.erase(unit)
+				if _should_narrate_mortar_logistics(unit):
+					combat_log.log_mortar_resupply_cancelled(unit)
 	if any_ordered:
 		combat_log.add_entry("--- General retreat ordered ---")
 
