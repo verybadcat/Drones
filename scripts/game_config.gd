@@ -1226,12 +1226,14 @@ const MORTAR_MAX_AMMO_ON_HAND: int = 30
 # not a fixed countdown, modeled as log-normal (right-skewed: it can run
 # late by a lot more than it can ever run early) with the requested MEDIAN,
 # not mean — see GameConfig.sample_resupply_delay. SIGMA is the log-space
-# spread; 0.5 is "substantial" as asked for — at a 60-minute median that
-# puts roughly the middle two-thirds of outcomes between ~36 and ~100
-# minutes, with a real (if unlikely) tail well beyond that, and only a
-# small chance of arriving under half the median time.
+# spread; 1.0 puts a 2-hour wait at roughly the 75th percentile (a real,
+# fairly common outcome, not a rare tail one) while keeping the 60-minute
+# MEDIAN itself unchanged — at this spread, roughly the middle two-thirds
+# of outcomes fall between ~22 and ~163 minutes, with a real (if unlikely)
+# tail well beyond that, and only a small chance of arriving under a
+# third of the median time.
 const MORTAR_RESUPPLY_DELAY_MEDIAN: float = 60.0 * 60.0 # tactical seconds
-const MORTAR_RESUPPLY_DELAY_SIGMA: float = 0.5
+const MORTAR_RESUPPLY_DELAY_SIGMA: float = 1.0
 # The second wave's delay is measured from the FIRST wave's own (already
 # random) arrival, not from the original request — "a further 20 rounds
 # will arrive after approximately another hour" reads as one more hour on
