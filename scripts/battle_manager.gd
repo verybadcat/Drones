@@ -4365,8 +4365,23 @@ func _reposition_for_encirclement(u: Unit, known_enemies: Array[Vector2]) -> boo
 	if to_rally.length() < 10.0:
 		return false
 	var step: float = min(to_rally.length(), GameConfig.FRIENDLY_REPOSITION_RUSH_DISTANCE)
+	# The rally point itself is a bare geometric average of ally positions
+	# (or just the mortar's own spot) — real ground, but with no notion of
+	# terrain at all. Consolidating for safety and ending up bunched
+	# together in the open is worse than not consolidating: a single round
+	# can now catch several units at once (see _bunched_ally's own
+	# splash-spread reasoning elsewhere in this file), the exact opposite
+	# of what this function exists to prevent. Redirect the capped step
+	# toward whatever real cover is nearest to it instead of walking
+	# straight to open ground just because that's where the average
+	# happened to land — same "look for actual cover, not just a bare
+	# point" treatment _relocate_for_risk/_relocate_mortar already give
+	# every other safety-driven move in this file. Falls back to the raw
+	# point if genuinely nothing better is nearby (nearest_cover_point's
+	# own no-candidates convention).
+	var raw_step_destination: Vector2 = u.global_position + to_rally.normalized() * step
 	u.last_order_reason = "Known enemies threaten encirclement: consolidate toward friendly units."
-	u.move_target = u.global_position + to_rally.normalized() * step
+	u.move_target = GameConfig.nearest_cover_point(raw_step_destination, 0.0, false, [], known_enemies)
 	u.has_move_target = true
 	u.move_queue.clear()
 	u.move_speed = GameConfig.REPOSITION_SPEED
