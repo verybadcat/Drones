@@ -1185,6 +1185,16 @@ const DRONE_FLANK_WATCH_ARRIVE_RADIUS: float = 150.0 * PIXELS_PER_METER
 ## continuing to watch one already-known contact.
 const DRONE_FLANK_WATCH_STANDING_PRIORITY: float = 30.0
 
+## How far along a retreating unit's OWN remaining route (BattleManager.
+## _retreat_route_scout_target) the drone screens ahead of it once a
+## general retreat is ordered — 0.0 would just watch the unit's current
+## position (already covered by its own eyes as it walks), 1.0 would sit
+## right on top of its final destination before it's even close. A
+## judgment call, not cited, same as every other probability in this file:
+## far enough out to actually give useful early warning, not so far that
+## it's watching empty ground nobody's anywhere near yet.
+const DRONE_RETREAT_SCOUT_LOOKAHEAD_FRACTION: float = 0.6
+
 # Limited ammunition — every mortar team on both sides starts with this
 # many rounds (see Unit.setup) and has to actually manage it, not just
 # reload for free forever. See BattleManager's request_mortar_resupply/

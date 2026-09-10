@@ -2510,6 +2510,21 @@ func _drone_search_target() -> Vector2:
 		best_pos = own_fix.position
 		_drone_pilot_reasoning = {"tier": "Supporting important friendly action", "detail": "The friendly mortar has committed to closing on a known enemy mortar (own lead, not yet a team-wide commitment) — staying on the same target.", "target": best_pos}
 
+	# Once the player has called a general retreat, everything still ACTIVE
+	# gets ordered to pull back too (see order_general_retreat — unlike the
+	# enemy's own mirror, this one does NOT exempt the mortar), so any
+	# mortar-related priority above naturally has nothing left to say: the
+	# gun is retreating, not hunting. Real reconnaissance doctrine for a
+	# withdrawal is to screen the routes the main body is actually using,
+	# not to keep working the fight that's just been called off — the
+	# drone should be looking at ground our own people are about to cross,
+	# not the position everyone's abandoning.
+	var retreat_scout: Dictionary = _retreat_route_scout_target()
+	if not retreat_scout.is_empty() and GameConfig.TARGET_PRIORITY_MORTAR > best_score:
+		best_score = GameConfig.TARGET_PRIORITY_MORTAR
+		best_pos = retreat_scout.position
+		_drone_pilot_reasoning = {"tier": "Screening the retreat route", "detail": "General retreat ordered — scouting ahead of %s along its own withdrawal route for anything not yet spotted." % retreat_scout.unit.display_name(), "target": best_pos}
+
 	var best_squad: Unit = null
 	var best_squad_score := -1.0
 	for u in enemy_units:
@@ -2579,6 +2594,45 @@ func _drone_search_target() -> Vector2:
 	# keeps the drone from following it into ground that belongs to another
 	# unit's sector entirely, regardless of the reason.
 	return _clamp_to_drone_operating_area(best_pos)
+
+
+## The retreating (or still-catching-up-to-its-own-retreat-order) player
+## unit with the LONGEST remaining walk to its own current destination —
+## the one most exposed for the longest, and so the most worth clearing a
+## path for. Excludes RESUPPLY_RUN (not a combat unit anyone's escorting)
+## and DRONE (already airborne, not walking a ground route at all).
+## Vector2.INF/no unit if no general retreat is in progress, or every
+## remaining unit has either arrived already or never got a move order at
+## all (nothing left to screen).
+##
+## The scouted point is partway along that unit's OWN remaining route
+## (DRONE_RETREAT_SCOUT_LOOKAHEAD_FRACTION of the way to its move_target),
+## not the unit's current position — its own visibility already covers
+## where it's standing right now as it walks through; the point of sending
+## the drone ahead is to get eyes on the ground it hasn't reached yet
+## before it gets there, the way a real reconnaissance element screening a
+## withdrawal covers the routes the main body is using rather than
+## trailing behind it.
+func _retreat_route_scout_target() -> Dictionary:
+	if not player_general_retreat_ordered:
+		return {}
+	var best_unit: Unit = null
+	var best_remaining := -1.0
+	for u in player_units:
+		if u.kind == Unit.Kind.RESUPPLY_RUN or u.kind == Unit.Kind.DRONE:
+			continue
+		if u.state != Unit.State.RETREATING and u.state != Unit.State.ACTIVE:
+			continue
+		if not u.has_move_target:
+			continue
+		var remaining: float = u.global_position.distance_to(u.move_target)
+		if remaining > best_remaining:
+			best_remaining = remaining
+			best_unit = u
+	if best_unit == null:
+		return {}
+	var lookahead: Vector2 = best_unit.global_position.lerp(best_unit.move_target, GameConfig.DRONE_RETREAT_SCOUT_LOOKAHEAD_FRACTION)
+	return {"position": lookahead, "unit": best_unit}
 
 
 ## `point` as a plain, JSON-safe {"x","y"} dict in whole meters — used only
