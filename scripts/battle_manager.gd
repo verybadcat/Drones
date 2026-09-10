@@ -812,12 +812,39 @@ func _make_unit(team: Unit.Team, kind: Unit.Kind, pos: Vector2) -> Unit:
 	var unit := Unit.new()
 	add_child(unit)
 	unit.setup(team, kind, pos)
-	var key := "%d:%d" % [team, kind]
-	_unit_name_counts[key] = int(_unit_name_counts.get(key, 0)) + 1
-	unit.unit_label += " %d" % _unit_name_counts[key]
+	if kind == Unit.Kind.DRONE:
+		# A fresh Unit is spawned per sortie (see _launch_drone/_launch_
+		# backup_drone), but only GameConfig.DRONE_FLEET_SIZE physical
+		# airframes ever exist — an ever-incrementing serial would show
+		# "Drone 7"/"Drone 8" on screen after enough shoot-downs and
+		# relaunches, even though at most 4 are ever in the air or on the
+		# ground at once. Reuse the lowest currently-free airframe number
+		# instead.
+		unit.unit_label += " %d" % _next_drone_number()
+	else:
+		var key := "%d:%d" % [team, kind]
+		_unit_name_counts[key] = int(_unit_name_counts.get(key, 0)) + 1
+		unit.unit_label += " %d" % _unit_name_counts[key]
 	unit_combat_stats.register(unit, unit.display_name())
 	unit.fire_timer = randf_range(0.0, unit.fire_interval)
 	return unit
+
+
+## See _make_unit's own comment: a real airframe number (1..DRONE_FLEET_
+## SIZE), not a monotonic launch serial. "In use" means any Drone Unit
+## still in player_units — active, backup, or already turned for home but
+## not yet landed/freed (see _update_returning_drones) — since that's
+## exactly when its number is still legitimately on screen.
+func _next_drone_number() -> int:
+	var used: Dictionary = {}
+	for u in player_units:
+		if u.kind == Unit.Kind.DRONE:
+			var parts: PackedStringArray = u.unit_label.split(" ")
+			used[int(parts[parts.size() - 1])] = true
+	for n in range(1, GameConfig.DRONE_FLEET_SIZE + 1):
+		if not used.has(n):
+			return n
+	return GameConfig.DRONE_FLEET_SIZE + 1 # shouldn't happen; safe fallback
 
 
 ## The commander's general retreat order: everyone still fighting pulls out
