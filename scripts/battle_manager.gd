@@ -2771,20 +2771,28 @@ func estimated_enemy_likelihood(point: Vector2) -> float:
 	return baseline + contact_bonus
 
 
-## 1.0 with no record of `key` ever being confirmed clear, or once
-## GameConfig.HEATMAP_RECENTLY_CLEARED_COOLDOWN_S has fully passed since it
-## last was — down to HEATMAP_RECENTLY_CLEARED_MIN_MULTIPLIER (not zero:
-## "unlikely, not impossible") the instant it's confirmed clear, ramping
-## back up linearly as that confirmation goes stale. Same decaying-
-## discount shape as _drone_destination_recency_multiplier, but a
+## Down to HEATMAP_RECENTLY_CLEARED_MIN_MULTIPLIER (not zero: "unlikely,
+## not impossible") the instant `key` is confirmed clear, ramping back up
+## linearly as that confirmation goes stale, reaching 1.0 once
+## GameConfig.HEATMAP_RECENTLY_CLEARED_COOLDOWN_S has fully passed. Same
+## decaying-discount shape as _drone_destination_recency_multiplier, but a
 ## genuinely separate concept and constant: that one is about search
 ## EFFICIENCY (don't immediately re-check the same spot), this one is
 ## about physical PLAUSIBILITY (an enemy squad moves far slower than the
 ## drone, so it can't have already walked back into ground just cleared).
+##
+## A point with no record of ever being confirmed clear is treated as if
+## it HAD been cleared at scenario time zero, not as an automatic 1.0 —
+## the enemy doesn't teleport, so the doctrinal positional guess
+## (_row_bias_at_y/_enemy_approach_likelihood) shouldn't read as fully
+## trusted from the very first tick of the battle either, before anyone
+## on either side has had any real time to move anywhere at all. This
+## naturally phases the whole heat-map in over the same COOLDOWN window
+## used for "just checked, unlikely to already be re-occupied," rather
+## than assuming the full positional prior already applies at t=0.
 func _heatmap_recently_cleared_multiplier(key: Vector2) -> float:
-	if not _heatmap_last_cleared.has(key):
-		return 1.0
-	var elapsed: float = scenario_elapsed_time - _heatmap_last_cleared[key]
+	var last_cleared: float = _heatmap_last_cleared.get(key, 0.0)
+	var elapsed: float = scenario_elapsed_time - last_cleared
 	if elapsed >= GameConfig.HEATMAP_RECENTLY_CLEARED_COOLDOWN_S:
 		return 1.0
 	var t: float = elapsed / GameConfig.HEATMAP_RECENTLY_CLEARED_COOLDOWN_S
