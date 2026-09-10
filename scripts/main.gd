@@ -384,31 +384,16 @@ func _on_start_pressed() -> void:
 	start_button.queue_free()
 	start_button = null
 
-	retreat_button = Button.new()
-	retreat_button.text = "Order General Retreat"
-	retreat_button.position = Vector2(GameConfig.SIDEBAR_X, 20) # measured 181x31 — see pause_button's own x below; casualty_dashboard's y below is against this row's shared height
-	retreat_button.pressed.connect(_on_retreat_pressed)
-	add_child(retreat_button)
-
-	pause_button = Button.new()
-	pause_button.text = "Pause"
-	# Same row as retreat_button (measured 181px wide) rather than a new row
-	# below it — casualty_dashboard's own fixed y (below) leaves no gap here
-	# for a further button-row's worth of height.
-	pause_button.position = Vector2(GameConfig.SIDEBAR_X + 181.0 + 14.0, 20)
-	pause_button.pressed.connect(_on_pause_pressed)
-	add_child(pause_button)
-
 	battle_manager = BattleManager.new()
 	battle_manager.battle_ended.connect(_on_battle_ended)
 	map_viewport.add_child(battle_manager)
 
 	casualty_dashboard = CasualtyDashboard.new()
-	# 20 + 31 (retreat_button's real height, shared by pause_button on the
-	# same row) + 14px breathing room. Mortar resupply requests itself
-	# automatically now (see BattleManager._update_mortar_resupply_requests)
-	# — no button for it, so this sidebar is back to the single button row
-	# it had before that was ever added, now shared by retreat + pause.
+	# retreat_button/pause_button used to share a button row here; both now
+	# live in the open strip above the map instead (see their own creation
+	# below, next to schedule_retreat_button) — the sidebar no longer has
+	# any buttons of its own, but this fixed y is kept as-is rather than
+	# reclaiming the now-empty space above it.
 	casualty_dashboard.position = Vector2(GameConfig.SIDEBAR_X, 65)
 	casualty_dashboard.setup(battle_manager)
 	add_child(casualty_dashboard)
@@ -508,6 +493,21 @@ func _on_start_pressed() -> void:
 	schedule_retreat_button.position = Vector2(680, 4)
 	schedule_retreat_button.pressed.connect(_on_schedule_retreat_pressed)
 	add_child(schedule_retreat_button)
+
+	# The immediate order, right next to the option to schedule one for
+	# later instead — same top row, not the sidebar (see casualty_
+	# dashboard's own comment on why that row is empty now).
+	retreat_button = Button.new()
+	retreat_button.text = "Retreat Now"
+	retreat_button.position = Vector2(850, 4)
+	retreat_button.pressed.connect(_on_retreat_pressed)
+	add_child(retreat_button)
+
+	pause_button = Button.new()
+	pause_button.text = "Pause"
+	pause_button.position = Vector2(990, 4)
+	pause_button.pressed.connect(_on_pause_pressed)
+	add_child(pause_button)
 
 	# Second row: once a retreat is actually scheduled, show when (kept in
 	# sync every frame from _process, since the underlying time never
