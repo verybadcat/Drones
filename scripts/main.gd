@@ -475,16 +475,16 @@ func _on_start_pressed() -> void:
 
 	scheduled_retreat_slider = HSlider.new()
 	scheduled_retreat_slider.min_value = 5
-	scheduled_retreat_slider.max_value = 120
+	scheduled_retreat_slider.max_value = 30
 	scheduled_retreat_slider.step = 5
-	scheduled_retreat_slider.value = 30
+	scheduled_retreat_slider.value = 10
 	scheduled_retreat_slider.custom_minimum_size = Vector2(120, 0)
 	scheduled_retreat_slider.position = Vector2(500, 12)
 	scheduled_retreat_slider.value_changed.connect(func(v): scheduled_retreat_value_label.text = "%d min" % int(v))
 	add_child(scheduled_retreat_slider)
 
 	scheduled_retreat_value_label = Label.new()
-	scheduled_retreat_value_label.text = "30 min"
+	scheduled_retreat_value_label.text = "10 min"
 	scheduled_retreat_value_label.position = Vector2(628, 12)
 	add_child(scheduled_retreat_value_label)
 
