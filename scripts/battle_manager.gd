@@ -5090,21 +5090,31 @@ func _enemy_target_value(assessing_unit: Unit, target: Unit) -> float:
 	return 0.0
 
 
-## A genuine weighted-random choice among `candidates` (each one's own
-## _enemy_target_value as its weight), not a deterministic "always the
-## single best one" — real fire-mission targeting isn't perfectly
-## rational, and this keeps the mortar's target choice from being
-## trivially predictable the way always picking the objective maximum
-## would be. Every candidate's value is guaranteed positive (a targetable
-## unit always has at least 1 pip), so no separate floor is needed to keep
-## every weight meaningfully positive.
+## A genuine weighted-random choice among `candidates` — not a
+## deterministic "always the single best one" — real fire-mission
+## targeting isn't perfectly rational, and this keeps the mortar's target
+## choice from being trivially predictable the way always picking the
+## objective maximum would be. The actual draw weight is each candidate's
+## own _enemy_target_value SQUARED, not the bare score: a clearly
+## standout threat should dominate the roll much more reliably than
+## "best odds of several comparable options" (a linear weight let a
+## target scoring nearly twice any rival still lose the roll more often
+## than not — see the 2026-09-10 "very dangerous, should have been
+## getting a lot of attention" report, where a 13.57 lost to a 9.38 on a
+## 24% linear share). Squaring keeps this a genuine weighted-random
+## choice, not a hard "always pick the max" rule, while making a real
+## standout win far more often than an also-ran does. Every candidate's
+## value is guaranteed positive (a targetable unit always has at least 1
+## pip), so no separate floor is needed to keep every weight meaningfully
+## positive.
 func _weighted_mortar_target_pick(unit: Unit, candidates: Array[Unit], evidence: Dictionary = {}) -> Unit:
 	var weights: Array[float] = []
 	var total := 0.0
 	for c in candidates:
 		var w: float = _enemy_target_value(unit, c)
-		weights.append(w)
-		total += w
+		var squared: float = w * w
+		weights.append(squared)
+		total += squared
 	if profile_for(unit.team).deterministic or unit_doctrine_for(unit).targeting != "inherit":
 		var best := 0
 		for i in weights.size():
