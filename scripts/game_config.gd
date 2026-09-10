@@ -1007,15 +1007,29 @@ const DRONE_CONTACT_BONUS_VALUE: float = 0.5 # comparable to the sweep grid's ow
 ## RECENTLY_VISITED_COOLDOWN_S above, which is about search EFFICIENCY
 ## (don't immediately re-check the same spot). This one is about physical
 ## PLAUSIBILITY: a real enemy squad moves far slower than the drone does,
-## so ground the drone (or a ground unit) just confirmed empty is unlikely
-## to already have an enemy back in it — not impossible, just unlikely,
-## hence a real minimum rather than a hard zero. A shorter window than the
-## drone's own search-efficiency cooldown (5 vs. 20 tactical minutes) on
-## purpose: this is a genuine claim about how far someone on foot could
-## plausibly have moved, not a "don't bother re-checking yet" heuristic —
-## a judgment call, not sourced, sized to roughly the time a squad moving
-## at ordinary pace could cross one heat-map grid cell's own width.
-const HEATMAP_RECENTLY_CLEARED_COOLDOWN_S: float = 300.0
+## so ground just confirmed empty is unlikely to already have an enemy
+## back in it — not impossible, just unlikely, hence a real minimum
+## rather than a hard zero.
+##
+## The actual cooldown is DISTANCE-scaled, not a flat window: how long
+## full suspicion takes to rebuild is however long it would take someone
+## on foot, at HEATMAP_INFILTRATION_SPEED, to walk here from the nearest
+## enemy position we actually know about (see
+## _heatmap_recently_cleared_multiplier) — a flat few minutes was
+## reasonable for one grid cell's own width, but badly wrong once a WIDE
+## area gets cleared at once: a spot a kilometer from anything we've ever
+## seen doesn't become suspect again just because the same fixed clock
+## ran out everywhere else too.
+##
+## HEATMAP_INFILTRATION_SPEED is deliberately well under REPOSITION_
+## SPEED's own 1.8 m/s (6.5 km/h) — that's an ordinary, unconcerned
+## repositioning pace; this is someone carrying a load specifically
+## trying NOT to be seen, closer to a real "slow, deliberate, cover-to-
+## cover" tactical movement rate than a normal walking pace. A judgment
+## call, not cited, same as every other probability in this file: about
+## 1 km/h — a kilometer in 5 minutes (12 km/h) is clearly not something a
+## covert foot patrol does; a kilometer in roughly an hour is.
+const HEATMAP_INFILTRATION_SPEED: float = 0.28 * PIXELS_PER_METER # ~1.0 km/h
 const HEATMAP_RECENTLY_CLEARED_MIN_MULTIPLIER: float = 0.05
 
 # A unit caught moving in the open is much easier to hit by DIRECT fire, not

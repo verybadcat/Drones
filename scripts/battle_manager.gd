@@ -2748,8 +2748,9 @@ func _row_bias_at_y(y: float) -> float:
 ##    instantly snap back to full value: a real enemy squad moves far
 ##    slower than the drone does, so it's unlikely (not impossible) to
 ##    already be back the moment we stop looking. _heatmap_recently_
-##    cleared_multiplier ramps that discount back to 1.0 over
-##    GameConfig.HEATMAP_RECENTLY_CLEARED_COOLDOWN_S.
+##    cleared_multiplier ramps that discount back to 1.0 over however
+##    long a real infiltrator would actually need to walk there from the
+##    nearest enemy position we know about.
 ## 3. Otherwise, the ordinary doctrinal guess (row/approach bias, itself
 ##    discounted if this ground was recently cleared) plus whatever
 ##    _contact_search_bonus still lingers from a sighting that's since
@@ -2773,29 +2774,44 @@ func estimated_enemy_likelihood(point: Vector2) -> float:
 
 ## Down to HEATMAP_RECENTLY_CLEARED_MIN_MULTIPLIER (not zero: "unlikely,
 ## not impossible") the instant `key` is confirmed clear, ramping back up
-## linearly as that confirmation goes stale, reaching 1.0 once
-## GameConfig.HEATMAP_RECENTLY_CLEARED_COOLDOWN_S has fully passed. Same
-## decaying-discount shape as _drone_destination_recency_multiplier, but a
-## genuinely separate concept and constant: that one is about search
-## EFFICIENCY (don't immediately re-check the same spot), this one is
-## about physical PLAUSIBILITY (an enemy squad moves far slower than the
-## drone, so it can't have already walked back into ground just cleared).
+## linearly as that confirmation goes stale. Same decaying-discount shape
+## as _drone_destination_recency_multiplier, but a genuinely separate
+## concept and constant: that one is about search EFFICIENCY (don't
+## immediately re-check the same spot), this one is about physical
+## PLAUSIBILITY (an enemy squad moves far slower than the drone, so it
+## can't have already walked back into ground just cleared).
+##
+## The cooldown itself is DISTANCE-scaled, not a flat window: how long
+## full suspicion takes to rebuild is however long it would take someone
+## on foot, at GameConfig.HEATMAP_INFILTRATION_SPEED, to walk here from
+## the nearest enemy position we actually know about right now
+## (_known_enemy_positions — the same fog-of-war-respecting set every
+## other "what do we actually know" computation in this file uses). A
+## flat few minutes was fine for one grid cell's own width, but wrong
+## once a WIDE area gets cleared at once: a point a kilometer from
+## anything ever seen doesn't deserve the same few-minute clock as one
+## right next to a known contact. No known enemy anywhere at all means an
+## effectively infinite cooldown — nothing to infiltrate FROM yet — so
+## this stays at the MIN multiplier until real contact is made somewhere.
 ##
 ## A point with no record of ever being confirmed clear is treated as if
 ## it HAD been cleared at scenario time zero, not as an automatic 1.0 —
 ## the enemy doesn't teleport, so the doctrinal positional guess
 ## (_row_bias_at_y/_enemy_approach_likelihood) shouldn't read as fully
 ## trusted from the very first tick of the battle either, before anyone
-## on either side has had any real time to move anywhere at all. This
-## naturally phases the whole heat-map in over the same COOLDOWN window
-## used for "just checked, unlikely to already be re-occupied," rather
-## than assuming the full positional prior already applies at t=0.
+## on either side has had any real time to move anywhere at all.
 func _heatmap_recently_cleared_multiplier(key: Vector2) -> float:
 	var last_cleared: float = _heatmap_last_cleared.get(key, 0.0)
 	var elapsed: float = scenario_elapsed_time - last_cleared
-	if elapsed >= GameConfig.HEATMAP_RECENTLY_CLEARED_COOLDOWN_S:
+
+	var nearest_threat_dist := INF
+	for p in _known_enemy_positions(Unit.Team.PLAYER):
+		nearest_threat_dist = min(nearest_threat_dist, key.distance_to(p))
+	var cooldown: float = nearest_threat_dist / GameConfig.HEATMAP_INFILTRATION_SPEED
+
+	if elapsed >= cooldown:
 		return 1.0
-	var t: float = elapsed / GameConfig.HEATMAP_RECENTLY_CLEARED_COOLDOWN_S
+	var t: float = elapsed / cooldown
 	return lerp(GameConfig.HEATMAP_RECENTLY_CLEARED_MIN_MULTIPLIER, 1.0, t)
 
 
