@@ -30,21 +30,21 @@ func damage(attacker: Unit, target: Unit, before: Dictionary, target_label: Stri
 
 func report_lines() -> PackedStringArray:
 	var lines := PackedStringArray(["DAMAGE BY UNIT — EXACT SIMULATION RESULTS",
-		"Casualties = people killed or wounded. These totals are separate from battlefield estimates.", ""])
+		"Casualties = people this unit killed or wounded ON THE ENEMY (what it dealt out, not what it took). These totals are separate from battlefield estimates.", ""])
 	for side in [Unit.Team.PLAYER, Unit.Team.ENEMY]:
 		lines.append("YOUR UNITS" if side == Unit.Team.PLAYER else "ENEMY UNITS")
 		var team_rows: Array = rows.values().filter(func(row): return row.team == side)
 		team_rows.sort_custom(func(a, b): return a.casualties > b.casualties)
 		for row in team_rows:
 			if row.kind not in [Unit.Kind.SQUAD, Unit.Kind.MORTAR]: continue
-			lines.append("%s: %d casualties / %d shots / %d CB strikes" % [row.unit, row.casualties, row.shots, row.counter_battery])
+			lines.append("%s: %d casualties inflicted / %d shots / %d CB strikes" % [row.unit, row.casualties, row.shots, row.counter_battery])
 		lines.append("")
-	lines.append("DETAILS (CB = counter-battery; impacts include splash)")
+	lines.append("DETAILS (CB = counter-battery; impacts include splash) — each row is what THAT unit dealt out; to see what a unit received, look for it under \"Against ...\" in another unit's own row below")
 	for row in rows.values():
 		if row.kind not in [Unit.Kind.SQUAD, Unit.Kind.MORTAR]:
 			lines.append("%s: unarmed support; no weapon damage." % row.unit)
 			continue
-		lines.append("%s: %d killed, %d wounded, %d drone(s) destroyed; %d damaging impacts." % [row.unit, row.killed, row.wounded, row.airframes, row.hits])
+		lines.append("%s inflicted: %d killed, %d wounded, %d drone(s) destroyed; %d damaging impacts." % [row.unit, row.killed, row.wounded, row.airframes, row.hits])
 		for target in row.targets:
 			lines.append("  Against %s: %d strength lost." % [target, row.targets[target]])
 	return lines
