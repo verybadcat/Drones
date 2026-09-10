@@ -35,9 +35,23 @@ func report_lines() -> PackedStringArray:
 		lines.append("YOUR UNITS" if side == Unit.Team.PLAYER else "ENEMY UNITS")
 		var team_rows: Array = rows.values().filter(func(row): return row.team == side)
 		team_rows.sort_custom(func(a, b): return a.casualties > b.casualties)
+		var total_killed := 0
+		var total_wounded := 0
+		var total_airframes := 0
 		for row in team_rows:
 			if row.kind not in [Unit.Kind.SQUAD, Unit.Kind.MORTAR]: continue
 			lines.append("%s: %d casualties inflicted / %d shots / %d CB strikes" % [row.unit, row.casualties, row.shots, row.counter_battery])
+			total_killed += row.killed
+			total_wounded += row.wounded
+			total_airframes += row.airframes
+		# Same "inflicted, not suffered" framing as every other number in
+		# this report — this side's total casualties inflicted equal the
+		# OTHER side's total casualties suffered, so both totals together
+		# already give the full picture for either side without a separate,
+		# fog-of-war-limited figure: this whole report is the exact,
+		# omniscient one, unlike _end_battle's own "Player/Enemy casualties"
+		# lines elsewhere in the AAR.
+		lines.append("TOTAL INFLICTED: %d killed, %d wounded (%d total)%s" % [total_killed, total_wounded, total_killed + total_wounded, ", %d drone(s) destroyed" % total_airframes if total_airframes > 0 else ""])
 		lines.append("")
 	lines.append("DETAILS (CB = counter-battery; impacts include splash) — each row is what THAT unit dealt out; to see what a unit received, look for it under \"Against ...\" in another unit's own row below")
 	for row in rows.values():
