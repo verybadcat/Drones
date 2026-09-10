@@ -4310,8 +4310,8 @@ func _friendly_mortar_is_active() -> bool:
 ## The friendly-side counterpart to _update_enemy_squad_advance: an idle,
 ## ACTIVE player squad with nothing worth shooting at right now (same idle
 ## gate — a squad already fighting stands and fights, it doesn't reposition
-## out from under a live engagement) watches for two things and answers
-## either, in priority order:
+## out from under a live engagement) watches for three things and answers
+## the first that applies, in priority order:
 ##
 ## (1) SELF-PRESERVATION — see _reposition_for_encirclement. A squad that's
 ## actually at risk of being surrounded pulls back toward its own side's
@@ -4319,7 +4319,13 @@ func _friendly_mortar_is_active() -> bool:
 ## `at_risk` so the pass below never reassigns it to go plug a gap
 ## elsewhere — it's already got its own problem to solve.
 ##
-## (2) MORTAR PROTECTION — for the single nearest known enemy SQUAD still
+## (2) SEEK COVER — a general standing preference, not conditioned on any
+## specific detected threat: a squad not already in cover, with nothing
+## else going on, moves to the nearest one. Standing in the open should
+## need an actual reason (already covered by (1)/(3) or the idle-gate
+## exclusions above), not the other way around.
+##
+## (3) MORTAR PROTECTION — for the single nearest known enemy SQUAD still
 ## actively pressing the fight (not RETREATING — see
 ## _nearest_unscreened_mortar_threat) that has an open, unscreened lane to
 ## the friendly mortar's own actual position (see
@@ -4329,12 +4335,16 @@ func _friendly_mortar_is_active() -> bool:
 ## interposing itself between the two. Only the single closest open lane is
 ## answered per tick, one squad at a time, rather than every idle squad
 ## reshuffling at once for threats that may resolve themselves before
-## anyone arrives.
+## anyone arrives. Checked last/separately below since it needs a squad
+## that's ALSO not already sent to seek cover this same tick.
 ##
-## Deliberately never narrates *why* a squad moves (no "the mortar's
-## position is known" log) — that would hand the player intel about the
-## enemy's own knowledge state it wouldn't otherwise have, the same
-## fog-of-war line drawn around the enemy's mortar ammo/resupply status.
+## Deliberately never narrates *why* a squad moves for mortar protection
+## specifically (no "the mortar's position is known" log) — that would hand
+## the player intel about the enemy's own knowledge state it wouldn't
+## otherwise have, the same fog-of-war line drawn around the enemy's mortar
+## ammo/resupply status. Ordinary cover-seeking has no such concern (it's
+## about the squad's OWN position, not the enemy's), so it's narrated
+## normally.
 func _update_friendly_squad_positioning() -> void:
 	var known_enemies := _known_enemy_positions(Unit.Team.PLAYER)
 	var at_risk: Dictionary = {}
@@ -4345,6 +4355,32 @@ func _update_friendly_squad_positioning() -> void:
 			continue # something to shoot at right now — stand and fight
 		if _reposition_for_encirclement(u, known_enemies):
 			at_risk[u] = true
+			continue
+		# General principle, not conditioned on a specific detected threat:
+		# a squad wants to be in cover whenever possible, and standing in
+		# the open needs an actual reason (already moving, mid-encirclement
+		# response, has a live target, screening something specific — all
+		# already excluded above), not the other way around. The enemy's
+		# own mirror of this (_alert_enemy_squads) only ever triggers
+		# reactively, once someone's actually been shot at — fine for an
+		# attacking force already closing the distance, but a defending
+		# squad shouldn't wait for first contact (or even a detected
+		# threat at all) before getting off open ground; real infantry
+		# occupying a position uses available cover from the moment it's
+		# there, not just once something's spotted approaching.
+		if GameConfig.is_in_cover(u.terrain_type()):
+			continue
+		var cover_dest: Vector2 = GameConfig.nearest_cover_point(u.global_position, 0.0, false, _ally_positions_for(u), known_enemies)
+		if cover_dest == u.global_position:
+			continue # nothing better nearby this tick
+		u.last_order_reason = "Moving into available cover."
+		u.move_target = cover_dest
+		u.has_move_target = true
+		u.move_queue.clear()
+		u.move_speed = GameConfig.REPOSITION_SPEED
+		u.movement_predictable = false
+		at_risk[u] = true
+		combat_log.log_seeking_cover(u)
 
 	var mortar := _friendly_active_mortar()
 	if mortar == null:
