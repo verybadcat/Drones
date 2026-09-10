@@ -48,6 +48,12 @@ var drone_debug_panel
 var decision_inspector
 var inspect_button: Button
 var speed_dropdown: OptionButton
+var schedule_retreat_label: Label
+var scheduled_retreat_slider: HSlider
+var scheduled_retreat_value_label: Label
+var schedule_retreat_button: Button
+var scheduled_retreat_status_label: Label
+var cancel_scheduled_retreat_button: Button
 # Untyped for the same class-cache reason as drone_debug_panel above. Added
 # to map_viewport (NOT root, unlike drone_debug_panel) — it draws in MAP
 # space so its heat cells and contact markers line up with real world
@@ -171,6 +177,13 @@ func _process(delta: float) -> void:
 
 	_clock_label.text = battle_manager.clock_string() if battle_manager else "%02d:00:00" % int(GameConfig.SCENARIO_START_HOUR)
 
+	if scheduled_retreat_status_label and cancel_scheduled_retreat_button:
+		var has_schedule: bool = battle_manager != null and not is_inf(battle_manager.scheduled_retreat_time) and not battle_manager.player_general_retreat_ordered
+		scheduled_retreat_status_label.visible = has_schedule
+		cancel_scheduled_retreat_button.visible = has_schedule
+		if has_schedule:
+			scheduled_retreat_status_label.text = "Retreat scheduled for %s" % battle_manager.clock_string(battle_manager.scheduled_retreat_time)
+
 	# Deliberately NOT gated on _drone_debug_enabled (the human-facing visual
 	# overlay) or battle_manager.is_paused — this file is how an outside
 	# investigator (reading it directly, not watching the screen) gets
@@ -272,7 +285,9 @@ func _clear_all() -> void:
 	for node in [level_select_screen, deployment_screen, doctrine_panel, start_button, battle_manager,
 			combat_log, casualty_dashboard, retreat_button, pause_button, drone_debug_panel, decision_inspector, inspect_button,
 			speed_dropdown, enemy_heatmap_overlay, report_background, restart_button, review_history_button,
-			history_viewer, history_slider, history_time_label, history_back_button, history_play_button]:
+			history_viewer, history_slider, history_time_label, history_back_button, history_play_button,
+			schedule_retreat_label, scheduled_retreat_slider, scheduled_retreat_value_label, schedule_retreat_button,
+			scheduled_retreat_status_label, cancel_scheduled_retreat_button]:
 		if node:
 			node.queue_free()
 	level_select_screen = null
@@ -288,6 +303,12 @@ func _clear_all() -> void:
 	decision_inspector = null
 	inspect_button = null
 	speed_dropdown = null
+	schedule_retreat_label = null
+	scheduled_retreat_slider = null
+	scheduled_retreat_value_label = null
+	schedule_retreat_button = null
+	scheduled_retreat_status_label = null
+	cancel_scheduled_retreat_button = null
 	enemy_heatmap_overlay = null
 	report_background = null
 	restart_button = null
@@ -453,6 +474,67 @@ func _on_start_pressed() -> void:
 	speed_dropdown.position = Vector2(280, 8)
 	speed_dropdown.item_selected.connect(func(index): battle_manager.playback_speed = SPEED_OPTIONS[index])
 	add_child(speed_dropdown)
+
+	# Plan a retreat for a later time, distinct from retreat_button's own
+	# immediate order — see BattleManager.order_scheduled_retreat. A
+	# slider rather than a fixed choice, per direct request, so the delay
+	# can be dialed in and re-confirmed (re-pressing the button just
+	# reschedules) rather than picked from a short fixed list. Placed in
+	# the same open strip as inspect_button/speed_dropdown, further right,
+	# since the sidebar's own button row has no spare width left (see
+	# retreat_button/pause_button's own doc comments).
+	schedule_retreat_label = Label.new()
+	schedule_retreat_label.text = "Retreat in:"
+	schedule_retreat_label.position = Vector2(430, 12)
+	add_child(schedule_retreat_label)
+
+	scheduled_retreat_slider = HSlider.new()
+	scheduled_retreat_slider.min_value = 5
+	scheduled_retreat_slider.max_value = 120
+	scheduled_retreat_slider.step = 5
+	scheduled_retreat_slider.value = 30
+	scheduled_retreat_slider.custom_minimum_size = Vector2(120, 0)
+	scheduled_retreat_slider.position = Vector2(500, 12)
+	scheduled_retreat_slider.value_changed.connect(func(v): scheduled_retreat_value_label.text = "%d min" % int(v))
+	add_child(scheduled_retreat_slider)
+
+	scheduled_retreat_value_label = Label.new()
+	scheduled_retreat_value_label.text = "30 min"
+	scheduled_retreat_value_label.position = Vector2(628, 12)
+	add_child(scheduled_retreat_value_label)
+
+	schedule_retreat_button = Button.new()
+	schedule_retreat_button.text = "Schedule Retreat"
+	schedule_retreat_button.position = Vector2(680, 4)
+	schedule_retreat_button.pressed.connect(_on_schedule_retreat_pressed)
+	add_child(schedule_retreat_button)
+
+	# Second row: once a retreat is actually scheduled, show when (kept in
+	# sync every frame from _process, since the underlying time never
+	# changes except by rescheduling/cancelling) and let the commander
+	# countermand it. Both start hidden — nothing is scheduled yet at
+	# battle start — and _process toggles their visibility together.
+	scheduled_retreat_status_label = Label.new()
+	scheduled_retreat_status_label.position = Vector2(430, 40)
+	scheduled_retreat_status_label.visible = false
+	add_child(scheduled_retreat_status_label)
+
+	cancel_scheduled_retreat_button = Button.new()
+	cancel_scheduled_retreat_button.text = "Cancel Scheduled Retreat"
+	cancel_scheduled_retreat_button.position = Vector2(680, 36)
+	cancel_scheduled_retreat_button.visible = false
+	cancel_scheduled_retreat_button.pressed.connect(_on_cancel_scheduled_retreat_pressed)
+	add_child(cancel_scheduled_retreat_button)
+
+
+func _on_schedule_retreat_pressed() -> void:
+	if battle_manager:
+		battle_manager.order_scheduled_retreat(scheduled_retreat_slider.value * 60.0)
+
+
+func _on_cancel_scheduled_retreat_pressed() -> void:
+	if battle_manager:
+		battle_manager.cancel_scheduled_retreat()
 
 
 func _on_retreat_pressed() -> void:

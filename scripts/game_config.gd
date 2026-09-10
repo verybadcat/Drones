@@ -1154,6 +1154,30 @@ const FRIENDLY_ENCIRCLEMENT_ANGLE_THRESHOLD_DEG: float = 140.0
 ## genuinely hopeless and pull back rather than stand and fight it out.
 const FRIENDLY_ENCIRCLEMENT_MIN_COVERED_FRACTION: float = 0.5
 
+## The three FRIENDLY_ENCIRCLEMENT_* thresholds above, at full
+## BattleManager._scheduled_retreat_urgency (an overall retreat is already
+## planned and the scheduled time is close or past) — a real unit that
+## knows the whole line is pulling out soon doesn't hold a marginal
+## position as stubbornly as one with no such order at all, so all three
+## relax together: watch farther out, accept a narrower surrounding arc,
+## and need less of it actually dug into cover before treating the
+## position as not worth holding. `_reposition_for_encirclement` linearly
+## interpolates between the two sets of values by urgency, so these only
+## ever matter once a retreat is actually scheduled — judgment calls, not
+## cited, same as every other probability in this file.
+const FRIENDLY_ENCIRCLEMENT_DETECT_RADIUS_URGENT: float = 900.0 * PIXELS_PER_METER
+const FRIENDLY_ENCIRCLEMENT_ANGLE_THRESHOLD_URGENT_DEG: float = 80.0
+const FRIENDLY_ENCIRCLEMENT_MIN_COVERED_FRACTION_URGENT: float = 0.2
+
+## How long before a scheduled retreat's actual time counts as "close" for
+## BattleManager._scheduled_retreat_urgency — comfortably ahead of it,
+## urgency reads near 0 (no change from normal behavior); within this
+## window, it ramps up toward 1.0 as the scheduled time approaches. Sized
+## to roughly how long a real fighting withdrawal takes to actually
+## organize once ordered, not an instant switch the moment the order is
+## given.
+const SCHEDULED_RETREAT_URGENCY_WINDOW_S: float = 1200.0 # 20 tactical minutes
+
 # Bounded step (like ENEMY_ADVANCE_RUSH_DISTANCE) for a friendly squad
 # repositioning toward its own side's center of mass rather than standing
 # to be surrounded — reassessed next tick rather than committing to the

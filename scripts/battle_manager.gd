@@ -335,6 +335,14 @@ var is_paused: bool = false
 # is_paused, which still freezes everything outright regardless of this
 # value — pausing at 4x is exactly as frozen as pausing at 1x.
 var playback_speed: float = 1.0
+# scenario_elapsed_time at which order_general_retreat() should fire on
+# its own, or Vector2.INF's scalar equivalent (INF) if none is scheduled.
+# See order_scheduled_retreat/_check_scheduled_retreat — the player's own
+# "plan a retreat for later" order (main.gd's slider), distinct from
+# order_general_retreat's own immediate button. Re-callable: scheduling a
+# new one just overwrites this, so adjusting the slider and re-confirming
+# simply reschedules rather than stacking multiple pending retreats.
+var scheduled_retreat_time: float = INF
 var _fire_flashes: Array[Dictionary] = []
 var _seconds_since_last_shot: float = 0.0
 
@@ -889,6 +897,92 @@ func _log_wounded_evacuation_outcome(unit: Unit) -> void:
 ## _process to do once battle_over is true regardless of is_paused).
 func toggle_pause() -> void:
 	is_paused = not is_paused
+
+
+## The player's "plan a retreat for later" order (main.gd's delay slider),
+## distinct from order_general_retreat's own immediate button. Doesn't
+## move anyone by itself — it only sets the clock order_general_retreat
+## eventually fires from on its own (_check_scheduled_retreat), the same
+## way as if the player had pressed the immediate button at that moment.
+## What DOES change right away: the mortar's own ammo-conservation math
+## (see _scheduled_retreat_ammo_discount) starts weighing whether ammo
+## held back "for later" will actually get a chance to be spent before
+## that later arrives, and squads read as more willing to pull back from
+## a position that's turning bad (see _scheduled_retreat_urgency, used by
+## _reposition_for_encirclement) — both scaling up as the scheduled time
+## gets closer, not switching on all at once the instant this is called.
+## Re-callable: adjusting the slider and confirming again just overwrites
+## the pending time rather than stacking a second one.
+func order_scheduled_retreat(delay_seconds: float) -> void:
+	if battle_over:
+		return
+	# Rounded to the nearest whole minute — the slider's own delay is
+	# already whole minutes, but scenario_elapsed_time it's added to
+	# generally isn't, so the raw sum would otherwise land on some odd
+	# :MM:SS a player has no reason to care about.
+	scheduled_retreat_time = round((scenario_elapsed_time + delay_seconds) / 60.0) * 60.0
+	combat_log.add_entry("--- Retreat scheduled for %s ---" % clock_string(scheduled_retreat_time))
+
+
+## Countermands a pending order_scheduled_retreat — the commander changed
+## their mind before the clock ran out. A no-op if nothing is scheduled, or
+## if the scheduled retreat already fired (order_general_retreat's own
+## player_general_retreat_ordered flag is what actually matters at that
+## point; there's no "undoing" an already-ordered withdrawal).
+func cancel_scheduled_retreat() -> void:
+	if is_inf(scheduled_retreat_time):
+		return
+	combat_log.add_entry("--- Scheduled retreat (was set for %s) cancelled ---" % clock_string(scheduled_retreat_time))
+	scheduled_retreat_time = INF
+
+
+## Checked every tick (see _process) — fires the exact same order the
+## player's own immediate retreat button does, the instant the scheduled
+## time actually arrives. `player_general_retreat_ordered` itself is
+## order_general_retreat's own guard against firing twice, so this can
+## check plainly on time alone without its own separate one-shot flag.
+func _check_scheduled_retreat() -> void:
+	if is_inf(scheduled_retreat_time) or player_general_retreat_ordered or battle_over:
+		return
+	if scenario_elapsed_time >= scheduled_retreat_time:
+		order_general_retreat()
+
+
+## 0.0 (no scheduled retreat, or one still comfortably far off) to 1.0
+## (imminent or already due) — how much MORE willing a squad should be to
+## pull back from a position that's starting to look bad, now that an
+## overall withdrawal is already planned rather than being reacted to
+## from scratch. See _reposition_for_encirclement's own use of this to
+## relax its trigger thresholds — a real unit that knows the whole line
+## is pulling out soon doesn't hold a marginal position as stubbornly as
+## one with no such order at all.
+func _scheduled_retreat_urgency() -> float:
+	if is_inf(scheduled_retreat_time):
+		return 0.0
+	var time_remaining: float = scheduled_retreat_time - scenario_elapsed_time
+	if time_remaining <= 0.0:
+		return 1.0
+	return clamp(1.0 - time_remaining / GameConfig.SCHEDULED_RETREAT_URGENCY_WINDOW_S, 0.0, 1.0)
+
+
+## 1.0 (no discount — conserve ammo normally) down to 0.0 (spend freely,
+## nothing held back) depending on whether this mortar's OWN remaining
+## stock could realistically even be fired off, at its own natural reload
+## rate, before the scheduled retreat time arrives. Ammo saved "for
+## later" that later never comes to use is simply wasted — carried off or
+## abandoned at the exact same cost as if it had been fired — so once
+## there plainly isn't enough time left to get through what's on hand
+## anyway, conservation stops making sense. Comfortably ahead of that
+## point (or with no scheduled retreat at all), reads as 1.0: no change
+## to ordinary ammo-conservation behavior.
+func _scheduled_retreat_ammo_discount(mortar: Unit) -> float:
+	if is_inf(scheduled_retreat_time):
+		return 1.0
+	var time_remaining: float = max(scheduled_retreat_time - scenario_elapsed_time, 0.0)
+	var time_needed_to_expend: float = float(mortar.mortar_rounds_remaining) * mortar.reload_time
+	if time_needed_to_expend <= 0.0:
+		return 1.0
+	return clamp(time_remaining / time_needed_to_expend, 0.0, 1.0)
 
 
 func order_general_retreat() -> void:
@@ -3659,6 +3753,7 @@ func _process(delta: float) -> void:
 	_resolve_pending_mortar_shots()
 	_update_player_intel()
 	_check_enemy_commander_retreat()
+	_check_scheduled_retreat()
 	_prune_fire_flashes()
 	_record_unit_decisions()
 	_check_battle_end()
@@ -4451,9 +4546,18 @@ func _update_friendly_squad_positioning() -> void:
 ## unit, not just squads — the mortar and spotter/drone team count too) by
 ## a bounded step, or toward the mortar alone if it's the only one left.
 func _reposition_for_encirclement(u: Unit, known_enemies: Array[Vector2]) -> bool:
+	# All three thresholds relax together toward their own _URGENT values
+	# as a scheduled retreat gets closer (see _scheduled_retreat_urgency's
+	# own doc comment) — with none scheduled, urgency is 0 and every one
+	# of these lerps back to exactly its normal value, unchanged.
+	var urgency: float = _scheduled_retreat_urgency()
+	var detect_radius: float = lerp(GameConfig.FRIENDLY_ENCIRCLEMENT_DETECT_RADIUS, GameConfig.FRIENDLY_ENCIRCLEMENT_DETECT_RADIUS_URGENT, urgency)
+	var min_covered_fraction: float = lerp(GameConfig.FRIENDLY_ENCIRCLEMENT_MIN_COVERED_FRACTION, GameConfig.FRIENDLY_ENCIRCLEMENT_MIN_COVERED_FRACTION_URGENT, urgency)
+	var angle_threshold_deg: float = lerp(GameConfig.FRIENDLY_ENCIRCLEMENT_ANGLE_THRESHOLD_DEG, GameConfig.FRIENDLY_ENCIRCLEMENT_ANGLE_THRESHOLD_URGENT_DEG, urgency)
+
 	var nearby: Array[Vector2] = []
 	for p in known_enemies:
-		if u.global_position.distance_to(p) <= GameConfig.FRIENDLY_ENCIRCLEMENT_DETECT_RADIUS:
+		if u.global_position.distance_to(p) <= detect_radius:
 			nearby.append(p)
 	if nearby.size() < 2:
 		return false
@@ -4462,7 +4566,7 @@ func _reposition_for_encirclement(u: Unit, known_enemies: Array[Vector2]) -> boo
 	for p in nearby:
 		if GameConfig.is_in_cover(GameConfig.get_terrain_type_at(p)):
 			covered += 1
-	if float(covered) / float(nearby.size()) < GameConfig.FRIENDLY_ENCIRCLEMENT_MIN_COVERED_FRACTION:
+	if float(covered) / float(nearby.size()) < min_covered_fraction:
 		return false
 
 	var angles: Array[float] = []
@@ -4475,7 +4579,7 @@ func _reposition_for_encirclement(u: Unit, known_enemies: Array[Vector2]) -> boo
 		var b: float = angles[(i + 1) % angles.size()]
 		var gap: float = (b - a) if i < angles.size() - 1 else (b + 360.0 - a)
 		max_gap = max(max_gap, gap)
-	if 360.0 - max_gap < GameConfig.FRIENDLY_ENCIRCLEMENT_ANGLE_THRESHOLD_DEG:
+	if 360.0 - max_gap < angle_threshold_deg:
 		return false
 
 	var allies := _ally_units_for(u)
@@ -4964,6 +5068,13 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 			for c in candidates:
 				best_available_value = max(best_available_value, _enemy_target_value(unit, c))
 			var hold_for_pursuit_chance: float = known_target_value / (known_target_value + best_available_value)
+			# A scheduled retreat (BattleManager.order_scheduled_retreat)
+			# means the ammo being preserved here might never get its
+			# chance at all — no point holding a shot to wait on an
+			# opportunity that likely won't arrive before the crew pulls
+			# out. Reads as 1.0 (no change) with no scheduled retreat, or
+			# comfortably ahead of one.
+			hold_for_pursuit_chance *= _scheduled_retreat_ammo_discount(unit)
 			var pursuit_roll: float = 0.5 if profile_for(unit.team).deterministic else randf()
 			gate_evidence["pursuit"] = {"hold_probability": hold_for_pursuit_chance, "roll_or_cutoff": pursuit_roll}
 			if pursuit_roll < hold_for_pursuit_chance:
@@ -5008,6 +5119,10 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# fire regardless of what this function returns.
 		if hold_fire_chance > 0.0 and unit.mortar_rounds_remaining > 0 and any_overrun:
 			hold_fire_chance = 0.0
+		# Same "ammo saved for a later that may not come is just wasted"
+		# reasoning as the pursuit-hold discount above, applied to
+		# ordinary ammo conservation too.
+		hold_fire_chance *= _scheduled_retreat_ammo_discount(unit)
 		hold_fire_chance = clampf(hold_fire_chance * _profile_weight(unit.team, "conservation"), 0.0, 1.0)
 		var ammo_roll: float = 0.5 if profile_for(unit.team).deterministic else randf()
 		if ammo_roll < hold_fire_chance:
