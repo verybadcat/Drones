@@ -1150,12 +1150,29 @@ func _enemy_situation_hopeless() -> bool:
 ## arms in place and a WITHDRAWN one has left the field entirely; neither
 ## poses any actual threat any more, so nothing should route around, hide
 ## from, or flee one the way it would a real, still-armed contact.
+## For the PLAYER side, this deliberately does NOT mean "currently
+## is_visible" — it means "what the player's own side actually knows,"
+## same standard as Unit.player_known_position/_has_been_sighted (see
+## their own doc comments and _update_player_intel). A contact spotted
+## moments ago and now merely out of direct line-of-sight hasn't un-
+## happened just because the visibility flag flickered off; a retreat or
+## cover choice built on strict real-time visibility alone can walk
+## straight into (or right past) a threat the player's own side already
+## has every reason to remember is there. The ENEMY side has no
+## equivalent persistent-memory field (that fog-of-war model is
+## deliberately one-directional — see the same doc comments), so it still
+## reads plain, real-time is_visible.
 func _known_enemy_positions(team: Unit.Team) -> Array[Vector2]:
 	var opposing: Array[Unit] = enemy_units if team == Unit.Team.PLAYER else player_units
 	var positions: Array[Vector2] = []
 	for u in opposing:
 		var still_a_threat: bool = u.state == Unit.State.ACTIVE or u.state == Unit.State.RETREATING
-		if still_a_threat and u.is_visible:
+		if not still_a_threat:
+			continue
+		if team == Unit.Team.PLAYER:
+			if u.player_has_been_sighted:
+				positions.append(u.player_known_position)
+		elif u.is_visible:
 			positions.append(u.global_position)
 	return positions
 
