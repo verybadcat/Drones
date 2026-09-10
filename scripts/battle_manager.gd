@@ -247,7 +247,16 @@ func _record_target_choice(unit: Unit, candidates: Array[Unit], chosen: Unit, re
 
 func _record_shot(unit: Unit, target: Unit) -> void:
 	unit_combat_stats.register(unit, unit.display_name())
-	unit_combat_stats.shot(unit)
+	# A deliberate, targeted shot at a visible/engageable enemy mortar is
+	# just as much counter-battery fire as the separate reactive "blind
+	# return fire at a detected muzzle flash" mechanic below
+	# (_resolve_pending_counter_battery) — both are one indirect-fire
+	# weapon firing on another, which is exactly what "counter-battery"
+	# means. Only counts when the FIRING unit is also a mortar: a squad's
+	# rifle fire happening to land on a mortar crew in its engagement
+	# range is ordinary contact fire, not a mortar duel.
+	var is_counter_battery: bool = unit.kind == Unit.Kind.MORTAR and target.kind == Unit.Kind.MORTAR
+	unit_combat_stats.shot(unit, is_counter_battery)
 	decisions.record(unit, scenario_elapsed_time, "Shot fired", {
 		"choice": decisions.label_for(target), "reason": "Firing gates passed; round fired.",
 		"sequence": _history_fire_events.size(),
