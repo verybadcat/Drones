@@ -116,6 +116,16 @@ const MOVE_ARRIVE_RADIUS: float = 5.0 * GameConfig.PIXELS_PER_METER # "close eno
 # idle behavior) with no extra coordination code on either side.
 var resupply_target_mortar: Unit = null
 
+# RESUPPLY_RUN only: has this run already handed off its rounds? False for
+# the whole outbound leg; flipped true the instant it delivers (see
+# BattleManager._resolve_resupply_run_arrivals), which is also the moment
+# its move_target switches from "chase the mortar" to a fixed point back
+# at its own side's map edge (BattleManager._resupply_entry_point_for) —
+# a resupply truck doesn't blink out of existence the second the crate
+# hits the ground, it drives back out the way it came, and only actually
+# leaves the battle once it reaches that edge.
+var resupply_delivered: bool = false
+
 # True only for the enemy's initial road march — a steady, known path a
 # mortar crew can lead-aim against. Anything reactive (diving for cover,
 # retreating) is unpredictable and gets marked false the moment it starts —

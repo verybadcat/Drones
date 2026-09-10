@@ -1475,10 +1475,16 @@ func _spawn_resupply_run(mortar: Unit) -> void:
 ## roster a DESTROYED squad/mortar stays in for the AAR. This is the
 ## payoff moment for the whole redesign: the mortar it was carrying rounds
 ## to gets nothing, and the player (or, silently, the enemy) finds out why.
+## `not resupply_delivered` guards the narration specifically — a run shot
+## down on its own way back out, after already handing off its rounds
+## (see Unit.resupply_delivered), already got its own log line at the
+## moment of delivery; log_resupply_run_destroyed's own wording ("lost
+## before reaching the position") would be flatly wrong to repeat here,
+## since it DID reach the position.
 func _on_resupply_run_state_changed(unit: Unit) -> void:
 	if unit.kind != Unit.Kind.RESUPPLY_RUN or unit.state != Unit.State.DESTROYED:
 		return
-	if unit.resupply_target_mortar != null and _should_narrate_mortar_logistics(unit):
+	if unit.resupply_target_mortar != null and not unit.resupply_delivered and _should_narrate_mortar_logistics(unit):
 		combat_log.log_resupply_run_destroyed(unit.resupply_target_mortar)
 	var side: Array[Unit] = player_units if unit.team == Unit.Team.PLAYER else enemy_units
 	side.erase(unit)
@@ -1487,11 +1493,15 @@ func _on_resupply_run_state_changed(unit: Unit) -> void:
 
 ## The live RESUPPLY_RUN currently servicing `mortar`, or null if none is
 ## in flight — feeds the dashboard's "resupply run en route" status, the
-## resupply-linkup idle check, and _mortar_resupply_urgency.
+## resupply-linkup idle check, and _mortar_resupply_urgency. Excludes a run
+## that's already delivered and is just driving itself back out to the map
+## edge (see Unit.resupply_delivered) — its job for this mortar is done,
+## so it shouldn't keep reading as "one's already coming" and block (or
+## get walked toward by) a fresh request.
 func _active_resupply_run_for(mortar: Unit) -> Unit:
 	var side: Array[Unit] = player_units if mortar.team == Unit.Team.PLAYER else enemy_units
 	for u in side:
-		if u.kind == Unit.Kind.RESUPPLY_RUN and u.state == Unit.State.ACTIVE and u.resupply_target_mortar == mortar:
+		if u.kind == Unit.Kind.RESUPPLY_RUN and u.state == Unit.State.ACTIVE and u.resupply_target_mortar == mortar and not u.resupply_delivered:
 			return u
 	return null
 
@@ -1509,6 +1519,8 @@ func _update_resupply_run_targets() -> void:
 		if _risk_holds.has(m): continue
 		if m.kind != Unit.Kind.RESUPPLY_RUN or m.state != Unit.State.ACTIVE:
 			continue
+		if m.resupply_delivered:
+			continue # homeward leg — a fixed destination set once at delivery, not re-tracked
 		if m.resupply_target_mortar == null or m.resupply_target_mortar.state != Unit.State.ACTIVE:
 			continue # handled by _resolve_resupply_run_arrivals below
 		m.move_target = m.resupply_target_mortar.global_position
@@ -1516,27 +1528,37 @@ func _update_resupply_run_targets() -> void:
 
 
 ## Runs after _tick_movement, once this tick's actual stepping is done.
-## Three ways a run's trip ends: it physically reaches the mortar (rounds
-## delivered, run removed); the mortar it was heading to stopped being
-## ACTIVE first (destroyed/withdrawn/retreating — the run aborts rather
-## than deliver to an empty position or chase a unit that's pulling out);
-## or (handled entirely elsewhere, by ordinary combat) it gets hit and
-## destroyed like any other spotted unit, in which case it's simply gone
-## from player_units/enemy_units already by the time this runs and needs
-## no special handling here at all.
+## Four ways a run's trip ends: it physically reaches the mortar (rounds
+## delivered, but NOT removed yet — see resupply_delivered's own doc
+## comment, it turns around and heads back out to its own side's map edge
+## instead); having already delivered, it physically reaches that edge
+## (its round trip is genuinely over, removed now); the mortar it was
+## heading to stopped being ACTIVE before delivery (destroyed/withdrawn/
+## retreating — the run aborts rather than deliver to an empty position or
+## chase a unit that's pulling out; once delivered this no longer applies
+## at all, the trip home doesn't care what happens to the mortar
+## afterward); or (handled entirely elsewhere, by ordinary combat) it gets
+## hit and destroyed like any other spotted unit, in which case it's
+## simply gone from player_units/enemy_units already by the time this runs
+## and needs no special handling here at all.
 func _resolve_resupply_run_arrivals() -> void:
 	for side in [player_units, enemy_units]:
-		var arrived: Array[Unit] = []
+		var delivering: Array[Unit] = []
+		var home: Array[Unit] = []
 		var aborted: Array[Unit] = []
 		for u in side:
 			if u.kind != Unit.Kind.RESUPPLY_RUN or u.state != Unit.State.ACTIVE:
+				continue
+			if u.resupply_delivered:
+				if u.global_position.distance_to(u.move_target) <= GameConfig.MORTAR_RESUPPLY_ARRIVAL_RADIUS:
+					home.append(u)
 				continue
 			var mortar: Unit = u.resupply_target_mortar
 			if mortar == null or mortar.state != Unit.State.ACTIVE:
 				aborted.append(u)
 			elif u.global_position.distance_to(mortar.global_position) <= GameConfig.MORTAR_RESUPPLY_ARRIVAL_RADIUS:
-				arrived.append(u)
-		for u in arrived:
+				delivering.append(u)
+		for u in delivering:
 			var mortar: Unit = u.resupply_target_mortar
 			# Capped at delivery too, not just at dispatch (_update_mortar_
 			# resupply's own hold-back check): the mortar could have simply
@@ -1551,6 +1573,11 @@ func _resolve_resupply_run_arrivals() -> void:
 			mortar.mortar_rounds_remaining += delivered
 			if _should_narrate_mortar_logistics(mortar):
 				combat_log.log_mortar_resupply_delivered(mortar, delivered)
+			u.resupply_delivered = true
+			u.move_target = _resupply_entry_point_for(mortar)
+			u.has_move_target = true
+			u.move_queue.clear()
+		for u in home:
 			side.erase(u)
 			u.queue_free()
 		for u in aborted:
