@@ -1572,9 +1572,22 @@ func _known_enemy_mortar_lead() -> Dictionary:
 	# RETREATING here meant a mortar the player had just damaged enough to
 	# make it flee immediately became untrackable, the exact tick it
 	# actually mattered most.
+	#
+	# ACTIVE is preferred outright over RETREATING when both are visible —
+	# a fleeing crew is a mop-up, not an ongoing threat, and shouldn't
+	# out-rank a mortar that's still actually in the fight just because it
+	# happens to come first in enemy_units. Only falls back to a visible
+	# RETREATING one when no ACTIVE mortar is visible at all.
+	var retreating_visible: Unit = null
 	for u in enemy_units:
-		if u.kind == Unit.Kind.MORTAR and u.is_targetable_state() and u.is_visible:
+		if u.kind != Unit.Kind.MORTAR or not u.is_targetable_state() or not u.is_visible:
+			continue
+		if u.state == Unit.State.ACTIVE:
 			return {"position": u.global_position, "trusted": true, "unit": u}
+		if retreating_visible == null:
+			retreating_visible = u
+	if retreating_visible != null:
+		return {"position": retreating_visible.global_position, "trusted": true, "unit": retreating_visible}
 
 	var best_pos := Vector2.INF
 	var best_time := -INF
@@ -1727,6 +1740,19 @@ func _update_joint_mortar_hunt() -> void:
 
 	var lead: Dictionary = _known_enemy_mortar_lead()
 	if lead.is_empty() or not lead.trusted:
+		return
+	# A RETREATING mortar can still read as a "trusted" lead (it's still
+	# visible, just fleeing — see _known_enemy_mortar_lead's own live-
+	# visibility branch, which doesn't distinguish ACTIVE from RETREATING),
+	# but it's no longer worth the TEAM's shared reconnaissance commitment:
+	# a fleeing crew is a mop-up, not an ongoing threat, and tying the
+	# drone to it starves attention away from a still-ACTIVE enemy mortar
+	# that hasn't even been found yet. The friendly mortar's own solo
+	# pursuit of a fleeing target (_mortar_hunt_fix_for, used directly by
+	# tier 2 and the drone's own "supporting friendly action" tier) is
+	# untouched by this — this only ever gates the escorted, team-wide
+	# commitment.
+	if lead.unit.state != Unit.State.ACTIVE:
 		return
 	if _can_engage_position(lead.position):
 		return # already in range — no coordination needed, normal engagement tiers take it from here
