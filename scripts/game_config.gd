@@ -582,15 +582,20 @@ const ENEMY_SPAWN_X: float = 4950.0 * PIXELS_PER_METER
 
 # Attacking force size, rolled once per battle (see
 # BattleManager.roll_enemy_force_size) — a real attack isn't always the
-# same size. Squad count deliberately isn't a clean multiple of mortar
-# count: ENEMY_SQUAD_PER_MORTAR_RATIO is a target, not a formula, jittered
-# by ENEMY_SQUAD_COUNT_JITTER before being clamped into range.
+# same size. Squad count is the PRIMARY roll — uniform across its own
+# range, every value from ENEMY_SQUAD_COUNT_MIN to ENEMY_SQUAD_COUNT_MAX
+# equally likely — with mortar count derived FROM it (roughly squads /
+# ENEMY_SQUAD_PER_MORTAR_RATIO, jittered by ENEMY_MORTAR_COUNT_JITTER
+# before being clamped into its own range) rather than the other way
+# around. Deriving mortars from squads and clamping the much narrower
+# mortar range is a one-sided rounding error on a 3-value range, not a
+# skew in the 9-value range a player actually notices at a glance.
 const ENEMY_MORTAR_COUNT_MIN: int = 1
 const ENEMY_MORTAR_COUNT_MAX: int = 3
 const ENEMY_SQUAD_COUNT_MIN: int = 2
 const ENEMY_SQUAD_COUNT_MAX: int = 10
 const ENEMY_SQUAD_PER_MORTAR_RATIO: float = 3.0
-const ENEMY_SQUAD_COUNT_JITTER: int = 2
+const ENEMY_MORTAR_COUNT_JITTER: int = 1
 
 # Perpendicular-ish spread off the road's line, per squad — evenly spaced
 # across the same total span the original fixed 6-squad layout used
