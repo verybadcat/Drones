@@ -125,31 +125,15 @@ var _location_label: Label
 
 
 func _ready() -> void:
-	# Sized from GameConfig's own map-derived constants, not project.godot's
-	# fixed viewport_width/height — those were hand-set for one specific
-	# map's own dimensions and would silently stop matching the moment a
-	# differently-sized real map was swapped in (see GameConfig.
-	# SIDEBAR_COLUMN_WIDTH/MIN_WINDOW_HEIGHT_PX's own doc comments).
-	get_window().size = Vector2i(
-		int(GameConfig.SIDEBAR_X + GameConfig.SIDEBAR_COLUMN_WIDTH),
-		int(max(GameConfig.MAP_HEIGHT_PX, GameConfig.MIN_WINDOW_HEIGHT_PX)))
-
 	map_container = SubViewportContainer.new()
 	map_container.position = Vector2(0, 0)
-	map_container.size = Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX, GameConfig.MAP_HEIGHT_PX)
 	map_container.stretch = true
 	add_child(map_container)
 
 	map_viewport = SubViewport.new()
-	map_viewport.size = Vector2i(int(GameConfig.CAMERA_VIEWPORT_WIDTH_PX), int(GameConfig.MAP_HEIGHT_PX))
 	map_container.add_child(map_viewport)
 
 	map_camera = Camera2D.new()
-	map_camera.position = Vector2(GameConfig.CAMERA_CENTER_X, GameConfig.MAP_HEIGHT_PX / 2.0)
-	map_camera.limit_left = int(-GameConfig.WEST_FLANK_WIDTH_PX)
-	map_camera.limit_right = int(GameConfig.MAP_WIDTH_PX)
-	map_camera.limit_top = 0
-	map_camera.limit_bottom = int(GameConfig.MAP_HEIGHT_PX)
 	map_viewport.add_child(map_camera)
 	map_camera.make_current()
 
@@ -162,7 +146,6 @@ func _ready() -> void:
 	add_child(_elevation_label)
 
 	_clock_label = Label.new()
-	_clock_label.position = Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX - 90, 4)
 	_clock_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.85))
 	_clock_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
 	_clock_label.add_theme_constant_override("shadow_offset_x", 1)
@@ -174,7 +157,6 @@ func _ready() -> void:
 	# name should be as visible as the clock. See GameConfig.CURRENT_MAP.name's
 	# own doc comment for the real history.
 	_location_label = Label.new()
-	_location_label.text = "%s, %s" % [GameConfig.CURRENT_MAP.name, GameConfig.CURRENT_MAP.location_subtitle]
 	_location_label.position = Vector2(8, 24)
 	_location_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.85))
 	_location_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
@@ -182,9 +164,48 @@ func _ready() -> void:
 	_location_label.add_theme_constant_override("shadow_offset_y", 1)
 	add_child(_location_label)
 
-	queue_redraw() # the scale bar/compass are static; draw them once up front
+	_apply_map_dimensions()
 
 	_show_level_select()
+
+
+## Every window/viewport/camera/label property that depends on WHICH real
+## place is loaded — split out of _ready() so the level-select screen's own
+## map dropdown (LevelSelectScreen.map_chosen) can re-apply all of it after
+## GameConfig.set_active_map, not just at startup. Idempotent: safe to call
+## again with the same map already active (LevelSelectScreen only actually
+## calls this when the selection changes, but nothing here assumes that).
+func _apply_map_dimensions() -> void:
+	# Sized from GameConfig's own map-derived state, not project.godot's
+	# fixed viewport_width/height — those were hand-set for one specific
+	# map's own dimensions and would silently stop matching the moment a
+	# differently-sized real map was loaded (see GameConfig.
+	# SIDEBAR_COLUMN_WIDTH/MIN_WINDOW_HEIGHT_PX's own doc comments).
+	get_window().size = Vector2i(
+		int(GameConfig.SIDEBAR_X + GameConfig.SIDEBAR_COLUMN_WIDTH),
+		int(max(GameConfig.MAP_HEIGHT_PX, GameConfig.MIN_WINDOW_HEIGHT_PX)))
+
+	# map_viewport's own size isn't set directly — map_container.stretch
+	# (set once in _ready) keeps it locked to the container's own size
+	# automatically; setting it here too, after the viewport is already a
+	# stretch-managed child, just produces an engine warning and is ignored.
+	map_container.size = Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX, GameConfig.MAP_HEIGHT_PX)
+
+	map_camera.position = Vector2(GameConfig.CAMERA_CENTER_X, GameConfig.MAP_HEIGHT_PX / 2.0)
+	map_camera.limit_left = int(-GameConfig.WEST_FLANK_WIDTH_PX)
+	map_camera.limit_right = int(GameConfig.MAP_WIDTH_PX)
+	map_camera.limit_top = 0
+	map_camera.limit_bottom = int(GameConfig.MAP_HEIGHT_PX)
+
+	_clock_label.position = Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX - 90, 4)
+
+	# Coordinates alongside the place name/subtitle — real, verifiable, and
+	# enough for a curious player to go look the actual spot up themselves
+	# on a real map, the same way this game's own terrain was sourced.
+	_location_label.text = "%s, %s (%s)" % [
+		GameConfig.CURRENT_MAP.name, GameConfig.CURRENT_MAP.location_subtitle, GameConfig.CURRENT_MAP.coordinates]
+
+	queue_redraw() # the scale bar/compass depend on the loaded map too
 
 
 func _process(delta: float) -> void:
@@ -370,7 +391,18 @@ func _show_level_select() -> void:
 
 	level_select_screen = LevelSelectScreen.new()
 	level_select_screen.mode_chosen.connect(_on_recon_mode_chosen)
+	level_select_screen.map_chosen.connect(_on_map_chosen)
 	add_child(level_select_screen)
+
+
+## The map dropdown changed — switch GameConfig's own active map, then
+## re-apply everything in main.gd itself that depends on it (window size,
+## camera limits, the location readout) so the change is visible
+## immediately, still on the level-select screen, rather than only taking
+## effect once deployment starts.
+func _on_map_chosen(map_id: String) -> void:
+	GameConfig.set_active_map(map_id)
+	_apply_map_dimensions()
 
 
 func _on_recon_mode_chosen(mode: GameConfig.ReconMode) -> void:

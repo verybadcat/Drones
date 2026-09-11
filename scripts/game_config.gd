@@ -91,6 +91,10 @@ const MAPS: Dictionary = {
 "pervomaiske": {
 	"name": "Pervomaiske",
 	"location_subtitle": "Kupiansk Raion, Kharkiv Oblast",
+	# The real coordinates the source screenshot itself was centered on —
+	# shown on the map's own location readout (see main.gd's
+	# _location_label) so a curious player can look the actual place up.
+	"coordinates": "49.657741, 37.270141",
 	"compass_north_screen_direction": Vector2(0.0, -1.0),
 
 	# Matches this game's standard battlefield footprint — same as
@@ -347,6 +351,10 @@ const MAPS: Dictionary = {
 "pishchane": {
 	"name": "Pishchane",
 	"location_subtitle": "Kalmiuskyi Raion, Donetsk Oblast",
+	# The real coordinates this map was built from — shown on the map's
+	# own location readout (see main.gd's _location_label) so a curious
+	# player can look the actual place up.
+	"coordinates": "47.768118, 37.878843",
 	"compass_north_screen_direction": Vector2(0.0, -1.0),
 
 	"width_m": 5000.0,
@@ -540,8 +548,11 @@ const MAPS: Dictionary = {
 }
 
 ## The map actually loaded right now — see MAPS/DEFAULT_MAP_ID's own doc
-## comment above.
-const CURRENT_MAP: Dictionary = MAPS[DEFAULT_MAP_ID]
+## comment above. A `static var`, not a `const`: the level-select screen's
+## own map dropdown (LevelSelectScreen) lets the player switch this at
+## runtime, before deployment — see set_active_map, the only place this
+## (and everything derived from it below) should ever be reassigned.
+static var CURRENT_MAP: Dictionary = MAPS[DEFAULT_MAP_ID]
 
 ## The internal engine<->real-world scale: a fixed, map-INDEPENDENT
 ## conversion, not derived from any particular map's own size. This is
@@ -562,9 +573,9 @@ const PIXELS_PER_METER: float = 0.2
 ## right below it once it's actually defined. See CURRENT_MAP's own doc
 ## comment for why width/height specifically count as data while the
 ## conversion factor doesn't.
-const MAP_WIDTH_M: float = CURRENT_MAP.width_m
-const MAP_HEIGHT_M: float = CURRENT_MAP.height_m
-const WEST_FLANK_WIDTH_M: float = CURRENT_MAP.west_flank_width_m
+static var MAP_WIDTH_M: float
+static var MAP_HEIGHT_M: float
+static var WEST_FLANK_WIDTH_M: float
 ## MAP_WIDTH_PX is the core battle canvas's width; the actual map VIEWPORT
 ## is wider still (see CAMERA_VIEWPORT_WIDTH_PX below — it also shows
 ## WEST_FLANK_WIDTH_PX of ground to the west), with the sidebar UI
@@ -576,8 +587,8 @@ const WEST_FLANK_WIDTH_M: float = CURRENT_MAP.west_flank_width_m
 ## so a differently-sized map's window adjusts automatically with it —
 ## nothing about the window is a fixed, map-specific number to remember
 ## to update by hand.
-const MAP_WIDTH_PX: float = MAP_WIDTH_M * PIXELS_PER_METER
-const MAP_HEIGHT_PX: float = MAP_HEIGHT_M * PIXELS_PER_METER
+static var MAP_WIDTH_PX: float
+static var MAP_HEIGHT_PX: float
 
 ## Open, undeveloped ground west of x=0 — nobody deploys here, no authored
 ## cover/terrain features exist here, but units can be pushed into it
@@ -587,7 +598,7 @@ const MAP_HEIGHT_PX: float = MAP_HEIGHT_M * PIXELS_PER_METER
 ## display column at this fixed scale, so this is the first world-space
 ## that doesn't, which is what originally made a wider viewport than just
 ## MAP_WIDTH_PX necessary here at all.
-const WEST_FLANK_WIDTH_PX: float = WEST_FLANK_WIDTH_M * PIXELS_PER_METER
+static var WEST_FLANK_WIDTH_PX: float
 
 ## The map viewport is permanently wide enough to show the ENTIRE modeled
 ## world — the west flank through the map's true east edge — at once, at
@@ -603,18 +614,18 @@ const WEST_FLANK_WIDTH_PX: float = WEST_FLANK_WIDTH_M * PIXELS_PER_METER
 ## panning is never needed in the first place — see project.godot's
 ## viewport_width and main.gd's sidebar layout (GameConfig.SIDEBAR_X),
 ## both widened by exactly WEST_FLANK_WIDTH_PX to make room.
-const CAMERA_VIEWPORT_WIDTH_PX: float = MAP_WIDTH_PX + WEST_FLANK_WIDTH_PX
+static var CAMERA_VIEWPORT_WIDTH_PX: float
 ## The camera's own fixed x, always — the midpoint of the full
 ## [-WEST_FLANK_WIDTH_PX, MAP_WIDTH_PX] range the viewport now permanently
 ## shows. Fixed, not dynamically tracked: since the viewport already shows
 ## that entire range at all times, every possible unit position is already
 ## visible regardless of exactly where it sits, so there's nothing left to
 ## track or pan toward.
-const CAMERA_CENTER_X: float = (-WEST_FLANK_WIDTH_PX + MAP_WIDTH_PX) / 2.0
+static var CAMERA_CENTER_X: float
 ## Where the sidebar column (casualty dashboard, combat log, retreat/pause
 ## buttons, doctrine panel) starts — right after the widened map viewport,
 ## with the same 20px gap the original [0,1000]-wide layout used.
-const SIDEBAR_X: float = CAMERA_VIEWPORT_WIDTH_PX + 20.0
+static var SIDEBAR_X: float
 ## The sidebar column's own fixed width (DoctrinePanel's own declared
 ## custom_minimum_size is 320px; this adds a small margin) — independent
 ## of the map's size, so main.gd can compute a correctly-sized WINDOW for
@@ -628,6 +639,57 @@ const SIDEBAR_COLUMN_WIDTH: float = 340.0
 ## main.gd's _ready, which sizes the actual window to
 ## max(MAP_HEIGHT_PX, this).
 const MIN_WINDOW_HEIGHT_PX: float = 760.0
+
+## Recomputes every static var derived from CURRENT_MAP (see each one's
+## own doc comment above/below for why it's data-derived rather than a
+## plain compile-time const now that CURRENT_MAP itself can change at
+## runtime) and drops the river/contour caches, which are built once per
+## loaded map and would otherwise keep showing the PREVIOUS map's terrain.
+## Called once automatically at script load (_static_init, below) and
+## again by set_active_map every time the player picks a different map.
+static func _recompute_map_derived_state() -> void:
+	MAP_WIDTH_M = CURRENT_MAP.width_m
+	MAP_HEIGHT_M = CURRENT_MAP.height_m
+	WEST_FLANK_WIDTH_M = CURRENT_MAP.west_flank_width_m
+	MAP_WIDTH_PX = MAP_WIDTH_M * PIXELS_PER_METER
+	MAP_HEIGHT_PX = MAP_HEIGHT_M * PIXELS_PER_METER
+	WEST_FLANK_WIDTH_PX = WEST_FLANK_WIDTH_M * PIXELS_PER_METER
+	CAMERA_VIEWPORT_WIDTH_PX = MAP_WIDTH_PX + WEST_FLANK_WIDTH_PX
+	CAMERA_CENTER_X = (-WEST_FLANK_WIDTH_PX + MAP_WIDTH_PX) / 2.0
+	SIDEBAR_X = CAMERA_VIEWPORT_WIDTH_PX + 20.0
+	ENEMY_SAFE_X = CURRENT_MAP.enemy.spawn_x + 150.0 * PIXELS_PER_METER
+	PLAYER_SAFE_X = -(WEST_FLANK_WIDTH_M - 100.0) * PIXELS_PER_METER
+
+	_river_rects_built = false
+	_river_segment_rects.clear()
+	_contour_cache_built = false
+	_contour_segments_cache.clear()
+	_contour_col_origin_m = 0.0
+
+
+## Runs automatically the first time this script is loaded/referenced —
+## Godot 4.4+'s static-constructor hook — so every static var above is
+## already correctly populated before anything else in the game (main.gd's
+## own _ready included) ever reads one, exactly as if they were still the
+## compile-time consts they used to be.
+static func _static_init() -> void:
+	_recompute_map_derived_state()
+
+
+## Switches which real place is loaded, for the level-select screen's own
+## map dropdown (LevelSelectScreen) — the only intended caller. Must run
+## BEFORE deployment/battle setup reads any CURRENT_MAP-derived value
+## (default_squad_positions, MAP_WIDTH_PX, ...), which is exactly when the
+## dropdown offers the choice: before recon-mode selection, let alone
+## deployment. main.gd still has to re-apply the derived window/camera
+## sizing itself afterward (see its own _apply_map_dimensions) — this
+## function only updates GameConfig's own state.
+static func set_active_map(map_id: String) -> void:
+	if not MAPS.has(map_id) or CURRENT_MAP == MAPS[map_id]:
+		return
+	CURRENT_MAP = MAPS[map_id]
+	_recompute_map_derived_state()
+
 
 ## Runtime meters<->pixels conversion, for the few places that need to
 ## convert a value that isn't known until the game is running (the mouseover
@@ -1162,7 +1224,7 @@ const SURRENDER_WILLINGNESS_MULTIPLIER_ENEMY: float = 1.0
 
 # A RETREATING unit that reaches its own safe_x is marked WITHDRAWN — no
 # longer part of the fight, but its casualties still count in the AAR.
-const ENEMY_SAFE_X: float = CURRENT_MAP.enemy.spawn_x + 150.0 * PIXELS_PER_METER
+static var ENEMY_SAFE_X: float
 const PLAYER_RETREAT_SPEED: float = 2.0 * PIXELS_PER_METER
 
 ## The true world edge is -WEST_FLANK_WIDTH_PX; this stays 100m short of it
@@ -1175,7 +1237,7 @@ const PLAYER_RETREAT_SPEED: float = 2.0 * PIXELS_PER_METER
 ## is always on screen (see CAMERA_VIEWPORT_WIDTH_PX), stopping at the old
 ## shallow line just reads as stopping in the middle of visible ground for
 ## no reason — every player retreat now goes all the way to the real edge.
-const PLAYER_SAFE_X: float = -(WEST_FLANK_WIDTH_M - 100.0) * PIXELS_PER_METER # -280px / -1400m
+static var PLAYER_SAFE_X: float # -(WEST_FLANK_WIDTH_M - 100.0) * PIXELS_PER_METER
 
 ## The final retreat leg's straight dash (see BattleManager._step_retreat)
 ## bends laterally away from the single nearest known threat once it's

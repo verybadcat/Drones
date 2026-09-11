@@ -1,12 +1,24 @@
 extends Control
 class_name LevelSelectScreen
-## The very first screen the player sees: choose which reconnaissance/target-
-## acquisition setup to fight this battle with (see GameConfig.ReconMode).
-## main.gd shows this before deployment and reads the choice off
-## mode_chosen. Built the same programmatic way as every other screen in
-## this game — no separate .tscn.
+## The very first screen the player sees: choose which real place to fight
+## over (see GameConfig.MAPS) and which reconnaissance/target-acquisition
+## setup to fight with (see GameConfig.ReconMode). main.gd shows this before
+## deployment and reads the choices off map_chosen/mode_chosen. Built the
+## same programmatic way as every other screen in this game — no separate
+## .tscn.
 
 signal mode_chosen(mode: GameConfig.ReconMode)
+## Emitted the moment the map dropdown's selection changes — live, not
+## gated behind a separate "Choose" button, since there's nothing to
+## commit to first the way there is for recon mode (which shapes the rest
+## of deployment). main.gd reacts immediately so this screen's own
+## location readout, and everything else GameConfig.CURRENT_MAP-derived,
+## is already showing the newly-picked place before the player moves on.
+signal map_chosen(map_id: String)
+
+## Index -> map id, in the same order the dropdown lists them — an
+## OptionButton only ever hands back an index, never the id string itself.
+var _map_ids: Array[String] = []
 
 
 func _ready() -> void:
@@ -16,6 +28,8 @@ func _ready() -> void:
 	root.position = Vector2(60, 50)
 	root.add_theme_constant_override("separation", 20)
 	add_child(root)
+
+	root.add_child(_build_map_picker())
 
 	var title := GameConfig.make_selectable_label("Choose your reconnaissance setup")
 	title.add_theme_font_size_override("normal_font_size", 22)
@@ -31,6 +45,32 @@ func _ready() -> void:
 		"Replaces the spotter with a 3-person team equipped with four Mavic-3 scout drones, plus spare batteries",
 		GameConfig.ReconMode.DRONE_TEAM
 	))
+
+
+## Every real place in the catalog, by its own place name — GameConfig.
+## MAPS' own keys (e.g. "pervomaiske") are internal ids, never shown.
+## Defaults to whichever map is already active (the one main.gd's window
+## was just sized for), not always the first entry, so opening this screen
+## never silently re-picks a different map than what's actually loaded.
+func _build_map_picker() -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+
+	var label := GameConfig.make_selectable_label("Location")
+	box.add_child(label)
+
+	var picker := OptionButton.new()
+	var selected_index := 0
+	for map_id in GameConfig.MAPS:
+		if GameConfig.CURRENT_MAP == GameConfig.MAPS[map_id]:
+			selected_index = _map_ids.size()
+		_map_ids.append(map_id)
+		picker.add_item(GameConfig.MAPS[map_id].name)
+	picker.select(selected_index)
+	picker.item_selected.connect(func(index: int): map_chosen.emit(_map_ids[index]))
+	box.add_child(picker)
+
+	return box
 
 
 func _build_option(title_text: String, body_text: String, mode: GameConfig.ReconMode) -> Control:
