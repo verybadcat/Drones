@@ -53,28 +53,21 @@ func setup(p_battle_manager: BattleManager) -> void:
 
 
 func _ready() -> void:
-	# Measured directly (a headless layout diagnostic, not a guess), with
-	# every row actually showing its full text, including the cases that
-	# wrap to a second line at this panel's 320px width: a mortar row once
-	# its status grows a resupply suffix ("in action (22 rounds, resupply
-	# ~25m out)"), the drone fleet row once every one of its status
-	# components is populated at once ("1 airborne ..., 1 backup ..., N
-	# inbound, N ready ..., N swapping battery, N spare batteries ..., N
-	# lost"), a real state normal play can reach given enough battle
-	# duration — and now up to GameConfig.ENEMY_MORTAR_COUNT_MAX (3) known
-	# enemy mortar rows at once, not the fixed 2 this was originally sized
-	# for, since the enemy's own mortar count is rolled per battle (see
-	# GameConfig.roll_enemy_force_size). Each additional wrapped mortar row
-	# costs ~47px (measured directly, isolating just that one row's own
-	# marginal contribution); the worst case with 3 known enemy rows
-	# projects to ~525px against the old 2-row worst case's own measured
-	# 478px. main.gd's CombatLog (positioned below this panel at a fixed y)
-	# was moved down by the same amount this grew, and the window itself
-	# was made taller to make room — see GameConfig.MAP_HEIGHT_PX's own
-	# comment for why that's safe to do without touching the map/world
-	# scale at all. Sized here with real margin over the measured worst
-	# case, not to the exact minimum, since text metrics can shift slightly
-	# across fonts/platforms.
+	# Fixed at a size that comfortably fits the COMMON case — measured
+	# directly (a headless layout diagnostic, not a guess) with every row
+	# showing its full worst-case text, including cases that wrap to a
+	# second line at this panel's 320px width: a mortar row once its
+	# status grows a resupply suffix ("in action (22 rounds, resupply ~25m
+	# out)"), the drone fleet row once every one of its status components
+	# is populated at once, and up to 3 known enemy mortar rows at once.
+	# GameConfig.ENEMY_MORTAR_COUNT_MAX can go as high as 5 now (the
+	# right-tail assault-size widening — see BattleManager.
+	# roll_enemy_force_size), but a battle actually fielding 4-5 enemy
+	# mortars is a rare, large-assault outcome, not the common case this
+	# panel's OWN fixed footprint should be tuned to — rather than
+	# growing the whole sidebar (and the window under it) to fit a worst
+	# case most battles never reach, the content below scrolls internally
+	# past this height instead, the same tradeoff CombatLog already makes.
 	custom_minimum_size = Vector2(320, 550)
 
 	var style := StyleBoxFlat.new()
@@ -83,9 +76,14 @@ func _ready() -> void:
 	style.set_corner_radius_all(4.0)
 	add_theme_stylebox_override("panel", style)
 
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	add_child(scroll)
+
 	var root := VBoxContainer.new()
 	root.add_theme_constant_override("separation", 4)
-	add_child(root)
+	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(root)
 
 	var title := GameConfig.make_selectable_label("CASUALTIES")
 	title.add_theme_font_size_override("normal_font_size", 15)

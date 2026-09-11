@@ -633,11 +633,14 @@ static var SIDEBAR_X: float
 ## project.godot number that would silently stop matching the moment a
 ## differently-sized map was swapped in.
 const SIDEBAR_COLUMN_WIDTH: float = 340.0
-## The sidebar's own worst-case vertical content (CasualtyDashboard's
-## variable number of enemy-mortar rows) needs this much height regardless
-## of how tall any particular map's own MAP_HEIGHT_PX happens to be — see
-## main.gd's _ready, which sizes the actual window to
-## max(MAP_HEIGHT_PX, this).
+## The sidebar's own worst-case vertical content needs this much height
+## regardless of how tall any particular map's own MAP_HEIGHT_PX happens
+## to be — see main.gd's _ready, which sizes the actual window to
+## max(MAP_HEIGHT_PX, this). CasualtyDashboard itself now scrolls
+## internally past a handful of enemy mortar rows rather than growing the
+## window for a worst case that's rare in practice (see its own _ready) —
+## this stays fixed at the panel's own tuned, comfortably-fits-the-common-
+## case height rather than tracking ENEMY_MORTAR_COUNT_MAX.
 const MIN_WINDOW_HEIGHT_PX: float = 760.0
 
 ## Recomputes every static var derived from CURRENT_MAP (see each one's
@@ -1100,20 +1103,28 @@ const DRONE_FLANK_WATCH_EARLY_DISCOUNT_MIN: float = 0.1
 
 # Attacking force size, rolled once per battle (see
 # BattleManager.roll_enemy_force_size) — a real attack isn't always the
-# same size. Squad count is the PRIMARY roll — uniform across its own
-# range, every value from ENEMY_SQUAD_COUNT_MIN to ENEMY_SQUAD_COUNT_MAX
-# equally likely — with mortar count derived FROM it (roughly squads /
-# ENEMY_SQUAD_PER_MORTAR_RATIO, jittered by ENEMY_MORTAR_COUNT_JITTER
-# before being clamped into its own range) rather than the other way
-# around. Deriving mortars from squads and clamping the much narrower
-# mortar range is a one-sided rounding error on a 3-value range, not a
-# skew in the 9-value range a player actually notices at a glance.
+# same size. Squad count is the PRIMARY roll, a two-piece mixture: with
+# probability (1 - ENEMY_SQUAD_COUNT_TAIL_CHANCE) it's uniform across the
+# ORDINARY range (ENEMY_SQUAD_COUNT_MIN..MAX, every value equally likely,
+# same as before); the rest of the time it's uniform across the RIGHT
+# TAIL instead (MAX+1..TAIL_MAX) — a real assault is usually a company-
+# minus-sized probe, occasionally something much larger, not a smooth
+# gradient between the two. Mortar count is derived FROM the squad count
+# (roughly squads / ENEMY_SQUAD_PER_MORTAR_RATIO, jittered by ENEMY_
+# MORTAR_COUNT_JITTER before being clamped into its own range) rather
+# than the other way around, same as before — but the jitter itself is
+# now wide enough relative to the ratio that a real mismatch (8 squads
+# fielding just 1 mortar, say) is an occasional, not just theoretical,
+# outcome, rather than the tight ±1 band that used to keep the derived
+# count almost mechanically tied to the ratio.
 const ENEMY_MORTAR_COUNT_MIN: int = 1
-const ENEMY_MORTAR_COUNT_MAX: int = 3
+const ENEMY_MORTAR_COUNT_MAX: int = 5
 const ENEMY_SQUAD_COUNT_MIN: int = 2
 const ENEMY_SQUAD_COUNT_MAX: int = 10
+const ENEMY_SQUAD_COUNT_TAIL_MAX: int = 15
+const ENEMY_SQUAD_COUNT_TAIL_CHANCE: float = 0.15
 const ENEMY_SQUAD_PER_MORTAR_RATIO: float = 3.0
-const ENEMY_MORTAR_COUNT_JITTER: int = 1
+const ENEMY_MORTAR_COUNT_JITTER: int = 2
 
 ## Perpendicular-ish y offsets for `n` enemy squads — see
 ## CURRENT_MAP.enemy's squad_spread_min/max_offset_m.

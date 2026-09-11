@@ -760,18 +760,35 @@ func _spawn_player_units(doctrine: Dictionary) -> void:
 
 
 ## The attacking force's size, rolled once per battle — not always the same
-## strength. Squad count is rolled FIRST and uniformly across its own full
-## range (GameConfig.ENEMY_SQUAD_COUNT_MIN..MAX) — every count from 2 to 10
-## genuinely equally likely, not skewed toward either end. Mortar count is
-## then DERIVED from that roll: roughly squads / ENEMY_SQUAD_PER_MORTAR_
-## RATIO, jittered by ENEMY_MORTAR_COUNT_JITTER so it's approximate rather
-## than a rigid formula, then clamped into its own separate, much narrower
-## min/max range. Rolling squads first and deriving mortars (rather than
-## the reverse) is deliberate: clamping the derived value's own narrow
-## range can still skew ITS distribution toward the ends, but that no
-## longer distorts the primary, directly-player-visible squad count.
+## strength. Squad count is rolled FIRST, a two-piece mixture rather than
+## one flat range: ENEMY_SQUAD_COUNT_TAIL_CHANCE (15%) of the time it's
+## uniform across a RIGHT TAIL (ENEMY_SQUAD_COUNT_MAX+1..TAIL_MAX, i.e.
+## 11-15) instead of the ordinary range — the rest of the time (85%) it's
+## uniform across GameConfig.ENEMY_SQUAD_COUNT_MIN..MAX exactly as before,
+## every count from 2 to 10 still genuinely equally likely within that
+## 85%. A real assault is usually a company-minus-sized probe with an
+## occasional much larger one, not a smooth gradient — modeled as a
+## mixture of two uniforms rather than widening the single uniform range
+## outright, which would have thinned out the ordinary 2-10 band the
+## player actually sees most battles just to make room for a rare, much
+## bigger one.
+##
+## Mortar count is then DERIVED from that roll: roughly squads /
+## ENEMY_SQUAD_PER_MORTAR_RATIO, jittered by ENEMY_MORTAR_COUNT_JITTER so
+## it's approximate rather than a rigid formula, then clamped into its own
+## separate, much narrower min/max range. Rolling squads first and
+## deriving mortars (rather than the reverse) is deliberate: clamping the
+## derived value's own narrow range can still skew ITS distribution
+## toward the ends, but that no longer distorts the primary, directly-
+## player-visible squad count. The jitter is now wide enough that a real
+## mismatch (8 squads, 1 mortar) is an occasional outcome, not a
+## theoretical one the old, tighter jitter could never actually produce.
 func roll_enemy_force_size() -> Dictionary:
-	var squads: int = randi_range(GameConfig.ENEMY_SQUAD_COUNT_MIN, GameConfig.ENEMY_SQUAD_COUNT_MAX)
+	var squads: int
+	if randf() < GameConfig.ENEMY_SQUAD_COUNT_TAIL_CHANCE:
+		squads = randi_range(GameConfig.ENEMY_SQUAD_COUNT_MAX + 1, GameConfig.ENEMY_SQUAD_COUNT_TAIL_MAX)
+	else:
+		squads = randi_range(GameConfig.ENEMY_SQUAD_COUNT_MIN, GameConfig.ENEMY_SQUAD_COUNT_MAX)
 	var target_mortars: int = roundi(float(squads) / GameConfig.ENEMY_SQUAD_PER_MORTAR_RATIO)
 	var jitter: int = randi_range(-GameConfig.ENEMY_MORTAR_COUNT_JITTER, GameConfig.ENEMY_MORTAR_COUNT_JITTER)
 	var mortars: int = clampi(target_mortars + jitter, GameConfig.ENEMY_MORTAR_COUNT_MIN, GameConfig.ENEMY_MORTAR_COUNT_MAX)

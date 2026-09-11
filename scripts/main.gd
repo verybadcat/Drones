@@ -476,15 +476,10 @@ func _on_start_pressed() -> void:
 	add_child(casualty_dashboard)
 
 	combat_log = CombatLog.new()
-	# 65 (dashboard's own y) + 550 (its real measured worst-case height, see
-	# CasualtyDashboard._ready) + 10px breathing room — clears the dashboard
-	# even with every row showing, drone fleet row wrapped to its full
-	# multi-line worst case AND up to GameConfig.ENEMY_MORTAR_COUNT_MAX
-	# known enemy mortar rows all included. The window is 760px tall (see
-	# project.godot — taller than GameConfig.MAP_HEIGHT_PX's own fixed
-	# 700px specifically to give this column the extra room, see that
-	# constant's own comment); CombatLog's own declared SIZE.y (see
-	# combat_log.gd) is sized to fill what's left over.
+	# 65 (dashboard's own y) + 550 (the dashboard's own fixed, tuned panel
+	# height — comfortably fits the common case; see CasualtyDashboard.
+	# _ready, which scrolls internally rather than growing past this for a
+	# worst case with many enemy mortars) + 10px breathing room.
 	combat_log.position = Vector2(GameConfig.SIDEBAR_X, 625)
 	add_child(combat_log)
 
