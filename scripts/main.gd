@@ -63,6 +63,7 @@ var enemy_heatmap_overlay
 var report_background: Control
 var restart_button: Button
 var review_history_button: Button
+var hide_report_button: Button
 
 # Post-battle "drag through time" replay — see battle_history_viewer.gd.
 # history_viewer is untyped for the same brand-new-class_name reason as
@@ -656,6 +657,24 @@ func _on_battle_ended(report_text: String) -> void:
 	review_history_button.pressed.connect(_on_review_history_pressed)
 	add_child(review_history_button)
 
+	# A sibling of report_background, not a child of it — it has to stay
+	# clickable and visible even while the report itself is hidden, or
+	# there'd be no way back. Lets the player peek at the final map
+	# underneath the report (units' end positions, terrain) without
+	# tearing the report down the way Review Battle History does.
+	hide_report_button = Button.new()
+	hide_report_button.text = "Hide Report"
+	hide_report_button.position = Vector2(20, 622) # below review_history_button
+	hide_report_button.pressed.connect(_on_hide_report_pressed)
+	add_child(hide_report_button)
+
+
+func _on_hide_report_pressed() -> void:
+	if not report_background:
+		return
+	report_background.visible = not report_background.visible
+	hide_report_button.text = "Show Report" if not report_background.visible else "Hide Report"
+
 
 ## Enters history-review mode: hides the AAR report and the live units
 ## (their FINAL positions would otherwise show through/underneath the
@@ -670,6 +689,7 @@ func _on_review_history_pressed() -> void:
 	report_background.visible = false
 	restart_button.visible = false
 	review_history_button.visible = false
+	hide_report_button.visible = false
 	_set_live_units_visible(false)
 
 	history_viewer = preload("res://scripts/battle_history_viewer.gd").new()
@@ -749,12 +769,18 @@ func _on_history_back_pressed() -> void:
 	history_play_button = null
 
 	_set_live_units_visible(true)
-	if report_background:
-		report_background.visible = true
+	# report_background's own visibility is restored from hide_report_button's
+	# text, not forced true — if the player had hidden the report before
+	# opening history review, entering and leaving review mode shouldn't
+	# silently pop it back open.
+	if report_background and hide_report_button:
+		report_background.visible = hide_report_button.text == "Hide Report"
 	if restart_button:
 		restart_button.visible = true
 	if review_history_button:
 		review_history_button.visible = true
+	if hide_report_button:
+		hide_report_button.visible = true
 
 
 func _set_live_units_visible(p_visible: bool) -> void:
