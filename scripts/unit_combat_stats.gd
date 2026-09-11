@@ -1,10 +1,27 @@
 extends RefCounted
 ## Separate lifetime totals; bounded decision history must not erase damage.
+##
+## Rows hold a live Unit reference, not a frozen name string — an enemy
+## squad/mortar's own display name can change mid-battle (see BattleManager.
+## _assign_discovery_number: enemy units are only numbered once the player
+## actually spots them, in the order that happens), and a row created
+## before that — e.g. the very shot that gets a unit noticed in the first
+## place — must still resolve to the right name once report_lines() is
+## actually called, not whatever the unit was called at registration time.
+##
+## The reference isn't always still alive by then, though — a DRONE is a
+## fresh Unit per sortie and does get freed once shot down/returned home
+## (see BattleManager._next_drone_number's own doc comment), unlike a
+## SQUAD/MORTAR, which stays in the roster even DESTROYED specifically so
+## the AAR can still reference it. `_label_fallback`, captured once at
+## registration, is what report_lines() falls back to for a reference
+## that's since gone invalid — a resolvable name always beats a crash.
 var rows: Dictionary = {}
 
-func register(unit: Unit, label: String) -> void:
+func register(unit: Unit) -> void:
 	if rows.has(unit.get_instance_id()): return
-	rows[unit.get_instance_id()] = {"unit": label, "team": int(unit.team), "kind": int(unit.kind),
+	rows[unit.get_instance_id()] = {"unit_ref": unit, "label_fallback": unit.display_name(),
+		"team": int(unit.team), "kind": int(unit.kind),
 		"shots": 0, "counter_battery": 0, "hits": 0, "casualties": 0, "killed": 0,
 		"wounded": 0, "airframes": 0, "targets": {}}
 
@@ -14,9 +31,10 @@ func shot(unit: Unit, counter_battery: bool = false) -> void:
 static func before_hit(target: Unit) -> Dictionary:
 	return {"pips": target.pips, "killed": target.killed_count}
 
-func damage(attacker: Unit, target: Unit, before: Dictionary, target_label: String) -> void:
+func damage(attacker: Unit, target: Unit, before: Dictionary) -> void:
 	var amount := maxi(int(before.pips) - target.pips, 0)
 	if amount == 0: return
+	register(target) # a target's own row may not exist yet if this is its first appearance
 	var row: Dictionary = rows[attacker.get_instance_id()]
 	row.hits += 1
 	if target.kind == Unit.Kind.DRONE:
@@ -26,7 +44,16 @@ func damage(attacker: Unit, target: Unit, before: Dictionary, target_label: Stri
 		row.casualties += amount
 		row.killed += deaths
 		row.wounded += amount - deaths
-	row.targets[target_label] = int(row.targets.get(target_label, 0)) + amount
+	var target_id := target.get_instance_id()
+	row.targets[target_id] = int(row.targets.get(target_id, 0)) + amount
+
+## The live name if the unit is still around to ask (picking up any
+## discovery-order renumbering that happened after registration), else
+## whatever it was last known as.
+static func _resolve_name(row: Dictionary) -> String:
+	if is_instance_valid(row.unit_ref):
+		return row.unit_ref.display_name()
+	return row.label_fallback
 
 func report_lines() -> PackedStringArray:
 	var lines := PackedStringArray(["DAMAGE BY UNIT — EXACT SIMULATION RESULTS",
@@ -40,7 +67,7 @@ func report_lines() -> PackedStringArray:
 		var total_airframes := 0
 		for row in team_rows:
 			if row.kind not in [Unit.Kind.SQUAD, Unit.Kind.MORTAR]: continue
-			lines.append("%s: %d casualties inflicted / %d shots / %d CB strikes" % [row.unit, row.casualties, row.shots, row.counter_battery])
+			lines.append("%s: %d casualties inflicted / %d shots / %d CB strikes" % [_resolve_name(row), row.casualties, row.shots, row.counter_battery])
 			total_killed += row.killed
 			total_wounded += row.wounded
 			total_airframes += row.airframes
@@ -56,9 +83,10 @@ func report_lines() -> PackedStringArray:
 	lines.append("DETAILS (CB = counter-battery; impacts include splash) — each row is what THAT unit dealt out; to see what a unit received, look for it under \"Against ...\" in another unit's own row below")
 	for row in rows.values():
 		if row.kind not in [Unit.Kind.SQUAD, Unit.Kind.MORTAR]:
-			lines.append("%s: unarmed support; no weapon damage." % row.unit)
+			lines.append("%s: unarmed support; no weapon damage." % _resolve_name(row))
 			continue
-		lines.append("%s inflicted: %d killed, %d wounded, %d drone(s) destroyed; %d damaging impacts." % [row.unit, row.killed, row.wounded, row.airframes, row.hits])
-		for target in row.targets:
-			lines.append("  Against %s: %d strength lost." % [target, row.targets[target]])
+		lines.append("%s inflicted: %d killed, %d wounded, %d drone(s) destroyed; %d damaging impacts." % [_resolve_name(row), row.killed, row.wounded, row.airframes, row.hits])
+		for target_id in row.targets:
+			var target_name: String = _resolve_name(rows[target_id]) if rows.has(target_id) else "a unit no longer on record"
+			lines.append("  Against %s: %d strength lost." % [target_name, row.targets[target_id]])
 	return lines

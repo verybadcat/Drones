@@ -22,6 +22,9 @@ var unit_type_doctrines := {Unit.Team.PLAYER: UnitDoctrine.sanitize({}), Unit.Te
 var unit_combat_stats = UnitCombatStats.new()
 var _risk_holds: Dictionary = {}
 var _unit_name_counts: Dictionary = {}
+## Next discovery number to hand out, per enemy Unit.Kind — see
+## _assign_discovery_number's own doc comment.
+var _enemy_discovery_counts: Dictionary = {}
 var commander_profiles: Dictionary = {
 	Unit.Team.PLAYER: CommanderProfile.preset("baseline"),
 	Unit.Team.ENEMY: CommanderProfile.preset("baseline"),
@@ -246,7 +249,7 @@ func _record_target_choice(unit: Unit, candidates: Array[Unit], chosen: Unit, re
 
 
 func _record_shot(unit: Unit, target: Unit) -> void:
-	unit_combat_stats.register(unit, unit.display_name())
+	unit_combat_stats.register(unit)
 	# A deliberate, targeted shot at a visible/engageable enemy mortar is
 	# just as much counter-battery fire as the separate reactive "blind
 	# return fire at a detected muzzle flash" mechanic below
@@ -573,6 +576,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	unit_combat_stats = UnitCombatStats.new()
 	_risk_holds.clear()
 	_unit_name_counts.clear()
+	_enemy_discovery_counts.clear()
 	battle_seed = int(doctrine.get("seed", -1))
 	if battle_seed >= 0:
 		seed(battle_seed)
@@ -835,11 +839,13 @@ func _make_unit(team: Unit.Team, kind: Unit.Kind, pos: Vector2) -> Unit:
 		# ground at once. Reuse the lowest currently-free airframe number
 		# instead.
 		unit.unit_label += " %d" % _next_drone_number()
+	elif team == Unit.Team.ENEMY and (kind == Unit.Kind.SQUAD or kind == Unit.Kind.MORTAR):
+		pass # numbered later, in the order the player actually discovers it — see _assign_discovery_number
 	else:
 		var key := "%d:%d" % [team, kind]
 		_unit_name_counts[key] = int(_unit_name_counts.get(key, 0)) + 1
 		unit.unit_label += " %d" % _unit_name_counts[key]
-	unit_combat_stats.register(unit, unit.display_name())
+	unit_combat_stats.register(unit)
 	unit.fire_timer = randf_range(0.0, unit.fire_interval)
 	return unit
 
@@ -859,6 +865,36 @@ func _next_drone_number() -> int:
 		if not used.has(n):
 			return n
 	return GameConfig.DRONE_FLEET_SIZE + 1 # shouldn't happen; safe fallback
+
+
+## Enemy squads/mortars are left unnumbered at spawn (see _make_unit) and
+## get their real number here instead, the first time the PLAYER actually
+## spots one — so "Enemy Squad 1" always means the first one the player
+## ever found, never whichever one happened to spawn first in an order the
+## player was never shown. Idempotent: only fires once per unit, gated by
+## the plain "Squad"/"Mortar" label _make_unit leaves it with — called from
+## _refresh_visibility right before that spotting is logged/drawn, so the
+## very first "was spotted" line and the very first frame it's drawn on the
+## map already show the assigned number, not a stale unnumbered one.
+func _assign_discovery_number(unit: Unit) -> void:
+	if unit.team != Unit.Team.ENEMY or (unit.kind != Unit.Kind.SQUAD and unit.kind != Unit.Kind.MORTAR):
+		return
+	if unit.unit_label != ("Squad" if unit.kind == Unit.Kind.SQUAD else "Mortar"):
+		return # already numbered
+	_enemy_discovery_counts[unit.kind] = int(_enemy_discovery_counts.get(unit.kind, 0)) + 1
+	unit.unit_label += " %d" % _enemy_discovery_counts[unit.kind]
+
+
+## Any enemy squad/mortar the player never once spotted live still needs a
+## real number by the time the AAR or the (deliberately omniscient) Damage
+## By Unit report names it — see _end_battle and UnitCombatStats' own doc
+## comment. These get whatever numbers are left, in roster order, AFTER
+## every genuinely player-discovered unit already has its own — there's no
+## real "discovery order" for a unit nobody ever found, so this is just
+## "next available," not a claim the player found it in this order.
+func _number_remaining_undiscovered_enemies() -> void:
+	for u in enemy_units:
+		_assign_discovery_number(u)
 
 
 ## The commander's general retreat order: everyone still fighting pulls out
@@ -1212,10 +1248,10 @@ func _ally_positions_for(unit: Unit) -> Array[Vector2]:
 ## GameConfig.nearest_cover_point's avoid_positions).
 func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit) -> void:
 	var before := UnitCombatStats.before_hit(target)
-	unit_combat_stats.register(attacker, attacker.display_name())
+	unit_combat_stats.register(attacker)
 	var target_was_active := target.state == Unit.State.ACTIVE
 	var hit := CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team), _drone_directing_mortar_fire(attacker))
-	unit_combat_stats.damage(attacker, target, before, target.display_name())
+	unit_combat_stats.damage(attacker, target, before)
 	_log_hit_consequence(target, target_was_active)
 	if not hit or target.kind != Unit.Kind.SQUAD:
 		return
@@ -1225,7 +1261,12 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit) -> void:
 	var spillover_was_active := spillover.state == Unit.State.ACTIVE
 	var before_spillover := UnitCombatStats.before_hit(spillover)
 	spillover.take_hit(attacker.kind == Unit.Kind.MORTAR, _ally_positions_for(spillover), _known_enemy_positions(spillover.team))
-	unit_combat_stats.damage(attacker, spillover, before_spillover, spillover.display_name())
+	unit_combat_stats.damage(attacker, spillover, before_spillover)
+	# A spillover victim is picked purely by proximity to the actual target
+	# (see _bunched_ally) — it never had to be individually spotted to get
+	# caught in the same burst, so unlike `target` above it may still be
+	# unnumbered the first time its name needs to appear in the log.
+	_assign_discovery_number(spillover)
 	combat_log.log_bunching_spillover(target, spillover)
 	_log_hit_consequence(spillover, spillover_was_active)
 
@@ -4038,6 +4079,8 @@ func _refresh_visibility(observers: Array[Unit], targets: Array[Unit], scenario_
 				continue
 			if CombatResolver.roll_spot(observer, target, scenario_delta):
 				target.is_visible = true
+				if target.team == Unit.Team.ENEMY:
+					_assign_discovery_number(target) # before queue_redraw/log_spotted, so both already show the real number
 				target.queue_redraw()
 				combat_log.log_spotted(target)
 				break
@@ -4909,7 +4952,7 @@ func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 			continue # out of range — this mortar physically cannot reach back
 		if randf() < chance:
 			var delay: float = randf_range(GameConfig.COUNTER_BATTERY_DELAY_MIN, GameConfig.COUNTER_BATTERY_DELAY_MAX)
-			unit_combat_stats.register(m, m.display_name())
+			unit_combat_stats.register(m)
 			unit_combat_stats.shot(m, true)
 			_pending_counter_battery.append({
 				"attacker": m,
@@ -4917,6 +4960,12 @@ func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 				"impact_position": firing_mortar.global_position,
 				"impact_time": scenario_elapsed_time + delay,
 			})
+			# A mortar's muzzle flash/trajectory can give it away here even
+			# if nobody has actually laid eyes on it — a real detection
+			# channel distinct from visual spotting (see _refresh_
+			# visibility's own doc comment), so it may still be unnumbered
+			# the first time its name needs to appear in this log line.
+			_assign_discovery_number(firing_mortar)
 			combat_log.log_counter_battery_incoming(firing_mortar)
 			break # one incoming strike per shot is enough, even with two enemy mortars
 
@@ -4948,7 +4997,7 @@ func _resolve_pending_counter_battery() -> void:
 			var before := UnitCombatStats.before_hit(target)
 			target.take_hit(true, [], _known_enemy_positions(target.team))
 			if strike.has("attacker") and is_instance_valid(strike.attacker):
-				unit_combat_stats.damage(strike.attacker, target, before, target.display_name())
+				unit_combat_stats.damage(strike.attacker, target, before)
 			combat_log.log_counter_battery(target)
 			_log_hit_consequence(target, true)
 		else:
@@ -5793,6 +5842,7 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false, is_enemy_s
 ## before the withdrawal physically finishes.
 func _end_battle() -> void:
 	battle_over = true
+	_number_remaining_undiscovered_enemies() # anything the AAR/Damage-by-unit report names but the player never actually spotted still needs a real number
 	_record_history_snapshot() # the final moment, exactly, regardless of where the regular interval last landed
 
 	var player_stats := _compute_side_stats(player_units)
