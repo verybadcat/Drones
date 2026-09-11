@@ -259,6 +259,17 @@ static func has_live_observer(target: Unit, observers: Array[Unit]) -> bool:
 ## still does its job regardless (this is an accuracy multiplier, not a
 ## way to see through a roof).
 ##
+## A genuinely higher-up DIRECT-fire attacker (GameConfig.
+## ELEVATION_ADVANTAGE_THRESHOLD_M, the same gate the detection-range
+## bonus already uses) partially defeats whatever cover the defender is
+## using — see GameConfig.ELEVATION_COVER_DEFEAT_FRACTION's own doc
+## comment for the real doctrine (plunging fire into a position from
+## above, the entire reason a "reverse slope defense" exists) and for why
+## this is deliberately NOT modeled as an independent flat accuracy bonus.
+## Mortar fire is excluded — its trajectory already plunges regardless of
+## the tube's own elevation, which is exactly what its own, separately
+## weaker MORTAR_COVER_MULTIPLIER table already represents.
+##
 ## `ally_positions` and `known_enemy_positions` are passed straight through
 ## to `defender.take_hit()` — other same-team units' current positions (so
 ## a squad breaking for cover after this hit picks a DIFFERENT patch than
@@ -282,6 +293,16 @@ static func hit_probability(attacker: Unit, defender: Unit, drone_directed: bool
 		var moving := defender.activity == Unit.Activity.MOVING
 		var cover_table: Dictionary = MORTAR_COVER_MULTIPLIER if attacker.kind == Unit.Kind.MORTAR else SQUAD_COVER_MULTIPLIER
 		var cover_multiplier: float = 1.0 if moving else cover_table[GameConfig.get_terrain_type_at(point)]
+		# A high-ground attacker partially defeats the defender's own cover
+		# — see ELEVATION_COVER_DEFEAT_FRACTION's own doc comment for the
+		# real doctrine (and its limits) behind this. Direct fire only:
+		# a mortar's plunging trajectory already does this regardless of
+		# the tube's own elevation (that's what MORTAR_COVER_MULTIPLIER's
+		# whole table already represents), and a moving defender already
+		# gets no cover benefit to defeat in the first place.
+		if attacker.kind != Unit.Kind.MORTAR and not moving:
+			if GameConfig.elevation_m(origin) > GameConfig.elevation_m(point) + GameConfig.ELEVATION_ADVANTAGE_THRESHOLD_M:
+				cover_multiplier = lerp(cover_multiplier, 1.0, GameConfig.ELEVATION_COVER_DEFEAT_FRACTION)
 		chance = attacker.base_hit_chance * cover_multiplier
 		if attacker.kind != Unit.Kind.MORTAR:
 			var distance: float = origin.distance_to(point)

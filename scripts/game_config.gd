@@ -712,6 +712,37 @@ const EYE_HEIGHT_M: float = 1.6
 ## avoids granting it over meaningless terrain noise.
 const ELEVATION_ADVANTAGE_THRESHOLD_M: float = 8.0
 
+## How much of a defender's own terrain-cover reduction a genuinely
+## higher-up direct-fire attacker (same ELEVATION_ADVANTAGE_THRESHOLD_M
+## gate as the detection bonus above) partially defeats — 0.4 means cover
+## that would normally cut incoming fire to (say) 20% effectiveness only
+## cuts it to 52% (lerp toward 1.0, "as if no cover," never past it —
+## elevation lets an attacker see and shoot INTO a position, it doesn't
+## make that position more dangerous to occupy than open ground would be).
+##
+## Grounded in real, if qualitative rather than precisely numeric, doctrine
+## rather than a fabricated "elevation = free accuracy" bonus: plunging
+## fire from higher ground is the textbook reason a "reverse slope
+## defense" exists at all (positioning behind the crest specifically to
+## deny an attacker the ability to see and fire down INTO the position —
+## see Wikipedia's own "Plunging fire"/"Defensive fighting position"
+## articles) and why infantry doctrine (e.g. FM 3-21.8) instructs against
+## occupying low ground observable from higher terrain in the first place
+## — a foxhole or treeline built to stop a flat, direct-line shot loses
+## much of its value against fire coming down INTO it from above, the
+## same physical reason MORTAR_COVER_MULTIPLIER's own table is already
+## weaker than SQUAD_COVER_MULTIPLIER's. Deliberately NOT modeled as a
+## flat "downhill shots are more accurate" bonus independent of cover: the
+## real, well-documented ballistic effect at that end (the "rifleman's
+## rule" — gravity only acts over the horizontal component of a slanted
+## shot, so an unadjusted uphill/downhill shot flies high) is a shooter's
+## AIM-CORRECTION problem, resolved by trained soldiers accounting for
+## slant range, not a demonstrated hit-probability swing in real combat
+## data — no equivalent to the 1948 ORO close-range dataset or the FM 7-90
+## mortar-casualty figures already cited elsewhere in this file exists for
+## "elevation alone raises hit chance," so this file doesn't claim one.
+const ELEVATION_COVER_DEFEAT_FRACTION: float = 0.4
+
 
 ## How much a blob's effective radius is stretched (>1) or pinched (<1) in
 ## the direction `theta` (radians from its center) — a sum of cosine
