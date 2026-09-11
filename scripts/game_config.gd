@@ -3,15 +3,18 @@ class_name GameConfig
 ## Shared map layout: the village, terrain, deployment zones, and enemy
 ## approach. Kept in one place so no other script can drift out of sync.
 ##
-## The map is a real 5km x 3.5km battlefield (see PIXELS_PER_METER). Every
-## distance-like constant below is authored in METERS — the number you read
-## IS the real-world distance — and only converted to the pixel space Godot
-## actually draws in via a multiply by PIXELS_PER_METER, done right inline
-## since that's a compile-time constant expression (no runtime conversion,
-## no drift between "the real number" and "the number the engine uses").
-## Speeds are the one deliberate exception: they're tuned for a battle that
-## resolves in a few minutes, not literal infantry marching pace — see the
-## note above the movement constants.
+## The map's real-world size is itself DATA (see CURRENT_MAP.width_m/
+## height_m/west_flank_width_m below) — different real places are
+## different sizes, and nothing about the rest of this file's math cares
+## which one is currently loaded. Every distance-like constant in this
+## file (map dimensions included) is authored in METERS — the number you
+## read IS the real-world distance — and only converted to the pixel
+## space Godot actually draws in via a multiply by PIXELS_PER_METER, done
+## right inline since that's a compile-time constant expression (no
+## runtime conversion, no drift between "the real number" and "the number
+## the engine uses"). Speeds are the one deliberate exception: they're
+## tuned for a battle that resolves in a few minutes, not literal infantry
+## marching pace — see the note above the movement constants.
 
 enum TerrainType { OPEN, TREES, BUILDING }
 
@@ -23,38 +26,251 @@ enum TerrainType { OPEN, TREES, BUILDING }
 ## the drone-specific constants below.
 enum ReconMode { SPOTTER, DRONE_TEAM }
 
-## The map spans a real 5km left-to-right. MAP_WIDTH_PX is the core
-## battle canvas's width; the actual map VIEWPORT is wider still (see
-## CAMERA_VIEWPORT_WIDTH_PX below — it also shows WEST_FLANK_WIDTH_PX of
-## ground to the west), with the sidebar UI starting at GameConfig.
-## SIDEBAR_X (see main.gd). Works out to a 5000m x 3500m core battlefield.
+## Everything about THIS map — as opposed to the game's general rules,
+## which live as ordinary top-level constants throughout this file — lives
+## in this one dictionary, INCLUDING its own real-world size (width_m/
+## height_m/west_flank_width_m). draw_terrain and every terrain-lookup
+## function (get_terrain_type_at, nearest_cover_point, has_direct_los,
+## is_river_at, elevation_m, road_waypoints_px, etc.) read from
+## CURRENT_MAP's fields, never from a map-specific name of their own —
+## swapping maps means writing a new CURRENT_MAP value, not touching the
+## functions that read it, the window/camera sizing, or any other code.
+## PIXELS_PER_METER (below) is the one deliberate exception: it's a fixed
+## engine<->real-world conversion factor, not itself map data, specifically
+## so every OTHER range/speed constant in this file — authored as "meters
+## * PIXELS_PER_METER" — never has to change just because the currently-
+## loaded map's own size did.
 ##
-## MAP_HEIGHT_PX is the map viewport's OWN fixed height — main.gd sizes
-## map_container/map_viewport to exactly this, independent of the actual
-## window height in project.godot. The two used to be numerically equal
-## (700) back when the sidebar's own stacked elements always fit within
-## that same height; the window has since been made taller than this
-## (CasualtyDashboard needing room for a variable number of enemy mortar
-## rows) purely to give the sidebar column more vertical space below the
-## map — that's always safe to do on its own, since nothing about the
-## map/world's own scale is tied to the window's height, only to this
-## constant.
-const MAP_WIDTH_PX: float = 1000.0
-const MAP_HEIGHT_PX: float = 700.0
-const MAP_WIDTH_M: float = 5000.0
-const PIXELS_PER_METER: float = MAP_WIDTH_PX / MAP_WIDTH_M # 0.2 px/m
-const MAP_HEIGHT_M: float = MAP_HEIGHT_PX / PIXELS_PER_METER # 3500m
+## This map depicts Pervomaiske, a small hamlet in Kupiansk Raion, Kharkiv
+## Oblast — a handful of buildings at a rural crossroads along the road
+## between the larger village of Myrne (to the west, in the defender's own
+## rear — NOT what's being defended here) and the wider Kupiansk axis to
+## the east. The area has been fought over repeatedly since the 2022
+## Kharkiv counteroffensive, unlike Moshchun's single dated battle, so no
+## specific date is claimed here — just the real place and its real
+## orientation. Modeled from a real satellite/map screenshot: a paved road
+## running roughly east-west with tree lines on both sides, a drainage
+## canal running parallel to it (not perpendicular, unlike Moshchun's
+## river — it doesn't block the attacker's own line of advance, only a
+## flanking move to the north), and open farmland on both sides rather
+## than forest — this map is deliberately much sparser on trees than
+## Moshchun's Pushcha-Vodytsia-influenced one. No detailed topographic
+## data for this exact spot was found beyond the wider raion's own
+## regional elevation range (roughly 80-170m) — hills below are a modest,
+## gently-rolling approximation from that and the visibly flat-to-gently-
+## undulating farmland in the source imagery, not a survey.
+##
+## The real attack direction here is simply due EAST — no rotation needed
+## at all (screen-right already means real east, matching every other
+## piece of this game's own east-attacker/west-defender convention), so
+## unlike Moshchun's compass, true north on this map points straight up.
+const CURRENT_MAP: Dictionary = {
+	"name": "Pervomaiske",
+	"location_subtitle": "Kupiansk Raion, Kharkiv Oblast",
+	"compass_north_screen_direction": Vector2(0.0, -1.0),
+
+	# Real place, real orientation, but genuinely a much smaller, more
+	# local engagement than Moshchun's (a rural crossroads hamlet, not a
+	# river-crossing battle for a approach to a capital) — the map's own
+	# real-world size is data specifically so a case like this doesn't
+	# have to awkwardly inherit a battlefield-sized footprint it doesn't
+	# need. Kept the same rough 3:2 aspect ratio as before, at roughly 60%
+	# linear scale.
+	"width_m": 3000.0,
+	"height_m": 2000.0,
+	"west_flank_width_m": 900.0,
+
+	"village_center": Vector2(900.0, 1000.0) * PIXELS_PER_METER,
+
+	## Gently rolling farmland, not Moshchun's real ridgelines — see this
+	## dictionary's own doc comment for the regional elevation sourcing.
+	"hills": [
+		{"center_m": Vector2(750.0, 1150.0), "radius_m": 480.0, "height_m": 12.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 0.5}, {"frequency": 3, "amplitude": 0.1, "phase": 2.0},
+		]}, # gentle rise around the hamlet
+		{"center_m": Vector2(2100.0, 650.0), "radius_m": 420.0, "height_m": 10.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 1.6}, {"frequency": 2, "amplitude": 0.12, "phase": 2.8},
+		]}, # rise on the attacker's approach, north side
+		{"center_m": Vector2(2300.0, 1450.0), "radius_m": 380.0, "height_m": 9.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 2.3}, {"frequency": 4, "amplitude": 0.08, "phase": 0.6},
+		]}, # rise south of the road, attacker side
+		{"center_m": Vector2(350.0, 1500.0), "radius_m": 380.0, "height_m": 11.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 0.9}, {"frequency": 2, "amplitude": 0.11, "phase": 3.0},
+		]}, # rear rise, defender side
+		{"center_m": Vector2(-350.0, 1000.0), "radius_m": 320.0, "height_m": 10.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 1.2}, {"frequency": 3, "amplitude": 0.1, "phase": 2.5},
+		]}, # west flank, gentle rise
+	],
+
+	# The hamlet itself: a genuinely small, compact cluster (not Moshchun's
+	# elongated riverside ribbon — this is a rural crossroads settlement,
+	# not a river-side one), plus one small outlying farmstead further
+	# along the road, matching the handful of separate structures visible
+	# in the source imagery.
+	"terrain_zones": [
+		{"rect": Rect2(840.0 * PIXELS_PER_METER, 950.0 * PIXELS_PER_METER, 120.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # Pervomaiske
+		{"rect": Rect2(1335.0 * PIXELS_PER_METER, 1015.0 * PIXELS_PER_METER, 35.0 * PIXELS_PER_METER, 30.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # outlying farmstead
+	],
+
+	## Sparse, small patches — thin tree-lines along the road and canal
+	## (the dark fringes visible flanking both in the source imagery),
+	## plus a few scattered field-edge copses, NOT Moshchun's big rounded
+	## forest blocks. This is open farmland, not woodland — deliberately
+	## much less tree cover overall than Moshchun's map.
+	"forest_patches": [
+		{"center_m": Vector2(2700.0, 880.0), "radius_m": 80.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.18, "phase": 0.4}, {"frequency": 3, "amplitude": 0.1, "phase": 2.1},
+		]}, # tree line, road/canal corridor
+		{"center_m": Vector2(2300.0, 905.0), "radius_m": 75.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.16, "phase": 1.3}, {"frequency": 2, "amplitude": 0.12, "phase": 2.9},
+		]}, # tree line, road/canal corridor
+		{"center_m": Vector2(1900.0, 955.0), "radius_m": 85.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.17, "phase": 2.2}, {"frequency": 4, "amplitude": 0.09, "phase": 0.5},
+		]}, # tree line, road/canal corridor
+		{"center_m": Vector2(1500.0, 980.0), "radius_m": 70.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 0.8}, {"frequency": 2, "amplitude": 0.13, "phase": 2.6},
+		]}, # tree line, road/canal corridor
+		{"center_m": Vector2(1100.0, 995.0), "radius_m": 80.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 1.9}, {"frequency": 3, "amplitude": 0.11, "phase": 0.3},
+		]}, # tree line, road/canal corridor, near the hamlet
+		{"center_m": Vector2(700.0, 965.0), "radius_m": 75.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 2.7}, {"frequency": 2, "amplitude": 0.12, "phase": 0.6},
+		]}, # tree line, road/canal corridor, near the hamlet
+		{"center_m": Vector2(300.0, 925.0), "radius_m": 70.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 0.2}, {"frequency": 4, "amplitude": 0.08, "phase": 2.4},
+		]}, # tree line, road/canal corridor, toward the rear
+		{"center_m": Vector2(1800.0, 1400.0), "radius_m": 90.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.16, "phase": 1.1}, {"frequency": 2, "amplitude": 0.1, "phase": 3.0},
+		]}, # field-edge copse, attacker side
+		{"center_m": Vector2(1000.0, 1500.0), "radius_m": 85.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 2.5}, {"frequency": 3, "amplitude": 0.12, "phase": 0.7},
+		]}, # field-edge copse, south of the hamlet
+		{"center_m": Vector2(2000.0, 500.0), "radius_m": 80.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 0.3}, {"frequency": 2, "amplitude": 0.11, "phase": 2.2},
+		]}, # field-edge copse, attacker approach north
+		{"center_m": Vector2(600.0, 600.0), "radius_m": 75.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.17, "phase": 1.7}, {"frequency": 4, "amplitude": 0.08, "phase": 3.1},
+		]}, # field-edge copse, rear north
+		{"center_m": Vector2(-300.0, 900.0), "radius_m": 90.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 0.6}, {"frequency": 2, "amplitude": 0.13, "phase": 2.8},
+		]}, # west flank copse
+		{"center_m": Vector2(-600.0, 1400.0), "radius_m": 80.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 2.0}, {"frequency": 3, "amplitude": 0.1, "phase": 0.4},
+		]}, # west flank copse, south
+	],
+
+	"road_width_m": 6.0,
+	"road_waypoints_m": [
+		Vector2(2950.0, 900.0),
+		Vector2(2500.0, 930.0),
+		Vector2(2100.0, 950.0),
+		Vector2(1700.0, 970.0),
+		Vector2(1300.0, 985.0),
+		Vector2(900.0, 1000.0), # the hamlet
+		Vector2(500.0, 970.0),
+		Vector2(150.0, 930.0),
+	],
+
+	## The drainage canal visible in the source imagery, running roughly
+	## PARALLEL to the road (not perpendicular, unlike Moshchun's river) —
+	## it doesn't block the attacker's own east-west line of advance at
+	## all, only a flanking move to the north, but is still a real,
+	## impassable obstacle where it does run (steep-banked drainage
+	## channels are a genuine infantry/vehicle obstacle) except at the one
+	## crossing near the hamlet, where a real culvert/crossing point is
+	## plausible. Narrower than Moshchun's river — this is a canal, not a
+	## real river.
+	"river": {
+		"width_m": 15.0,
+		"crossing_point_m": Vector2(900.0, 880.0), # sits exactly on path_m below, at the hamlet's own longitude
+		"crossing_gap_m": 50.0,
+		"path_m": [
+			Vector2(2950.0, 780.0),
+			Vector2(2500.0, 810.0),
+			Vector2(2100.0, 830.0),
+			Vector2(1700.0, 850.0),
+			Vector2(1300.0, 865.0),
+			Vector2(900.0, 880.0), # the crossing
+			Vector2(500.0, 850.0),
+			Vector2(150.0, 810.0),
+		],
+	},
+
+	"player": {
+		"deployment_zone": Rect2(150.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 1600.0 * PIXELS_PER_METER, 1800.0 * PIXELS_PER_METER),
+		"mortar_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 1350.0 * PIXELS_PER_METER, 1900.0 * PIXELS_PER_METER),
+		"spotter_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 30.0 * PIXELS_PER_METER, 2940.0 * PIXELS_PER_METER, 1940.0 * PIXELS_PER_METER),
+		"default_squad_positions": [
+			Vector2(790.0, 950.0) * PIXELS_PER_METER,
+			Vector2(910.0, 1000.0) * PIXELS_PER_METER,
+			Vector2(810.0, 1080.0) * PIXELS_PER_METER,
+		],
+		# South of the hamlet's own building footprint and clear of the
+		# canal — a mortar can never be set up inside a building or
+		# dragged into one.
+		"mortar_default_position": Vector2(900.0, 1170.0) * PIXELS_PER_METER,
+		"spotter_default_position": Vector2(650.0, 1020.0) * PIXELS_PER_METER,
+	},
+
+	"enemy": {
+		"spawn_x": 2950.0 * PIXELS_PER_METER,
+		"squad_spread_min_offset_m": -260.0,
+		"squad_spread_max_offset_m": 260.0,
+		"mortar_rear_x_m": 2750.0,
+		"mortar_spread_min_y_m": 700.0,
+		"mortar_spread_max_y_m": 1200.0,
+		# Deep enough into the (now narrower, 900m) west flank to be a
+		# real flank, same 1/3-in-with-a-buffer proportion as before.
+		"flank_waypoint_x": -600.0 * PIXELS_PER_METER,
+		"flank_waypoint_arrival_radius": 340.0 * PIXELS_PER_METER, # must stay > ENEMY_SURROUND_STANDOFF_RADIUS (300m) — see that constant's own doc comment
+	},
+}
+
+## The internal engine<->real-world scale: a fixed, map-INDEPENDENT
+## conversion, not derived from any particular map's own size. This is
+## the actual key to a genuine data-driven map: every OTHER range/speed
+## constant in this file is written as "meters * PIXELS_PER_METER" and
+## evaluated once at compile time — as long as this factor itself never
+## changes, none of those hundreds of other constants need to change
+## either when the map's own real-world dimensions do. (An earlier version
+## derived this FROM a fixed MAP_WIDTH_PX/MAP_WIDTH_M pair, which is
+## exactly backwards for a swappable map: it made the "how many engine
+## units per meter" question depend on which specific map happened to be
+## loaded.)
+const PIXELS_PER_METER: float = 0.2
+
+## The map's own real-world dimensions — genuine map DATA, unlike
+## PIXELS_PER_METER above — live in CURRENT_MAP (width_m/height_m/
+## west_flank_width_m) and get their pixel-space equivalents derived
+## right below it once it's actually defined. See CURRENT_MAP's own doc
+## comment for why width/height specifically count as data while the
+## conversion factor doesn't.
+const MAP_WIDTH_M: float = CURRENT_MAP.width_m
+const MAP_HEIGHT_M: float = CURRENT_MAP.height_m
+const WEST_FLANK_WIDTH_M: float = CURRENT_MAP.west_flank_width_m
+## MAP_WIDTH_PX is the core battle canvas's width; the actual map VIEWPORT
+## is wider still (see CAMERA_VIEWPORT_WIDTH_PX below — it also shows
+## WEST_FLANK_WIDTH_PX of ground to the west), with the sidebar UI
+## starting at GameConfig.SIDEBAR_X (see main.gd).
+##
+## MAP_HEIGHT_PX is the map viewport's OWN height — main.gd sizes
+## map_container/map_viewport to exactly this AND resizes the actual
+## window to fit (see main.gd's _ready and MIN_WINDOW_HEIGHT_PX below),
+## so a differently-sized map's window adjusts automatically with it —
+## nothing about the window is a fixed, map-specific number to remember
+## to update by hand.
+const MAP_WIDTH_PX: float = MAP_WIDTH_M * PIXELS_PER_METER
+const MAP_HEIGHT_PX: float = MAP_HEIGHT_M * PIXELS_PER_METER
 
 ## Open, undeveloped ground west of x=0 — nobody deploys here, no authored
 ## cover/terrain features exist here, but units can be pushed into it
 ## (enemy flanking, a hard-pressed player retreat, a mortar evading
 ## encirclement). Always visible (see CAMERA_VIEWPORT_WIDTH_PX below), not
-## revealed by panning — at today's fixed 0.2 px/m scale the whole existing
-## map already fits inside the display column, so this is the first
-## world-space that doesn't, which is what originally made a wider viewport
-## than just MAP_WIDTH_PX necessary here at all.
-const WEST_FLANK_WIDTH_M: float = 1500.0
-const WEST_FLANK_WIDTH_PX: float = WEST_FLANK_WIDTH_M * PIXELS_PER_METER # 300px
+## revealed by panning — the whole modeled map already fits inside the
+## display column at this fixed scale, so this is the first world-space
+## that doesn't, which is what originally made a wider viewport than just
+## MAP_WIDTH_PX necessary here at all.
+const WEST_FLANK_WIDTH_PX: float = WEST_FLANK_WIDTH_M * PIXELS_PER_METER
 
 ## The map viewport is permanently wide enough to show the ENTIRE modeled
 ## world — the west flank through the map's true east edge — at once, at
@@ -82,6 +298,19 @@ const CAMERA_CENTER_X: float = (-WEST_FLANK_WIDTH_PX + MAP_WIDTH_PX) / 2.0
 ## buttons, doctrine panel) starts — right after the widened map viewport,
 ## with the same 20px gap the original [0,1000]-wide layout used.
 const SIDEBAR_X: float = CAMERA_VIEWPORT_WIDTH_PX + 20.0
+## The sidebar column's own fixed width (DoctrinePanel's own declared
+## custom_minimum_size is 320px; this adds a small margin) — independent
+## of the map's size, so main.gd can compute a correctly-sized WINDOW for
+## whichever map is loaded (SIDEBAR_X + this) instead of a hand-set
+## project.godot number that would silently stop matching the moment a
+## differently-sized map was swapped in.
+const SIDEBAR_COLUMN_WIDTH: float = 340.0
+## The sidebar's own worst-case vertical content (CasualtyDashboard's
+## variable number of enemy-mortar rows) needs this much height regardless
+## of how tall any particular map's own MAP_HEIGHT_PX happens to be — see
+## main.gd's _ready, which sizes the actual window to
+## max(MAP_HEIGHT_PX, this).
+const MIN_WINDOW_HEIGHT_PX: float = 760.0
 
 ## Runtime meters<->pixels conversion, for the few places that need to
 ## convert a value that isn't known until the game is running (the mouseover
@@ -105,375 +334,6 @@ const EYE_HEIGHT_M: float = 1.6
 const ELEVATION_ADVANTAGE_THRESHOLD_M: float = 8.0
 
 const CONTOUR_INTERVAL_M: float = 10.0
-
-## Everything about THIS map — as opposed to the game's general rules,
-## which live as ordinary top-level constants throughout this file — lives
-## in this one dictionary. draw_terrain and every terrain-lookup function
-## (get_terrain_type_at, nearest_cover_point, has_direct_los, is_river_at,
-## elevation_m, road_waypoints_px, etc.) read from CURRENT_MAP's fields,
-## never from a map-specific name of their own — that's the actual fix for
-## a real complaint: adding the river and a name label to the old map
-## still left every drawing/lookup function structurally tied to ONE
-## hardcoded layout, which is why the terrain itself hadn't actually
-## changed. A different map is now a different CURRENT_MAP value, not a
-## rewrite of the functions that read it. (Map DIMENSIONS — MAP_WIDTH_M,
-## WEST_FLANK_WIDTH_M, PIXELS_PER_METER and anything derived from them —
-## deliberately stay as ordinary engine constants, not map data: nearly
-## every range/speed constant in this file is computed FROM them at
-## compile time, so making them swappable would cascade into the whole
-## file, for a variable-battlefield-size capability nobody's asked for.
-## Content laid out WITHIN that fixed-size coordinate system — what's
-## where — is what actually varies per map, and is what's in here.)
-##
-## This map depicts Moshchun, a small village in Bucha Raion, Kyiv Oblast,
-## roughly as it stood before the real battle fought there 5-21 March 2022
-## — one of the engagements credited with stopping the Russian drive on
-## Kyiv and contributing to the eventual full withdrawal from Kyiv Oblast.
-## The real village — originally named Pylnia, after its sawmills — sat
-## directly on the Irpin River as a linear, riverside settlement (real
-## population ~794) rather than a compact town block; `terrain_zones[0]`
-## below is shaped as an elongated ribbon along the river's own line for
-## exactly that reason, not a guess at its exact footprint (no detailed
-## public survey of the village's pre-war building layout was found).
-## Russian forces attacked from the northwest, having come down through
-## the Chornobyl exclusion zone via Ivankiv, Dymer, and Borodyanka, trying
-## to force a crossing to reach Kyiv via Pushcha-Vodytsia beyond — the
-## real, extensive pine forest the `forest_patches` below deliberately
-## weight toward the west/defender side, leaving the river's own crossing
-## comparatively open (the real floodplain the attackers got bogged down
-## in), rather than spread evenly across the whole map the way the
-## original fictional layout was.
-const CURRENT_MAP: Dictionary = {
-	"name": "Moshchun",
-	"village_center": Vector2(1450.0, 1750.0) * PIXELS_PER_METER,
-
-	## Rolling hills as smooth, continuous high ground rather than a flat
-	## zone — elevation at any point is the sum of each hill's contribution,
-	## so the terrain has real, continuous relief (and can be drawn as real
-	## contour lines — see _draw_hills). A hill isn't a plain radially-
-	## symmetric bump, either — each has a few "warp_harmonics" (frequency/
-	## amplitude/phase triples) that scale its effective radius by angle
-	## from center, so its footprint is an irregular, elongated blob rather
-	## than a perfect circle — see _hill_radius_warp. One broad hill sits
-	## behind/around the village, giving the defenders a genuine elevation
-	## advantage; the rest add varied, natural-looking relief across the
-	## whole battlefield.
-	"hills": [
-		{"center_m": Vector2(1400.0, 1650.0), "radius_m": 600.0, "height_m": 32.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.18, "phase": 0.4}, {"frequency": 3, "amplitude": 0.12, "phase": 2.1},
-		]}, # the village's high ground
-		{"center_m": Vector2(600.0, 3050.0), "radius_m": 380.0, "height_m": 20.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.15, "phase": 1.0}, {"frequency": 4, "amplitude": 0.1, "phase": 0.5},
-		]}, # rear rise, south
-		{"center_m": Vector2(3550.0, 1550.0), "radius_m": 420.0, "height_m": 28.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.16, "phase": 1.8}, {"frequency": 2, "amplitude": 0.13, "phase": 3.0},
-		]}, # far-bank bluff overlooking the crossing, attacker side
-		# Real river valleys are typically flanked on both sides — the
-		# attacker's own far-bank bluff above pairs with this one on the
-		# defender's near bank, giving whoever holds it real observation
-		# and fields of fire directly over the one crossing, not just
-		# "behind the village" in the abstract.
-		{"center_m": Vector2(2950.0, 1850.0), "radius_m": 320.0, "height_m": 24.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.17, "phase": 0.6}, {"frequency": 3, "amplitude": 0.11, "phase": 2.5},
-		]}, # near-bank bluff overlooking the crossing, defender side
-		{"center_m": Vector2(4250.0, 600.0), "radius_m": 340.0, "height_m": 16.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.14, "phase": 2.5}, {"frequency": 5, "amplitude": 0.08, "phase": 1.2},
-		]}, # minor rise, north
-		{"center_m": Vector2(450.0, 480.0), "radius_m": 350.0, "height_m": 19.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.17, "phase": 0.9}, {"frequency": 2, "amplitude": 0.11, "phase": 2.7},
-		]}, # ridge west of the village, rear
-		{"center_m": Vector2(2300.0, 2950.0), "radius_m": 330.0, "height_m": 17.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.16, "phase": 1.5}, {"frequency": 4, "amplitude": 0.09, "phase": 0.3},
-		]}, # rise above the southern woods
-		{"center_m": Vector2(2600.0, 820.0), "radius_m": 310.0, "height_m": 15.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.15, "phase": 2.2}, {"frequency": 2, "amplitude": 0.12, "phase": 0.7},
-		]}, # rise along the road's midpoint bend
-		# West flank (negative x — see WEST_FLANK_WIDTH_M): open, undeveloped
-		# ground with no deployment zones or buildings, but not a
-		# featureless void either — natural relief continuing the same
-		# rolling-hills character as the rest of the map.
-		{"center_m": Vector2(-550.0, 1300.0), "radius_m": 380.0, "height_m": 21.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.16, "phase": 1.1}, {"frequency": 3, "amplitude": 0.1, "phase": 2.9},
-		]}, # west flank rise
-		{"center_m": Vector2(-1000.0, 2550.0), "radius_m": 320.0, "height_m": 18.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.14, "phase": 0.6}, {"frequency": 2, "amplitude": 0.13, "phase": 3.2},
-		]}, # west flank rise, south
-	],
-
-	# Each zone is a rectangle + terrain type (TREES/BUILDING only —
-	# elevation is the continuous heightmap above, and the road is its own
-	# waypoint path, not a zone; see draw_terrain). Order matters for
-	# drawing: earlier = painted first (underneath). Moshchun itself is a
-	# real, linear riverside settlement, not a compact block — see this
-	# dictionary's own top-level doc comment — plus a couple of isolated
-	# outlying farm buildings.
-	"terrain_zones": [
-		{"rect": Rect2(1300.0 * PIXELS_PER_METER, 1500.0 * PIXELS_PER_METER, 300.0 * PIXELS_PER_METER, 500.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # Moshchun — elongated along the river's own line, not a town block
-		{"rect": Rect2(2380.0 * PIXELS_PER_METER, 1580.0 * PIXELS_PER_METER, 55.0 * PIXELS_PER_METER, 46.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # isolated farmhouse, mid-approach
-		{"rect": Rect2(880.0 * PIXELS_PER_METER, 2480.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 50.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # isolated farmhouse, rear
-	],
-
-	## Forested areas, as irregular blobs rather than rectangles — same
-	## technique as hills (see _radius_warp): each patch's actual footprint
-	## at any angle `theta` from its `center_m` is `radius_m * _radius_warp(
-	## warp_harmonics, theta)`, so real woodland has ragged, elongated,
-	## natural-looking edges instead of a boxy outline (see _forest_radius_at
-	## / _point_in_forest_patch, and _draw_forest_patch for the matching
-	## filled-polygon rendering). Deliberately weighted toward the west/
-	## defender side — the real Pushcha-Vodytsia forest the historical
-	## Russian attack was trying to reach past Moshchun — leaving the
-	## river's own crossing and the attacker's immediate approach more
-	## open, the real floodplain the historical attack got bogged down in,
-	## rather than spread evenly across the whole map the way the original
-	## fictional layout was.
-	"forest_patches": [
-		{"center_m": Vector2(1080.0, 1335.0), "radius_m": 145.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.2, "phase": 0.6}, {"frequency": 3, "amplitude": 0.12, "phase": 2.4},
-		]}, # wooded slope, village hill NW
-		{"center_m": Vector2(1690.0, 1370.0), "radius_m": 125.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.16, "phase": 1.1}, {"frequency": 2, "amplitude": 0.14, "phase": 3.4},
-		]}, # wooded slope, village hill NE
-		{"center_m": Vector2(3930.0, 2300.0), "radius_m": 150.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.17, "phase": 0.3}, {"frequency": 2, "amplitude": 0.15, "phase": 2.9},
-		]}, # woods on the enemy-side rise — thinned: the real approach here is open floodplain, not forest
-		{"center_m": Vector2(2310.0, 2880.0), "radius_m": 230.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.19, "phase": 1.4}, {"frequency": 3, "amplitude": 0.11, "phase": 3.6},
-		]}, # southern woods, off the road
-		{"center_m": Vector2(645.0, 2230.0), "radius_m": 145.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.15, "phase": 2.6}, {"frequency": 2, "amplitude": 0.13, "phase": 0.5},
-		]}, # copse near the rear
-		{"center_m": Vector2(4265.0, 945.0), "radius_m": 120.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.16, "phase": 0.9}, {"frequency": 4, "amplitude": 0.09, "phase": 2.2},
-		]}, # woods near the northern rise — thinned, attacker-side floodplain
-		{"center_m": Vector2(2805.0, 635.0), "radius_m": 160.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.14, "phase": 1.7}, {"frequency": 2, "amplitude": 0.12, "phase": 3.1},
-		]}, # copse, north side
-		{"center_m": Vector2(240.0, 825.0), "radius_m": 140.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.17, "phase": 2.8}, {"frequency": 3, "amplitude": 0.1, "phase": 0.4},
-		]}, # slope below the western ridge
-		{"center_m": Vector2(2600.0, 735.0), "radius_m": 155.0, "warp_harmonics": [
-			{"frequency": 4, "amplitude": 0.1, "phase": 1.3}, {"frequency": 2, "amplitude": 0.15, "phase": 3.5},
-		]}, # woods above the road bend
-		{"center_m": Vector2(1910.0, 2490.0), "radius_m": 165.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.16, "phase": 0.2}, {"frequency": 2, "amplitude": 0.13, "phase": 2.5},
-		]}, # copse south of the village
-		{"center_m": Vector2(4030.0, 3105.0), "radius_m": 195.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.18, "phase": 1.9}, {"frequency": 3, "amplitude": 0.12, "phase": 3.8},
-		]}, # woods, far southeast
-		{"center_m": Vector2(1095.0, 475.0), "radius_m": 145.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.15, "phase": 3.0}, {"frequency": 2, "amplitude": 0.11, "phase": 0.7},
-		]}, # copse, north of the village
-		{"center_m": Vector2(4505.0, 1885.0), "radius_m": 160.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.14, "phase": 0.1}, {"frequency": 4, "amplitude": 0.09, "phase": 2.3},
-		]}, # woods near the enemy's rear
-		{"center_m": Vector2(685.0, 1670.0), "radius_m": 130.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.13, "phase": 1.6}, {"frequency": 2, "amplitude": 0.16, "phase": 3.3},
-		]}, # copse, west-central
-		{"center_m": Vector2(2000.0, 1020.0), "radius_m": 170.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.15, "phase": 0.5}, {"frequency": 2, "amplitude": 0.12, "phase": 2.7},
-		]}, # north-central woods
-		{"center_m": Vector2(700.0, 3300.0), "radius_m": 160.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.14, "phase": 2.4}, {"frequency": 2, "amplitude": 0.13, "phase": 0.3},
-		]}, # far south rear woods
-		{"center_m": Vector2(4700.0, 2600.0), "radius_m": 150.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.16, "phase": 3.0}, {"frequency": 3, "amplitude": 0.11, "phase": 1.0},
-		]}, # far east edge woods, enemy side — thinned
-		{"center_m": Vector2(1200.0, 3100.0), "radius_m": 150.0, "warp_harmonics": [
-			{"frequency": 4, "amplitude": 0.09, "phase": 0.8}, {"frequency": 2, "amplitude": 0.15, "phase": 2.2},
-		]}, # south of the rear farmhouse
-		{"center_m": Vector2(3900.0, 1020.0), "radius_m": 120.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.16, "phase": 1.5}, {"frequency": 2, "amplitude": 0.12, "phase": 3.4},
-		]}, # north woods, enemy approach — thinned
-		{"center_m": Vector2(2500.0, 2200.0), "radius_m": 155.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.15, "phase": 2.9}, {"frequency": 3, "amplitude": 0.1, "phase": 0.9},
-		]}, # central woods between road and southern woods
-		{"center_m": Vector2(600.0, 1020.0), "radius_m": 145.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.13, "phase": 0.4}, {"frequency": 2, "amplitude": 0.14, "phase": 2.6},
-		]}, # northwest quadrant woods
-		{"center_m": Vector2(4600.0, 500.0), "radius_m": 165.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.18, "phase": 1.8}, {"frequency": 4, "amplitude": 0.08, "phase": 3.7},
-		]}, # far northeast corner
-		{"center_m": Vector2(1700.0, 3300.0), "radius_m": 155.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.15, "phase": 2.3}, {"frequency": 2, "amplitude": 0.11, "phase": 0.2},
-		]}, # south rear woods
-		{"center_m": Vector2(3600.0, 700.0), "radius_m": 145.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.14, "phase": 3.1}, {"frequency": 3, "amplitude": 0.1, "phase": 1.1},
-		]}, # north woods near enemy path
-		{"center_m": Vector2(200.0, 2700.0), "radius_m": 155.0, "warp_harmonics": [
-			{"frequency": 4, "amplitude": 0.09, "phase": 1.9}, {"frequency": 2, "amplitude": 0.16, "phase": 0.1},
-		]}, # far west rear woods
-		{"center_m": Vector2(4200.0, 3200.0), "radius_m": 170.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.12, "phase": 0.7}, {"frequency": 2, "amplitude": 0.15, "phase": 2.8},
-		]}, # far southeast corner
-		{"center_m": Vector2(2900.0, 350.0), "radius_m": 150.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.17, "phase": 2.5}, {"frequency": 3, "amplitude": 0.11, "phase": 0.6},
-		]}, # far north strip
-		# Pushcha-Vodytsia — the real, extensive pine forest the historical
-		# attack was trying to reach past Moshchun, west of the village
-		# toward Kyiv (deeper into the defender's own rear on this map).
-		# Deliberately bigger than most other patches here: a real forest
-		# of that scale, not another copse.
-		{"center_m": Vector2(700.0, 1200.0), "radius_m": 220.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.15, "phase": 0.5}, {"frequency": 3, "amplitude": 0.11, "phase": 2.0},
-		]}, # Pushcha-Vodytsia, NW of the village
-		{"center_m": Vector2(500.0, 2400.0), "radius_m": 240.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.16, "phase": 1.7}, {"frequency": 2, "amplitude": 0.12, "phase": 3.3},
-		]}, # Pushcha-Vodytsia, SW of the village
-		{"center_m": Vector2(1000.0, 3000.0), "radius_m": 200.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.14, "phase": 2.6}, {"frequency": 4, "amplitude": 0.09, "phase": 0.8},
-		]}, # Pushcha-Vodytsia, south rear
-		{"center_m": Vector2(300.0, 1750.0), "radius_m": 190.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.15, "phase": 0.2}, {"frequency": 2, "amplitude": 0.13, "phase": 2.4},
-		]}, # Pushcha-Vodytsia, due west
-		# West flank (negative x) — same density/character as the rest of
-		# the map's woodland, continuing naturally from "far west rear
-		# woods" above rather than stopping dead at x=0.
-		{"center_m": Vector2(-300.0, 700.0), "radius_m": 160.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.15, "phase": 0.8}, {"frequency": 3, "amplitude": 0.12, "phase": 2.6},
-		]}, # west flank copse, north
-		{"center_m": Vector2(-800.0, 1500.0), "radius_m": 190.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.17, "phase": 1.9}, {"frequency": 2, "amplitude": 0.11, "phase": 3.5},
-		]}, # west flank woods
-		{"center_m": Vector2(-450.0, 2200.0), "radius_m": 150.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.14, "phase": 2.4}, {"frequency": 4, "amplitude": 0.09, "phase": 0.9},
-		]}, # west flank copse
-		{"center_m": Vector2(-1100.0, 900.0), "radius_m": 170.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.16, "phase": 0.3}, {"frequency": 2, "amplitude": 0.13, "phase": 2.1},
-		]}, # west flank woods, deep
-		{"center_m": Vector2(-1300.0, 2900.0), "radius_m": 155.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.18, "phase": 1.5}, {"frequency": 3, "amplitude": 0.1, "phase": 3.7},
-		]}, # west flank woods, far edge
-		{"center_m": Vector2(-650.0, 3100.0), "radius_m": 145.0, "warp_harmonics": [
-			{"frequency": 4, "amplitude": 0.09, "phase": 2.7}, {"frequency": 2, "amplitude": 0.15, "phase": 0.5},
-		]}, # west flank copse, south
-	],
-
-	"road_width_m": 7.0,
-	## Deliberately does NOT include a dedicated waypoint at the river
-	## crossing itself, even though the road does cross there in reality —
-	## the per-squad spread (see enemy_squad_y_offsets_m) shifts EVERY
-	## waypoint by up to +-420m in y for an off-road squad, and a waypoint
-	## placed exactly at the river's x would shift to a point still AT the
-	## river's x but far outside the much narrower bridge gap: a
-	## destination sitting INSIDE the impassable river itself, which a unit
-	## can never validly "arrive" at (confirmed directly: it produced an
-	## infinite reroute/arrive/reroute loop that made zero progress). The
-	## existing long segment already spanning the river (3600 -> 2900) is
-	## enough on its own — whatever y a given squad's own shifted version
-	## of that segment would cross the river at, BattleManager._river_route
-	## (universal, checked fresh every tick for any move_target) redirects
-	## it through the real crossing first, then on to the correctly-shifted
-	## next waypoint, which is never AT the river's own x — so this
-	## specific failure mode can't recur.
-	"road_waypoints_m": [
-		Vector2(4950.0, 1780.0),
-		Vector2(4300.0, 1850.0),
-		Vector2(3600.0, 1680.0),
-		Vector2(2900.0, 1900.0),
-		Vector2(2200.0, 1720.0),
-		Vector2(1550.0, 1780.0),
-	],
-
-	## The Irpin River — a real, hard obstacle, not scenery: impassable to
-	## every ground unit except at the single crossing (bridge_y_m), the
-	## real single-lane dirt-trail bridge historical accounts describe near
-	## Moshchun (see BattleManager._step_toward_target/_step_retreat for the
-	## actual routing enforcement, and has_direct_los for the sightline
-	## block). Deliberately sized as the river's ORDINARY width, not the
-	## much wider flood the defenders deliberately triggered mid-battle by
-	## breaching the Kozarovychi dam upstream — this map depicts the region
-	## as it stood BEFORE the attack, and that flooding was a specific
-	## defensive act during the fighting itself, not the terrain's starting
-	## state.
-	##
-	## `path_m` is the river's actual course — a real river meanders, not a
-	## straight line, and drawing/blocking it as one looked exactly like
-	## what it was (a token line, not a river). Each leg between consecutive
-	## points becomes its own blocking rect (see _build_river_rects), so
-	## the winding shape costs nothing extra: still the same rect-crossing
-	## check _line_crosses_rect already provides for BUILDING zones, just
-	## applied to several short legs instead of one long one. The stretch
-	## from y=1490 to y=2090 is deliberately kept straight and at exactly
-	## `x_m` — real bridges are sited on stable, straight reaches, not mid-
-	## bend, and it keeps the gap-splitting math simple axis-aligned
-	## arithmetic instead of needing real polygon geometry.
-	"river": {
-		"x_m": 3250.0, # the crossing's own x — also the path's x through its straight bridge reach below
-		"width_m": 30.0,
-		"bridge_y_m": 1790.0, # matches the road waypoint above — the road already crosses here
-		"bridge_half_width_m": 60.0, # ~120m passable gap: a real chokepoint, not a single-file pinhole
-		"path_m": [
-			Vector2(3450.0, 0.0),
-			Vector2(3180.0, 480.0),
-			Vector2(3360.0, 950.0),
-			Vector2(3250.0, 1490.0),
-			Vector2(3250.0, 1790.0), # the bridge
-			Vector2(3250.0, 2090.0),
-			Vector2(3110.0, 2550.0),
-			Vector2(3370.0, 3020.0),
-			Vector2(3190.0, 3500.0),
-		],
-	},
-
-	"player": {
-		# Legal area for the player to drag squads into — wider than just
-		# the village: the defense can post squads forward in ambush/
-		# blocking positions or held back in reserve, not only inside the
-		# village itself. Spans most of the western half of the map,
-		# through and a good way past the village.
-		"deployment_zone": Rect2(400.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 2600.0 * PIXELS_PER_METER, 3300.0 * PIXELS_PER_METER),
-		# The mortar gets its own, much larger deployment zone spanning
-		# from the western map edge through and a bit past the village —
-		# real mortars sit well back from the line, and there's real
-		# playable depth behind the village for one to use.
-		"mortar_deployment_zone": Rect2(50.0 * PIXELS_PER_METER, 80.0 * PIXELS_PER_METER, 2150.0 * PIXELS_PER_METER, 3350.0 * PIXELS_PER_METER),
-		# Whichever reconnaissance asset the player is fielding this battle
-		# (see ReconMode) can deploy just about anywhere on the map — it's
-		# not a firing position, and unlike squads/mortar isn't restricted
-		# to the village. Kept a small margin off the outer edges only so
-		# it can't be dropped literally off-map. Shared by both the
-		# artillery spotter and the drone team's ground station.
-		"spotter_deployment_zone": Rect2(50.0 * PIXELS_PER_METER, 50.0 * PIXELS_PER_METER, 4900.0 * PIXELS_PER_METER, 3400.0 * PIXELS_PER_METER),
-		# Default starting token positions on the deployment screen, before
-		# the player drags them anywhere else within their zone.
-		"default_squad_positions": [
-			Vector2(1280.0, 1670.0) * PIXELS_PER_METER,
-			Vector2(1480.0, 1750.0) * PIXELS_PER_METER,
-			Vector2(1300.0, 1860.0) * PIXELS_PER_METER,
-		],
-		# Below the village's BUILDING footprint and clear of the tree
-		# zones — a mortar can never be set up inside a building or dragged
-		# into one.
-		"mortar_default_position": Vector2(1400.0, 2050.0) * PIXELS_PER_METER,
-		"spotter_default_position": Vector2(1900.0, 1750.0) * PIXELS_PER_METER,
-	},
-
-	"enemy": {
-		# Enemy squads start at the map's eastern edge, march down the
-		# winding road in a loose spread rather than single file, then
-		# break off toward cover once they take fire. The enemy's mortars
-		# deploy at fixed rear positions and never advance.
-		"spawn_x": 4950.0 * PIXELS_PER_METER,
-		# Perpendicular-ish spread off the road's line, per squad — evenly
-		# spaced across the same total span the original fixed 6-squad
-		# layout used (-420m to +420m), so 6 squads still spread almost
-		# exactly as before; any other count spreads that same width more
-		# or less densely. A lone squad sits dead center on the road.
-		"squad_spread_min_offset_m": -420.0,
-		"squad_spread_max_offset_m": 420.0,
-		# Rear mortar positions: fixed x, y spread evenly across the same
-		# span the original fixed 2-mortar layout used (1300m to 2500m) —
-		# 2 mortars still land exactly there. A lone mortar sits at the
-		# midpoint.
-		"mortar_rear_x_m": 4700.0,
-		"mortar_spread_min_y_m": 1300.0,
-		"mortar_spread_max_y_m": 2500.0,
-		# A wide swing through the west flank before falling through to
-		# the normal mortar/village objective — see _enemy_advance_objective.
-		"flank_waypoint_x": -1000.0 * PIXELS_PER_METER,
-		"flank_waypoint_arrival_radius": 350.0 * PIXELS_PER_METER,
-	},
-}
 
 
 ## How much a blob's effective radius is stretched (>1) or pinched (<1) in
@@ -511,16 +371,60 @@ static func elevation_m(pos_px: Vector2) -> float:
 
 ## Road/river data now lives in CURRENT_MAP (road_width_m/road_waypoints_m/
 ## river) — see that dictionary's own doc comment for why.
+##
 ## The river's own blocking geometry, built once from CURRENT_MAP.river's
-## `path_m` — a real river doesn't run in one straight line, so this is a
-## sequence of rects, one per leg of the path (each leg's bounding box,
-## padded by the river's half-width), not a single band. The one bridge
-## sits on a short DELIBERATELY straight stretch of the path (see the
-## path's own data comment) specifically so splitting a gap out of it
-## stays simple axis-aligned math instead of needing real polygon-vs-
-## segment geometry — everywhere else, the path is free to wander.
+## `path_m` — a real river (or canal) doesn't run in one straight line,
+## and doesn't necessarily run perpendicular to the attacker's own axis
+## of advance either (Moshchun's river did; Pervomaiske's canal runs
+## roughly PARALLEL to the road instead), so this makes no assumption
+## about the path's orientation at all: each leg becomes its own
+## blocking rect (that leg's bounding box, padded by the river's half-
+## width) via the same rect-crossing check BUILDING zones already use,
+## and the one crossing is cut out of whichever leg(s) it actually falls
+## on by walking distance ALONG that leg's own direction from the
+## crossing point — see _split_leg_around_crossing — rather than assuming
+## the crossing sits on a vertical (or any other specific) stretch.
 static var _river_segment_rects: Array[Rect2] = []
 static var _river_rects_built: bool = false
+
+
+## Splits the leg (a, b) around `crossing` (all in the same space) into
+## whatever survives once a stretch of `gap_half` on each side of it is
+## removed — 0, 1, or 2 remaining sub-legs, each still just an (a, b)
+## pair. Orientation-agnostic: works identically whether the leg runs
+## vertically, horizontally, or diagonally, and whether the crossing
+## sits mid-leg or exactly at one of its endpoints (a shared vertex with
+## the next/previous leg) — the ONLY assumption is that `crossing` itself
+## lies on the segment (a,b), which the map's own data is responsible for
+## guaranteeing (a leg that doesn't contain the crossing at all should
+## never be passed in here — see the caller's own distance check).
+static func _split_leg_around_crossing(a: Vector2, b: Vector2, crossing: Vector2, gap_half: float) -> Array:
+	var leg_len: float = a.distance_to(b)
+	if leg_len < 0.001:
+		return []
+	var dir: Vector2 = (b - a) / leg_len
+	var t: float = (crossing - a).dot(dir) # how far along the leg, from a, the crossing sits
+	var out: Array = []
+	if t - gap_half > 0.0:
+		out.append([a, a + dir * (t - gap_half)])
+	if t + gap_half < leg_len:
+		out.append([a + dir * (t + gap_half), b])
+	return out
+
+
+## True if `crossing` lies on the segment (a, b) — collinear AND between
+## the endpoints, with a small tolerance for the map data's own precision.
+static func _crossing_is_on_leg(a: Vector2, b: Vector2, crossing: Vector2) -> bool:
+	var leg_len: float = a.distance_to(b)
+	if leg_len < 0.001:
+		return a.distance_to(crossing) < 1.0
+	var dir: Vector2 = (b - a) / leg_len
+	var t: float = (crossing - a).dot(dir)
+	if t < -1.0 or t > leg_len + 1.0:
+		return false
+	var closest: Vector2 = a + dir * clamp(t, 0.0, leg_len)
+	return closest.distance_to(crossing) < 1.0
+
 
 static func _build_river_rects() -> void:
 	if _river_rects_built:
@@ -529,31 +433,27 @@ static func _build_river_rects() -> void:
 	var river: Dictionary = CURRENT_MAP.river
 	var path: Array = river.path_m
 	var half_w: float = river.width_m / 2.0 * PIXELS_PER_METER
-	var bridge_y_px: float = river.bridge_y_m * PIXELS_PER_METER
-	var half_gap_px: float = river.bridge_half_width_m * PIXELS_PER_METER
-	var gap_top: float = bridge_y_px - half_gap_px
-	var gap_bottom: float = bridge_y_px + half_gap_px
+	var crossing: Vector2 = river.crossing_point_m * PIXELS_PER_METER
+	var gap_half: float = river.crossing_gap_m * PIXELS_PER_METER
 	_river_segment_rects.clear()
 	for i in path.size() - 1:
 		var a: Vector2 = path[i] * PIXELS_PER_METER
 		var b: Vector2 = path[i + 1] * PIXELS_PER_METER
-		var y0: float = min(a.y, b.y)
-		var y1: float = max(a.y, b.y)
-		# The straight stretch spans the bridge gap — split it into
-		# whatever survives above/below the gap instead of one solid rect.
-		if is_equal_approx(a.x, b.x) and y0 < gap_bottom and y1 > gap_top:
-			if y0 < gap_top:
-				_river_segment_rects.append(Rect2(a.x - half_w, y0, half_w * 2.0, gap_top - y0))
-			if y1 > gap_bottom:
-				_river_segment_rects.append(Rect2(a.x - half_w, gap_bottom, half_w * 2.0, y1 - gap_bottom))
-			continue
-		var min_x: float = min(a.x, b.x) - half_w
-		var max_x: float = max(a.x, b.x) + half_w
-		_river_segment_rects.append(Rect2(min_x, y0, max_x - min_x, y1 - y0))
+		var legs: Array = [[a, b]]
+		if _crossing_is_on_leg(a, b, crossing):
+			legs = _split_leg_around_crossing(a, b, crossing, gap_half)
+		for leg in legs:
+			var p0: Vector2 = leg[0]
+			var p1: Vector2 = leg[1]
+			var min_x: float = min(p0.x, p1.x) - half_w
+			var max_x: float = max(p0.x, p1.x) + half_w
+			var min_y: float = min(p0.y, p1.y) - half_w
+			var max_y: float = max(p0.y, p1.y) + half_w
+			_river_segment_rects.append(Rect2(min_x, min_y, max_x - min_x, max_y - min_y))
 
 
 ## True if `pos` sits in the (impassable) river itself, excluding the
-## bridge gap.
+## crossing's own gap.
 static func is_river_at(pos: Vector2) -> bool:
 	_build_river_rects()
 	for rect in _river_segment_rects:
@@ -563,7 +463,7 @@ static func is_river_at(pos: Vector2) -> bool:
 
 
 ## True if the straight segment from `from` to `to` crosses the river
-## outside the bridge gap — same convention as path_crosses_building.
+## outside the crossing's own gap — same convention as path_crosses_building.
 static func path_crosses_river(from: Vector2, to: Vector2) -> bool:
 	_build_river_rects()
 	for rect in _river_segment_rects:
@@ -572,22 +472,13 @@ static func path_crosses_river(from: Vector2, to: Vector2) -> bool:
 	return false
 
 
-## The point on the bridge closest to a straight line from `from` toward
-## `to` — there's only one crossing, but aiming for wherever the gap's own
-## width brings a unit closest to its real destination (rather than always
-## the exact same fixed point) spreads traffic slightly across the gap
-## instead of every unit converging on one identical pixel.
-static func nearest_river_crossing(from: Vector2, to: Vector2) -> Vector2:
-	var river: Dictionary = CURRENT_MAP.river
-	var bridge_x: float = river.x_m * PIXELS_PER_METER
-	var target_y: float = from.y
-	if not is_equal_approx(from.x, to.x):
-		var t: float = (bridge_x - from.x) / (to.x - from.x)
-		target_y = lerp(from.y, to.y, clamp(t, 0.0, 1.0))
-	var half_gap_px: float = river.bridge_half_width_m * PIXELS_PER_METER
-	var bridge_y_px: float = river.bridge_y_m * PIXELS_PER_METER
-	var clamped_y: float = clamp(target_y, bridge_y_px - half_gap_px, bridge_y_px + half_gap_px)
-	return Vector2(bridge_x, clamped_y)
+## The one crossing point, in pixel space — there's only one, so unlike
+## nearest_cover_point this doesn't need to search anything; `from`/`to`
+## are accepted (rather than a bare getter) purely so every existing call
+## site written for that signature keeps working unchanged regardless of
+## which map — and which orientation of river — is actually loaded.
+static func nearest_river_crossing(_from: Vector2, _to: Vector2) -> Vector2:
+	return CURRENT_MAP.river.crossing_point_m * PIXELS_PER_METER
 
 
 ## The road's waypoints converted to pixel space, for BattleManager to build
@@ -787,29 +678,6 @@ const DRONE_FLANK_WATCH_BASE_VALUE: float = 0.5
 ## not direction).
 const DRONE_FLANK_WATCH_EARLY_DISCOUNT_MIN: float = 0.1
 
-
-## This map depicts Moshchun, a small village in Bucha Raion, Kyiv Oblast,
-## roughly as it stood before the real battle fought there 5-21 March 2022
-## — one of the engagements credited with stopping the Russian drive on
-## Kyiv and contributing to the eventual full withdrawal from Kyiv Oblast.
-## The real village sat on the Irpin River (see RIVER_X_M above); Russian
-## forces attacked from the northwest, having come down through the
-## Chornobyl exclusion zone via Ivankiv, Dymer, and Borodyanka, trying to
-## force a crossing to reach Kyiv via Pushcha-Vodytsia beyond. This map's
-## own geometry already has the attacker approaching from the map's own
-## east/right and the defender's rear to the west/left — exactly the real
-## attack's own axis — so depicting it needed no change to that
-## convention, just orienting a real compass onto it (see main.gd's
-## compass rose) and adding the river itself, the one major real feature
-## this map didn't already have an equivalent of. Beyond the river's real
-## position and the village's real name, the specific building/forest
-## layout below is a reasonable, similarly-scaled approximation in the
-## same spirit as the rest of this file's terrain, not a surveyed
-## reconstruction — no detailed public record of the village's exact
-## pre-war footprint was found.
-## Village name, layout, terrain zones, forest patches, deployment zones/
-## positions, and enemy spawn/spread now all live in CURRENT_MAP — see
-## that dictionary's own doc comment.
 
 # Attacking force size, rolled once per battle (see
 # BattleManager.roll_enemy_force_size) — a real attack isn't always the
@@ -2588,39 +2456,46 @@ static func draw_terrain(ci: CanvasItem) -> void:
 
 
 ## Drawn by following CURRENT_MAP.river's own path_m, not the blocking
-## rects directly — a real river winds, and drawing the (boxier,
+## rects directly — a real river/canal winds, and drawing the (boxier,
 ## bounding-box-padded) collision rects instead would look like a
-## staircase. The gap is cut out of whichever leg(s) actually cross the
-## bridge's y-range, same logic as _build_river_rects, so the drawn gap
-## always lines up with the one that's actually passable. A short plank
-## mark across the gap marks the bridge itself.
+## staircase. The gap is cut out of whichever leg(s) actually contain the
+## crossing point, via the same orientation-agnostic split
+## _build_river_rects uses, so the drawn gap always lines up with the one
+## that's actually passable regardless of which way the path runs. A
+## short plank mark across the gap marks the crossing itself.
 static func _draw_river(ci: CanvasItem) -> void:
 	var river: Dictionary = CURRENT_MAP.river
 	var path: Array = river.path_m
 	var width_px: float = river.width_m * PIXELS_PER_METER
 	var water := Color(0.3, 0.45, 0.55, 0.85)
-	var bridge_y_px: float = river.bridge_y_m * PIXELS_PER_METER
-	var half_gap_px: float = river.bridge_half_width_m * PIXELS_PER_METER
-	var gap_top: float = bridge_y_px - half_gap_px
-	var gap_bottom: float = bridge_y_px + half_gap_px
+	var crossing: Vector2 = river.crossing_point_m * PIXELS_PER_METER
+	var gap_half: float = river.crossing_gap_m * PIXELS_PER_METER
 	for i in path.size() - 1:
 		var a: Vector2 = path[i] * PIXELS_PER_METER
 		var b: Vector2 = path[i + 1] * PIXELS_PER_METER
-		var y0: float = min(a.y, b.y)
-		var y1: float = max(a.y, b.y)
-		if is_equal_approx(a.x, b.x) and y0 < gap_bottom and y1 > gap_top:
-			if y0 < gap_top:
-				ci.draw_line(Vector2(a.x, y0), Vector2(a.x, gap_top), water, width_px)
-			if y1 > gap_bottom:
-				ci.draw_line(Vector2(a.x, gap_bottom), Vector2(a.x, y1), water, width_px)
-			continue
-		ci.draw_line(a, b, water, width_px)
-	var bridge_x: float = river.x_m * PIXELS_PER_METER
+		var legs: Array = [[a, b]]
+		if _crossing_is_on_leg(a, b, crossing):
+			legs = _split_leg_around_crossing(a, b, crossing, gap_half)
+		for leg in legs:
+			ci.draw_line(leg[0], leg[1], water, width_px)
+	# The plank mark runs across the gap, perpendicular to whichever
+	# direction the path happens to be running through the crossing —
+	# found from the (up to two) legs the crossing actually sits on,
+	# rather than assuming any particular axis.
+	var crossing_dir := Vector2(1.0, 0.0)
+	for i in path.size() - 1:
+		var a: Vector2 = path[i] * PIXELS_PER_METER
+		var b: Vector2 = path[i + 1] * PIXELS_PER_METER
+		if _crossing_is_on_leg(a, b, crossing) and a.distance_to(b) > 0.001:
+			crossing_dir = (b - a).normalized()
+			break
+	var perp: Vector2 = Vector2(-crossing_dir.y, crossing_dir.x)
 	var plank := Color(0.55, 0.45, 0.3)
-	var y: float = gap_top
-	while y < gap_bottom:
-		ci.draw_line(Vector2(bridge_x - width_px / 2.0, y), Vector2(bridge_x + width_px / 2.0, y), plank, 2.0)
-		y += 10.0
+	var t: float = -gap_half
+	while t < gap_half:
+		var center: Vector2 = crossing + crossing_dir * t
+		ci.draw_line(center - perp * width_px / 2.0, center + perp * width_px / 2.0, plank, 2.0)
+		t += 10.0
 
 
 ## A ring around a unit/token showing whether its current spot is cover —

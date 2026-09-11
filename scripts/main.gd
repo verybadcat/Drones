@@ -124,6 +124,15 @@ var _location_label: Label
 
 
 func _ready() -> void:
+	# Sized from GameConfig's own map-derived constants, not project.godot's
+	# fixed viewport_width/height — those were hand-set for one specific
+	# map's own dimensions and would silently stop matching the moment a
+	# differently-sized real map was swapped in (see GameConfig.
+	# SIDEBAR_COLUMN_WIDTH/MIN_WINDOW_HEIGHT_PX's own doc comments).
+	get_window().size = Vector2i(
+		int(GameConfig.SIDEBAR_X + GameConfig.SIDEBAR_COLUMN_WIDTH),
+		int(max(GameConfig.MAP_HEIGHT_PX, GameConfig.MIN_WINDOW_HEIGHT_PX)))
+
 	map_container = SubViewportContainer.new()
 	map_container.position = Vector2(0, 0)
 	map_container.size = Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX, GameConfig.MAP_HEIGHT_PX)
@@ -164,7 +173,7 @@ func _ready() -> void:
 	# name should be as visible as the clock. See GameConfig.CURRENT_MAP.name's
 	# own doc comment for the real history.
 	_location_label = Label.new()
-	_location_label.text = "%s, Kyiv Oblast — March 2022" % GameConfig.CURRENT_MAP.name
+	_location_label.text = "%s, %s" % [GameConfig.CURRENT_MAP.name, GameConfig.CURRENT_MAP.location_subtitle]
 	_location_label.position = Vector2(8, 24)
 	_location_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.85))
 	_location_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
@@ -286,14 +295,12 @@ func _map_mouse_world_position() -> Vector2:
 ## A fixed 1000m reference bar, bottom-left of the map — the one thing on
 ## screen with a known, constant real-world length to judge everything else
 ## against — plus a compass rose, bottom-right, showing true north on this
-## real map. North does NOT point up here: this map keeps the attacker
-## approaching from the map's own east/right (the existing convention
-## every other piece of this game already assumes), and the real attack on
-## Moshchun came from the northwest — so true north here points down-and-
-## right, not up. See GameConfig.CURRENT_MAP.name's own doc comment for the
-## real-world reasoning the rotation comes from.
-const COMPASS_NORTH_SCREEN_DIRECTION: Vector2 = Vector2(0.70710678, 0.70710678)
-
+## real map. Read from GameConfig.CURRENT_MAP.compass_north_screen_direction,
+## not a constant of main.gd's own: this map keeps the attacker approaching
+## from the map's own east/right (the existing convention every other piece
+## of this game already assumes), and different real places' own real
+## attack directions land at different angles relative to that — north
+## doesn't have to point up, or the same way twice.
 func _draw() -> void:
 	var bar_m := 1000.0
 	var bar_px: float = bar_m * GameConfig.PIXELS_PER_METER
@@ -306,10 +313,11 @@ func _draw() -> void:
 
 	var compass_center := Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX - 50.0, GameConfig.MAP_HEIGHT_PX - 50.0)
 	var compass_radius := 26.0
+	var north_dir: Vector2 = GameConfig.CURRENT_MAP.compass_north_screen_direction
 	draw_arc(compass_center, compass_radius, 0.0, TAU, 32, Color(1, 1, 1, 0.7), 1.5, true)
-	var north_tip: Vector2 = compass_center + COMPASS_NORTH_SCREEN_DIRECTION * compass_radius
+	var north_tip: Vector2 = compass_center + north_dir * compass_radius
 	draw_line(compass_center, north_tip, Color(1.0, 0.85, 0.2), 2.0)
-	draw_string(ThemeDB.fallback_font, north_tip + COMPASS_NORTH_SCREEN_DIRECTION * 10.0 - Vector2(5, -5), "N",
+	draw_string(ThemeDB.fallback_font, north_tip + north_dir * 10.0 - Vector2(5, -5), "N",
 		HORIZONTAL_ALIGNMENT_CENTER, -1, 13, Color(1.0, 0.85, 0.2))
 
 

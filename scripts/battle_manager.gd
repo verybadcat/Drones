@@ -3970,10 +3970,20 @@ func _sidestep_building(unit: Unit, scenario_delta: float, blocked_pos: Vector2)
 	unit.position.y += dir_y * unit.retreat_speed * scenario_delta
 
 
+## Unlike _sidestep_building (a compact, localized obstacle a unit can go
+## AROUND with a Y-only nudge), a river/canal spans a whole band across
+## much of the map — perpendicular movement only actually escapes it if
+## aimed at the one real crossing, and which axis that even is depends on
+## which way the river happens to run on this particular map (vertical
+## for Moshchun, roughly horizontal for Pervomaiske's canal — see
+## GameConfig.CURRENT_MAP's own doc comment). Walking straight toward the
+## known crossing point in both x and y at once sidesteps needing to
+## detect the river's own local orientation at all.
 func _sidestep_river(unit: Unit, scenario_delta: float) -> void:
-	var bridge_y: float = GameConfig.CURRENT_MAP.river.bridge_y_m * GameConfig.PIXELS_PER_METER
-	var dir_y: float = -1.0 if unit.position.y > bridge_y else 1.0
-	unit.position.y += dir_y * unit.retreat_speed * scenario_delta
+	var crossing: Vector2 = GameConfig.CURRENT_MAP.river.crossing_point_m * GameConfig.PIXELS_PER_METER
+	var to_crossing: Vector2 = crossing - unit.position
+	if to_crossing.length() > 1.0:
+		unit.position += to_crossing.normalized() * unit.retreat_speed * scenario_delta
 
 
 ## Takes scenario_delta (tactical seconds), not real elapsed_time — every
