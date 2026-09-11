@@ -103,6 +103,12 @@ const MAPS: Dictionary = {
 
 	"village_center": Vector2(1500.0, 1750.0) * PIXELS_PER_METER,
 
+	# Midpoint of the regional elevation range this dictionary's own doc
+	# comment already cites (roughly 80-170m ASL) — elevation_m() adds
+	# this to every hill's local contribution, so "flat ground" here reads
+	# as a real sea-level figure instead of 0m.
+	"elevation_baseline_m": 125.0,
+
 	## Gently rolling farmland, not Moshchun's real ridgelines — see this
 	## dictionary's own doc comment for the regional elevation sourcing.
 	## The first five sit near the hamlet/road, exactly where the source
@@ -348,6 +354,12 @@ const MAPS: Dictionary = {
 	"west_flank_width_m": 1500.0,
 
 	"village_center": Vector2(1500.0, 1750.0) * PIXELS_PER_METER,
+
+	# Midpoint of the regional elevation range this dictionary's own doc
+	# comment already cites (roughly 150-220m ASL) — elevation_m() adds
+	# this to every hill's local contribution, so "flat ground" here reads
+	# as a real sea-level figure instead of 0m.
+	"elevation_baseline_m": 185.0,
 
 	## The first four sit near real features (the ravine's own rim, the
 	## village, the complex's south side, the rear); the rest fill the
@@ -638,8 +650,6 @@ const EYE_HEIGHT_M: float = 1.6
 ## avoids granting it over meaningless terrain noise.
 const ELEVATION_ADVANTAGE_THRESHOLD_M: float = 8.0
 
-const CONTOUR_INTERVAL_M: float = 10.0
-
 
 ## How much a blob's effective radius is stretched (>1) or pinched (<1) in
 ## the direction `theta` (radians from its center) — a sum of cosine
@@ -660,12 +670,21 @@ static func _hill_radius_warp(hill: Dictionary, theta: float) -> float:
 	return _radius_warp(hill.warp_harmonics, theta)
 
 
-## Continuous ground elevation in meters at a point (given in the engine's
-## pixel space, like everything else) — the sum of every hill's (warped,
-## non-circular) contribution. Never negative; flat, open ground is 0m.
+## Ground elevation in meters ABOVE SEA LEVEL at a point (given in the
+## engine's pixel space, like everything else) — CURRENT_MAP's own
+## elevation_baseline_m (the real place's actual regional ASL range,
+## sourced the same way every other piece of a map's terrain is, see that
+## dictionary's own doc comment) plus the sum of every hill's (warped,
+## non-circular) local contribution above it. Adding a per-map CONSTANT
+## offset here is free everywhere else in the file that reads elevation:
+## has_direct_los and _build_contour_cache only ever compare or difference
+## two elevations, and a shared additive constant cancels out of both a
+## comparison and a difference identically — flat, open ground reads as
+## elevation_baseline_m, not 0m, matching how a real elevation reading
+## always would, but nothing about line-of-sight masking changes.
 static func elevation_m(pos_px: Vector2) -> float:
 	var pos_m: Vector2 = pos_px / PIXELS_PER_METER
-	var total := 0.0
+	var total: float = CURRENT_MAP.get("elevation_baseline_m", 0.0)
 	for hill in CURRENT_MAP.hills:
 		var offset: Vector2 = pos_m - hill.center_m
 		var d: float = offset.length()
@@ -2846,6 +2865,28 @@ static var _contour_cache_built: bool = false
 ## _marching_squares_cell so grid-index math and world-position math for a
 ## cell agree with each other.
 static var _contour_col_origin_m: float = 0.0
+## The spacing actually used for the currently-loaded map — chosen in
+## _build_contour_cache from that map's own real local relief (highest
+## sampled point minus lowest), not a single fixed number for every map.
+## A map with only a few meters of rise from lowest to highest point needs
+## a much tighter interval than one with real ridgelines, or every hill
+## would draw as a single ring or none at all; real topographic sheets
+## make the same per-area choice rather than using one interval for every
+## kind of terrain. Read by _draw_hills for the brightness ramp; not
+## meaningful before _build_contour_cache has run at least once.
+static var _contour_interval_m: float = 10.0
+
+
+## See _contour_interval_m's own doc comment for why this isn't fixed.
+static func _choose_contour_interval_m(relief_range_m: float) -> float:
+	if relief_range_m <= 50.0:
+		return 5.0
+	elif relief_range_m <= 120.0:
+		return 10.0
+	elif relief_range_m <= 250.0:
+		return 20.0
+	else:
+		return 25.0
 
 
 static func _draw_hills(ci: CanvasItem) -> void:
@@ -2855,11 +2896,12 @@ static func _draw_hills(ci: CanvasItem) -> void:
 		ci.draw_circle(center_px, halo_radius_px, Color(0.32, 0.29, 0.2, 0.12))
 
 	_build_contour_cache()
+	var baseline: float = CURRENT_MAP.get("elevation_baseline_m", 0.0)
 	var max_height := 0.0
 	for hill in CURRENT_MAP.hills:
 		max_height = max(max_height, hill.height_m)
 	for seg in _contour_segments_cache:
-		var t: float = seg.level / max_height
+		var t: float = (seg.level - baseline) / max_height # local relief only — baseline is a flat offset, not relief
 		var b: float = 0.5 + 0.35 * t # brighter toward the highest terrain
 		ci.draw_line(seg.a, seg.b, Color(b, b * 0.95, b * 0.68, 0.8), 1.5)
 
@@ -2882,24 +2924,35 @@ static func _build_contour_cache() -> void:
 	var cols: int = west_cols + int(MAP_WIDTH_M / CONTOUR_GRID_STEP_M) + 2
 	var rows: int = int(MAP_HEIGHT_M / CONTOUR_GRID_STEP_M) + 2
 	var grid: Array[PackedFloat32Array] = []
+	var min_elev := INF
+	var max_elev := -INF
 	for row in rows:
 		var line := PackedFloat32Array()
 		line.resize(cols)
 		for col in cols:
 			var pos_m := Vector2(_contour_col_origin_m + col * CONTOUR_GRID_STEP_M, row * CONTOUR_GRID_STEP_M)
-			line[col] = elevation_m(pos_m * PIXELS_PER_METER)
+			var e: float = elevation_m(pos_m * PIXELS_PER_METER)
+			line[col] = e
+			min_elev = min(min_elev, e)
+			max_elev = max(max_elev, e)
 		grid.append(line)
 
-	var max_height := 0.0
-	for hill in CURRENT_MAP.hills:
-		max_height = max(max_height, hill.height_m)
+	_contour_interval_m = _choose_contour_interval_m(max_elev - min_elev)
 
-	var level := CONTOUR_INTERVAL_M
-	while level < max_height:
+	# Levels are real ASL values now (elevation_m includes the map's own
+	# baseline), so they need to start at the first round multiple of the
+	# interval ABOVE the lowest sampled point, not at "one interval above
+	# zero" — a map whose baseline isn't itself a multiple of the interval
+	# would otherwise silently draw no lines at all, or lines that don't
+	# land on round numbers the way a real contour sheet's would.
+	var level: float = ceil(min_elev / _contour_interval_m) * _contour_interval_m
+	if level <= min_elev:
+		level += _contour_interval_m
+	while level < max_elev:
 		for row in rows - 1:
 			for col in cols - 1:
 				_marching_squares_cell(grid, row, col, level)
-		level += CONTOUR_INTERVAL_M
+		level += _contour_interval_m
 
 
 ## One cell of the standard marching-squares algorithm: 4 corners (TL, TR,
