@@ -731,7 +731,7 @@ func _spawn_player_units(doctrine: Dictionary) -> void:
 	_friendly_mortar_home_position = doctrine.mortar.position
 
 	# `doctrine.spotter.position` is the deployment CHOICE (see
-	# GameConfig.PLAYER_SPOTTER_DEPLOYMENT_ZONE) — reused as-is for the drone
+	# GameConfig.CURRENT_MAP.player.spotter_deployment_zone) — reused as-is for the drone
 	# team's ground-station position too, regardless of which recon mode was
 	# actually picked (see main.gd).
 	if recon_mode == GameConfig.ReconMode.DRONE_TEAM:
@@ -784,7 +784,7 @@ func _spawn_enemy_units() -> void:
 	# single file on top of it or on top of each other.
 	for i in squad_y_offsets_m.size():
 		var y_offset: float = squad_y_offsets_m[i] * GameConfig.PIXELS_PER_METER
-		var start_pos := Vector2(GameConfig.ENEMY_SPAWN_X, road_px[0].y + y_offset)
+		var start_pos := Vector2(GameConfig.CURRENT_MAP.enemy.spawn_x, road_px[0].y + y_offset)
 		var squad := _make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, start_pos)
 		squad.retreat_threshold = GameConfig.ENEMY_RETREAT_THRESHOLD if profile_for(Unit.Team.ENEMY).id == "baseline" else float(profile_for(Unit.Team.ENEMY).retreat_threshold)
 		squad.concern_threshold = GameConfig.ENEMY_CONCERN_THRESHOLD
@@ -3290,7 +3290,7 @@ func _area_confirmed_clear(point: Vector2) -> bool:
 ## principle — a decision should only use what the commander could
 ## plausibly know). What IS ordinary, standing knowledge regardless of
 ## timing: this is defended ground, and the enemy's own start line and only
-## approach road sit at the map's eastern edge (GameConfig.ENEMY_SPAWN_X)
+## approach road sit at the map's eastern edge (GameConfig.CURRENT_MAP.enemy.spawn_x)
 ## — so absent evidence otherwise, ground closer to that edge is simply
 ## more likely to matter than ground toward the friendly rear. A smooth
 ## gradient across the map's own width (GameConfig.
@@ -3318,7 +3318,7 @@ func _enemy_approach_likelihood(point: Vector2) -> float:
 ## started, roughly how fast infantry advances), not a secret peek at their
 ## actual position, in the same spirit as _enemy_approach_likelihood's own
 ## static prior. Modeled as straight-line time-to-reach from
-## GameConfig.ENEMY_SPAWN_X at GameConfig.ENEMY_ADVANCE_SPEED — a
+## GameConfig.CURRENT_MAP.enemy.spawn_x at GameConfig.ENEMY_ADVANCE_SPEED — a
 ## deliberately generous (fast) lower bound, since an actual flanking route
 ## would only take longer, not less time, than marching straight there.
 ## Ramps linearly from DRONE_FLANK_WATCH_EARLY_DISCOUNT_MIN up to 1.0 as
@@ -3327,7 +3327,7 @@ func _enemy_approach_likelihood(point: Vector2) -> float:
 ## one deep in the friendly rear stays discounted for longer — exactly the
 ## asymmetry the reported bug was missing.
 func _flank_watch_plausibility(point: Vector2) -> float:
-	var distance_from_enemy_start: float = absf(GameConfig.ENEMY_SPAWN_X - point.x)
+	var distance_from_enemy_start: float = absf(GameConfig.CURRENT_MAP.enemy.spawn_x - point.x)
 	var travel_time: float = distance_from_enemy_start / GameConfig.ENEMY_ADVANCE_SPEED
 	if travel_time <= 0.0:
 		return 1.0
@@ -3962,7 +3962,7 @@ func _retreat_avoidance_offset(unit: Unit) -> float:
 
 func _sidestep_building(unit: Unit, scenario_delta: float, blocked_pos: Vector2) -> void:
 	var building_center_y: float = unit.position.y
-	for zone in GameConfig.TERRAIN_ZONES:
+	for zone in GameConfig.CURRENT_MAP.terrain_zones:
 		if zone.type == GameConfig.TerrainType.BUILDING and zone.rect.has_point(blocked_pos):
 			building_center_y = zone.rect.position.y + zone.rect.size.y / 2.0
 			break
@@ -3971,7 +3971,7 @@ func _sidestep_building(unit: Unit, scenario_delta: float, blocked_pos: Vector2)
 
 
 func _sidestep_river(unit: Unit, scenario_delta: float) -> void:
-	var bridge_y: float = GameConfig.RIVER_BRIDGE_Y_M * GameConfig.PIXELS_PER_METER
+	var bridge_y: float = GameConfig.CURRENT_MAP.river.bridge_y_m * GameConfig.PIXELS_PER_METER
 	var dir_y: float = -1.0 if unit.position.y > bridge_y else 1.0
 	unit.position.y += dir_y * unit.retreat_speed * scenario_delta
 
@@ -4513,7 +4513,7 @@ func _angle_diff(a_deg: float, b_deg: float) -> float:
 ## `u` (optional — omitted by _encirclement_pivot, which needs a shared
 ## per-batch reference point rather than any one squad's own route) lets a
 ## squad with flanking_route_active set (see GameConfig.ENEMY_FLANK_CHANCE)
-## route through GameConfig.ENEMY_FLANK_WAYPOINT_X first — a wide swing
+## route through GameConfig.CURRENT_MAP.enemy.flank_waypoint_x first — a wide swing
 ## through the west flank — before falling through to the normal mortar/
 ## village objective once it arrives, now approaching from the west
 ## instead of head-on. Every existing candidate/scoring mechanism in
@@ -4521,14 +4521,14 @@ func _angle_diff(a_deg: float, b_deg: float) -> float:
 ## only change needed to give a flanking squad a genuine envelopment route.
 func _enemy_advance_objective(u: Unit = null) -> Vector2:
 	if u != null and u.flanking_route_active:
-		var waypoint := Vector2(GameConfig.ENEMY_FLANK_WAYPOINT_X, u.flank_waypoint_y)
-		if u.global_position.distance_to(waypoint) > GameConfig.ENEMY_FLANK_WAYPOINT_ARRIVAL_RADIUS:
+		var waypoint := Vector2(GameConfig.CURRENT_MAP.enemy.flank_waypoint_x, u.flank_waypoint_y)
+		if u.global_position.distance_to(waypoint) > GameConfig.CURRENT_MAP.enemy.flank_waypoint_arrival_radius:
 			return waypoint
 		u.flanking_route_active = false # arrived — falls through to the normal objective from here on, permanently
 	var mortar_pos := _known_friendly_mortar_position()
 	if not is_inf(mortar_pos.x) and _friendly_mortar_is_active():
 		return mortar_pos
-	return GameConfig.VILLAGE_CENTER
+	return GameConfig.CURRENT_MAP.village_center
 
 
 func _friendly_mortar_is_active() -> bool:
@@ -5828,7 +5828,7 @@ func _end_battle() -> void:
 	var lines: PackedStringArray = []
 	lines.append("=== AFTER-ACTION REPORT ===")
 	lines.append("Verdict: %s" % verdict)
-	lines.append("%s held: %s" % [GameConfig.VILLAGE_NAME, "YES" if held else "NO"])
+	lines.append("%s held: %s" % [GameConfig.CURRENT_MAP.name, "YES" if held else "NO"])
 	var tactical_minutes: int = int(scenario_elapsed_time / 60.0)
 	lines.append("Time elapsed: %dh %02dm (0600 to %s)" % [tactical_minutes / 60, tactical_minutes % 60, clock_string().substr(0, 5)])
 	# Captured is included right in this line, not a separate conditional

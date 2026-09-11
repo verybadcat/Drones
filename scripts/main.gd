@@ -119,7 +119,7 @@ var _elevation_label: Label
 # before the battle starts too, frozen at the planned H-hour.
 var _clock_label: Label
 
-# The real place this map depicts — see GameConfig.VILLAGE_NAME.
+# The real place this map depicts — see GameConfig.CURRENT_MAP.name.
 var _location_label: Label
 
 
@@ -161,10 +161,10 @@ func _ready() -> void:
 
 	# Always on screen (unlike _elevation_label, which only shows on hover)
 	# — this map depicts a real place, not a generic fictional one, and the
-	# name should be as visible as the clock. See GameConfig.VILLAGE_NAME's
+	# name should be as visible as the clock. See GameConfig.CURRENT_MAP.name's
 	# own doc comment for the real history.
 	_location_label = Label.new()
-	_location_label.text = "%s, Kyiv Oblast — March 2022" % GameConfig.VILLAGE_NAME
+	_location_label.text = "%s, Kyiv Oblast — March 2022" % GameConfig.CURRENT_MAP.name
 	_location_label.position = Vector2(8, 24)
 	_location_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.85))
 	_location_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
@@ -290,7 +290,7 @@ func _map_mouse_world_position() -> Vector2:
 ## approaching from the map's own east/right (the existing convention
 ## every other piece of this game already assumes), and the real attack on
 ## Moshchun came from the northwest — so true north here points down-and-
-## right, not up. See GameConfig.VILLAGE_NAME's own doc comment for the
+## right, not up. See GameConfig.CURRENT_MAP.name's own doc comment for the
 ## real-world reasoning the rotation comes from.
 const COMPASS_NORTH_SCREEN_DIRECTION: Vector2 = Vector2(0.70710678, 0.70710678)
 

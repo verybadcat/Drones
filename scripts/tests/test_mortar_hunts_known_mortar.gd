@@ -36,12 +36,12 @@ func _initialize():
 
 func _build_doctrine(mode: GameConfig.ReconMode, seed_val: int) -> Dictionary:
 	var squads: Array[Dictionary] = []
-	for pos in GameConfig.PLAYER_DEFAULT_POSITIONS:
+	for pos in GameConfig.CURRENT_MAP.player.default_squad_positions:
 		squads.append({"position": pos, "retreat_threshold": 0.30})
 	return {
 		"squads": squads,
-		"mortar": {"position": GameConfig.PLAYER_MORTAR_DEFAULT_POSITION, "shoot_and_scoot": true},
-		"spotter": {"position": GameConfig.PLAYER_SPOTTER_DEFAULT_POSITION},
+		"mortar": {"position": GameConfig.CURRENT_MAP.player.mortar_default_position, "shoot_and_scoot": true},
+		"spotter": {"position": GameConfig.CURRENT_MAP.player.spotter_default_position},
 		"recon_mode": mode,
 		"seed": seed_val,
 	}

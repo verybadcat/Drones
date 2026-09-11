@@ -16,16 +16,16 @@ var _dragging: UnitToken = null
 
 
 func _ready() -> void:
-	for i in GameConfig.PLAYER_DEFAULT_POSITIONS.size():
+	for i in GameConfig.CURRENT_MAP.player.default_squad_positions.size():
 		var token := UnitToken.new()
 		add_child(token)
-		token.setup(Unit.Kind.SQUAD, "Squad %d" % (i + 1), GameConfig.PLAYER_DEFAULT_POSITIONS[i], GameConfig.PLAYER_DEPLOYMENT_ZONE)
+		token.setup(Unit.Kind.SQUAD, "Squad %d" % (i + 1), GameConfig.CURRENT_MAP.player.default_squad_positions[i], GameConfig.CURRENT_MAP.player.deployment_zone)
 		_squad_tokens.append(token)
 		_tokens.append(token)
 
 	_mortar_token = UnitToken.new()
 	add_child(_mortar_token)
-	_mortar_token.setup(Unit.Kind.MORTAR, "Mortar", GameConfig.PLAYER_MORTAR_DEFAULT_POSITION, GameConfig.PLAYER_MORTAR_DEPLOYMENT_ZONE)
+	_mortar_token.setup(Unit.Kind.MORTAR, "Mortar", GameConfig.CURRENT_MAP.player.mortar_default_position, GameConfig.CURRENT_MAP.player.mortar_deployment_zone)
 	_tokens.append(_mortar_token)
 
 	# Same deployment zone/default position either way — see GameConfig.
@@ -34,7 +34,7 @@ func _ready() -> void:
 	add_child(_spotter_token)
 	var recon_kind: Unit.Kind = Unit.Kind.DRONE_TEAM if recon_mode == GameConfig.ReconMode.DRONE_TEAM else Unit.Kind.SPOTTER
 	var recon_label: String = "Drone Team" if recon_mode == GameConfig.ReconMode.DRONE_TEAM else "Spotter"
-	_spotter_token.setup(recon_kind, recon_label, GameConfig.PLAYER_SPOTTER_DEFAULT_POSITION, GameConfig.PLAYER_SPOTTER_DEPLOYMENT_ZONE)
+	_spotter_token.setup(recon_kind, recon_label, GameConfig.CURRENT_MAP.player.spotter_default_position, GameConfig.CURRENT_MAP.player.spotter_deployment_zone)
 	_tokens.append(_spotter_token)
 
 	queue_redraw()
@@ -85,6 +85,6 @@ func get_positions() -> Dictionary:
 
 func _draw() -> void:
 	GameConfig.draw_terrain(self)
-	draw_rect(GameConfig.PLAYER_MORTAR_DEPLOYMENT_ZONE, Color(1.0, 0.55, 0.15, 0.5), false, 2.0)
-	draw_rect(GameConfig.PLAYER_DEPLOYMENT_ZONE, Color(1.0, 1.0, 0.2, 0.7), false, 2.0)
-	draw_rect(GameConfig.PLAYER_SPOTTER_DEPLOYMENT_ZONE, Color(0.3, 1.0, 1.0, 0.6), false, 2.0)
+	draw_rect(GameConfig.CURRENT_MAP.player.mortar_deployment_zone, Color(1.0, 0.55, 0.15, 0.5), false, 2.0)
+	draw_rect(GameConfig.CURRENT_MAP.player.deployment_zone, Color(1.0, 1.0, 0.2, 0.7), false, 2.0)
+	draw_rect(GameConfig.CURRENT_MAP.player.spotter_deployment_zone, Color(0.3, 1.0, 1.0, 0.6), false, 2.0)
