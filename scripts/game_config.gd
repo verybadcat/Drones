@@ -60,6 +60,19 @@ enum ReconMode { SPOTTER, DRONE_TEAM }
 ## gently-rolling approximation from that and the visibly flat-to-gently-
 ## undulating farmland in the source imagery, not a survey.
 ##
+## The screenshot fixed the defended position, the attack's axis (due
+## east along the main road), and one specific real detail — the canal
+## running parallel to the road rather than perpendicular to it — but was
+## never meant to fix the map's own overall scale: it picked a REGION, not
+## a bounding box for the whole battle. So this map uses the same 5000m x
+## 3500m core (1500m west flank) every prior map here has used, rather
+## than a smaller footprint sized to just what the screenshot itself
+## showed — the extra ground beyond the screenshot's own frame is authored
+## as more of the same open, gently-rolling Kupiansk Raion farmland the
+## sourced imagery already established, not a new kind of terrain, and the
+## hamlet itself sits at the same 30%-across/50%-down position within the
+## frame that it always has.
+##
 ## The real attack direction here is simply due EAST — no rotation needed
 ## at all (screen-right already means real east, matching every other
 ## piece of this game's own east-attacker/west-defender convention), so
@@ -69,106 +82,136 @@ const CURRENT_MAP: Dictionary = {
 	"location_subtitle": "Kupiansk Raion, Kharkiv Oblast",
 	"compass_north_screen_direction": Vector2(0.0, -1.0),
 
-	# Real place, real orientation, but genuinely a much smaller, more
-	# local engagement than Moshchun's (a rural crossroads hamlet, not a
-	# river-crossing battle for a approach to a capital) — the map's own
-	# real-world size is data specifically so a case like this doesn't
-	# have to awkwardly inherit a battlefield-sized footprint it doesn't
-	# need. Kept the same rough 3:2 aspect ratio as before, at roughly 60%
-	# linear scale.
-	"width_m": 3000.0,
-	"height_m": 2000.0,
-	"west_flank_width_m": 900.0,
+	# Matches this game's standard battlefield footprint — same as
+	# Moshchun and the original fictional map before it — rather than a
+	# size derived from the screenshot itself; see this dictionary's own
+	# doc comment above.
+	"width_m": 5000.0,
+	"height_m": 3500.0,
+	"west_flank_width_m": 1500.0,
 
-	"village_center": Vector2(900.0, 1000.0) * PIXELS_PER_METER,
+	"village_center": Vector2(1500.0, 1750.0) * PIXELS_PER_METER,
 
 	## Gently rolling farmland, not Moshchun's real ridgelines — see this
 	## dictionary's own doc comment for the regional elevation sourcing.
+	## The first five sit near the hamlet/road, exactly where the source
+	## imagery placed them; the rest fill the wider frame the screenshot
+	## itself didn't show (see the doc comment above).
 	"hills": [
-		{"center_m": Vector2(750.0, 1150.0), "radius_m": 480.0, "height_m": 12.0, "warp_harmonics": [
+		{"center_m": Vector2(1350.0, 1900.0), "radius_m": 480.0, "height_m": 12.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 0.5}, {"frequency": 3, "amplitude": 0.1, "phase": 2.0},
 		]}, # gentle rise around the hamlet
-		{"center_m": Vector2(2100.0, 650.0), "radius_m": 420.0, "height_m": 10.0, "warp_harmonics": [
+		{"center_m": Vector2(2700.0, 1400.0), "radius_m": 420.0, "height_m": 10.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.14, "phase": 1.6}, {"frequency": 2, "amplitude": 0.12, "phase": 2.8},
 		]}, # rise on the attacker's approach, north side
-		{"center_m": Vector2(2300.0, 1450.0), "radius_m": 380.0, "height_m": 9.0, "warp_harmonics": [
+		{"center_m": Vector2(2900.0, 2200.0), "radius_m": 380.0, "height_m": 9.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.16, "phase": 2.3}, {"frequency": 4, "amplitude": 0.08, "phase": 0.6},
 		]}, # rise south of the road, attacker side
-		{"center_m": Vector2(350.0, 1500.0), "radius_m": 380.0, "height_m": 11.0, "warp_harmonics": [
+		{"center_m": Vector2(950.0, 2250.0), "radius_m": 380.0, "height_m": 11.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 0.9}, {"frequency": 2, "amplitude": 0.11, "phase": 3.0},
 		]}, # rear rise, defender side
-		{"center_m": Vector2(-350.0, 1000.0), "radius_m": 320.0, "height_m": 10.0, "warp_harmonics": [
+		{"center_m": Vector2(250.0, 1750.0), "radius_m": 320.0, "height_m": 10.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 1.2}, {"frequency": 3, "amplitude": 0.1, "phase": 2.5},
-		]}, # west flank, gentle rise
+		]}, # well west of the hamlet, gentle rise
+		{"center_m": Vector2(4200.0, 1500.0), "radius_m": 450.0, "height_m": 13.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 0.8}, {"frequency": 3, "amplitude": 0.11, "phase": 1.9},
+		]}, # distant rise on the attacker's approach, far east — newly visible ground
+		{"center_m": Vector2(2600.0, 3100.0), "radius_m": 400.0, "height_m": 10.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 2.6}, {"frequency": 2, "amplitude": 0.1, "phase": 1.0},
+		]}, # southern farmland rise — newly visible ground
+		{"center_m": Vector2(2000.0, 300.0), "radius_m": 380.0, "height_m": 9.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 1.4}, {"frequency": 3, "amplitude": 0.12, "phase": 3.0},
+		]}, # northern farmland rise — newly visible ground
+		{"center_m": Vector2(-1100.0, 2300.0), "radius_m": 340.0, "height_m": 9.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 2.1}, {"frequency": 3, "amplitude": 0.09, "phase": 0.5},
+		]}, # deeper west-flank rise, rear area
 	],
 
 	# The hamlet itself: a genuinely small, compact cluster (not Moshchun's
 	# elongated riverside ribbon — this is a rural crossroads settlement,
 	# not a river-side one), plus one small outlying farmstead further
 	# along the road, matching the handful of separate structures visible
-	# in the source imagery.
+	# in the source imagery. Sizes match the source imagery exactly —
+	# widening the map's own frame doesn't make the real buildings bigger.
 	"terrain_zones": [
-		{"rect": Rect2(840.0 * PIXELS_PER_METER, 950.0 * PIXELS_PER_METER, 120.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # Pervomaiske
-		{"rect": Rect2(1335.0 * PIXELS_PER_METER, 1015.0 * PIXELS_PER_METER, 35.0 * PIXELS_PER_METER, 30.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # outlying farmstead
+		{"rect": Rect2(1440.0 * PIXELS_PER_METER, 1700.0 * PIXELS_PER_METER, 120.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # Pervomaiske
+		{"rect": Rect2(1935.0 * PIXELS_PER_METER, 1765.0 * PIXELS_PER_METER, 35.0 * PIXELS_PER_METER, 30.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # outlying farmstead
 	],
 
 	## Sparse, small patches — thin tree-lines along the road and canal
 	## (the dark fringes visible flanking both in the source imagery),
 	## plus a few scattered field-edge copses, NOT Moshchun's big rounded
 	## forest blocks. This is open farmland, not woodland — deliberately
-	## much less tree cover overall than Moshchun's map.
+	## much less tree cover overall than Moshchun's map. The first thirteen
+	## sit exactly where the source imagery placed them relative to the
+	## hamlet; the last four fill the wider frame the screenshot itself
+	## didn't show, in the same sparse style.
 	"forest_patches": [
-		{"center_m": Vector2(2700.0, 880.0), "radius_m": 80.0, "warp_harmonics": [
+		{"center_m": Vector2(3300.0, 1630.0), "radius_m": 80.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.18, "phase": 0.4}, {"frequency": 3, "amplitude": 0.1, "phase": 2.1},
 		]}, # tree line, road/canal corridor
-		{"center_m": Vector2(2300.0, 905.0), "radius_m": 75.0, "warp_harmonics": [
+		{"center_m": Vector2(2900.0, 1655.0), "radius_m": 75.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.16, "phase": 1.3}, {"frequency": 2, "amplitude": 0.12, "phase": 2.9},
 		]}, # tree line, road/canal corridor
-		{"center_m": Vector2(1900.0, 955.0), "radius_m": 85.0, "warp_harmonics": [
+		{"center_m": Vector2(2500.0, 1705.0), "radius_m": 85.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.17, "phase": 2.2}, {"frequency": 4, "amplitude": 0.09, "phase": 0.5},
 		]}, # tree line, road/canal corridor
-		{"center_m": Vector2(1500.0, 980.0), "radius_m": 70.0, "warp_harmonics": [
+		{"center_m": Vector2(2100.0, 1730.0), "radius_m": 70.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 0.8}, {"frequency": 2, "amplitude": 0.13, "phase": 2.6},
 		]}, # tree line, road/canal corridor
-		{"center_m": Vector2(1100.0, 995.0), "radius_m": 80.0, "warp_harmonics": [
+		{"center_m": Vector2(1700.0, 1745.0), "radius_m": 80.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.16, "phase": 1.9}, {"frequency": 3, "amplitude": 0.11, "phase": 0.3},
 		]}, # tree line, road/canal corridor, near the hamlet
-		{"center_m": Vector2(700.0, 965.0), "radius_m": 75.0, "warp_harmonics": [
+		{"center_m": Vector2(1300.0, 1715.0), "radius_m": 75.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.14, "phase": 2.7}, {"frequency": 2, "amplitude": 0.12, "phase": 0.6},
 		]}, # tree line, road/canal corridor, near the hamlet
-		{"center_m": Vector2(300.0, 925.0), "radius_m": 70.0, "warp_harmonics": [
+		{"center_m": Vector2(900.0, 1675.0), "radius_m": 70.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 0.2}, {"frequency": 4, "amplitude": 0.08, "phase": 2.4},
 		]}, # tree line, road/canal corridor, toward the rear
-		{"center_m": Vector2(1800.0, 1400.0), "radius_m": 90.0, "warp_harmonics": [
+		{"center_m": Vector2(2400.0, 2150.0), "radius_m": 90.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.16, "phase": 1.1}, {"frequency": 2, "amplitude": 0.1, "phase": 3.0},
 		]}, # field-edge copse, attacker side
-		{"center_m": Vector2(1000.0, 1500.0), "radius_m": 85.0, "warp_harmonics": [
+		{"center_m": Vector2(1600.0, 2250.0), "radius_m": 85.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 2.5}, {"frequency": 3, "amplitude": 0.12, "phase": 0.7},
 		]}, # field-edge copse, south of the hamlet
-		{"center_m": Vector2(2000.0, 500.0), "radius_m": 80.0, "warp_harmonics": [
+		{"center_m": Vector2(2600.0, 1250.0), "radius_m": 80.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 0.3}, {"frequency": 2, "amplitude": 0.11, "phase": 2.2},
 		]}, # field-edge copse, attacker approach north
-		{"center_m": Vector2(600.0, 600.0), "radius_m": 75.0, "warp_harmonics": [
+		{"center_m": Vector2(1200.0, 1350.0), "radius_m": 75.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.17, "phase": 1.7}, {"frequency": 4, "amplitude": 0.08, "phase": 3.1},
 		]}, # field-edge copse, rear north
-		{"center_m": Vector2(-300.0, 900.0), "radius_m": 90.0, "warp_harmonics": [
+		{"center_m": Vector2(300.0, 1650.0), "radius_m": 90.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.14, "phase": 0.6}, {"frequency": 2, "amplitude": 0.13, "phase": 2.8},
-		]}, # west flank copse
-		{"center_m": Vector2(-600.0, 1400.0), "radius_m": 80.0, "warp_harmonics": [
+		]}, # field copse west of the hamlet
+		{"center_m": Vector2(0.0, 2150.0), "radius_m": 80.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.16, "phase": 2.0}, {"frequency": 3, "amplitude": 0.1, "phase": 0.4},
-		]}, # west flank copse, south
+		]}, # field copse southwest of the hamlet, near the flank boundary
+		{"center_m": Vector2(3900.0, 1450.0), "radius_m": 80.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 1.5}, {"frequency": 3, "amplitude": 0.09, "phase": 0.2},
+		]}, # tree line, far east approach — newly visible ground
+		{"center_m": Vector2(2300.0, 2950.0), "radius_m": 85.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 2.9}, {"frequency": 2, "amplitude": 0.1, "phase": 1.1},
+		]}, # field-edge copse, newly visible southern farmland
+		{"center_m": Vector2(2700.0, 400.0), "radius_m": 80.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 0.6}, {"frequency": 3, "amplitude": 0.11, "phase": 2.3},
+		]}, # field-edge copse, newly visible northern farmland
+		{"center_m": Vector2(-1200.0, 2000.0), "radius_m": 75.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.16, "phase": 1.8}, {"frequency": 2, "amplitude": 0.12, "phase": 0.3},
+		]}, # west flank copse, deeper rear
 	],
 
 	"road_width_m": 6.0,
 	"road_waypoints_m": [
-		Vector2(2950.0, 900.0),
-		Vector2(2500.0, 930.0),
-		Vector2(2100.0, 950.0),
-		Vector2(1700.0, 970.0),
-		Vector2(1300.0, 985.0),
-		Vector2(900.0, 1000.0), # the hamlet
-		Vector2(500.0, 970.0),
-		Vector2(150.0, 930.0),
+		Vector2(4900.0, 1580.0), # newly visible ground — extends the attacker's approach to the wider frame
+		Vector2(4200.0, 1615.0), # newly visible ground
+		Vector2(3550.0, 1650.0),
+		Vector2(3100.0, 1680.0),
+		Vector2(2700.0, 1700.0),
+		Vector2(2300.0, 1720.0),
+		Vector2(1900.0, 1735.0),
+		Vector2(1500.0, 1750.0), # the hamlet
+		Vector2(1100.0, 1720.0),
+		Vector2(750.0, 1680.0),
 	],
 
 	## The drainage canal visible in the source imagery, running roughly
@@ -179,50 +222,53 @@ const CURRENT_MAP: Dictionary = {
 	## channels are a genuine infantry/vehicle obstacle) except at the one
 	## crossing near the hamlet, where a real culvert/crossing point is
 	## plausible. Narrower than Moshchun's river — this is a canal, not a
-	## real river.
+	## real river. A constant 120m south of the road throughout (matching
+	## the source imagery), including along the two new far-east legs.
 	"river": {
 		"width_m": 15.0,
-		"crossing_point_m": Vector2(900.0, 880.0), # sits exactly on path_m below, at the hamlet's own longitude
+		"crossing_point_m": Vector2(1500.0, 1630.0), # sits exactly on path_m below, at the hamlet's own longitude
 		"crossing_gap_m": 50.0,
 		"path_m": [
-			Vector2(2950.0, 780.0),
-			Vector2(2500.0, 810.0),
-			Vector2(2100.0, 830.0),
-			Vector2(1700.0, 850.0),
-			Vector2(1300.0, 865.0),
-			Vector2(900.0, 880.0), # the crossing
-			Vector2(500.0, 850.0),
-			Vector2(150.0, 810.0),
+			Vector2(4900.0, 1460.0), # newly visible ground
+			Vector2(4200.0, 1495.0), # newly visible ground
+			Vector2(3550.0, 1530.0),
+			Vector2(3100.0, 1560.0),
+			Vector2(2700.0, 1580.0),
+			Vector2(2300.0, 1600.0),
+			Vector2(1900.0, 1615.0),
+			Vector2(1500.0, 1630.0), # the crossing
+			Vector2(1100.0, 1600.0),
+			Vector2(750.0, 1560.0),
 		],
 	},
 
 	"player": {
-		"deployment_zone": Rect2(150.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 1600.0 * PIXELS_PER_METER, 1800.0 * PIXELS_PER_METER),
-		"mortar_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 1350.0 * PIXELS_PER_METER, 1900.0 * PIXELS_PER_METER),
-		"spotter_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 30.0 * PIXELS_PER_METER, 2940.0 * PIXELS_PER_METER, 1940.0 * PIXELS_PER_METER),
+		"deployment_zone": Rect2(150.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 2200.0 * PIXELS_PER_METER, 3300.0 * PIXELS_PER_METER),
+		"mortar_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 1950.0 * PIXELS_PER_METER, 3400.0 * PIXELS_PER_METER),
+		"spotter_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 30.0 * PIXELS_PER_METER, 4940.0 * PIXELS_PER_METER, 3440.0 * PIXELS_PER_METER),
 		"default_squad_positions": [
-			Vector2(790.0, 950.0) * PIXELS_PER_METER,
-			Vector2(910.0, 1000.0) * PIXELS_PER_METER,
-			Vector2(810.0, 1080.0) * PIXELS_PER_METER,
+			Vector2(1390.0, 1700.0) * PIXELS_PER_METER,
+			Vector2(1510.0, 1750.0) * PIXELS_PER_METER,
+			Vector2(1410.0, 1830.0) * PIXELS_PER_METER,
 		],
 		# South of the hamlet's own building footprint and clear of the
 		# canal — a mortar can never be set up inside a building or
 		# dragged into one.
-		"mortar_default_position": Vector2(900.0, 1170.0) * PIXELS_PER_METER,
-		"spotter_default_position": Vector2(650.0, 1020.0) * PIXELS_PER_METER,
+		"mortar_default_position": Vector2(1500.0, 1920.0) * PIXELS_PER_METER,
+		"spotter_default_position": Vector2(1250.0, 1770.0) * PIXELS_PER_METER,
 	},
 
 	"enemy": {
-		"spawn_x": 2950.0 * PIXELS_PER_METER,
+		"spawn_x": 4900.0 * PIXELS_PER_METER, # matches the new easternmost road/river waypoint, same as before
 		"squad_spread_min_offset_m": -260.0,
 		"squad_spread_max_offset_m": 260.0,
-		"mortar_rear_x_m": 2750.0,
-		"mortar_spread_min_y_m": 700.0,
-		"mortar_spread_max_y_m": 1200.0,
-		# Deep enough into the (now narrower, 900m) west flank to be a
-		# real flank, same 1/3-in-with-a-buffer proportion as before.
-		"flank_waypoint_x": -600.0 * PIXELS_PER_METER,
-		"flank_waypoint_arrival_radius": 340.0 * PIXELS_PER_METER, # must stay > ENEMY_SURROUND_STANDOFF_RADIUS (300m) — see that constant's own doc comment
+		"mortar_rear_x_m": 4700.0, # 200m behind spawn_x, same offset as before
+		"mortar_spread_min_y_m": 1450.0,
+		"mortar_spread_max_y_m": 1950.0,
+		# Deep enough into the (now 1500m) west flank to be a real flank,
+		# same 2/3-in proportion as before and as Moshchun.
+		"flank_waypoint_x": -1000.0 * PIXELS_PER_METER,
+		"flank_waypoint_arrival_radius": 350.0 * PIXELS_PER_METER, # must stay > ENEMY_SURROUND_STANDOFF_RADIUS (300m) — see that constant's own doc comment
 	},
 }
 
