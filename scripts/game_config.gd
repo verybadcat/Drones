@@ -26,21 +26,31 @@ enum TerrainType { OPEN, TREES, BUILDING }
 ## the drone-specific constants below.
 enum ReconMode { SPOTTER, DRONE_TEAM }
 
-## Everything about THIS map — as opposed to the game's general rules,
+## Everything about ANY map — as opposed to the game's general rules,
 ## which live as ordinary top-level constants throughout this file — lives
-## in this one dictionary, INCLUDING its own real-world size (width_m/
-## height_m/west_flank_width_m). draw_terrain and every terrain-lookup
-## function (get_terrain_type_at, nearest_cover_point, has_direct_los,
-## is_river_at, elevation_m, road_waypoints_px, etc.) read from
-## CURRENT_MAP's fields, never from a map-specific name of their own —
-## swapping maps means writing a new CURRENT_MAP value, not touching the
-## functions that read it, the window/camera sizing, or any other code.
-## PIXELS_PER_METER (below) is the one deliberate exception: it's a fixed
-## engine<->real-world conversion factor, not itself map data, specifically
-## so every OTHER range/speed constant in this file — authored as "meters
-## * PIXELS_PER_METER" — never has to change just because the currently-
-## loaded map's own size did.
+## in one dictionary per real place, INCLUDING its own real-world size
+## (width_m/height_m/west_flank_width_m). draw_terrain and every terrain-
+## lookup function (get_terrain_type_at, nearest_cover_point,
+## has_direct_los, is_river_at, elevation_m, road_waypoints_px, etc.) read
+## from CURRENT_MAP's fields, never from a map-specific name of their own —
+## adding a new real place to the catalog, or changing which one loads by
+## default, means writing/pointing at a new MAPS entry, not touching the
+## functions that read CURRENT_MAP, the window/camera sizing, or any other
+## code. PIXELS_PER_METER (below) is the one deliberate exception: it's a
+## fixed engine<->real-world conversion factor, not itself map data,
+## specifically so every OTHER range/speed constant in this file —
+## authored as "meters * PIXELS_PER_METER" — never has to change just
+## because the currently-loaded map's own size did.
 ##
+## MAPS is the full catalog — every real place this game can currently
+## load, keyed by a short id. CURRENT_MAP is just MAPS[DEFAULT_MAP_ID]:
+## changing the default (or adding a third place later) is a one-line/
+## one-entry change here, never a change to the functions that consume
+## CURRENT_MAP. A map already built stays in the catalog even once it's
+## no longer the default — building up a real roster of places to fight
+## over, not replacing one with the next each time.
+const DEFAULT_MAP_ID: String = "pishchane"
+
 ## This map depicts Pervomaiske, a small hamlet in Kupiansk Raion, Kharkiv
 ## Oblast — a handful of buildings at a rural crossroads along the road
 ## between the larger village of Myrne (to the west, in the defender's own
@@ -77,7 +87,8 @@ enum ReconMode { SPOTTER, DRONE_TEAM }
 ## at all (screen-right already means real east, matching every other
 ## piece of this game's own east-attacker/west-defender convention), so
 ## unlike Moshchun's compass, true north on this map points straight up.
-const CURRENT_MAP: Dictionary = {
+const MAPS: Dictionary = {
+"pervomaiske": {
 	"name": "Pervomaiske",
 	"location_subtitle": "Kupiansk Raion, Kharkiv Oblast",
 	"compass_north_screen_direction": Vector2(0.0, -1.0),
@@ -270,7 +281,255 @@ const CURRENT_MAP: Dictionary = {
 		"flank_waypoint_x": -1000.0 * PIXELS_PER_METER,
 		"flank_waypoint_arrival_radius": 350.0 * PIXELS_PER_METER, # must stay > ENEMY_SURROUND_STANDOFF_RADIUS (300m) — see that constant's own doc comment
 	},
+},
+
+## This map depicts Pishchane, a small settlement in Kalmiuskyi Raion,
+## Donetsk Oblast, built from real satellite imagery around the coordinates
+## 47.768118, 37.878843 — a real farm/livestock complex at the settlement's
+## southern edge (the coordinates land almost exactly on it), a residential
+## strip just north of it, and, immediately northeast, a real wooded ravine
+## (a "balka" — a natural gully cut by drainage, not a planted feature)
+## that narrows as it runs down toward a small pond right next to the
+## complex. Unlike Moshchun and Pervomaiske, no specific documented
+## engagement is claimed for this exact spot — this part of Donetsk Oblast
+## has been outside Ukrainian government control since 2014, not a place
+## that changed hands in 2022, so there is no real battle to depict here.
+## The terrain is real; the engagement fought over it is a hypothetical
+## one, same fictional-tactical premise (a Russian assault probing from
+## the east) as every other map in this game, not a re-creation of an
+## actual fight — stated plainly rather than implied, the way this file
+## already states plainly when a map's elevation or building layout is an
+## approximation rather than a survey.
+##
+## The ravine's own tree cover is modeled as a CHAIN of small, closely-
+## spaced patches following the real tapering shape traced from the source
+## imagery — a wide wedge at the head, narrowing leg by leg down to the
+## pond — rather than one or two large circles standing in for the whole
+## area. A single big blob would have been faster to author but would
+## have covered ground that's actually open, and left the real taper
+## invisible; keeping each patch small enough that the chain's own outline
+## does the work is what makes the shape on screen the real one instead of
+## an idealized stand-in. The same technique models two real steppe
+## shelterbelts (windbreak tree lines — "lisosmuha," extremely common
+## across this open farmland, planted in long straight or gently curved
+## rows between fields) as chains of small overlapping patches forming a
+## thin line, rather than as an oval that would misrepresent them as a
+## rounded stand of trees. Regional elevation for this part of the Donets
+## uplands runs higher and more varied than Pervomaiske's flat steppe
+## (roughly 150-220m ASL, with real ravines like this one cut into it) —
+## hills below are a modest approximation from that and the real ravine's
+## own rim, not a survey.
+##
+## The real road/tree-line axis here runs diagonally (perceptibly NW-SE)
+## rather than due east-west like Pervomaiske's — reproduced directly as a
+## steady y-drift as x increases along road_waypoints_m/the forest chain,
+## the same technique Pervomaiske and Moshchun already used for local
+## geometry that isn't axis-aligned, rather than rotating the compass over
+## it. The real village center-line actually runs north from the complex,
+## off this east-west axis entirely; it's modeled as real, present terrain
+## (the residential terrain_zones entry) rather than forced onto the
+## attacker/defender axis just to have somewhere to put it. Compass north
+## points straight up: the real attack axis modeled here (from the open
+## farmland to the real east) already matches this game's standing east-
+## attacker/west-defender convention, same as Pervomaiske, so no rotation
+## is needed. This map has no river/canal — the real watercourse near here
+## is the small pond by the complex, fed by the ravine's own drainage, too
+## local to model as a map-spanning obstacle the way Moshchun's river or
+## Pervomaiske's canal are; CURRENT_MAP simply omits the "river" key, and
+## every river-aware function treats that as "no river on this map" rather
+## than assuming every map must have one.
+"pishchane": {
+	"name": "Pishchane",
+	"location_subtitle": "Kalmiuskyi Raion, Donetsk Oblast",
+	"compass_north_screen_direction": Vector2(0.0, -1.0),
+
+	"width_m": 5000.0,
+	"height_m": 3500.0,
+	"west_flank_width_m": 1500.0,
+
+	"village_center": Vector2(1500.0, 1750.0) * PIXELS_PER_METER,
+
+	## The first four sit near real features (the ravine's own rim, the
+	## village, the complex's south side, the rear); the rest fill the
+	## standard frame's wider margins, in the same modestly-rolling style.
+	"hills": [
+		{"center_m": Vector2(1800.0, 1250.0), "radius_m": 400.0, "height_m": 11.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 0.9}, {"frequency": 3, "amplitude": 0.1, "phase": 2.4},
+		]}, # high ground flanking the ravine's own northern rim
+		# Sits astride the road roughly 700m out — real, unnamed high
+		# ground is plausible here (no precise survey data exists for
+		# this exact spot, same honesty caveat as every hill on this
+		# map), and without SOME rise between the complex and the open
+		# farmland, the position has an unbroken sightline for kilometers
+		# in every direction: real ground-level LOS in this engine is
+		# masked by elevation, not by TREES (which only affect detection
+		# odds/cover, not raw visibility — see has_direct_los's own doc
+		# comment), so completely flat terrain here would leave the
+		# spotter, mortar, and squads all visible to (and equally able to
+		# see) the entire approach from minute one — confirmed directly:
+		# before this hill existed, the defended position could see, and
+		# be seen from, the road nearly 2.5km out, and lost the spotter
+		# almost every trial as a direct result.
+		{"center_m": Vector2(2000.0, 1520.0), "radius_m": 340.0, "height_m": 20.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 1.7}, {"frequency": 3, "amplitude": 0.11, "phase": 0.2},
+		]}, # rise astride the road, masks the complex from the open approach
+		{"center_m": Vector2(1300.0, 2100.0), "radius_m": 380.0, "height_m": 9.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 1.1}, {"frequency": 2, "amplitude": 0.12, "phase": 2.7},
+		]}, # gentle rise south of the complex, defender's side
+		{"center_m": Vector2(1400.0, 1050.0), "radius_m": 350.0, "height_m": 10.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 0.3}, {"frequency": 4, "amplitude": 0.08, "phase": 2.9},
+		]}, # rise near the village proper, north of the complex
+		{"center_m": Vector2(400.0, 1900.0), "radius_m": 320.0, "height_m": 9.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 1.8}, {"frequency": 2, "amplitude": 0.11, "phase": 0.6},
+		]}, # rear rise, defender's side
+		{"center_m": Vector2(4300.0, 1000.0), "radius_m": 450.0, "height_m": 12.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 2.2}, {"frequency": 3, "amplitude": 0.1, "phase": 0.4},
+		]}, # distant rise on the attacker's approach, far east
+		{"center_m": Vector2(2600.0, 3100.0), "radius_m": 400.0, "height_m": 10.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 0.7}, {"frequency": 2, "amplitude": 0.12, "phase": 2.1},
+		]}, # southern farmland rise
+		{"center_m": Vector2(2200.0, 300.0), "radius_m": 380.0, "height_m": 9.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 1.5}, {"frequency": 3, "amplitude": 0.09, "phase": 3.0},
+		]}, # northern farmland rise
+		{"center_m": Vector2(-1100.0, 2300.0), "radius_m": 340.0, "height_m": 9.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 2.6}, {"frequency": 3, "amplitude": 0.11, "phase": 0.8},
+		]}, # deeper west-flank rise, rear area
+	],
+
+	# The real complex the coordinates land on, a smaller outbuilding just
+	# south of it, and the residential streets north of both — three
+	# separate, axis-aligned footprints rather than one shape standing in
+	# for the whole settlement, matching how the source imagery actually
+	# shows three distinct built-up clusters, not one continuous one.
+	"terrain_zones": [
+		{"rect": Rect2(1410.0 * PIXELS_PER_METER, 1685.0 * PIXELS_PER_METER, 180.0 * PIXELS_PER_METER, 130.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # the defended complex
+		{"rect": Rect2(1515.0 * PIXELS_PER_METER, 1840.0 * PIXELS_PER_METER, 50.0 * PIXELS_PER_METER, 40.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # smaller outbuilding, south of the complex
+		{"rect": Rect2(1295.0 * PIXELS_PER_METER, 1300.0 * PIXELS_PER_METER, 350.0 * PIXELS_PER_METER, 140.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # Pishchane's residential streets, north of the complex
+	],
+
+	## See this dictionary's own doc comment above for why these are
+	## chains of small patches, not a few big ones: patches 1-6 trace the
+	## real ravine's tapering shape; 7-12 and 13-16 are two real steppe
+	## shelterbelt lines; 17-19 are village garden trees; 20-22 are single
+	## isolated copses filling the standard frame's wider margins.
+	"forest_patches": [
+		{"center_m": Vector2(1750.0, 1330.0), "radius_m": 110.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 0.5}, {"frequency": 3, "amplitude": 0.1, "phase": 2.2},
+		]}, # ravine head, widest point
+		{"center_m": Vector2(1780.0, 1410.0), "radius_m": 95.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 1.4}, {"frequency": 2, "amplitude": 0.12, "phase": 2.8},
+		]}, # ravine, narrowing
+		{"center_m": Vector2(1760.0, 1490.0), "radius_m": 80.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.17, "phase": 2.5}, {"frequency": 4, "amplitude": 0.09, "phase": 0.6},
+		]}, # ravine, narrowing
+		{"center_m": Vector2(1700.0, 1560.0), "radius_m": 65.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 0.8}, {"frequency": 2, "amplitude": 0.13, "phase": 2.3},
+		]}, # ravine, narrowing
+		{"center_m": Vector2(1630.0, 1620.0), "radius_m": 50.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 1.9}, {"frequency": 3, "amplitude": 0.1, "phase": 0.3},
+		]}, # ravine tail, near the pond
+		{"center_m": Vector2(1560.0, 1670.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 2.7}, {"frequency": 2, "amplitude": 0.11, "phase": 0.9},
+		]}, # ravine tail, right at the pond by the complex
+		{"center_m": Vector2(3200.0, 900.0), "radius_m": 45.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 0.4}, {"frequency": 3, "amplitude": 0.1, "phase": 2.1},
+		]}, # steppe shelterbelt, attacker's farmland
+		{"center_m": Vector2(3200.0, 990.0), "radius_m": 45.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 1.2}, {"frequency": 2, "amplitude": 0.12, "phase": 2.6},
+		]}, # steppe shelterbelt, attacker's farmland
+		{"center_m": Vector2(3200.0, 1080.0), "radius_m": 45.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 2.4}, {"frequency": 4, "amplitude": 0.08, "phase": 0.5},
+		]}, # steppe shelterbelt, attacker's farmland
+		{"center_m": Vector2(3200.0, 1170.0), "radius_m": 45.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 0.7}, {"frequency": 2, "amplitude": 0.13, "phase": 2.9},
+		]}, # steppe shelterbelt, attacker's farmland
+		{"center_m": Vector2(3200.0, 1260.0), "radius_m": 45.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.17, "phase": 1.6}, {"frequency": 3, "amplitude": 0.09, "phase": 0.2},
+		]}, # steppe shelterbelt, attacker's farmland
+		{"center_m": Vector2(3200.0, 1350.0), "radius_m": 45.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 2.3}, {"frequency": 2, "amplitude": 0.1, "phase": 0.7},
+		]}, # steppe shelterbelt, attacker's farmland
+		{"center_m": Vector2(4400.0, 1600.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 0.9}, {"frequency": 3, "amplitude": 0.1, "phase": 2.5},
+		]}, # second shelterbelt, near the attacker's spawn
+		{"center_m": Vector2(4400.0, 1690.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.16, "phase": 1.7}, {"frequency": 2, "amplitude": 0.12, "phase": 0.3},
+		]}, # second shelterbelt, near the attacker's spawn
+		{"center_m": Vector2(4400.0, 1780.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 2.8}, {"frequency": 4, "amplitude": 0.09, "phase": 1.0},
+		]}, # second shelterbelt, near the attacker's spawn
+		{"center_m": Vector2(4400.0, 1870.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 0.4}, {"frequency": 2, "amplitude": 0.11, "phase": 2.0},
+		]}, # second shelterbelt, near the attacker's spawn
+		{"center_m": Vector2(1400.0, 1320.0), "radius_m": 25.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.18, "phase": 0.6}, {"frequency": 3, "amplitude": 0.1, "phase": 2.4},
+		]}, # household garden trees, village
+		{"center_m": Vector2(1550.0, 1300.0), "radius_m": 22.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.17, "phase": 1.3}, {"frequency": 2, "amplitude": 0.13, "phase": 2.9},
+		]}, # household garden trees, village
+		{"center_m": Vector2(1480.0, 1420.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 2.1}, {"frequency": 4, "amplitude": 0.08, "phase": 0.5},
+		]}, # household garden trees, village
+		{"center_m": Vector2(2600.0, 3100.0), "radius_m": 90.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 2.6}, {"frequency": 2, "amplitude": 0.1, "phase": 1.0},
+		]}, # isolated copse, southern farmland
+		{"center_m": Vector2(2200.0, 300.0), "radius_m": 85.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 1.4}, {"frequency": 3, "amplitude": 0.12, "phase": 3.0},
+		]}, # isolated copse, northern farmland
+		{"center_m": Vector2(-1100.0, 2300.0), "radius_m": 70.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.16, "phase": 1.8}, {"frequency": 2, "amplitude": 0.12, "phase": 0.3},
+		]}, # west flank copse, deeper rear
+	],
+
+	"road_width_m": 6.0,
+	# Runs diagonally (NW-SE) through the complex, not due east-west — see
+	# this dictionary's own doc comment for why that's reproduced as a
+	# y-drift instead of a compass rotation.
+	"road_waypoints_m": [
+		Vector2(750.0, 1900.0),
+		Vector2(1500.0, 1750.0), # the complex
+		Vector2(2200.0, 1610.0),
+		Vector2(2900.0, 1470.0),
+		Vector2(3600.0, 1330.0),
+		Vector2(4300.0, 1190.0),
+		Vector2(4900.0, 1070.0),
+	],
+
+	"player": {
+		"deployment_zone": Rect2(150.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 2200.0 * PIXELS_PER_METER, 3300.0 * PIXELS_PER_METER),
+		"mortar_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 1950.0 * PIXELS_PER_METER, 3400.0 * PIXELS_PER_METER),
+		"spotter_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 30.0 * PIXELS_PER_METER, 4940.0 * PIXELS_PER_METER, 3440.0 * PIXELS_PER_METER),
+		"default_squad_positions": [
+			Vector2(1320.0, 1780.0) * PIXELS_PER_METER,
+			Vector2(1460.0, 1870.0) * PIXELS_PER_METER,
+			Vector2(1610.0, 1690.0) * PIXELS_PER_METER,
+		],
+		# South of both the complex and its outbuilding, clear of either.
+		"mortar_default_position": Vector2(1300.0, 1950.0) * PIXELS_PER_METER,
+		# Actually inside the ravine's own tree cover (not just nearby —
+		# checked directly against forest_patches, not eyeballed), with a
+		# clear ~250m sightline down to the road.
+		"spotter_default_position": Vector2(1780.0, 1440.0) * PIXELS_PER_METER,
+	},
+
+	"enemy": {
+		"spawn_x": 4900.0 * PIXELS_PER_METER, # matches the road's own easternmost waypoint
+		"squad_spread_min_offset_m": -260.0,
+		"squad_spread_max_offset_m": 260.0,
+		"mortar_rear_x_m": 4700.0, # 200m behind spawn_x, same offset as every other map
+		"mortar_spread_min_y_m": 850.0,
+		"mortar_spread_max_y_m": 1350.0,
+		# Deep enough into the 1500m west flank to be a real flank, same
+		# 2/3-in proportion as every other map.
+		"flank_waypoint_x": -1000.0 * PIXELS_PER_METER,
+		"flank_waypoint_arrival_radius": 350.0 * PIXELS_PER_METER, # must stay > ENEMY_SURROUND_STANDOFF_RADIUS (300m) — see that constant's own doc comment
+	},
+},
 }
+
+## The map actually loaded right now — see MAPS/DEFAULT_MAP_ID's own doc
+## comment above.
+const CURRENT_MAP: Dictionary = MAPS[DEFAULT_MAP_ID]
 
 ## The internal engine<->real-world scale: a fixed, map-INDEPENDENT
 ## conversion, not derived from any particular map's own size. This is
@@ -476,12 +735,14 @@ static func _build_river_rects() -> void:
 	if _river_rects_built:
 		return
 	_river_rects_built = true
+	_river_segment_rects.clear()
+	if not CURRENT_MAP.has("river"):
+		return # not every real place has one — see CURRENT_MAP's own doc comment
 	var river: Dictionary = CURRENT_MAP.river
 	var path: Array = river.path_m
 	var half_w: float = river.width_m / 2.0 * PIXELS_PER_METER
 	var crossing: Vector2 = river.crossing_point_m * PIXELS_PER_METER
 	var gap_half: float = river.crossing_gap_m * PIXELS_PER_METER
-	_river_segment_rects.clear()
 	for i in path.size() - 1:
 		var a: Vector2 = path[i] * PIXELS_PER_METER
 		var b: Vector2 = path[i + 1] * PIXELS_PER_METER
@@ -2510,6 +2771,8 @@ static func draw_terrain(ci: CanvasItem) -> void:
 ## that's actually passable regardless of which way the path runs. A
 ## short plank mark across the gap marks the crossing itself.
 static func _draw_river(ci: CanvasItem) -> void:
+	if not CURRENT_MAP.has("river"):
+		return
 	var river: Dictionary = CURRENT_MAP.river
 	var path: Array = river.path_m
 	var width_px: float = river.width_m * PIXELS_PER_METER
