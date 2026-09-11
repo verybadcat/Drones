@@ -159,35 +159,43 @@ const CURRENT_MAP: Dictionary = {
 	## advantage; the rest add varied, natural-looking relief across the
 	## whole battlefield.
 	"hills": [
-		{"center_m": Vector2(1300.0, 1550.0), "radius_m": 650.0, "height_m": 35.0, "warp_harmonics": [
+		{"center_m": Vector2(1400.0, 1650.0), "radius_m": 600.0, "height_m": 32.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.18, "phase": 0.4}, {"frequency": 3, "amplitude": 0.12, "phase": 2.1},
 		]}, # the village's high ground
-		{"center_m": Vector2(500.0, 3200.0), "radius_m": 420.0, "height_m": 18.0, "warp_harmonics": [
+		{"center_m": Vector2(600.0, 3050.0), "radius_m": 380.0, "height_m": 20.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 1.0}, {"frequency": 4, "amplitude": 0.1, "phase": 0.5},
 		]}, # rear rise, south
-		{"center_m": Vector2(3500.0, 1950.0), "radius_m": 520.0, "height_m": 26.0, "warp_harmonics": [
+		{"center_m": Vector2(3550.0, 1550.0), "radius_m": 420.0, "height_m": 28.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.16, "phase": 1.8}, {"frequency": 2, "amplitude": 0.13, "phase": 3.0},
-		]}, # a rise on the enemy's approach
-		{"center_m": Vector2(4100.0, 700.0), "radius_m": 380.0, "height_m": 15.0, "warp_harmonics": [
+		]}, # far-bank bluff overlooking the crossing, attacker side
+		# Real river valleys are typically flanked on both sides — the
+		# attacker's own far-bank bluff above pairs with this one on the
+		# defender's near bank, giving whoever holds it real observation
+		# and fields of fire directly over the one crossing, not just
+		# "behind the village" in the abstract.
+		{"center_m": Vector2(2950.0, 1850.0), "radius_m": 320.0, "height_m": 24.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.17, "phase": 0.6}, {"frequency": 3, "amplitude": 0.11, "phase": 2.5},
+		]}, # near-bank bluff overlooking the crossing, defender side
+		{"center_m": Vector2(4250.0, 600.0), "radius_m": 340.0, "height_m": 16.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 2.5}, {"frequency": 5, "amplitude": 0.08, "phase": 1.2},
 		]}, # minor rise, north
-		{"center_m": Vector2(350.0, 550.0), "radius_m": 380.0, "height_m": 20.0, "warp_harmonics": [
+		{"center_m": Vector2(450.0, 480.0), "radius_m": 350.0, "height_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.17, "phase": 0.9}, {"frequency": 2, "amplitude": 0.11, "phase": 2.7},
 		]}, # ridge west of the village, rear
-		{"center_m": Vector2(2400.0, 3100.0), "radius_m": 350.0, "height_m": 16.0, "warp_harmonics": [
+		{"center_m": Vector2(2300.0, 2950.0), "radius_m": 330.0, "height_m": 17.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.16, "phase": 1.5}, {"frequency": 4, "amplitude": 0.09, "phase": 0.3},
 		]}, # rise above the southern woods
-		{"center_m": Vector2(2700.0, 900.0), "radius_m": 300.0, "height_m": 14.0, "warp_harmonics": [
+		{"center_m": Vector2(2600.0, 820.0), "radius_m": 310.0, "height_m": 15.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 2.2}, {"frequency": 2, "amplitude": 0.12, "phase": 0.7},
 		]}, # rise along the road's midpoint bend
 		# West flank (negative x — see WEST_FLANK_WIDTH_M): open, undeveloped
 		# ground with no deployment zones or buildings, but not a
 		# featureless void either — natural relief continuing the same
 		# rolling-hills character as the rest of the map.
-		{"center_m": Vector2(-600.0, 1200.0), "radius_m": 400.0, "height_m": 22.0, "warp_harmonics": [
+		{"center_m": Vector2(-550.0, 1300.0), "radius_m": 380.0, "height_m": 21.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.16, "phase": 1.1}, {"frequency": 3, "amplitude": 0.1, "phase": 2.9},
 		]}, # west flank rise
-		{"center_m": Vector2(-1050.0, 2650.0), "radius_m": 340.0, "height_m": 17.0, "warp_harmonics": [
+		{"center_m": Vector2(-1000.0, 2550.0), "radius_m": 320.0, "height_m": 18.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.14, "phase": 0.6}, {"frequency": 2, "amplitude": 0.13, "phase": 3.2},
 		]}, # west flank rise, south
 	],
@@ -376,16 +384,35 @@ const CURRENT_MAP: Dictionary = {
 	## breaching the Kozarovychi dam upstream — this map depicts the region
 	## as it stood BEFORE the attack, and that flooding was a specific
 	## defensive act during the fighting itself, not the terrain's starting
-	## state. Modeled as two full-height rectangles either side of the
-	## crossing rather than one band with a hole, so both "is this point in
-	## the river" and "does this path cross the river" reduce to the same
-	## rect-crossing check _line_crosses_rect already provides for BUILDING
-	## zones — see _build_river_rects.
+	## state.
+	##
+	## `path_m` is the river's actual course — a real river meanders, not a
+	## straight line, and drawing/blocking it as one looked exactly like
+	## what it was (a token line, not a river). Each leg between consecutive
+	## points becomes its own blocking rect (see _build_river_rects), so
+	## the winding shape costs nothing extra: still the same rect-crossing
+	## check _line_crosses_rect already provides for BUILDING zones, just
+	## applied to several short legs instead of one long one. The stretch
+	## from y=1490 to y=2090 is deliberately kept straight and at exactly
+	## `x_m` — real bridges are sited on stable, straight reaches, not mid-
+	## bend, and it keeps the gap-splitting math simple axis-aligned
+	## arithmetic instead of needing real polygon geometry.
 	"river": {
-		"x_m": 3250.0,
+		"x_m": 3250.0, # the crossing's own x — also the path's x through its straight bridge reach below
 		"width_m": 30.0,
 		"bridge_y_m": 1790.0, # matches the road waypoint above — the road already crosses here
 		"bridge_half_width_m": 60.0, # ~120m passable gap: a real chokepoint, not a single-file pinhole
+		"path_m": [
+			Vector2(3450.0, 0.0),
+			Vector2(3180.0, 480.0),
+			Vector2(3360.0, 950.0),
+			Vector2(3250.0, 1490.0),
+			Vector2(3250.0, 1790.0), # the bridge
+			Vector2(3250.0, 2090.0),
+			Vector2(3110.0, 2550.0),
+			Vector2(3370.0, 3020.0),
+			Vector2(3190.0, 3500.0),
+		],
 	},
 
 	"player": {
@@ -484,8 +511,15 @@ static func elevation_m(pos_px: Vector2) -> float:
 
 ## Road/river data now lives in CURRENT_MAP (road_width_m/road_waypoints_m/
 ## river) — see that dictionary's own doc comment for why.
-static var _river_north_rect: Rect2
-static var _river_south_rect: Rect2
+## The river's own blocking geometry, built once from CURRENT_MAP.river's
+## `path_m` — a real river doesn't run in one straight line, so this is a
+## sequence of rects, one per leg of the path (each leg's bounding box,
+## padded by the river's half-width), not a single band. The one bridge
+## sits on a short DELIBERATELY straight stretch of the path (see the
+## path's own data comment) specifically so splitting a gap out of it
+## stays simple axis-aligned math instead of needing real polygon-vs-
+## segment geometry — everywhere else, the path is free to wander.
+static var _river_segment_rects: Array[Rect2] = []
 static var _river_rects_built: bool = false
 
 static func _build_river_rects() -> void:
@@ -493,26 +527,49 @@ static func _build_river_rects() -> void:
 		return
 	_river_rects_built = true
 	var river: Dictionary = CURRENT_MAP.river
-	var x0: float = (river.x_m - river.width_m / 2.0) * PIXELS_PER_METER
-	var w: float = river.width_m * PIXELS_PER_METER
-	var gap_top: float = (river.bridge_y_m - river.bridge_half_width_m) * PIXELS_PER_METER
-	var gap_bottom: float = (river.bridge_y_m + river.bridge_half_width_m) * PIXELS_PER_METER
-	_river_north_rect = Rect2(x0, 0.0, w, gap_top)
-	_river_south_rect = Rect2(x0, gap_bottom, w, MAP_HEIGHT_PX - gap_bottom)
+	var path: Array = river.path_m
+	var half_w: float = river.width_m / 2.0 * PIXELS_PER_METER
+	var bridge_y_px: float = river.bridge_y_m * PIXELS_PER_METER
+	var half_gap_px: float = river.bridge_half_width_m * PIXELS_PER_METER
+	var gap_top: float = bridge_y_px - half_gap_px
+	var gap_bottom: float = bridge_y_px + half_gap_px
+	_river_segment_rects.clear()
+	for i in path.size() - 1:
+		var a: Vector2 = path[i] * PIXELS_PER_METER
+		var b: Vector2 = path[i + 1] * PIXELS_PER_METER
+		var y0: float = min(a.y, b.y)
+		var y1: float = max(a.y, b.y)
+		# The straight stretch spans the bridge gap — split it into
+		# whatever survives above/below the gap instead of one solid rect.
+		if is_equal_approx(a.x, b.x) and y0 < gap_bottom and y1 > gap_top:
+			if y0 < gap_top:
+				_river_segment_rects.append(Rect2(a.x - half_w, y0, half_w * 2.0, gap_top - y0))
+			if y1 > gap_bottom:
+				_river_segment_rects.append(Rect2(a.x - half_w, gap_bottom, half_w * 2.0, y1 - gap_bottom))
+			continue
+		var min_x: float = min(a.x, b.x) - half_w
+		var max_x: float = max(a.x, b.x) + half_w
+		_river_segment_rects.append(Rect2(min_x, y0, max_x - min_x, y1 - y0))
 
 
 ## True if `pos` sits in the (impassable) river itself, excluding the
 ## bridge gap.
 static func is_river_at(pos: Vector2) -> bool:
 	_build_river_rects()
-	return _river_north_rect.has_point(pos) or _river_south_rect.has_point(pos)
+	for rect in _river_segment_rects:
+		if rect.has_point(pos):
+			return true
+	return false
 
 
 ## True if the straight segment from `from` to `to` crosses the river
 ## outside the bridge gap — same convention as path_crosses_building.
 static func path_crosses_river(from: Vector2, to: Vector2) -> bool:
 	_build_river_rects()
-	return _line_crosses_rect(from, to, _river_north_rect) or _line_crosses_rect(from, to, _river_south_rect)
+	for rect in _river_segment_rects:
+		if _line_crosses_rect(from, to, rect):
+			return true
+	return false
 
 
 ## The point on the bridge closest to a straight line from `from` toward
@@ -2530,22 +2587,39 @@ static func draw_terrain(ci: CanvasItem) -> void:
 		_draw_forest_patch(ci, patch)
 
 
-## Drawn as the two blocking rects directly (rather than a single band),
-## so what's drawn is exactly what path_crosses_river/is_river_at actually
-## enforce — plus a short plank mark across the gap for the one bridge.
+## Drawn by following CURRENT_MAP.river's own path_m, not the blocking
+## rects directly — a real river winds, and drawing the (boxier,
+## bounding-box-padded) collision rects instead would look like a
+## staircase. The gap is cut out of whichever leg(s) actually cross the
+## bridge's y-range, same logic as _build_river_rects, so the drawn gap
+## always lines up with the one that's actually passable. A short plank
+## mark across the gap marks the bridge itself.
 static func _draw_river(ci: CanvasItem) -> void:
-	_build_river_rects()
 	var river: Dictionary = CURRENT_MAP.river
-	var water := Color(0.3, 0.45, 0.55, 0.65)
-	ci.draw_rect(_river_north_rect, water)
-	ci.draw_rect(_river_south_rect, water)
-	var bridge_x: float = river.x_m * PIXELS_PER_METER
-	var half_gap_px: float = river.bridge_half_width_m * PIXELS_PER_METER
+	var path: Array = river.path_m
+	var width_px: float = river.width_m * PIXELS_PER_METER
+	var water := Color(0.3, 0.45, 0.55, 0.85)
 	var bridge_y_px: float = river.bridge_y_m * PIXELS_PER_METER
+	var half_gap_px: float = river.bridge_half_width_m * PIXELS_PER_METER
+	var gap_top: float = bridge_y_px - half_gap_px
+	var gap_bottom: float = bridge_y_px + half_gap_px
+	for i in path.size() - 1:
+		var a: Vector2 = path[i] * PIXELS_PER_METER
+		var b: Vector2 = path[i + 1] * PIXELS_PER_METER
+		var y0: float = min(a.y, b.y)
+		var y1: float = max(a.y, b.y)
+		if is_equal_approx(a.x, b.x) and y0 < gap_bottom and y1 > gap_top:
+			if y0 < gap_top:
+				ci.draw_line(Vector2(a.x, y0), Vector2(a.x, gap_top), water, width_px)
+			if y1 > gap_bottom:
+				ci.draw_line(Vector2(a.x, gap_bottom), Vector2(a.x, y1), water, width_px)
+			continue
+		ci.draw_line(a, b, water, width_px)
+	var bridge_x: float = river.x_m * PIXELS_PER_METER
 	var plank := Color(0.55, 0.45, 0.3)
-	var y: float = bridge_y_px - half_gap_px
-	while y < bridge_y_px + half_gap_px:
-		ci.draw_line(Vector2(bridge_x - river.width_m * PIXELS_PER_METER / 2.0, y), Vector2(bridge_x + river.width_m * PIXELS_PER_METER / 2.0, y), plank, 2.0)
+	var y: float = gap_top
+	while y < gap_bottom:
+		ci.draw_line(Vector2(bridge_x - width_px / 2.0, y), Vector2(bridge_x + width_px / 2.0, y), plank, 2.0)
 		y += 10.0
 
 
