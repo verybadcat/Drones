@@ -2164,6 +2164,22 @@ const REVERSE_SLOPE_MAX_TRAVEL_M: float = 1500.0
 ## one). Falls back to `from` (no move) if there's nothing to hide from yet
 ## or nothing qualifies at all. `urgent` searches farther out
 ## (CONCEALMENT_SEARCH_RINGS_URGENT_M) — see Unit.evading_counter_battery.
+## The map's own real operating area: the modeled west flank
+## (WEST_FLANK_WIDTH_M — real, legitimate ground) through the core map's
+## east edge horizontally, and the core map's own height vertically.
+## Nothing is modeled (or should ever be suspected, searched toward, or
+## walked toward) outside this — used anywhere a candidate point is built
+## by projecting outward from a starting position (a ring search, a
+## flank-watch bearing) rather than picked from an already-bounded list
+## of real map features, since that kind of projection has no other
+## reason to stay on the map at all.
+static func clamp_to_operating_area(point: Vector2) -> Vector2:
+	return Vector2(
+		clamp(point.x, -WEST_FLANK_WIDTH_PX, MAP_WIDTH_PX),
+		clamp(point.y, 0.0, MAP_HEIGHT_PX)
+	)
+
+
 static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false) -> Vector2:
 	if threat_positions.is_empty():
 		return from
@@ -2177,7 +2193,15 @@ static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2]
 		var radius_px: float = radius_m * PIXELS_PER_METER
 		for i in CONCEALMENT_SEARCH_SAMPLES:
 			var theta: float = TAU * float(i) / float(CONCEALMENT_SEARCH_SAMPLES)
-			var candidate: Vector2 = from + Vector2(cos(theta), sin(theta)) * radius_px
+			# Clamped to the map's real operating area — an unclamped ring
+			# sample can walk arbitrarily far past the actual west/east/
+			# north/south edge (repeated evasions all biased the same
+			# direction, away from threats approaching from one side,
+			# compound outward with nothing to stop them), landing a unit
+			# somewhere the camera can't even scroll to (main.gd's own
+			# limit_left is exactly -WEST_FLANK_WIDTH_PX) — invisible, not
+			# just far away. See clamp_to_operating_area's own doc comment.
+			var candidate: Vector2 = clamp_to_operating_area(from + Vector2(cos(theta), sin(theta)) * radius_px)
 			if avoid_buildings and (is_building_at(candidate) or path_crosses_building(from, candidate)):
 				continue
 			var hidden := true
@@ -2232,7 +2256,10 @@ static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vect
 		var away: Vector2 = center_px - avg_threat
 		if away.length() < 1.0:
 			continue
-		var candidate: Vector2 = center_px + away.normalized() * (hill.radius_m * PIXELS_PER_METER * 0.75)
+		# Clamped for the same reason nearest_hidden_point's own ring search
+		# is: a hill near the map's edge can otherwise project a "reverse
+		# slope" candidate off the actual operating area.
+		var candidate: Vector2 = clamp_to_operating_area(center_px + away.normalized() * (hill.radius_m * PIXELS_PER_METER * 0.75))
 		var d: float = from.distance_to(candidate)
 		if d >= best_dist or d > REVERSE_SLOPE_MAX_TRAVEL_M * PIXELS_PER_METER:
 			continue

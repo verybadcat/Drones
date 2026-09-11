@@ -3064,20 +3064,12 @@ func drone_pilot_debug_snapshot() -> Dictionary:
 	}
 
 
-## The rectangle a drone's own destination must stay within — MAP_HEIGHT_M
-## vertically with NO exception: north or south of the map is another
-## unit's sector this recon asset has no business in, no matter what's
-## suspected there. Horizontally, the already-modeled west flank
-## (WEST_FLANK_WIDTH_M) is real, legitimate ground a genuine contact or
-## flanking threat can draw the drone into, but nothing is modeled (or
-## should be suspected) further west than that, or east of the map's own
-## edge — so x is bounded too, just on a wider, real range rather than
-## clamped tight to the core map.
+## The rectangle a drone's own destination must stay within — see
+## GameConfig.clamp_to_operating_area's own doc comment for the shared
+## reasoning (the same bound every other projected-candidate search in
+## the game now uses, e.g. GameConfig.nearest_hidden_point's ring search).
 func _clamp_to_drone_operating_area(point: Vector2) -> Vector2:
-	return Vector2(
-		clamp(point.x, -GameConfig.WEST_FLANK_WIDTH_PX, GameConfig.MAP_WIDTH_PX),
-		clamp(point.y, 0.0, GameConfig.MAP_HEIGHT_PX)
-	)
+	return GameConfig.clamp_to_operating_area(point)
 
 
 ## Where the drone checks for an enemy flanking around toward the mortar's
