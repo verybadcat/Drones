@@ -3670,19 +3670,38 @@ func _decide_mortar_action(m: Unit) -> void:
 	# Tier 1 — Preserve self. Precedence among sub-reasons matches the
 	# functions this replaces: out-of-ammo framing wins over a merely
 	# spotted/threatened framing when both would apply.
+	# Computed once, up front, so every tier below (including out-of-ammo,
+	# which used to decide entirely without checking this at all) can
+	# react to "something is actually bearing down on me right now" —
+	# see _relocate_mortar's own `force_urgent` doc comment for why that
+	# distinction matters beyond just which combat-log line narrates it.
+	var spotted: bool = m.is_visible
+	var threat_closing: bool = not spotted and _unwatched_threat_closing(m)
+
 	if m.mortar_rounds_remaining <= 0:
 		var run := _active_resupply_run_for(m)
-		if run != null and not m.evading_counter_battery and m.global_position.distance_to(run.global_position) > GameConfig.MORTAR_RESUPPLY_LINKUP_TRIGGER_RANGE:
+		if run != null and not m.evading_counter_battery and not spotted and not threat_closing and m.global_position.distance_to(run.global_position) > GameConfig.MORTAR_RESUPPLY_LINKUP_TRIGGER_RANGE:
 			# A real doctrinal linkup, not a new coordination mechanism —
 			# the run's own move_target already tracks the mortar live
 			# either way (_update_resupply_run_targets), so closing from
 			# both sides converges faster with zero extra coordination.
-			# Skipped while evading counter-battery: survival beats
-			# logistics, matching this trigger's old precedence.
+			# Skipped while evading counter-battery OR a threat is
+			# actually closing in: survival beats logistics, matching
+			# this trigger's old precedence — a crew that can't fire back
+			# anyway has no reason to walk TOWARD a linkup instead of
+			# AWAY from what's actually bearing down on it.
 			_issue_mortar_move(m, run.global_position, GameConfig.MORTAR_RELOCATE_SPEED, "linkup")
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Out of ammunition — closing on an inbound resupply run."}
 			return
-		if _relocate_mortar(m, "out_of_ammo"):
+		# With no rounds to trade for standing and fighting, there is no
+		# reason left to prefer a slower, better-hidden spot over actually
+		# getting clear — see _relocate_mortar's own `force_urgent` doc
+		# comment. A dry mortar being closed in on is exactly the same
+		# "my current position is compromised" situation counter-battery
+		# evasion already treats as urgent; this used to only ever get
+		# the ordinary, unhurried relocation regardless of how close a
+		# threat with a clear shot already was.
+		if _relocate_mortar(m, "out_of_ammo", spotted or threat_closing):
 			if _should_narrate_mortar_logistics(m):
 				combat_log.log_mortar_relocating_out_of_ammo(m)
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Out of ammunition — relocating."}
@@ -3705,14 +3724,16 @@ func _decide_mortar_action(m: Unit) -> void:
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Just took counter-battery fire — wanted to displace, no route this tick."}
 		return
 
-	var spotted: bool = m.is_visible
-	var threat_closing: bool = not spotted and _unwatched_threat_closing(m)
 	if (spotted or threat_closing) and unit_doctrine_for(m).risk == "inherit":
 		# By this point _pick_target has already had every chance to
 		# engage (including its own ammo-conservation override for this
 		# exact range), so "nothing to shoot" here genuinely means out of
 		# ammo, reload not up, or no real target — not one being ignored.
-		if _relocate_mortar(m, "conceal" if spotted else "evade"):
+		# Always urgent: reaching this branch at all already means
+		# "spotted or a threat has a clear shot from overrun range," the
+		# same "current position is compromised" situation counter-
+		# battery evasion treats as urgent above.
+		if _relocate_mortar(m, "conceal" if spotted else "evade", true):
 			if _should_narrate_mortar_logistics(m):
 				if spotted:
 					combat_log.log_mortar_relocating_for_cover(m)
@@ -5082,12 +5103,29 @@ func _clear_mortar_move(m: Unit) -> void:
 ## real distance, real travel time, no separate cooldown bolted on top (see
 ## Unit.reload_time) — faster and farther if the crew has actually taken
 ## counter-battery fire recently (Unit.evading_counter_battery, consumed
-## here), slower moving into trees than open ground. Returns false (no-op)
-## if there's nowhere better to go right now. `intent` is recorded via
-## _issue_mortar_move (see that function's own doc comment) so the mortar
-## decision ladder knows WHY this walk is happening.
-func _relocate_mortar(mortar: Unit, intent: String) -> bool:
-	var urgent: bool = mortar.evading_counter_battery
+## here) OR `force_urgent` is true, slower moving into trees than open
+## ground. Returns false (no-op) if there's nowhere better to go right
+## now. `intent` is recorded via _issue_mortar_move (see that function's
+## own doc comment) so the mortar decision ladder knows WHY this walk is
+## happening.
+##
+## `force_urgent`: the caller's own way of saying "my current position is
+## already compromised" for a reason OTHER than counter-battery fire —
+## being genuinely spotted, or an unwatched threat closing to overrun
+## range with a clear shot (see _decide_mortar_action's own tier ladder).
+## Urgent searches FARTHER out (GameConfig.CONCEALMENT_SEARCH_RINGS_
+## URGENT_M) and moves FASTER (MORTAR_RELOCATE_SPEED_URGENT) — exactly
+## the response "the ground right around me is no longer safe, whatever
+## found me here can probably still reach nearby candidates too" calls
+## for, the same reasoning already established for counter-battery.
+## Without this, a mortar with a threat already bearing down on it (most
+## sharply: one that's completely out of ammunition, with no reason left
+## to trade concealment quality for speed at all) used to get exactly the
+## same unhurried, nearby-ring relocation as one just doing routine
+## shoot-and-scoot housekeeping with nothing actually threatening it —
+## occasionally not fast or far enough to actually get clear.
+func _relocate_mortar(mortar: Unit, intent: String, force_urgent: bool = false) -> bool:
+	var urgent: bool = mortar.evading_counter_battery or force_urgent
 	mortar.evading_counter_battery = false
 	var threats := _known_enemy_positions(mortar.team)
 	var destination: Vector2 = (
