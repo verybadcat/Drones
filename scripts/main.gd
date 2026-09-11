@@ -293,23 +293,27 @@ func _map_mouse_world_position() -> Vector2:
 	return Vector2.ZERO
 
 
-## A fixed 1000m reference bar, bottom-left of the map — the one thing on
-## screen with a known, constant real-world length to judge everything else
-## against — plus a compass rose, bottom-right, showing true north on this
-## real map. Read from GameConfig.CURRENT_MAP.compass_north_screen_direction,
-## not a constant of main.gd's own: this map keeps the attacker approaching
-## from the map's own east/right (the existing convention every other piece
-## of this game already assumes), and different real places' own real
-## attack directions land at different angles relative to that — north
-## doesn't have to point up, or the same way twice.
+## A fixed 1000m reference bar, top-right of the map (the attacker's own
+## corner — every map here has the enemy approaching from the east/right,
+## so judging the enemy's own closing distance against this is the more
+## useful place for it than the defender's own corner, who already knows
+## their deployment at a glance) — the one thing on screen with a known,
+## constant real-world length to judge everything else against — plus a
+## compass rose, bottom-right, showing true north on this real map. Read
+## from GameConfig.CURRENT_MAP.compass_north_screen_direction, not a
+## constant of main.gd's own: this map keeps the attacker approaching from
+## the map's own east/right (the existing convention every other piece of
+## this game already assumes), and different real places' own real attack
+## directions land at different angles relative to that — north doesn't
+## have to point up, or the same way twice.
 func _draw() -> void:
 	var bar_m := 1000.0
 	var bar_px: float = bar_m * GameConfig.PIXELS_PER_METER
-	var origin := Vector2(20.0, GameConfig.MAP_HEIGHT_PX - 24.0)
+	var origin := Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX - 20.0 - bar_px, 34.0) # below _clock_label, which sits at y=4
 	draw_line(origin, origin + Vector2(bar_px, 0.0), Color.WHITE, 2.0)
-	draw_line(origin, origin + Vector2(0.0, -6.0), Color.WHITE, 2.0)
-	draw_line(origin + Vector2(bar_px, 0.0), origin + Vector2(bar_px, -6.0), Color.WHITE, 2.0)
-	draw_string(ThemeDB.fallback_font, origin + Vector2(0.0, -10.0), "%d m" % int(bar_m),
+	draw_line(origin, origin + Vector2(0.0, 6.0), Color.WHITE, 2.0)
+	draw_line(origin + Vector2(bar_px, 0.0), origin + Vector2(bar_px, 6.0), Color.WHITE, 2.0)
+	draw_string(ThemeDB.fallback_font, origin + Vector2(0.0, 20.0), "%d m" % int(bar_m),
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
 
 	var compass_center := Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX - 50.0, GameConfig.MAP_HEIGHT_PX - 50.0)
