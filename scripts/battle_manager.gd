@@ -4646,8 +4646,10 @@ func _update_friendly_squad_positioning() -> void:
 			continue
 		if _pick_target(u, enemy_units) != null or _risk_holds.has(u):
 			continue # something to shoot at right now — stand and fight
-		if _reposition_for_encirclement(u, known_enemies):
+		var encirclement_dest := _reposition_for_encirclement(u, known_enemies, _ally_positions_for(u) + claimed)
+		if encirclement_dest != u.global_position:
 			at_risk[u] = true
+			claimed.append(encirclement_dest)
 			continue
 		# General principle, not conditioned on a specific detected threat:
 		# a squad wants to be in cover whenever possible, and standing in
@@ -4707,17 +4709,34 @@ func _update_friendly_squad_positioning() -> void:
 	combat_log.log_squad_blocking_flank(responder)
 
 
-## True (and issues the actual repositioning move) if `u` is genuinely at
-## risk of being surrounded: known enemies within FRIENDLY_ENCIRCLEMENT_
-## DETECT_RADIUS span at least FRIENDLY_ENCIRCLEMENT_ANGLE_THRESHOLD_DEG of
-## arc around it, AND at least FRIENDLY_ENCIRCLEMENT_MIN_COVERED_FRACTION of
-## them are already dug into real cover — "surrounded by enemies under
-## cover," the specific hopeless case, not just "outnumbered from two
-## sides" by contacts still caught in the open. Pulls back toward the
-## center of mass of the rest of this squad's own side (every other ACTIVE
-## unit, not just squads — the mortar and spotter/drone team count too) by
-## a bounded step, or toward the mortar alone if it's the only one left.
-func _reposition_for_encirclement(u: Unit, known_enemies: Array[Vector2]) -> bool:
+## Issues the actual repositioning move and returns its destination if `u`
+## is genuinely at risk of being surrounded: known enemies within
+## FRIENDLY_ENCIRCLEMENT_DETECT_RADIUS span at least FRIENDLY_ENCIRCLEMENT_
+## ANGLE_THRESHOLD_DEG of arc around it, AND at least FRIENDLY_ENCIRCLEMENT_
+## MIN_COVERED_FRACTION of them are already dug into real cover —
+## "surrounded by enemies under cover," the specific hopeless case, not
+## just "outnumbered from two sides" by contacts still caught in the open.
+## Pulls back toward the center of mass of the rest of this squad's own
+## side (every other ACTIVE unit, not just squads — the mortar and
+## spotter/drone team count too) by a bounded step, or toward the mortar
+## alone if it's the only one left. Returns `u.global_position` unchanged
+## (nearest_cover_point's own no-op convention) if it doesn't act, so a
+## caller can tell "did this fire" from the return value alone without a
+## separate bool.
+##
+## `claimed`: cover this same tick's earlier squads (in THIS function or
+## the ordinary cover-seeking tier right above it in the caller's loop)
+## already chose, or already occupy — several squads can all read
+## "surrounded" in the very same tick from a shared, only slowly-changing
+## enemy picture, and every one of them independently averaging roughly
+## the same allies' positions naturally lands on roughly the same rally
+## point; without this, they all then also pick the SAME nearest cover to
+## it, consolidating for safety into exactly the single bunched-up target
+## this function's own destination logic (below) already exists to avoid
+## for any one squad individually. Same `claimed`-accumulator treatment
+## order_general_retreat and the cover-seeking tier above already use for
+## the identical multiple-squads-same-tick problem.
+func _reposition_for_encirclement(u: Unit, known_enemies: Array[Vector2], claimed: Array[Vector2]) -> Vector2:
 	# All three thresholds relax together toward their own _URGENT values
 	# as a scheduled retreat gets closer (see _scheduled_retreat_urgency's
 	# own doc comment) — with none scheduled, urgency is 0 and every one
@@ -4732,14 +4751,14 @@ func _reposition_for_encirclement(u: Unit, known_enemies: Array[Vector2]) -> boo
 		if u.global_position.distance_to(p) <= detect_radius:
 			nearby.append(p)
 	if nearby.size() < 2:
-		return false
+		return u.global_position
 
 	var covered := 0
 	for p in nearby:
 		if GameConfig.is_in_cover(GameConfig.get_terrain_type_at(p)):
 			covered += 1
 	if float(covered) / float(nearby.size()) < min_covered_fraction:
-		return false
+		return u.global_position
 
 	var angles: Array[float] = []
 	for p in nearby:
@@ -4752,14 +4771,14 @@ func _reposition_for_encirclement(u: Unit, known_enemies: Array[Vector2]) -> boo
 		var gap: float = (b - a) if i < angles.size() - 1 else (b + 360.0 - a)
 		max_gap = max(max_gap, gap)
 	if 360.0 - max_gap < angle_threshold_deg:
-		return false
+		return u.global_position
 
 	var allies := _ally_units_for(u)
 	var rally_point: Vector2
 	if allies.is_empty():
 		var mortar := _friendly_active_mortar()
 		if mortar == null:
-			return false
+			return u.global_position
 		rally_point = mortar.global_position
 	else:
 		var sum := Vector2.ZERO
@@ -4769,7 +4788,7 @@ func _reposition_for_encirclement(u: Unit, known_enemies: Array[Vector2]) -> boo
 
 	var to_rally: Vector2 = rally_point - u.global_position
 	if to_rally.length() < 10.0:
-		return false
+		return u.global_position
 	var step: float = min(to_rally.length(), GameConfig.FRIENDLY_REPOSITION_RUSH_DISTANCE)
 	# The rally point itself is a bare geometric average of ally positions
 	# (or just the mortar's own spot) — real ground, but with no notion of
@@ -4782,18 +4801,21 @@ func _reposition_for_encirclement(u: Unit, known_enemies: Array[Vector2]) -> boo
 	# straight to open ground just because that's where the average
 	# happened to land — same "look for actual cover, not just a bare
 	# point" treatment _relocate_for_risk/_relocate_mortar already give
-	# every other safety-driven move in this file. Falls back to the raw
-	# point if genuinely nothing better is nearby (nearest_cover_point's
-	# own no-candidates convention).
+	# every other safety-driven move in this file. `claimed` (see this
+	# function's own doc comment) keeps that spreading-out real across
+	# MULTIPLE squads consolidating in the same tick, not just within one
+	# squad's own candidate list. Falls back to the raw point if genuinely
+	# nothing better is nearby (nearest_cover_point's own no-candidates
+	# convention).
 	var raw_step_destination: Vector2 = u.global_position + to_rally.normalized() * step
 	u.last_order_reason = "Known enemies threaten encirclement: consolidate toward friendly units."
-	u.move_target = GameConfig.nearest_cover_point(raw_step_destination, 0.0, false, [], known_enemies)
+	u.move_target = GameConfig.nearest_cover_point(raw_step_destination, 0.0, false, claimed, known_enemies)
 	u.has_move_target = true
 	u.move_queue.clear()
 	u.move_speed = GameConfig.REPOSITION_SPEED
 	u.movement_predictable = false
 	combat_log.log_squad_consolidating(u)
-	return true
+	return u.move_target
 
 
 func _friendly_active_mortar() -> Unit:
