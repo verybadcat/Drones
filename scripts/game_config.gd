@@ -189,6 +189,21 @@ static func elevation_m(pos_px: Vector2) -> float:
 ## enemy's actual road-march waypoints (see BattleManager._spawn_enemy_units)
 ## come from this single list, so the two can never drift out of sync.
 const ROAD_WIDTH_M: float = 7.0
+## Deliberately does NOT include a dedicated waypoint at the river crossing
+## itself, even though the road does cross there in reality — the per-
+## squad spread (see enemy_squad_y_offsets_m) shifts EVERY waypoint by up
+## to +-420m in y for an off-road squad, and a waypoint placed exactly at
+## RIVER_X_M would shift to a point still AT the river's x but far outside
+## the much narrower bridge gap: a destination sitting INSIDE the
+## impassable river itself, which a unit can never validly "arrive" at
+## (confirmed directly: it produced an infinite reroute/arrive/reroute
+## loop that made zero progress). The existing long segment already
+## spanning the river (3600 -> 2900) is enough on its own — whatever y a
+## given squad's own shifted version of that segment would cross the
+## river at, BattleManager._river_route (universal, checked fresh every
+## tick for any move_target) redirects it through the real crossing
+## first, then on to the correctly-shifted next waypoint, which is never
+## AT the river's own x — so this specific failure mode can't recur.
 const ROAD_WAYPOINTS_M: Array[Vector2] = [
 	Vector2(4950.0, 1780.0),
 	Vector2(4300.0, 1850.0),
@@ -197,6 +212,72 @@ const ROAD_WAYPOINTS_M: Array[Vector2] = [
 	Vector2(2200.0, 1720.0),
 	Vector2(1550.0, 1780.0),
 ]
+
+## The Irpin River — a real, hard obstacle, not scenery: impassable to every
+## ground unit except at the single crossing below (RIVER_BRIDGE_Y_M), the
+## real single-lane dirt-trail bridge historical accounts describe near
+## Moshchun (see BattleManager._step_toward_target/_step_retreat for the
+## actual routing enforcement, and has_direct_los for the sightline block).
+## Deliberately sized as the river's ORDINARY width, not the much wider
+## flood the defenders deliberately triggered mid-battle by breaching the
+## Kozarovychi dam upstream — this map depicts the region as it stood
+## BEFORE the attack, and that flooding was a specific defensive act during
+## the fighting itself, not the terrain's starting state.
+##
+## Modeled as two full-height rectangles either side of the crossing rather
+## than one band with a hole, so both "is this point in the river" and
+## "does this path cross the river" reduce to the same rect-crossing check
+## _line_crosses_rect already provides for BUILDING zones.
+const RIVER_X_M: float = 3250.0
+const RIVER_WIDTH_M: float = 30.0
+const RIVER_BRIDGE_Y_M: float = 1790.0 # matches the road waypoint above — the road already crosses here
+const RIVER_BRIDGE_HALF_WIDTH_M: float = 60.0 # ~120m passable gap: a real chokepoint, not a single-file pinhole
+
+static var _river_north_rect: Rect2
+static var _river_south_rect: Rect2
+static var _river_rects_built: bool = false
+
+static func _build_river_rects() -> void:
+	if _river_rects_built:
+		return
+	_river_rects_built = true
+	var x0: float = (RIVER_X_M - RIVER_WIDTH_M / 2.0) * PIXELS_PER_METER
+	var w: float = RIVER_WIDTH_M * PIXELS_PER_METER
+	var gap_top: float = (RIVER_BRIDGE_Y_M - RIVER_BRIDGE_HALF_WIDTH_M) * PIXELS_PER_METER
+	var gap_bottom: float = (RIVER_BRIDGE_Y_M + RIVER_BRIDGE_HALF_WIDTH_M) * PIXELS_PER_METER
+	_river_north_rect = Rect2(x0, 0.0, w, gap_top)
+	_river_south_rect = Rect2(x0, gap_bottom, w, MAP_HEIGHT_PX - gap_bottom)
+
+
+## True if `pos` sits in the (impassable) river itself, excluding the
+## bridge gap.
+static func is_river_at(pos: Vector2) -> bool:
+	_build_river_rects()
+	return _river_north_rect.has_point(pos) or _river_south_rect.has_point(pos)
+
+
+## True if the straight segment from `from` to `to` crosses the river
+## outside the bridge gap — same convention as path_crosses_building.
+static func path_crosses_river(from: Vector2, to: Vector2) -> bool:
+	_build_river_rects()
+	return _line_crosses_rect(from, to, _river_north_rect) or _line_crosses_rect(from, to, _river_south_rect)
+
+
+## The point on the bridge closest to a straight line from `from` toward
+## `to` — there's only one crossing, but aiming for wherever the gap's own
+## width brings a unit closest to its real destination (rather than always
+## the exact same fixed point) spreads traffic slightly across the gap
+## instead of every unit converging on one identical pixel.
+static func nearest_river_crossing(from: Vector2, to: Vector2) -> Vector2:
+	var bridge_x: float = RIVER_X_M * PIXELS_PER_METER
+	var target_y: float = from.y
+	if not is_equal_approx(from.x, to.x):
+		var t: float = (bridge_x - from.x) / (to.x - from.x)
+		target_y = lerp(from.y, to.y, clamp(t, 0.0, 1.0))
+	var half_gap_px: float = RIVER_BRIDGE_HALF_WIDTH_M * PIXELS_PER_METER
+	var bridge_y_px: float = RIVER_BRIDGE_Y_M * PIXELS_PER_METER
+	var clamped_y: float = clamp(target_y, bridge_y_px - half_gap_px, bridge_y_px + half_gap_px)
+	return Vector2(bridge_x, clamped_y)
 
 
 ## The road's waypoints converted to pixel space, for BattleManager to build
@@ -397,6 +478,27 @@ const DRONE_FLANK_WATCH_BASE_VALUE: float = 0.5
 const DRONE_FLANK_WATCH_EARLY_DISCOUNT_MIN: float = 0.1
 
 
+## This map depicts Moshchun, a small village in Bucha Raion, Kyiv Oblast,
+## roughly as it stood before the real battle fought there 5-21 March 2022
+## — one of the engagements credited with stopping the Russian drive on
+## Kyiv and contributing to the eventual full withdrawal from Kyiv Oblast.
+## The real village sat on the Irpin River (see RIVER_X_M above); Russian
+## forces attacked from the northwest, having come down through the
+## Chornobyl exclusion zone via Ivankiv, Dymer, and Borodyanka, trying to
+## force a crossing to reach Kyiv via Pushcha-Vodytsia beyond. This map's
+## own geometry already has the attacker approaching from the map's own
+## east/right and the defender's rear to the west/left — exactly the real
+## attack's own axis — so depicting it needed no change to that
+## convention, just orienting a real compass onto it (see main.gd's
+## compass rose) and adding the river itself, the one major real feature
+## this map didn't already have an equivalent of. Beyond the river's real
+## position and the village's real name, the specific building/forest
+## layout below is a reasonable, similarly-scaled approximation in the
+## same spirit as the rest of this file's terrain, not a surveyed
+## reconstruction — no detailed public record of the village's exact
+## pre-war footprint was found.
+const VILLAGE_NAME: String = "Moshchun"
+
 # Each zone is a rectangle + terrain type (TREES/BUILDING only — elevation
 # is now the continuous heightmap above, and the road is its own waypoint
 # path, not a zone; see draw_terrain). Order matters for drawing: earlier =
@@ -414,7 +516,7 @@ const DRONE_FLANK_WATCH_EARLY_DISCOUNT_MIN: float = 0.1
 const VILLAGE_CENTER: Vector2 = Vector2(1400.0 * PIXELS_PER_METER, 1750.0 * PIXELS_PER_METER)
 
 const TERRAIN_ZONES: Array[Dictionary] = [
-	{"rect": Rect2(1175.0 * PIXELS_PER_METER, 1560.0 * PIXELS_PER_METER, 450.0 * PIXELS_PER_METER, 380.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # the village
+	{"rect": Rect2(1175.0 * PIXELS_PER_METER, 1560.0 * PIXELS_PER_METER, 450.0 * PIXELS_PER_METER, 380.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # Moshchun
 	{"rect": Rect2(2380.0 * PIXELS_PER_METER, 1580.0 * PIXELS_PER_METER, 55.0 * PIXELS_PER_METER, 46.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # isolated farmhouse, mid-approach
 	{"rect": Rect2(880.0 * PIXELS_PER_METER, 2480.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 50.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # isolated farmhouse, rear
 ]
@@ -2307,6 +2409,14 @@ static func has_direct_los(from: Vector2, to: Vector2) -> bool:
 		if _line_crosses_rect(from, to, zone.rect):
 			return false
 
+	# The river's own banks and reed-lined floodplain block a ground-level
+	# sightline the same way a building would — real ground-level cover, not
+	# just distance. Aerial LOS (has_aerial_los) deliberately does NOT get
+	# this: a drone looking down from DRONE_ALTITUDE_M sees the water and
+	# both banks just fine — nothing about a river has a roof.
+	if path_crosses_river(from, to):
+		return false
+
 	var from_eye: float = elevation_m(from) + EYE_HEIGHT_M
 	var to_eye: float = elevation_m(to) + EYE_HEIGHT_M
 	for i in range(1, LOS_SAMPLE_COUNT):
@@ -2360,12 +2470,31 @@ static func _segments_intersect(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vecto
 ## own _draw().
 static func draw_terrain(ci: CanvasItem) -> void:
 	_draw_hills(ci)
+	_draw_river(ci)
 	_draw_road(ci)
 	for zone in TERRAIN_ZONES:
 		if zone.type == TerrainType.BUILDING:
 			_draw_village(ci, zone.rect)
 	for patch in FOREST_PATCHES:
 		_draw_forest_patch(ci, patch)
+
+
+## Drawn as the two blocking rects directly (rather than a single band),
+## so what's drawn is exactly what path_crosses_river/is_river_at actually
+## enforce — plus a short plank mark across the gap for the one bridge.
+static func _draw_river(ci: CanvasItem) -> void:
+	_build_river_rects()
+	var water := Color(0.3, 0.45, 0.55, 0.65)
+	ci.draw_rect(_river_north_rect, water)
+	ci.draw_rect(_river_south_rect, water)
+	var bridge_x: float = RIVER_X_M * PIXELS_PER_METER
+	var half_gap_px: float = RIVER_BRIDGE_HALF_WIDTH_M * PIXELS_PER_METER
+	var bridge_y_px: float = RIVER_BRIDGE_Y_M * PIXELS_PER_METER
+	var plank := Color(0.55, 0.45, 0.3)
+	var y: float = bridge_y_px - half_gap_px
+	while y < bridge_y_px + half_gap_px:
+		ci.draw_line(Vector2(bridge_x - RIVER_WIDTH_M * PIXELS_PER_METER / 2.0, y), Vector2(bridge_x + RIVER_WIDTH_M * PIXELS_PER_METER / 2.0, y), plank, 2.0)
+		y += 10.0
 
 
 ## A ring around a unit/token showing whether its current spot is cover —

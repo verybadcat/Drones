@@ -3829,7 +3829,45 @@ func _tick_movement(scenario_delta: float) -> void:
 			unit.seconds_stationary += scenario_delta
 
 
+## A DRONE flies over the river freely (it's airborne — see GameConfig.
+## has_aerial_los's own reasoning for why the river never blocks it);
+## every ground unit routes via the one bridge instead. Checked fresh
+## every tick rather than once at order time, since a unit re-ordered
+## mid-crossing (a fresh cover pick, a hunt retarget) must still route
+## correctly rather than being allowed to cut straight across just
+## because its ORIGINAL order happened to already be past the bank.
+## `unit.move_queue.push_front` puts the real destination right after the
+## bridge leg — the existing move_queue pop in _step_toward_target's own
+## arrival branch then continues on to it with no further special casing.
+func _river_route(unit: Unit) -> void:
+	if unit.kind == Unit.Kind.DRONE:
+		return
+	if GameConfig.is_river_at(unit.move_target):
+		# The destination itself is unreachable — inside the river, not
+		# just across it. Some other system (a cover pick, a rally point)
+		# chose it with no idea the river exists there; confirmed directly
+		# this used to happen with a per-squad-shifted road waypoint that
+		# landed inside the river for any off-road spread offset (see
+		# ROAD_WAYPOINTS_M's own comment) — the fix there removed that
+		# specific case, but this general guard stays, since nothing else
+		# checks the river before choosing a destination either. Redirect
+		# to the crossing itself and leave whatever's already queued
+		# BEHIND it alone — pushing the unreachable point back onto the
+		# queue would just reproduce the same "arrive, re-target something
+		# inside the river" loop this function exists to prevent.
+		unit.move_target = GameConfig.nearest_river_crossing(unit.position, unit.move_target)
+		return
+	if not GameConfig.path_crosses_river(unit.position, unit.move_target):
+		return
+	var crossing: Vector2 = GameConfig.nearest_river_crossing(unit.position, unit.move_target)
+	if unit.move_target.distance_to(crossing) <= Unit.MOVE_ARRIVE_RADIUS:
+		return # already routed to the crossing itself
+	unit.move_queue.push_front(unit.move_target)
+	unit.move_target = crossing
+
+
 func _step_toward_target(unit: Unit, scenario_delta: float) -> void:
+	_river_route(unit)
 	unit.activity = Unit.Activity.MOVING
 	var to_target: Vector2 = unit.move_target - unit.position
 	var dist: float = to_target.length()
@@ -3876,6 +3914,18 @@ func _step_retreat(unit: Unit, scenario_delta: float) -> void:
 		_sidestep_building(unit, scenario_delta, next_pos)
 		return
 
+	# Only reachable by a unit that's already on the FAR side of the river
+	# from its own safe line (an enemy squad that fought its way across and
+	# is now being pushed back, most likely) — every unit's OWN side is
+	# already on the correct side of the crossing by construction, so a
+	# normal retreat never needs this. Same idea as _sidestep_building —
+	# hold x, steer y toward the one gap — but toward a known fixed point
+	# rather than just "away from center," since there's no way around a
+	# full-height river except straight through its single crossing.
+	if GameConfig.is_river_at(next_pos):
+		_sidestep_river(unit, scenario_delta)
+		return
+
 	unit.position = next_pos
 	var reached: bool = (unit.position.x <= unit.retreat_target_x) if unit.team == Unit.Team.PLAYER else (unit.position.x >= unit.retreat_target_x)
 	if reached:
@@ -3917,6 +3967,12 @@ func _sidestep_building(unit: Unit, scenario_delta: float, blocked_pos: Vector2)
 			building_center_y = zone.rect.position.y + zone.rect.size.y / 2.0
 			break
 	var dir_y: float = -1.0 if unit.position.y <= building_center_y else 1.0
+	unit.position.y += dir_y * unit.retreat_speed * scenario_delta
+
+
+func _sidestep_river(unit: Unit, scenario_delta: float) -> void:
+	var bridge_y: float = GameConfig.RIVER_BRIDGE_Y_M * GameConfig.PIXELS_PER_METER
+	var dir_y: float = -1.0 if unit.position.y > bridge_y else 1.0
 	unit.position.y += dir_y * unit.retreat_speed * scenario_delta
 
 
@@ -4395,9 +4451,20 @@ func _next_advance_point(u: Unit, max_step: float = GameConfig.ENEMY_ADVANCE_RUS
 		if other == u or other.kind != Unit.Kind.SQUAD or other.state != Unit.State.ACTIVE:
 			continue
 		other_bearings.append(rad_to_deg((other.global_position - friendly_center).angle()))
+	# Clamped to the map's real operating area — see GameConfig.clamp_to_
+	# operating_area's own doc comment. `rush` is UNCAPPED (max_step=INF)
+	# for a squad's very first alert-triggered break from the march (see
+	# _alert_enemy_squads), which can legitimately be the squad's entire
+	# remaining distance to a far-off objective (a flanking route's own
+	# waypoint deep in the west flank, hundreds of meters off). Rotating
+	# that large a radius across the full spread of ENEMY_ADVANCE_ANGLES_
+	# DEG can easily land a candidate well outside the map — confirmed
+	# directly: an off-map y (negative, no such place exists) got weighted-
+	# picked and sent a squad walking toward a point that was never on the
+	# battlefield at all.
 	var candidates: Array[Vector2] = []
 	for angle_deg in GameConfig.ENEMY_ADVANCE_ANGLES_DEG:
-		candidates.append(u.global_position + to_objective.normalized().rotated(deg_to_rad(angle_deg)) * rush)
+		candidates.append(GameConfig.clamp_to_operating_area(u.global_position + to_objective.normalized().rotated(deg_to_rad(angle_deg)) * rush))
 	return _weighted_advance_point_pick(candidates, GameConfig.ENEMY_ADVANCE_ANGLES_DEG, known_player_positions, friendly_center, other_bearings)
 
 
@@ -5761,7 +5828,7 @@ func _end_battle() -> void:
 	var lines: PackedStringArray = []
 	lines.append("=== AFTER-ACTION REPORT ===")
 	lines.append("Verdict: %s" % verdict)
-	lines.append("Village held: %s" % ("YES" if held else "NO"))
+	lines.append("%s held: %s" % [GameConfig.VILLAGE_NAME, "YES" if held else "NO"])
 	var tactical_minutes: int = int(scenario_elapsed_time / 60.0)
 	lines.append("Time elapsed: %dh %02dm (0600 to %s)" % [tactical_minutes / 60, tactical_minutes % 60, clock_string().substr(0, 5)])
 	# Captured is included right in this line, not a separate conditional

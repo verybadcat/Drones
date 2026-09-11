@@ -42,7 +42,7 @@ func _ready() -> void:
 	root.add_theme_constant_override("separation", 10)
 	scroll.add_child(root)
 
-	var title := GameConfig.make_selectable_label("Holding the village. Drag your units into position on the map, set doctrine below, then start the battle.")
+	var title := GameConfig.make_selectable_label("Holding %s. Drag your units into position on the map, set doctrine below, then start the battle." % GameConfig.VILLAGE_NAME)
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(title)
 

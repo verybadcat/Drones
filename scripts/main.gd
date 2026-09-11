@@ -119,6 +119,9 @@ var _elevation_label: Label
 # before the battle starts too, frozen at the planned H-hour.
 var _clock_label: Label
 
+# The real place this map depicts — see GameConfig.VILLAGE_NAME.
+var _location_label: Label
+
 
 func _ready() -> void:
 	map_container = SubViewportContainer.new()
@@ -156,7 +159,20 @@ func _ready() -> void:
 	_clock_label.add_theme_constant_override("shadow_offset_y", 1)
 	add_child(_clock_label)
 
-	queue_redraw() # the scale bar is static; draw it once up front
+	# Always on screen (unlike _elevation_label, which only shows on hover)
+	# — this map depicts a real place, not a generic fictional one, and the
+	# name should be as visible as the clock. See GameConfig.VILLAGE_NAME's
+	# own doc comment for the real history.
+	_location_label = Label.new()
+	_location_label.text = "%s, Kyiv Oblast — March 2022" % GameConfig.VILLAGE_NAME
+	_location_label.position = Vector2(8, 24)
+	_location_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.85))
+	_location_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
+	_location_label.add_theme_constant_override("shadow_offset_x", 1)
+	_location_label.add_theme_constant_override("shadow_offset_y", 1)
+	add_child(_location_label)
+
+	queue_redraw() # the scale bar/compass are static; draw them once up front
 
 	_show_level_select()
 
@@ -269,7 +285,15 @@ func _map_mouse_world_position() -> Vector2:
 
 ## A fixed 1000m reference bar, bottom-left of the map — the one thing on
 ## screen with a known, constant real-world length to judge everything else
-## against.
+## against — plus a compass rose, bottom-right, showing true north on this
+## real map. North does NOT point up here: this map keeps the attacker
+## approaching from the map's own east/right (the existing convention
+## every other piece of this game already assumes), and the real attack on
+## Moshchun came from the northwest — so true north here points down-and-
+## right, not up. See GameConfig.VILLAGE_NAME's own doc comment for the
+## real-world reasoning the rotation comes from.
+const COMPASS_NORTH_SCREEN_DIRECTION: Vector2 = Vector2(0.70710678, 0.70710678)
+
 func _draw() -> void:
 	var bar_m := 1000.0
 	var bar_px: float = bar_m * GameConfig.PIXELS_PER_METER
@@ -279,6 +303,14 @@ func _draw() -> void:
 	draw_line(origin + Vector2(bar_px, 0.0), origin + Vector2(bar_px, -6.0), Color.WHITE, 2.0)
 	draw_string(ThemeDB.fallback_font, origin + Vector2(0.0, -10.0), "%d m" % int(bar_m),
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
+
+	var compass_center := Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX - 50.0, GameConfig.MAP_HEIGHT_PX - 50.0)
+	var compass_radius := 26.0
+	draw_arc(compass_center, compass_radius, 0.0, TAU, 32, Color(1, 1, 1, 0.7), 1.5, true)
+	var north_tip: Vector2 = compass_center + COMPASS_NORTH_SCREEN_DIRECTION * compass_radius
+	draw_line(compass_center, north_tip, Color(1.0, 0.85, 0.2), 2.0)
+	draw_string(ThemeDB.fallback_font, north_tip + COMPASS_NORTH_SCREEN_DIRECTION * 10.0 - Vector2(5, -5), "N",
+		HORIZONTAL_ALIGNMENT_CENTER, -1, 13, Color(1.0, 0.85, 0.2))
 
 
 func _clear_all() -> void:
