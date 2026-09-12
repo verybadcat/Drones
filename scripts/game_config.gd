@@ -1637,7 +1637,23 @@ const SQUAD_ENGAGEMENT_RANGE: float = 400.0 * PIXELS_PER_METER
 # requirement of its own, and firing does not automatically reveal one to
 # enemy squads the way a rifle's muzzle flash does. But it is NOT unlimited
 # range: a real light/medium mortar tops out well short of the whole map.
-const MORTAR_MAX_RANGE: float = 3500.0 * PIXELS_PER_METER
+#
+# Raised from an earlier, uncited 3500m to real, recent (2023-2024) 82mm
+# figures from this exact war: reporting on Ukrainian-produced 82mm mortar
+# shells cites a max range of 4500m, and Russia's currently-issued 2B24
+# 82mm light mortar is rated to 6000m — both well above the older Soviet-
+# era 82-BM-37's own 3040m, which the previous 3500m figure was closer to
+# despite not actually citing it. Set at the conservative end of that
+# 4500-6000m range, not the high end, matching this file's own established
+# practice for a cited range with real uncertainty in it (see
+# DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER's identical reasoning). Found
+# to matter concretely, not just cosmetically: at the old 3500m, a direct
+# empirical check found the median real distance between the two sides'
+# own mortar positions on this game's current (larger, right-tailed-
+# assault) maps already exceeded it — cross-mortar counter-battery duels
+# were geometrically impossible more often than any hold/scoot chance
+# tuning could ever compensate for.
+const MORTAR_MAX_RANGE: float = 5000.0 * PIXELS_PER_METER
 
 ## Squad tactics: the enemy tries to flank toward the friendly mortar (see
 ## BattleManager._enemy_advance_objective/_score_advance_candidate), and
