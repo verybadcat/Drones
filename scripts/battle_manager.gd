@@ -5244,6 +5244,28 @@ func _relocate_mortar(mortar: Unit, intent: String, force_urgent: bool = false) 
 ## _queue_mortar_displacement (below) can compute the SAME plan without
 ## issuing it immediately — see that function's own doc comment for why.
 ## Empty Dictionary means "nowhere better to go right now."
+##
+## A real, previously-reported failure mode: this used to search purely
+## outward from the mortar's OWN current position with no notion of
+## "home" at all, so a string of successive safety scoots — pure
+## nearest-hidden-point geometry, each one individually reasonable —
+## could drift the crew further and further from the actual defensible
+## position over the course of a battle, eventually ending up isolated
+## somewhere far off (a previously-reported case: "leaving the hill,
+## going North"), at which point _update_friendly_squad_positioning's
+## own mortar-screening logic (see _nearest_unscreened_mortar_threat)
+## would send a squad chasing after it too — the "everyone follows the
+## mortar" symptom is a direct downstream consequence of the mortar's
+## OWN destination never having a leash in the first place. Now rejects
+## (returns {}, causing a hold in place rather than a bad move) any
+## candidate beyond GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME of
+## _friendly_mortar_home_position — the SAME cap, and the SAME real
+## reasoning, already established for hunting (a real crew won't range
+## indefinitely far from where it was actually deployed), applied here
+## too: self-preservation is not a reason to abandon supporting distance
+## of the position it exists to help defend, any more than chasing an
+## enemy mortar is. Player-only — there's no tracked home position for
+## the enemy's own mortar(s) at all to check against.
 func _mortar_relocation_plan(mortar: Unit, urgent: bool) -> Dictionary:
 	var threats := _known_enemy_positions(mortar.team)
 	var destination: Vector2 = (
@@ -5252,6 +5274,8 @@ func _mortar_relocation_plan(mortar: Unit, urgent: bool) -> Dictionary:
 		else GameConfig.nearest_cover_point(mortar.global_position, 0.0, true)
 	)
 	if destination == mortar.global_position:
+		return {}
+	if mortar.team == Unit.Team.PLAYER and destination.distance_to(_friendly_mortar_home_position) > GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME:
 		return {}
 	var speed: float = GameConfig.MORTAR_RELOCATE_SPEED_URGENT if urgent else GameConfig.MORTAR_RELOCATE_SPEED
 	if GameConfig.get_terrain_type_at(destination) == GameConfig.TerrainType.TREES:
