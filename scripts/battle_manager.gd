@@ -4986,25 +4986,31 @@ func _weighted_advance_point_pick(candidates: Array[Vector2], angles_deg: Array[
 
 
 ## Firing gives the OPPOSING mortar(s) — and only the opposing mortar, not
-## every enemy unit — a chance to notice and shoot back. Shoot-and-scoot
-## keeps that chance low; holding position in one spot raises it a lot.
-## Mortars are a high-priority target for each other. This isn't abstract:
-## the return fire has to physically come from an opposing mortar that
-## could actually reach this position — one beyond GameConfig.MORTAR_MAX_RANGE
-## simply can't respond, no matter how exposed the firing mortar was. A
-## mortar dug in deep enough to be out of both enemy tubes' range trades
-## away some of its own reach for genuine counter-battery immunity.
+## every enemy unit — a chance to notice and shoot back, at one shared
+## rate (GameConfig.MORTAR_COUNTER_BATTERY_CHANCE — see its own doc
+## comment for why this ISN'T split by the firing mortar's own shoot-and-
+## scoot doctrine: a responding crew reacts to a detected firing
+## signature, not a prediction of what this specific target will do
+## next). Mortars are a high-priority target for each other. This isn't
+## abstract: the return fire has to physically come from an opposing
+## mortar that could actually reach this position — one beyond
+## GameConfig.MORTAR_MAX_RANGE simply can't respond, no matter how
+## exposed the firing mortar was. A mortar dug in deep enough to be out
+## of both enemy tubes' range trades away some of its own reach for
+## genuine counter-battery immunity.
 ##
 ## The strike isn't instant: it can only ever target where THIS mortar was
 ## standing right now, at the moment it fired (captured here, before any
 ## post-shot scoot hop) — see _resolve_pending_counter_battery for the
-## delayed impact that actually checks whether it's still nearby. The delay
-## itself is random — GameConfig.COUNTER_BATTERY_DELAY_MIN/MAX, 1-3 tactical
-## minutes — not a fixed interval; real counter-battery response time varies
-## with how quickly the opposing crew can get a fire mission organized.
+## delayed impact that actually checks whether it's still nearby — THAT
+## check, not this one, is where shoot-and-scoot's own real protection
+## actually lives. The delay itself is random — GameConfig.COUNTER_
+## BATTERY_DELAY_MIN/MAX, 1-3 tactical minutes — not a fixed interval;
+## real counter-battery response time varies with how quickly the
+## opposing crew can get a fire mission organized.
 func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 	var opposing: Array[Unit] = player_units if firing_mortar.team == Unit.Team.ENEMY else enemy_units
-	var chance: float = GameConfig.MORTAR_COUNTER_BATTERY_SCOOT_CHANCE if firing_mortar.shoot_and_scoot else GameConfig.MORTAR_COUNTER_BATTERY_HOLD_CHANCE
+	var chance: float = GameConfig.MORTAR_COUNTER_BATTERY_CHANCE
 	for m in opposing:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
 			continue

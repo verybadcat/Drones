@@ -2086,10 +2086,32 @@ const MORTAR_CONFIDENCE_FLOOR: float = 0.05
 const MORTAR_FLIGHT_TIME: float = 40.0 # tactical seconds
 const MORTAR_EVASION_RADIUS: float = 40.0 * PIXELS_PER_METER
 
-# It can still be picked up by the opposing mortar's counter-battery (see
-# CombatResolver / BattleManager).
-const MORTAR_COUNTER_BATTERY_HOLD_CHANCE: float = 0.22 # per shot, holding position
-const MORTAR_COUNTER_BATTERY_SCOOT_CHANCE: float = 0.06 # per shot, shoot-and-scoot
+# Whether the opposing mortar even ATTEMPTS a counter-battery mission
+# after this shot (see BattleManager._resolve_mortar_counter_battery) —
+# one shared rate, not split by the firing mortar's own shoot-and-scoot
+# doctrine. It used to be: 0.22 holding position, 0.06 shoot-and-scoot —
+# reasoning that the opposing side wouldn't bother trying against a
+# target it expected to already be gone. That's backwards from how real
+# counter-battery actually works and from what a bare, uncited comment
+# ("it can still be picked up") was ever really claiming: a responding
+# crew reacts to a detected firing signature, not a prediction of what
+# THIS specific target will do next — real, radar-cued counter-battery in
+# this exact war routinely returns fire within under two minutes of
+# detection, and reporting on Ukrainian mortar tactics specifically
+# frames shoot-and-scoot as a way to avoid EFFECTIVE counter-battery
+# fire (i.e., not being there when the round lands), not as something
+# that makes the enemy less likely to shoot back at all. That "will it
+# actually catch them" half is already modeled separately and correctly
+# — _resolve_pending_counter_battery checks, after a real 1-3 minute
+# flight delay, whether the target is still near where it fired from —
+# so a single shared attempt-chance here doesn't lose the real
+# shoot-and-scoot protection, it just stops double-counting it as an
+# ALSO-reduced chance of ever being shot at in the first place. Kept at
+# the old HOLD rate rather than the old SCOOT rate: "always try" is the
+# realistic default; a hold-position mortar's own poor survivability in
+# this war comes from actually being caught by the impact, not from
+# somehow inviting more return-fire attempts.
+const MORTAR_COUNTER_BATTERY_CHANCE: float = 0.22 # per shot
 
 # How long a mortar's firing position stays "worth pursuing" for counter-
 # battery-range-chasing purposes after being detected (see BattleManager.
