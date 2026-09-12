@@ -106,12 +106,17 @@ func _draw() -> void:
 		_draw_fire_event(f)
 
 
-## A simplified, self-contained echo of Unit._draw()'s own color/size
-## language — deliberately NOT the is_visible-based hiding that function
-## also does, since this view is unconditional ground truth. Sub-icon
-## detail (the mortar's dot, the drone's rotor cross, etc.) is skipped for
-## now; team/kind color plus state-based dimming is enough to follow how a
-## battle actually unfolded, which is what this feature is for.
+## A self-contained echo of Unit._draw()'s own full visual language,
+## offset by each unit's own recorded `pos` instead of relying on a
+## per-unit node's own local origin (this is one shared node drawing
+## every unit in a single _draw() call) — labels, sub-icon detail, the
+## cover ring, and the strength bar all included now, so a replay looks
+## the same as the live game modulo controls, per the user's own explicit
+## ask, not just a same-color blob standing in for each unit. Terrain for
+## the cover ring is looked up fresh from `pos` (see _record_history_
+## snapshot's own doc comment for why that's not snapshotted). Still
+## deliberately NOT the is_visible-based hiding Unit._draw() also does,
+## since this view is unconditional ground truth by design.
 func _draw_unit(u: Dictionary) -> void:
 	var team: Unit.Team = u.team
 	var kind: Unit.Kind = u.kind
@@ -135,11 +140,35 @@ func _draw_unit(u: Dictionary) -> void:
 	if state == Unit.State.DESTROYED:
 		color = Color(0.25, 0.25, 0.25)
 
+	draw_string(ThemeDB.fallback_font, pos + Vector2(-24, 29), u.get("unit_label", ""), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, color.lightened(0.3))
+
 	var radius := 14.0 if kind == Unit.Kind.SQUAD else (8.0 if (kind == Unit.Kind.SPOTTER or kind == Unit.Kind.DRONE_TEAM) else (6.0 if kind == Unit.Kind.RESUPPLY_RUN else (5.0 if kind == Unit.Kind.DRONE else 10.0)))
 	if kind == Unit.Kind.RESUPPLY_RUN:
 		draw_rect(Rect2(pos - Vector2(radius, radius), Vector2(radius * 2.0, radius * 2.0)), color)
 	else:
 		draw_circle(pos, radius, color)
+
+	if kind == Unit.Kind.MORTAR:
+		draw_circle(pos, radius * 0.45, Color.BLACK)
+	elif kind == Unit.Kind.SPOTTER or kind == Unit.Kind.DRONE_TEAM:
+		draw_circle(pos, radius * 0.4, Color(0.1, 0.1, 0.1))
+		draw_circle(pos, radius * 0.18, Color.WHITE)
+	elif kind == Unit.Kind.DRONE:
+		draw_line(pos + Vector2(-radius, -radius), pos + Vector2(radius, radius), Color(0.15, 0.15, 0.15), 1.5)
+		draw_line(pos + Vector2(-radius, radius), pos + Vector2(radius, -radius), Color(0.15, 0.15, 0.15), 1.5)
+
+	if state == Unit.State.WITHDRAWN or state == Unit.State.DESTROYED or state == Unit.State.SURRENDERED:
+		return
+
+	GameConfig.draw_cover_ring(self, radius, GameConfig.get_terrain_type_at(pos), pos)
+
+	var bar_width := 28.0
+	var bar_y := pos.y - radius - 10.0
+	draw_rect(Rect2(pos.x - bar_width / 2.0, bar_y, bar_width, 4.0), Color(0.15, 0.15, 0.15))
+	var max_pips: int = u.get("max_pips", 0)
+	if max_pips > 0:
+		var filled_width: float = bar_width * (float(u.get("pips", 0)) / float(max_pips))
+		draw_rect(Rect2(pos.x - bar_width / 2.0, bar_y, filled_width, 4.0), Color(0.2, 0.9, 0.3))
 
 
 ## A self-contained echo of BattleManager._draw()'s own fire-flash

@@ -3078,11 +3078,11 @@ static func _draw_river(ci: CanvasItem) -> void:
 ## A ring around a unit/token showing whether its current spot is cover —
 ## shown in the battle view AND on the deployment screen, so cover status is
 ## visible before the battle even starts.
-static func draw_cover_ring(ci: CanvasItem, radius: float, terrain: TerrainType) -> void:
+static func draw_cover_ring(ci: CanvasItem, radius: float, terrain: TerrainType, center: Vector2 = Vector2.ZERO) -> void:
 	var in_cover := is_in_cover(terrain)
 	var color: Color = Color(0.25, 1.0, 0.35, 0.9) if in_cover else Color(1.0, 0.3, 0.2, 0.55)
 	var width: float = 3.0 if in_cover else 1.5
-	ci.draw_arc(Vector2.ZERO, radius + 5.0, 0.0, TAU, 24, color, width, true)
+	ci.draw_arc(center, radius + 5.0, 0.0, TAU, 24, color, width, true)
 
 
 ## Real, believable contour lines, not perfect circles: each hill's isoline

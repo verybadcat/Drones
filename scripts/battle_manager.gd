@@ -657,7 +657,14 @@ func clock_string(at_time: float = scenario_elapsed_time) -> String:
 func _record_history_snapshot() -> void:
 	var units: Array[Dictionary] = []
 	for u in player_units + enemy_units:
-		units.append({"team": u.team, "kind": u.kind, "x": u.global_position.x, "y": u.global_position.y, "state": u.state})
+		# unit_label/pips/max_pips added so BattleHistoryViewer can render
+		# the same label-and-strength-bar detail the live game shows — see
+		# its own _draw_unit doc comment. Terrain (for the cover ring) is
+		# deliberately NOT snapshotted here: it never changes over the
+		# course of a battle, so the viewer can just look it up fresh from
+		# the recorded x/y instead of storing it redundantly every snapshot.
+		units.append({"team": u.team, "kind": u.kind, "x": u.global_position.x, "y": u.global_position.y, "state": u.state,
+			"unit_label": u.unit_label, "pips": u.pips, "max_pips": u.max_pips})
 	_history.append({"time": scenario_elapsed_time, "units": units})
 
 
@@ -5125,6 +5132,21 @@ func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 				"target": firing_mortar,
 				"impact_position": firing_mortar.global_position,
 				"impact_time": scenario_elapsed_time + delay,
+			})
+			# A real, previously-reported gap: unlike an ordinary mortar shot
+			# (_launch_mortar_shot, right above), a counter-battery round
+			# never got its own tracer/flash here, or its own entry in
+			# _history_fire_events — so a CB strike that destroyed a unit
+			# was simply invisible, both live and in the post-battle replay,
+			# even though the combat log narrated it in text. Same shape,
+			# same two lists, same "muzzle flash is visible at the moment of
+			# firing, not just at impact" reasoning as every other shot in
+			# this file.
+			_fire_flashes.append({
+				"from": m.global_position, "to": firing_mortar.global_position, "team": m.team, "time": elapsed_time, "is_mortar": true,
+			})
+			_history_fire_events.append({
+				"from": m.global_position, "to": firing_mortar.global_position, "team": m.team, "time": scenario_elapsed_time, "is_mortar": true,
 			})
 			# A mortar's muzzle flash/trajectory can give it away here even
 			# if nobody has actually laid eyes on it — a real detection
