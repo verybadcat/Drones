@@ -23,13 +23,14 @@ func register(unit: Unit) -> void:
 	rows[unit.get_instance_id()] = {"unit_ref": unit, "label_fallback": unit.display_name(),
 		"team": int(unit.team), "kind": int(unit.kind),
 		"shots": 0, "counter_battery": 0, "hits": 0, "casualties": 0, "killed": 0,
-		"wounded": 0, "airframes": 0, "targets": {}}
+		"wounded": 0, "heavily_wounded": 0, "walking_wounded": 0, "airframes": 0, "targets": {}}
 
 func shot(unit: Unit, counter_battery: bool = false) -> void:
 	rows[unit.get_instance_id()]["counter_battery" if counter_battery else "shots"] += 1
 
 static func before_hit(target: Unit) -> Dictionary:
-	return {"pips": target.pips, "killed": target.killed_count}
+	return {"pips": target.pips, "killed": target.killed_count,
+		"heavily_wounded": target.heavily_wounded_count, "walking_wounded": target.walking_wounded_count}
 
 func damage(attacker: Unit, target: Unit, before: Dictionary) -> void:
 	var amount := maxi(int(before.pips) - target.pips, 0)
@@ -40,9 +41,19 @@ func damage(attacker: Unit, target: Unit, before: Dictionary) -> void:
 	if target.kind == Unit.Kind.DRONE:
 		row.airframes += 1
 	else:
+		# Same delta-since-`before` approach as `deaths` for each of the
+		# three buckets Unit._categorize_casualties actually sorts newly-
+		# lost people into — `wounded` (heavily + walking combined) stays
+		# alongside them, unchanged, so the existing killed+wounded==
+		# casualties reconciliation (see test_unit_doctrine.gd) still holds
+		# without having to touch that test.
 		var deaths := clampi(target.killed_count - int(before.killed), 0, amount)
+		var heavily := clampi(target.heavily_wounded_count - int(before.heavily_wounded), 0, amount)
+		var walking := clampi(target.walking_wounded_count - int(before.walking_wounded), 0, amount)
 		row.casualties += amount
 		row.killed += deaths
+		row.heavily_wounded += heavily
+		row.walking_wounded += walking
 		row.wounded += amount - deaths
 	var target_id := target.get_instance_id()
 	row.targets[target_id] = int(row.targets.get(target_id, 0)) + amount
@@ -94,13 +105,15 @@ func report_lines() -> PackedStringArray:
 		var team_rows: Array = rows.values().filter(func(row): return row.team == side)
 		team_rows.sort_custom(_by_roster_order)
 		var total_killed := 0
-		var total_wounded := 0
+		var total_heavily_wounded := 0
+		var total_walking_wounded := 0
 		var total_airframes := 0
 		for row in team_rows:
 			if row.kind not in [Unit.Kind.SQUAD, Unit.Kind.MORTAR]: continue
 			lines.append("%s: %d casualties inflicted / %d shots / %d CB strikes" % [_resolve_name(row), row.casualties, row.shots, row.counter_battery])
 			total_killed += row.killed
-			total_wounded += row.wounded
+			total_heavily_wounded += row.heavily_wounded
+			total_walking_wounded += row.walking_wounded
 			total_airframes += row.airframes
 		# Same "inflicted, not suffered" framing as every other number in
 		# this report — this side's total casualties inflicted equal the
@@ -108,8 +121,11 @@ func report_lines() -> PackedStringArray:
 		# already give the full picture for either side without a separate,
 		# fog-of-war-limited figure: this whole report is the exact,
 		# omniscient one, unlike _end_battle's own "Player/Enemy casualties"
-		# lines elsewhere in the AAR.
-		lines.append("TOTAL INFLICTED: %d killed, %d wounded (%d total)%s" % [total_killed, total_wounded, total_killed + total_wounded, ", %d drone(s) destroyed" % total_airframes if total_airframes > 0 else ""])
+		# lines elsewhere in the AAR. Heavily wounded vs. walking wounded
+		# split out here the same way _end_battle's own casualty lines
+		# already do — "wounded" alone hid the difference between a
+		# casualty who's out of the fight and one who kept going.
+		lines.append("TOTAL INFLICTED: %d killed, %d heavily wounded, %d walking wounded (%d total)%s" % [total_killed, total_heavily_wounded, total_walking_wounded, total_killed + total_heavily_wounded + total_walking_wounded, ", %d drone(s) destroyed" % total_airframes if total_airframes > 0 else ""])
 		lines.append("")
 	lines.append("DETAILS (CB = counter-battery; impacts include splash) — each row is what THAT unit dealt out; to see what a unit received, look for it under \"Against ...\" in another unit's own row below")
 	var detail_rows: Array = rows.values()
@@ -118,7 +134,7 @@ func report_lines() -> PackedStringArray:
 		if row.kind not in [Unit.Kind.SQUAD, Unit.Kind.MORTAR]:
 			lines.append("%s: unarmed support; no weapon damage." % _resolve_name(row))
 			continue
-		lines.append("%s inflicted: %d killed, %d wounded, %d drone(s) destroyed; %d damaging impacts." % [_resolve_name(row), row.killed, row.wounded, row.airframes, row.hits])
+		lines.append("%s inflicted: %d killed, %d heavily wounded, %d walking wounded, %d drone(s) destroyed; %d damaging impacts." % [_resolve_name(row), row.killed, row.heavily_wounded, row.walking_wounded, row.airframes, row.hits])
 		for target_id in row.targets:
 			var target_name: String = _resolve_name(rows[target_id]) if rows.has(target_id) else "a unit no longer on record"
 			lines.append("  Against %s: %d strength lost." % [target_name, row.targets[target_id]])
