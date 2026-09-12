@@ -2787,6 +2787,51 @@ static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vecto
 	return _random_point_in_cover_zone(pool[0].zone)
 
 
+## A cover point picked with an eye toward the resupply corridor, not just
+## "safe and X-directionally retreat-ward" — a real, previously-reported
+## failure mode: nearest_cover_point's own `retreat_dir` filter only ever
+## constrains the X-axis (never walk back TOWARD the enemy), leaving the
+## Y-axis (north/south) completely free, so a mortar's own retreat could
+## end up drifting far off to one side for no better reason than "that's
+## where the nearest still-safe zone happened to be." A crew that isn't
+## fighting to hold ground right now (it's retreating) but may still need
+## resupply soon has a genuinely better direction to head: generally
+## along the same line a resupply run would already be approaching on
+## (see BattleManager._resupply_entry_point_for — real ground truth
+## already computed the same way, not a guess), not off on an unrelated
+## tangent. Same structure as safest_cover_point (hard DANGER_RADIUS
+## exclusion, narrow to the nearest few candidates so this doesn't trek
+## across the map for a marginal directional gain) with "farthest from
+## known enemies" swapped for "closest to `reference_point`" as the
+## secondary ranking. With no known enemies, behaves like
+## nearest_cover_point, same as safest_cover_point.
+##
+## `retreat_dir` / `avoid_buildings` — see nearest_cover_point.
+static func retreat_cover_point_toward(from: Vector2, reference_point: Vector2, known_enemy_positions: Array[Vector2], retreat_dir: float = 0.0, avoid_buildings: bool = false) -> Vector2:
+	if known_enemy_positions.is_empty():
+		return nearest_cover_point(from, retreat_dir, avoid_buildings)
+
+	var candidates: Array[Dictionary] = []
+	for zone in _all_cover_zones():
+		if avoid_buildings and zone.type == TerrainType.BUILDING:
+			continue
+		var center: Vector2 = zone.center
+		if retreat_dir != 0.0 and (center.x - from.x) * retreat_dir < -RETREAT_DIRECTION_TOLERANCE:
+			continue
+		if avoid_buildings and path_crosses_building(from, center):
+			continue
+		candidates.append({"zone": zone, "dist_from_self": from.distance_to(center)})
+	if candidates.is_empty():
+		return from
+
+	candidates = _exclude_dangerous(candidates, known_enemy_positions)
+	candidates.sort_custom(func(a, b): return a.dist_from_self < b.dist_from_self)
+	var pool_size: int = min(4, candidates.size())
+	var pool := candidates.slice(0, pool_size)
+	pool.sort_custom(func(a, b): return a.zone.center.distance_to(reference_point) < b.zone.center.distance_to(reference_point))
+	return _random_point_in_cover_zone(pool[0].zone)
+
+
 # How far out (and in how many steps) to search for a concealed spot — see
 # nearest_hidden_point. Three expanding rings, nearest checked first, so a
 # mortar prefers a short hop to cover over a long trek if both work. The

@@ -599,7 +599,23 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 	if not GameConfig.is_in_cover(terrain_type()):
 		var retreat_dir: float = -1.0 if team == Team.PLAYER else 1.0
 		var avoid_buildings: bool = kind == Kind.MORTAR
-		if (kind == Kind.SPOTTER or kind == Kind.DRONE_TEAM) and not known_enemy_positions.is_empty():
+		if kind == Kind.MORTAR and not known_enemy_positions.is_empty():
+			# A real, previously-reported failure mode: nearest_cover_point's
+			# own retreat_dir filter only ever constrains which side of the
+			# map is acceptable (X-axis), leaving how far north or south the
+			# pick lands completely unconstrained — a mortar's own retreat
+			# could drift far off to one side for no better reason than
+			# "nearest still-safe zone happened to be there." Heading
+			# generally along the resupply corridor (the same entry line a
+			# resupply run would already be approaching on — see
+			# BattleManager._resupply_entry_point_for's own identical
+			# formula) is a genuinely better direction than an arbitrary
+			# tangent: real ground worth walking toward, not just away from
+			# danger.
+			var edge_x: float = -GameConfig.WEST_FLANK_WIDTH_PX if team == Team.PLAYER else GameConfig.MAP_WIDTH_PX
+			var resupply_reference := Vector2(edge_x, global_position.y)
+			move_target = GameConfig.retreat_cover_point_toward(global_position, resupply_reference, known_enemy_positions, retreat_dir, avoid_buildings)
+		elif (kind == Kind.SPOTTER or kind == Kind.DRONE_TEAM) and not known_enemy_positions.is_empty():
 			move_target = GameConfig.safest_cover_point(global_position, known_enemy_positions, retreat_dir, avoid_buildings)
 		else:
 			move_target = GameConfig.nearest_cover_point(global_position, retreat_dir, avoid_buildings, avoid_positions, known_enemy_positions)
