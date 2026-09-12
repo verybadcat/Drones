@@ -2076,6 +2076,33 @@ const SWEEP_DISCOUNT_DURING_ENEMY_RETREAT: float = 0.2
 const MORTAR_CONFIDENCE_DECAY_TAU: float = 900.0 # tactical seconds (15 tactical minutes)
 const MORTAR_CONFIDENCE_FLOOR: float = 0.05
 
+## The player's own mortar's reluctance to open up on a mere squad target
+## before ANY enemy mortar has actually been found — a real, previously-
+## reported failure mode: firing reveals this position, and if an enemy
+## mortar the crew has no idea about is out there, it can answer with
+## counter-battery the crew never saw coming. Real fire-support doctrine
+## holds indirect fire back during the initial phase of contact
+## specifically so reconnaissance gets a chance to establish the enemy's
+## own supporting weapons first — but that's a real, informational
+## question ("do we understand what the enemy is doing yet"), not a flat
+## timer, so this scales by BattleManager._mortar_existence_confidence() —
+## already exactly that estimate, built for the drone's own routine-recon
+## weighting (see its own doc comment): high right at first contact,
+## decaying over MORTAR_CONFIDENCE_DECAY_TAU as no enemy mortar fire is
+## detected anywhere, and hard zero once every enemy mortar is confirmed
+## destroyed. This constant is the hold chance at that confidence's peak
+## (1.0) — a judgment call, not a cited figure, picked by working backward
+## from the reported incident's own "give it a couple of minutes" framing:
+## at this mortar's own ~30-tactical-second fire-decision cadence
+## (Unit.reload_time), a 0.75 peak hold chance means an expected ~4 checks
+## (~2 minutes) before firing anyway even at maximum uncertainty, without
+## ever being an actual clock — a lucky roll can fire sooner, a run of bad
+## luck holds longer, and the whole thing keeps loosening on its own as
+## real evidence (or its absence) accumulates. Deliberately player-only
+## for now — the enemy's own targeting is intentionally left alone (see
+## the tactical-rewrite doctrine doc's "enemy may differ" principle).
+const MORTAR_UNKNOWN_ENEMY_HOLD_FIRE_CHANCE: float = 0.75
+
 # A mortar shell doesn't land the instant it's fired — 40 tactical seconds
 # of real flight time (see BattleManager._launch_mortar_shot /
 # _resolve_pending_mortar_shots). It's aimed at the target's ANTICIPATED
