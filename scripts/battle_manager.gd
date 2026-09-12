@@ -1059,7 +1059,17 @@ func order_general_retreat() -> void:
 	var known_enemy_positions := _known_enemy_positions_for_retreat(Unit.Team.PLAYER)
 	var any_ordered := false
 	var claimed: Array[Vector2] = []
-	for unit in player_units:
+	# The mortar retreats FIRST, ahead of every squad — a real, previously-
+	# reported failure mode: player_units lists squads before the mortar
+	# (see _spawn_player_units), so plain iteration order let every squad
+	# claim the best nearby safe cover before the mortar ever got a turn,
+	# leaving the single highest-priority asset to protect pushed onto
+	# whatever was left over — however far or disconnected that happened
+	# to be. `claimed` still works exactly as before either way; only the
+	# ORDER units draw from it changes.
+	var retreat_order: Array[Unit] = player_units.filter(func(u): return u.kind == Unit.Kind.MORTAR) \
+		+ player_units.filter(func(u): return u.kind != Unit.Kind.MORTAR)
+	for unit in retreat_order:
 		if unit.state == Unit.State.ACTIVE:
 			if unit.kind == Unit.Kind.SQUAD and randf() < _squad_surrender_chance(unit):
 				unit.state = Unit.State.SURRENDERED
@@ -4816,12 +4826,23 @@ func _update_friendly_squad_positioning() -> void:
 ## "surrounded by enemies under cover," the specific hopeless case, not
 ## just "outnumbered from two sides" by contacts still caught in the open.
 ## Pulls back toward the center of mass of the rest of this squad's own
-## side (every other ACTIVE unit, not just squads — the mortar and
-## spotter/drone team count too) by a bounded step, or toward the mortar
-## alone if it's the only one left. Returns `u.global_position` unchanged
-## (nearest_cover_point's own no-op convention) if it doesn't act, so a
-## caller can tell "did this fire" from the return value alone without a
-## separate bool.
+## side's OTHER SQUADS — a real, previously-reported failure mode: this
+## used to average in every other ACTIVE unit regardless of role,
+## including the mortar and spotter/drone team, so a mortar off doing its
+## own business well away from the front (shoot-and-scoot, evading,
+## resupply linkup — none of it about this squad's own fight) could drag
+## the whole rally point away from an otherwise perfectly good hilltop
+## position, and every squad reading the same "surrounded" signal in the
+## same tick would follow it there together. A rally point is about
+## consolidating with other infantry that can actually stand and fight
+## alongside this squad — a small, easily-displaced crew-served weapon
+## team isn't that, any more than the ground spotter or drone team are.
+## Falls back to the mortar's own position only once there's truly no
+## other squad left to rally toward at all (a lone final squad, or none
+## active) — better than nothing, not a default anchor. Returns
+## `u.global_position` unchanged (nearest_cover_point's own no-op
+## convention) if it doesn't act, so a caller can tell "did this fire"
+## from the return value alone without a separate bool.
 ##
 ## `claimed`: cover this same tick's earlier squads (in THIS function or
 ## the ordinary cover-seeking tier right above it in the caller's loop)
@@ -4872,7 +4893,7 @@ func _reposition_for_encirclement(u: Unit, known_enemies: Array[Vector2], claime
 	if 360.0 - max_gap < angle_threshold_deg:
 		return u.global_position
 
-	var allies := _ally_units_for(u)
+	var allies: Array = _ally_units_for(u).filter(func(a): return a.kind == Unit.Kind.SQUAD)
 	var rally_point: Vector2
 	if allies.is_empty():
 		var mortar := _friendly_active_mortar()
