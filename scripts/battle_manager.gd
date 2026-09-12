@@ -4232,9 +4232,26 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		# _update_friendly_mortar_concealment's per-tick check already
 		# covers (including the tick right after firing, if firing is what
 		# exposed it) — no separate trigger needed here for that case.
+		#
+		# A shot AT an enemy mortar is forced urgent — fast (MORTAR_RELOCATE_
+		# SPEED_URGENT) and searching farther out (CONCEALMENT_SEARCH_RINGS_
+		# URGENT_M) — rather than waiting on Unit.evading_counter_battery,
+		# which only gets set reactively once a strike has already landed
+		# nearby (_resolve_pending_counter_battery, 1-3 tactical minutes
+		# later — too late to inform THIS displacement). Engaging a known
+		# enemy mortar directly invites its own side's return fire (mortars
+		# are each other's highest-priority target — see
+		# _resolve_mortar_counter_battery's own doc comment), and with CB
+		# response now a single, higher shared rate for every shot
+		# (MORTAR_COUNTER_BATTERY_CHANCE, see its own doc comment) rather
+		# than a reduced one for a scooting crew, a normal-speed, narrow-
+		# ring displacement right after that specific kind of shot is no
+		# longer urgent enough to reliably be clear when the response
+		# arrives.
 		if unit.shoot_and_scoot:
-			var urgent := unit.evading_counter_battery
-			if _relocate_mortar(unit, "scoot"):
+			var forced_urgent := target.kind == Unit.Kind.MORTAR
+			var urgent := unit.evading_counter_battery or forced_urgent
+			if _relocate_mortar(unit, "scoot", forced_urgent):
 				combat_log.log_relocate(unit, urgent)
 		return
 
