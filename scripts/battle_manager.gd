@@ -1056,7 +1056,7 @@ func order_general_retreat() -> void:
 	if battle_over:
 		return
 	player_general_retreat_ordered = true
-	var known_enemy_positions := _known_enemy_positions(Unit.Team.PLAYER)
+	var known_enemy_positions := _known_enemy_positions_for_retreat(Unit.Team.PLAYER)
 	var any_ordered := false
 	var claimed: Array[Vector2] = []
 	for unit in player_units:
@@ -1241,6 +1241,36 @@ func _known_enemy_positions(team: Unit.Team) -> Array[Vector2]:
 				positions.append(u.player_known_position)
 		elif u.is_visible:
 			positions.append(u.global_position)
+	return positions
+
+
+## _known_enemy_positions plus a projected point for every currently-
+## VISIBLE, currently-moving opposing unit — see GameConfig.RETREAT_
+## ADVANCE_PROJECTION_TIME's own doc comment for the real gap this closes
+## (a retreat route picked by _exclude_dangerous only ever looking at
+## where an enemy IS, not where it's clearly headed). Only ever
+## extrapolates a unit that's actually visible right now — is_visible,
+## not just player_has_been_sighted/player_known_position — since
+## _estimate_unit_velocity reads that unit's real, current heading, and a
+## unit only known via a stale sighting has no honest heading to read at
+## all (this deliberately does NOT peek at a not-currently-visible
+## enemy's live velocity; that would be reading information this side
+## doesn't actually have). Used specifically for retreat-route safety —
+## not swapped in for every _known_enemy_positions call site, since most
+## of those want a plain, current snapshot (a threat-range check, a
+## target-priority score), not a forward projection.
+func _known_enemy_positions_for_retreat(team: Unit.Team) -> Array[Vector2]:
+	var positions := _known_enemy_positions(team)
+	var opposing: Array[Unit] = enemy_units if team == Unit.Team.PLAYER else player_units
+	for u in opposing:
+		if u.state != Unit.State.ACTIVE and u.state != Unit.State.RETREATING:
+			continue
+		if not u.is_visible:
+			continue
+		var velocity: Vector2 = _estimate_unit_velocity(u)
+		if velocity == Vector2.ZERO:
+			continue
+		positions.append(u.global_position + velocity * GameConfig.RETREAT_ADVANCE_PROJECTION_TIME)
 	return positions
 
 

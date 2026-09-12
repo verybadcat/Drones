@@ -2594,6 +2594,29 @@ static func path_crosses_building(from: Vector2, to: Vector2) -> bool:
 ## landing next to, a specific enemy the unit knows is there).
 const DANGER_RADIUS: float = 250.0 * PIXELS_PER_METER
 
+## `known_enemy_positions`/DANGER_RADIUS above only ever look at where a
+## known enemy IS right now — a real, previously-reported failure mode: a
+## retreat ordered toward a hill the enemy hadn't quite reached yet at the
+## moment of the order sailed straight through DANGER_RADIUS's own check,
+## only to have the enemy — advancing at its own steady, already-known
+## pace the whole time — actually be there by the time the (much slower,
+## cover-picking, not sprinting) retreat walk arrived. Real awareness of
+## the enemy means tracking where they're headed, not just a single
+## snapshot. BattleManager._known_enemy_positions_for_retreat projects a
+## second point along a currently-visible, currently-moving enemy's own
+## real heading (the same honest, already-established
+## _estimate_unit_velocity extrapolation _mortar_aim_point uses to lead a
+## shot — never applied to a unit only known via a stale, no-longer-
+## visible sighting, since there's no honest read on ITS current heading)
+## this many tactical seconds out, then feeds BOTH points into the exact
+## same nearest_cover_point/safest_cover_point machinery unchanged — a
+## candidate near where the enemy will plausibly BE gets excluded exactly
+## like one near where they already are. Picked as a rough approximation
+## of how long it actually takes to walk to a nearby candidate cover
+## point at REPOSITION_SPEED (a few hundred meters at 1.8 m/s), not a
+## cited figure.
+const RETREAT_ADVANCE_PROJECTION_TIME: float = 240.0 # tactical seconds (4 minutes)
+
 ## Every BUILDING zone and FOREST_PATCH, unified into one "cover zone" shape
 ## so the search functions below can treat a rectangular building and an
 ## irregular forest blob identically: a center point, "does this contain
