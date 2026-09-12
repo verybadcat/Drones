@@ -5436,20 +5436,27 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 			if pursuit_roll < hold_for_pursuit_chance:
 				return _record_target_choice(unit, candidates, null, "Hold this shot to pursue a remembered mortar opportunity.", {"hold_probability": hold_for_pursuit_chance, "roll_or_cutoff": pursuit_roll, "known_opportunity_value": known_target_value, "best_available_value": best_available_value, "trusted_fix": enemy_mortar_fix.trusted})
 
-		# Firing on a mere squad reveals this position — worth doing once an
-		# enemy mortar is actually known about (a live candidate, or even
-		# just an untrusted fix — either means the picture is no longer
-		# blind), but not the instant contact is first made, before there's
-		# been any real chance to find out whether one's even out there. See
-		# GameConfig.MORTAR_UNKNOWN_ENEMY_HOLD_FIRE_CHANCE's own doc comment
-		# for why this scales with _mortar_existence_confidence() rather
-		# than a flat timer, and why it's player-only for now.
-		if unit.team == Unit.Team.PLAYER and enemy_mortar_fix.is_empty() and mortar_candidates.is_empty() and not any_overrun:
+		# Firing on a mere squad reveals this position — and finding ONE
+		# enemy mortar (a live candidate excluded via mortar_candidates
+		# above, or a remembered fix/lead — enemy_mortar_fix) does NOT mean
+		# the picture is complete: this side can field up to ENEMY_MORTAR_
+		# COUNT_MAX mortars at once (see roll_enemy_force_size), so a known
+		# fix on ONE of them says nothing about whether a completely
+		# different one is still sitting there unaccounted for. Deliberately
+		# NOT gated on enemy_mortar_fix.is_empty() for exactly that reason —
+		# an earlier version of this hold was, and stopped applying the
+		# instant ANY lead existed at all, even a stale one on an unrelated
+		# mortar, which is why a mortar still got caught blind by a SECOND,
+		# genuinely undiscovered one despite this hold already being in
+		# place. See GameConfig.MORTAR_UNKNOWN_ENEMY_HOLD_FIRE_CHANCE's own
+		# doc comment for why this scales with _mortar_existence_confidence()
+		# rather than a flat timer, and why it's player-only for now.
+		if unit.team == Unit.Team.PLAYER and mortar_candidates.is_empty() and not any_overrun:
 			var unknown_mortar_hold_chance: float = GameConfig.MORTAR_UNKNOWN_ENEMY_HOLD_FIRE_CHANCE * _mortar_existence_confidence()
 			var unknown_mortar_roll: float = 0.5 if profile_for(unit.team).deterministic else randf()
 			gate_evidence["unknown_enemy_mortar"] = {"hold_probability": unknown_mortar_hold_chance, "roll_or_cutoff": unknown_mortar_roll, "mortar_existence_confidence": _mortar_existence_confidence()}
 			if unknown_mortar_roll < unknown_mortar_hold_chance:
-				return _record_target_choice(unit, candidates, null, "Holding fire — no enemy mortar found yet; still assessing before revealing this position.", gate_evidence)
+				return _record_target_choice(unit, candidates, null, "Holding fire — haven't ruled out another enemy mortar yet; still assessing before revealing this position.", gate_evidence)
 
 		# A known enemy mortar's own claim on ammo conservation is handled
 		# entirely by the value-based pursuit hold above now, not by a flat

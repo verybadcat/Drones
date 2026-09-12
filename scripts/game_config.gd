@@ -2094,14 +2094,25 @@ const MORTAR_CONFIDENCE_FLOOR: float = 0.05
 ## (1.0) — a judgment call, not a cited figure, picked by working backward
 ## from the reported incident's own "give it a couple of minutes" framing:
 ## at this mortar's own ~30-tactical-second fire-decision cadence
-## (Unit.reload_time), a 0.75 peak hold chance means an expected ~4 checks
-## (~2 minutes) before firing anyway even at maximum uncertainty, without
+## (Unit.reload_time), a 0.9 peak hold chance means an expected ~10 checks
+## (~5 minutes) before firing anyway even at maximum uncertainty, without
 ## ever being an actual clock — a lucky roll can fire sooner, a run of bad
 ## luck holds longer, and the whole thing keeps loosening on its own as
 ## real evidence (or its absence) accumulates. Deliberately player-only
 ## for now — the enemy's own targeting is intentionally left alone (see
 ## the tactical-rewrite doctrine doc's "enemy may differ" principle).
-const MORTAR_UNKNOWN_ENEMY_HOLD_FIRE_CHANCE: float = 0.75
+##
+## Raised from an original 0.75 (~2 minute expected wait) after a repeat
+## report of the same failure: this side can field up to ENEMY_MORTAR_
+## COUNT_MAX (5) mortars in one battle, and the ORIGINAL hold also stopped
+## applying outright the instant ANY lead existed on even ONE of them
+## (BattleManager._pick_target no longer gates on enemy_mortar_fix.
+## is_empty() for exactly this reason — see that call site's own doc
+## comment). Finding one enemy mortar doesn't mean a second, still-
+## unaccounted-for one isn't the one that ends up landing a shell here;
+## a longer, unconditional hold is the honest fix, not just a bigger
+## number covering for the same gap.
+const MORTAR_UNKNOWN_ENEMY_HOLD_FIRE_CHANCE: float = 0.9
 
 # A mortar shell doesn't land the instant it's fired — 40 tactical seconds
 # of real flight time (see BattleManager._launch_mortar_shot /
