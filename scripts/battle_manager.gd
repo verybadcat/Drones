@@ -5130,10 +5130,25 @@ func _weighted_advance_point_pick(candidates: Array[Vector2], angles_deg: Array[
 ## post-shot scoot hop) — see _resolve_pending_counter_battery for the
 ## delayed impact that actually checks whether it's still nearby — THAT
 ## check, not this one, is where shoot-and-scoot's own real protection
-## actually lives. The delay itself is random — GameConfig.COUNTER_
-## BATTERY_DELAY_MIN/MAX, 1-3 tactical minutes — not a fixed interval;
-## real counter-battery response time varies with how quickly the
-## opposing crew can get a fire mission organized.
+## actually lives. GameConfig.COUNTER_BATTERY_DELAY_MIN/MAX (1-3 tactical
+## minutes, not a fixed interval) is the FULL detect-to-impact time — real
+## counter-battery response varies with how quickly the opposing crew can
+## get a fire mission organized — and is split here into the reaction
+## portion (detect, compute a solution, lay and fire — no visible flash
+## yet, nothing has actually been fired) and GameConfig.MORTAR_FLIGHT_TIME
+## (the responding round's own physical flight time, the exact same
+## constant every other mortar shot in this file already flies on) for the
+## flight portion — carved OUT of the existing total, not stacked on top
+## of it, so the overall time-to-possible-impact envelope this constant
+## was already tuned around is unchanged. A real, previously-reported
+## confusion this fixes: the responding mortar's own muzzle flash used to
+## be drawn HERE, at the instant this function runs — the same tick as the
+## ORIGINAL shot that triggered it — even though the doc comment (and the
+## combat log's own "fire inbound" wording) describes real time passing
+## before that crew actually gets its own round off. See
+## _resolve_pending_counter_battery for where the flash actually gets
+## drawn now: the moment the responding mortar itself fires, not the
+## moment it merely decided to.
 func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 	var opposing: Array[Unit] = player_units if firing_mortar.team == Unit.Team.ENEMY else enemy_units
 	var chance: float = GameConfig.MORTAR_COUNTER_BATTERY_CHANCE
@@ -5150,48 +5165,64 @@ func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 		if m.global_position.distance_to(firing_mortar.global_position) > GameConfig.MORTAR_MAX_RANGE:
 			continue # out of range — this mortar physically cannot reach back
 		if randf() < chance:
-			var delay: float = randf_range(GameConfig.COUNTER_BATTERY_DELAY_MIN, GameConfig.COUNTER_BATTERY_DELAY_MAX)
+			var total_delay: float = randf_range(GameConfig.COUNTER_BATTERY_DELAY_MIN, GameConfig.COUNTER_BATTERY_DELAY_MAX)
+			var react_delay: float = max(total_delay - GameConfig.MORTAR_FLIGHT_TIME, 0.0)
 			unit_combat_stats.register(m)
 			unit_combat_stats.shot(m, true)
 			_pending_counter_battery.append({
 				"attacker": m,
 				"target": firing_mortar,
 				"impact_position": firing_mortar.global_position,
-				"impact_time": scenario_elapsed_time + delay,
-			})
-			# A real, previously-reported gap: unlike an ordinary mortar shot
-			# (_launch_mortar_shot, right above), a counter-battery round
-			# never got its own tracer/flash here, or its own entry in
-			# _history_fire_events — so a CB strike that destroyed a unit
-			# was simply invisible, both live and in the post-battle replay,
-			# even though the combat log narrated it in text. Same shape,
-			# same two lists, same "muzzle flash is visible at the moment of
-			# firing, not just at impact" reasoning as every other shot in
-			# this file.
-			_fire_flashes.append({
-				"from": m.global_position, "to": firing_mortar.global_position, "team": m.team, "time": elapsed_time, "is_mortar": true,
-			})
-			_history_fire_events.append({
-				"from": m.global_position, "to": firing_mortar.global_position, "team": m.team, "time": scenario_elapsed_time, "is_mortar": true,
+				"fire_time": scenario_elapsed_time + react_delay,
+				"impact_time": scenario_elapsed_time + total_delay,
+				"fired": false,
 			})
 			# A mortar's muzzle flash/trajectory can give it away here even
 			# if nobody has actually laid eyes on it — a real detection
 			# channel distinct from visual spotting (see _refresh_
 			# visibility's own doc comment), so it may still be unnumbered
 			# the first time its name needs to appear in this log line.
+			# Assigned now, at detection, not deferred to the responding
+			# mortar's own later fire_time — the ORIGINAL mortar's muzzle
+			# flash (this shot, not the reply) is what gives it away, and
+			# that already happened, this instant, regardless of whether
+			# or when a response actually fires back.
 			_assign_discovery_number(firing_mortar)
-			combat_log.log_counter_battery_incoming(firing_mortar)
 			break # one incoming strike per shot is enough, even with two enemy mortars
 
 
-## Resolves any counter-battery strikes whose delay has elapsed. The target
-## is only hit if it's still within the blast radius of where it fired from
-## — a hold-position mortar never moves, so it's always caught; a
-## shoot-and-scoot mortar has usually relocated well clear by the time this
-## lands, and even if it's still nearby the odds are reduced, not certain.
+## Resolves any counter-battery strikes whose reaction time or flight time
+## (see _resolve_mortar_counter_battery's own doc comment for the split)
+## has elapsed. A strike goes through two stages here: first `fired`
+## flips true and the responding mortar's own muzzle flash/tracer/combat-
+## log line actually appear, at fire_time — the moment it fires, not the
+## moment it merely decided to (or, if that crew was knocked out before
+## it got the chance, the mission is simply dropped, nothing fires at
+## all); then, once flight time also elapses, the target is only hit if
+## it's still within the blast radius of where it fired from — a hold-
+## position mortar never moves, so it's always caught; a shoot-and-scoot
+## mortar has usually relocated well clear by the time this lands, and
+## even if it's still nearby the odds are reduced, not certain.
 func _resolve_pending_counter_battery() -> void:
 	var still_pending: Array[Dictionary] = []
 	for strike in _pending_counter_battery:
+		if not strike.fired:
+			if scenario_elapsed_time < strike.fire_time:
+				still_pending.append(strike)
+				continue
+			var responder: Unit = strike.attacker
+			if not is_instance_valid(responder) or responder.state != Unit.State.ACTIVE:
+				continue # the responding crew was knocked out before it could actually fire — mission aborted, nothing lands
+			strike.fired = true
+			_fire_flashes.append({
+				"from": responder.global_position, "to": strike.impact_position, "team": responder.team, "time": elapsed_time, "is_mortar": true,
+			})
+			_history_fire_events.append({
+				"from": responder.global_position, "to": strike.impact_position, "team": responder.team, "time": scenario_elapsed_time, "is_mortar": true,
+			})
+			combat_log.log_counter_battery_incoming(strike.target)
+			still_pending.append(strike)
+			continue
 		if scenario_elapsed_time < strike.impact_time:
 			still_pending.append(strike)
 			continue

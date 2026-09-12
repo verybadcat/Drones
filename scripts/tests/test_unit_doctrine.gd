@@ -103,7 +103,7 @@ func test_damage_credit() -> void:
 	artillery.state = Unit.State.DESTROYED
 	var enemy_mortar := spawn(bm, Unit.Team.ENEMY, Unit.Kind.MORTAR, Vector2(100, 0))
 	var hp := enemy_mortar.pips
-	bm._pending_counter_battery.append({"attacker": artillery, "target": enemy_mortar, "impact_position": enemy_mortar.position, "impact_time": 0.0})
+	bm._pending_counter_battery.append({"attacker": artillery, "target": enemy_mortar, "impact_position": enemy_mortar.position, "fired": true, "impact_time": 0.0})
 	bm._resolve_pending_counter_battery()
 	check(bm.unit_combat_stats.rows[artillery.get_instance_id()].casualties == hp - enemy_mortar.pips, "Delayed counter-battery damage must credit its original, now-destroyed shooter")
 	check(bm.unit_combat_stats.rows[shooter.get_instance_id()].casualties == 2, "Other units must not receive counter-battery credit")
