@@ -33,6 +33,14 @@ var map_camera: Camera2D
 var deployment_screen: DeploymentScreen
 var doctrine_panel: DoctrinePanel
 var start_button: Button
+# Loupe overlay shown while dragging a deployment token — see
+# deployment_magnifier.gd's own doc comment. Screen-space, added directly
+# to main (not map_viewport), same reasoning as _elevation_label/
+# _location_label: it has to sit in a fixed screen position regardless of
+# the map's own (fixed, but separately-scaled) inner camera. Untyped for
+# the same brand-new-class_name reason as drone_debug_panel/
+# enemy_heatmap_overlay below — see that field's own doc comment.
+var deployment_magnifier
 
 var battle_manager: BattleManager
 var combat_log: CombatLog
@@ -222,6 +230,19 @@ func _process(delta: float) -> void:
 		var elevation_m: float = GameConfig.elevation_m(_map_mouse_world_position())
 		_elevation_label.text = "Elevation: %dm" % int(round(elevation_m))
 
+	# The magnifier only has anything useful to show while a token is
+	# actually being dragged — DeploymentScreen's own _dragging is the
+	# single source of truth for that, read directly here (same "poll a
+	# child screen's live state" pattern _clock_label/scheduled_retreat_*
+	# already use above) rather than adding a signal just for this.
+	if deployment_magnifier:
+		var dragging: UnitToken = deployment_screen._dragging if deployment_screen else null
+		deployment_magnifier.visible = dragging != null
+		if dragging != null:
+			deployment_magnifier.focus_position = dragging.position
+			deployment_magnifier.unit_kind = dragging.kind
+			deployment_magnifier.queue_redraw()
+
 	_clock_label.text = battle_manager.clock_string() if battle_manager else "%02d:00:00" % int(GameConfig.SCENARIO_START_HOUR)
 
 	if scheduled_retreat_status_label and cancel_scheduled_retreat_button:
@@ -348,7 +369,7 @@ func _draw() -> void:
 
 
 func _clear_all() -> void:
-	for node in [level_select_screen, deployment_screen, doctrine_panel, start_button, battle_manager,
+	for node in [level_select_screen, deployment_screen, doctrine_panel, start_button, deployment_magnifier, battle_manager,
 			combat_log, casualty_dashboard, retreat_button, pause_button, drone_debug_panel, decision_inspector, inspect_button,
 			speed_dropdown, enemy_heatmap_overlay, report_background, restart_button, review_history_button,
 			history_viewer, history_slider, history_time_label, history_back_button, history_play_button,
@@ -360,6 +381,7 @@ func _clear_all() -> void:
 	deployment_screen = null
 	doctrine_panel = null
 	start_button = null
+	deployment_magnifier = null
 	battle_manager = null
 	combat_log = null
 	casualty_dashboard = null
@@ -416,6 +438,11 @@ func _show_deployment() -> void:
 	deployment_screen = DeploymentScreen.new()
 	deployment_screen.recon_mode = recon_mode
 	map_viewport.add_child(deployment_screen)
+
+	deployment_magnifier = preload("res://scripts/deployment_magnifier.gd").new()
+	deployment_magnifier.position = Vector2(8, 46)
+	deployment_magnifier.visible = false
+	add_child(deployment_magnifier)
 
 	doctrine_panel = DoctrinePanel.new()
 	doctrine_panel.position = Vector2(GameConfig.SIDEBAR_X, 20)
