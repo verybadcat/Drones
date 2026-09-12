@@ -372,6 +372,14 @@ var _pending_counter_battery: Array[Dictionary] = []
 # "aim_point": Vector2, "impact_time": float}
 var _pending_mortar_shots: Array[Dictionary] = []
 
+# A shoot-and-scoot mortar (Unit) -> {"destination": Vector2, "speed":
+# float, "intent": String, "urgent": bool, "ready_time": float} — a
+# displacement queued the instant it fired, held until the real-world
+# pack-up delay elapses. See _queue_mortar_displacement /
+# _resolve_pending_mortar_displacement, and GameConfig.MORTAR_SETUP_
+# TEARDOWN_TIME's own doc comment for why this isn't instant.
+var _pending_mortar_displacement: Dictionary = {}
+
 
 # True once a side has EVER sighted the enemy — sticky, not "currently
 # visible right now" (see _update_sighting_flags) — "once the enemy is
@@ -3872,6 +3880,7 @@ func _process(delta: float) -> void:
 	_update_mortar_decisions()
 	_resolve_pending_counter_battery()
 	_resolve_pending_mortar_shots()
+	_resolve_pending_mortar_displacement()
 	_update_player_intel()
 	_check_enemy_commander_retreat()
 	_check_scheduled_retreat()
@@ -4248,11 +4257,16 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		# ring displacement right after that specific kind of shot is no
 		# longer urgent enough to reliably be clear when the response
 		# arrives.
+		#
+		# Queued, not issued immediately — a real crew doesn't teleport into
+		# motion the instant the round is away; see _queue_mortar_
+		# displacement / GameConfig.MORTAR_SETUP_TEARDOWN_TIME for the real
+		# pack-up delay before this walk actually begins.
 		if unit.shoot_and_scoot:
 			var forced_urgent := target.kind == Unit.Kind.MORTAR
 			var urgent := unit.evading_counter_battery or forced_urgent
-			if _relocate_mortar(unit, "scoot", forced_urgent):
-				combat_log.log_relocate(unit, urgent)
+			unit.evading_counter_battery = false
+			_queue_mortar_displacement(unit, "scoot", urgent)
 		return
 
 	_record_shot(unit, target)
@@ -5031,6 +5045,13 @@ func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 	for m in opposing:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
 			continue
+		# A tube that's still slung over a shoulder mid-relocation (or only
+		# just set back down) can't turn around and fire a fire mission —
+		# see GameConfig.MORTAR_SETUP_TEARDOWN_TIME's own doc comment; the
+		# same seconds_stationary floor _mortar_shot_this_tick uses for a
+		# mortar's own next shot applies just as physically to firing back.
+		if m.seconds_stationary < GameConfig.MORTAR_SETUP_TEARDOWN_TIME:
+			continue
 		if m.global_position.distance_to(firing_mortar.global_position) > GameConfig.MORTAR_MAX_RANGE:
 			continue # out of range — this mortar physically cannot reach back
 		if randf() < chance:
@@ -5150,6 +5171,18 @@ func _clear_mortar_move(m: Unit) -> void:
 func _relocate_mortar(mortar: Unit, intent: String, force_urgent: bool = false) -> bool:
 	var urgent: bool = mortar.evading_counter_battery or force_urgent
 	mortar.evading_counter_battery = false
+	var plan: Dictionary = _mortar_relocation_plan(mortar, urgent)
+	if plan.is_empty():
+		return false
+	_issue_mortar_move(mortar, plan.destination, plan.speed, intent)
+	return true
+
+
+## The destination/speed-picking half of _relocate_mortar, split out so
+## _queue_mortar_displacement (below) can compute the SAME plan without
+## issuing it immediately — see that function's own doc comment for why.
+## Empty Dictionary means "nowhere better to go right now."
+func _mortar_relocation_plan(mortar: Unit, urgent: bool) -> Dictionary:
 	var threats := _known_enemy_positions(mortar.team)
 	var destination: Vector2 = (
 		GameConfig.nearest_hidden_point(mortar.global_position, threats, true, urgent)
@@ -5157,14 +5190,51 @@ func _relocate_mortar(mortar: Unit, intent: String, force_urgent: bool = false) 
 		else GameConfig.nearest_cover_point(mortar.global_position, 0.0, true)
 	)
 	if destination == mortar.global_position:
-		return false
-
+		return {}
 	var speed: float = GameConfig.MORTAR_RELOCATE_SPEED_URGENT if urgent else GameConfig.MORTAR_RELOCATE_SPEED
 	if GameConfig.get_terrain_type_at(destination) == GameConfig.TerrainType.TREES:
 		speed *= GameConfig.MORTAR_RELOCATE_TREES_MULTIPLIER
+	return {"destination": destination, "speed": speed}
 
-	_issue_mortar_move(mortar, destination, speed, intent)
-	return true
+
+## A shoot-and-scoot crew doesn't vanish from its firing position the
+## instant the round is away — breaking the tube down and shouldering it
+## takes real time before the crew is actually walking anywhere (see
+## GameConfig.MORTAR_SETUP_TEARDOWN_TIME's own doc comment). The
+## destination/speed are decided NOW, off the threat picture at the moment
+## of firing (matching _relocate_mortar's own immediate behavior for every
+## other trigger) — only the ACT of setting out is delayed. See
+## _resolve_pending_mortar_displacement for where that delay actually
+## elapses and the real move order gets issued. `_pending_mortar_
+## displacement` is keyed by mortar, so a fresh shot before this one
+## resolves simply replaces it outright — a crew that's already fired
+## again clearly wasn't still standing around packing up the old plan.
+func _queue_mortar_displacement(mortar: Unit, intent: String, urgent: bool) -> void:
+	var plan: Dictionary = _mortar_relocation_plan(mortar, urgent)
+	if plan.is_empty():
+		return
+	_pending_mortar_displacement[mortar] = {
+		"destination": plan.destination, "speed": plan.speed, "intent": intent,
+		"urgent": urgent, "ready_time": scenario_elapsed_time + GameConfig.MORTAR_SETUP_TEARDOWN_TIME,
+	}
+
+
+## The other half of _queue_mortar_displacement's delay. Skips (and drops)
+## a pending entry whose mortar already has a move order by the time it's
+## ready — a higher-priority trigger (a tier-1 self-preservation evade,
+## most sharply) has since claimed this tick's move, and the routine scoot
+## it would have overwritten is moot; a fresh _decide_mortar_action pass
+## will pick up cleanly from wherever that more urgent move leaves off.
+func _resolve_pending_mortar_displacement() -> void:
+	for mortar in _pending_mortar_displacement.keys():
+		var pending: Dictionary = _pending_mortar_displacement[mortar]
+		if scenario_elapsed_time < pending.ready_time:
+			continue
+		_pending_mortar_displacement.erase(mortar)
+		if mortar.state != Unit.State.ACTIVE or mortar.has_move_target:
+			continue
+		_issue_mortar_move(mortar, pending.destination, pending.speed, pending.intent)
+		combat_log.log_relocate(mortar, pending.urgent)
 
 
 func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
@@ -5247,7 +5317,15 @@ func _mortar_shot_this_tick(m: Unit, opposing: Array[Unit]) -> Unit:
 	var cached: Dictionary = _mortar_tick_shot.get(m, {})
 	if cached.get("resolved", false):
 		return cached.target
-	var target := _pick_target(m, opposing)
+	# A crew that's only just stopped moving hasn't actually finished
+	# emplacing yet — see GameConfig.MORTAR_SETUP_TEARDOWN_TIME's own doc
+	# comment. seconds_stationary already tracks exactly this (reset to 0
+	# the instant Unit.activity last read MOVING — see _tick_movement), so
+	# a mortar that's never moved at all (seconds_stationary starts at a
+	# huge default) is never held back by this on its very first shot.
+	var target: Unit = null
+	if m.seconds_stationary >= GameConfig.MORTAR_SETUP_TEARDOWN_TIME:
+		target = _pick_target(m, opposing)
 	_mortar_tick_shot[m] = {"resolved": true, "target": target}
 	return target
 

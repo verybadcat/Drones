@@ -2175,6 +2175,28 @@ const MORTAR_RELOCATE_SPEED: float = 2.2 * PIXELS_PER_METER
 const MORTAR_RELOCATE_SPEED_URGENT: float = 2.6 * PIXELS_PER_METER
 const MORTAR_RELOCATE_TREES_MULTIPLIER: float = 0.8
 
+# A crew doesn't teleport between "walking" and "ready to fire" — the tube
+# has to actually be set down, leveled, and laid (or broken back down and
+# shouldered) either way. Real, recent reporting on Russia's currently-
+# issued 2B24 82mm light mortar (the same system already cited for
+# MORTAR_MAX_RANGE above) states "the transition from traveling to firing
+# position, and vice versa, is accomplished in less than 30 seconds" — one
+# real figure covering both directions, used here as a floor on Unit.
+# seconds_stationary (already tracked for spotting-signature decay — see
+# CombatResolver) rather than inventing a separate "set up"/"moving" state
+# machine: Unit.Activity's existing STATIONARY/MOVING split, plus how long
+# a unit has genuinely BEEN stationary, already is that distinction.
+# Gates two things: a mortar can't actually fire (BattleManager.
+# _mortar_shot_this_tick) or respond to counter-battery (_resolve_mortar_
+# counter_battery) until it's been stationary this long since its last
+# real displacement; and a shoot-and-scoot crew doesn't start walking away
+# until this long after firing (_queue_mortar_displacement /
+# _resolve_pending_mortar_displacement). A mortar that's never moved at
+# all defaults to Unit.seconds_stationary = 1e9 (already emplaced since
+# before the battle began), so this never delays a hold-position mortar's
+# very first shot.
+const MORTAR_SETUP_TEARDOWN_TIME: float = 30.0 # tactical seconds
+
 # Counter-battery fire isn't instant: the enemy can only aim at where the
 # mortar WAS when it fired, and it takes real time to organize and fire a
 # response — a random 1-3 tactical minutes, not a fixed interval (see
