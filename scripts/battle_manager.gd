@@ -6039,7 +6039,10 @@ func _end_battle() -> void:
 	if not enemy_stats.surrendered.is_empty():
 		lines.append("Enemy surrendered: %s" % ", ".join(enemy_stats.surrendered))
 
-	lines.append_array(unit_combat_stats.report_lines())
+	# unit_combat_stats.report_lines() used to be appended here too — now
+	# that main.gd's own "Damage by unit" tab fetches it fresh on demand
+	# (see its own pressed handler), duplicating the whole thing onto the
+	# end of this summary as well is just redundant scrolling.
 	var report_text := "\n".join(lines)
 	battle_ended.emit(report_text)
 
