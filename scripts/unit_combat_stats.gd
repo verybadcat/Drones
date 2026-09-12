@@ -55,13 +55,44 @@ static func _resolve_name(row: Dictionary) -> String:
 		return row.unit_ref.display_name()
 	return row.label_fallback
 
+## Mortars before squads, each in their own numerical order (matching
+## _assign_discovery_number's own "Mortar 1"/"Squad 3"-style labels) —
+## a stable, look-up-able roster order rather than one that reshuffles
+## with the battle's own damage totals, so a unit named elsewhere (the
+## combat log, the map) is easy to find here too. Kind and side are both
+## already fixed at registration; only the trailing number is parsed out
+## of the resolved display name here, defaulting to 0 for anything
+## unnumbered (shouldn't happen for a SQUAD/MORTAR row by report time —
+## see BattleManager._number_remaining_undiscovered_enemies — but a
+## missing number should still sort first within its kind, not crash).
+static func _roster_sort_key(row: Dictionary) -> Array:
+	var kind_rank: int = 0 if row.kind == Unit.Kind.MORTAR else (1 if row.kind == Unit.Kind.SQUAD else 2)
+	var name: String = _resolve_name(row)
+	var parts: PackedStringArray = name.split(" ")
+	var number: int = int(parts[parts.size() - 1]) if parts.size() > 0 else 0
+	return [row.team, kind_rank, number]
+
+## Team, then kind (mortar/squad/other), then number, in that priority
+## order — used for both the per-side lists above (team is already fixed
+## per call there, so this only ever breaks ties on kind/number) and the
+## combined DETAILS roster below (where team is the first, outermost
+## grouping too, same YOUR-UNITS-then-ENEMY-UNITS order as the rest of
+## this report).
+static func _by_roster_order(a: Dictionary, b: Dictionary) -> bool:
+	var ka: Array = _roster_sort_key(a)
+	var kb: Array = _roster_sort_key(b)
+	for i in ka.size():
+		if ka[i] != kb[i]:
+			return ka[i] < kb[i]
+	return false
+
 func report_lines() -> PackedStringArray:
 	var lines := PackedStringArray(["DAMAGE BY UNIT — EXACT SIMULATION RESULTS",
 		"Casualties = people this unit killed or wounded ON THE ENEMY (what it dealt out, not what it took). These totals are separate from battlefield estimates.", ""])
 	for side in [Unit.Team.PLAYER, Unit.Team.ENEMY]:
 		lines.append("YOUR UNITS" if side == Unit.Team.PLAYER else "ENEMY UNITS")
 		var team_rows: Array = rows.values().filter(func(row): return row.team == side)
-		team_rows.sort_custom(func(a, b): return a.casualties > b.casualties)
+		team_rows.sort_custom(_by_roster_order)
 		var total_killed := 0
 		var total_wounded := 0
 		var total_airframes := 0
@@ -81,7 +112,9 @@ func report_lines() -> PackedStringArray:
 		lines.append("TOTAL INFLICTED: %d killed, %d wounded (%d total)%s" % [total_killed, total_wounded, total_killed + total_wounded, ", %d drone(s) destroyed" % total_airframes if total_airframes > 0 else ""])
 		lines.append("")
 	lines.append("DETAILS (CB = counter-battery; impacts include splash) — each row is what THAT unit dealt out; to see what a unit received, look for it under \"Against ...\" in another unit's own row below")
-	for row in rows.values():
+	var detail_rows: Array = rows.values()
+	detail_rows.sort_custom(_by_roster_order)
+	for row in detail_rows:
 		if row.kind not in [Unit.Kind.SQUAD, Unit.Kind.MORTAR]:
 			lines.append("%s: unarmed support; no weapon damage." % _resolve_name(row))
 			continue
