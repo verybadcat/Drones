@@ -4809,6 +4809,32 @@ func _update_friendly_squad_positioning() -> void:
 	if mortar == null:
 		return
 	var threat := _nearest_unscreened_mortar_threat(mortar, enemy_units)
+
+	# A real, previously-reported failure mode: a squad already MID-WALK to
+	# screen the mortar used to be completely excluded from reconsideration
+	# (the responder-selection loop below only ever looks at squads with
+	# has_move_target == false) until it physically arrived — so if the
+	# mortar itself moved on (its own routine business, or turning back
+	# after the earlier home-leash/resupply-bias fixes finally gave it a
+	# sensible destination), the squad kept walking toward a stale block
+	# point long after the reason for going there had evaporated. Every
+	# tick, ANY squad currently tagged as screening gets its own move
+	# target freshly re-aimed at the mortar's CURRENT position (or
+	# released outright if nothing is unscreened anymore) — the same
+	# "re-aim every tick rather than commit to a stale destination" idiom
+	# already established for the enemy mortar's own hunting movement, not
+	# a new pattern invented just for this.
+	for u in player_units:
+		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or not u.has_move_target:
+			continue
+		if u.last_order_reason != "Screen an open approach to the friendly mortar.":
+			continue
+		if is_inf(threat.x):
+			u.has_move_target = false
+			u.last_order_reason = "Screening no longer needed; repositioning."
+			continue
+		u.move_target = mortar.global_position + (threat - mortar.global_position).normalized() * GameConfig.MORTAR_PROTECTIVE_RADIUS
+
 	if is_inf(threat.x):
 		return
 
