@@ -4806,9 +4806,7 @@ func _update_friendly_squad_positioning() -> void:
 		combat_log.log_seeking_cover(u)
 
 	var mortar := _friendly_active_mortar()
-	if mortar == null:
-		return
-	var threat := _nearest_unscreened_mortar_threat(mortar, enemy_units)
+	var threat: Vector2 = _nearest_unscreened_mortar_threat(mortar, enemy_units) if mortar != null else Vector2.INF
 
 	# A real, previously-reported failure mode: a squad already MID-WALK to
 	# screen the mortar used to be completely excluded from reconsideration
@@ -4824,18 +4822,28 @@ func _update_friendly_squad_positioning() -> void:
 	# "re-aim every tick rather than commit to a stale destination" idiom
 	# already established for the enemy mortar's own hunting movement, not
 	# a new pattern invented just for this.
+	#
+	# A SECOND, previously-undiscovered variant of the same bug: this used
+	# to return immediately above once the mortar itself stopped being
+	# ACTIVE (retreating, withdrawn, or destroyed) — skipping this very
+	# release loop and leaving any squad already mid-walk to screen it
+	# frozen at wherever the mortar happened to be the instant it stopped
+	# being ACTIVE, with nothing ever telling it to reposition back. A
+	# mortar that's already pulling out of the fight needs no more
+	# screening than one with no threat left to screen against — both are
+	# "nothing left to do here," so both release the same way.
 	for u in player_units:
 		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or not u.has_move_target:
 			continue
 		if u.last_order_reason != "Screen an open approach to the friendly mortar.":
 			continue
-		if is_inf(threat.x):
+		if mortar == null or is_inf(threat.x):
 			u.has_move_target = false
 			u.last_order_reason = "Screening no longer needed; repositioning."
 			continue
 		u.move_target = mortar.global_position + (threat - mortar.global_position).normalized() * GameConfig.MORTAR_PROTECTIVE_RADIUS
 
-	if is_inf(threat.x):
+	if mortar == null or is_inf(threat.x):
 		return
 
 	var responder: Unit = null

@@ -1302,6 +1302,24 @@ const RETREAT_THREAT_STEER_FRACTION: float = 0.6
 # front — see nearest_cover_point/safest_cover_point's retreat_dir param.
 const RETREAT_DIRECTION_TOLERANCE: float = 100.0 * PIXELS_PER_METER
 
+## How much farther than the nearest cover zone overall it's worth walking
+## just to stay on retreat_dir's own "correct" side — a real, previously-
+## reported failure mode: retreat_dir is a blanket per-team assumption
+## ("home is generally this way"), fixed regardless of whether any actual
+## threat has ever been seen in the excluded direction — unlike
+## _exclude_dangerous, which is grounded in real known enemy positions.
+## Enforcing it as a hard veto could force a multi-kilometer detour past
+## perfectly good, non-dangerous cover sitting just on the "wrong" side,
+## for no real safety benefit (the diagnosed case: a mortar's own
+## deployment position had no cover at all on its retreat-ward side,
+## sending an ordinary hit-triggered retreat over 2km out — the direct
+## mechanism behind a previously-reported "mortar abandons the hilltop"
+## complaint that persisted even after the mortar's own self-preservation
+## relocation got a home-range leash, since this is a SEPARATE code path).
+## A judgment call, not cited — enough to prefer a short, sensible detour
+## toward the friendly side without paying for an unreasonable one.
+const RETREAT_DIRECTION_MAX_EXTRA_M: float = 500.0
+
 # Tactical seconds (see TIME_SCALE_NORMAL) — ends the battle if reached.
 # Real infantry engagements can run for hours; the road march alone eats
 # ~2500 tactical seconds (42 min) before contact is even possible, and a
@@ -2685,16 +2703,13 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 	for zone in _all_cover_zones():
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
 			continue
-		var center: Vector2 = zone.center
-		if retreat_dir != 0.0 and (center.x - from.x) * retreat_dir < -RETREAT_DIRECTION_TOLERANCE:
-			continue
-		if avoid_buildings and path_crosses_building(from, center):
-			continue # can't walk/hop straight through a building to get here either
-		candidates.append({"zone": zone, "dist": from.distance_to(center)})
+		candidates.append({"zone": zone, "dist": from.distance_to(zone.center)})
 	if candidates.is_empty():
 		return from
 
 	candidates = _exclude_dangerous(candidates, known_enemy_positions)
+	candidates = _prefer_clear_path(candidates, from, avoid_buildings)
+	candidates = _prefer_retreat_direction(candidates, from, retreat_dir)
 
 	if not avoid_positions.is_empty():
 		var unclaimed: Array[Dictionary] = []
@@ -2745,6 +2760,67 @@ static func _exclude_dangerous(candidates: Array[Dictionary], known_enemy_positi
 	return safe if not safe.is_empty() else candidates
 
 
+## Prefers candidates on retreat_dir's own "correct" side, but - unlike a
+## hard exclusion - only pays for that preference up to
+## RETREAT_DIRECTION_MAX_EXTRA_M past the nearest candidate overall; beyond
+## that, falls back to the full set rather than forcing an unreasonable
+## detour toward cover that happens to sit on the "wrong" side but poses no
+## actual known risk. See RETREAT_DIRECTION_MAX_EXTRA_M's own doc comment.
+## Called AFTER _exclude_dangerous, so a "wrong side" candidate this
+## returns is still guaranteed non-dangerous, never merely undirected.
+##
+## Filters candidate-by-candidate against the same budget, not just "is
+## there at least one acceptable compliant option" — a genuinely close
+## compliant candidate doesn't excuse also keeping some OTHER compliant
+## candidate that's still wildly farther out. Without this, a compliant set
+## containing both a 638m option and a 2400m+ one (the diagnosed case: both
+## technically on the correct side, nothing else nearby is) left the
+## eventual weighted-random pick a real chance of the 2400m+ one anyway —
+## direction-compliant, but no less an unreasonable walk for a routine hit.
+static func _prefer_retreat_direction(candidates: Array[Dictionary], from: Vector2, retreat_dir: float) -> Array[Dictionary]:
+	if retreat_dir == 0.0 or candidates.is_empty():
+		return candidates
+	var nearest_overall: float = INF
+	for c in candidates:
+		nearest_overall = min(nearest_overall, from.distance_to(c.zone.center))
+	var budget: float = nearest_overall + RETREAT_DIRECTION_MAX_EXTRA_M * PIXELS_PER_METER
+	var compliant: Array[Dictionary] = []
+	for c in candidates:
+		var dist: float = from.distance_to(c.zone.center)
+		if dist <= budget and (c.zone.center.x - from.x) * retreat_dir >= -RETREAT_DIRECTION_TOLERANCE:
+			compliant.append(c)
+	return compliant if not compliant.is_empty() else candidates
+
+
+## Same "prefer, don't force an unreasonable detour for" pattern as
+## _prefer_retreat_direction, applied to avoid_buildings' OTHER exclusion —
+## a candidate whose straight-line path from `from` happens to cross some
+## building. That's a real, previously-reported failure mode: a mortar
+## deployed inside/near a hamlet had EVERY nearby patch of cover blocked by
+## this check purely because the straight line to each one grazed some
+## building along the way, forcing an ordinary hit-triggered retreat out
+## to whichever distant cluster of trees happened to have a fully clear
+## line — several kilometers, not the couple hundred meters actually
+## available with a short real-world detour around whatever's in the way.
+## The zone-IS-a-building exclusion itself (avoid_buildings' other half,
+## in each caller's own candidate-building loop) stays a hard rule — a
+## mortar crew genuinely doesn't clear and occupy a structure the way a
+## squad might; only the ROUTING assumption here is soft.
+static func _prefer_clear_path(candidates: Array[Dictionary], from: Vector2, avoid_buildings: bool) -> Array[Dictionary]:
+	if not avoid_buildings or candidates.is_empty():
+		return candidates
+	var nearest_overall: float = INF
+	for c in candidates:
+		nearest_overall = min(nearest_overall, from.distance_to(c.zone.center))
+	var budget: float = nearest_overall + RETREAT_DIRECTION_MAX_EXTRA_M * PIXELS_PER_METER
+	var clear: Array[Dictionary] = []
+	for c in candidates:
+		var dist: float = from.distance_to(c.zone.center)
+		if dist <= budget and not path_crosses_building(from, c.zone.center):
+			clear.append(c)
+	return clear if not clear.is_empty() else candidates
+
+
 ## A cover point picked with some awareness of where the enemy actually is —
 ## used for the spotter's retreat, which can afford to be choosier than a
 ## squad bolting on instinct. First applies the same hard DANGER_RADIUS
@@ -2763,16 +2839,13 @@ static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vecto
 	for zone in _all_cover_zones():
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
 			continue
-		var center: Vector2 = zone.center
-		if retreat_dir != 0.0 and (center.x - from.x) * retreat_dir < -RETREAT_DIRECTION_TOLERANCE:
-			continue
-		if avoid_buildings and path_crosses_building(from, center):
-			continue # can't walk/hop straight through a building to get here either
-		candidates.append({"zone": zone, "dist_from_self": from.distance_to(center)})
+		candidates.append({"zone": zone, "dist_from_self": from.distance_to(zone.center)})
 	if candidates.is_empty():
 		return from
 
 	candidates = _exclude_dangerous(candidates, known_enemy_positions)
+	candidates = _prefer_clear_path(candidates, from, avoid_buildings)
+	candidates = _prefer_retreat_direction(candidates, from, retreat_dir)
 	for c in candidates:
 		var center: Vector2 = c.zone.center
 		var nearest_enemy_dist: float = INF
@@ -2815,16 +2888,13 @@ static func retreat_cover_point_toward(from: Vector2, reference_point: Vector2, 
 	for zone in _all_cover_zones():
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
 			continue
-		var center: Vector2 = zone.center
-		if retreat_dir != 0.0 and (center.x - from.x) * retreat_dir < -RETREAT_DIRECTION_TOLERANCE:
-			continue
-		if avoid_buildings and path_crosses_building(from, center):
-			continue
-		candidates.append({"zone": zone, "dist_from_self": from.distance_to(center)})
+		candidates.append({"zone": zone, "dist_from_self": from.distance_to(zone.center)})
 	if candidates.is_empty():
 		return from
 
 	candidates = _exclude_dangerous(candidates, known_enemy_positions)
+	candidates = _prefer_clear_path(candidates, from, avoid_buildings)
+	candidates = _prefer_retreat_direction(candidates, from, retreat_dir)
 	candidates.sort_custom(func(a, b): return a.dist_from_self < b.dist_from_self)
 	var pool_size: int = min(4, candidates.size())
 	var pool := candidates.slice(0, pool_size)
