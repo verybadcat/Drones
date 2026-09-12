@@ -4302,8 +4302,19 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		# motion the instant the round is away; see _queue_mortar_
 		# displacement / GameConfig.MORTAR_SETUP_TEARDOWN_TIME for the real
 		# pack-up delay before this walk actually begins.
-		if unit.shoot_and_scoot:
-			var forced_urgent := target.kind == Unit.Kind.MORTAR
+		#
+		# A hold-position doctrine is a standing preference, not a suicide
+		# pact: with GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT or more
+		# DIFFERENT enemy mortars already known to be in range (regardless
+		# of what's actually being shot at right now), the real per-shot
+		# risk of drawing counter-battery from at least one of them is
+		# already severe enough to override it — see that constant's own
+		# doc comment for the probability math. Player-only, matching this
+		# project's "enemy may differ" convention.
+		var density_forces_scoot: bool = unit.team == Unit.Team.PLAYER \
+			and _known_enemy_mortars_in_range(unit.global_position) >= GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT
+		if unit.shoot_and_scoot or density_forces_scoot:
+			var forced_urgent := target.kind == Unit.Kind.MORTAR or density_forces_scoot
 			var urgent := unit.evading_counter_battery or forced_urgent
 			unit.evading_counter_battery = false
 			_queue_mortar_displacement(unit, "scoot", urgent)
@@ -5665,6 +5676,38 @@ func mortar_minutes_since_detected_firing(mortar: Unit) -> float:
 	if info.is_empty():
 		return INF
 	return (scenario_elapsed_time - info.time) / 60.0
+
+
+## How many DISTINCT enemy mortars this side actually knows exist and are
+## still a live threat, within striking range of `pos` — visual sighting,
+## a lingering last-known position from one, or a muzzle-flash/trajectory
+## detection lead, the same "known" bar _known_enemy_mortar_lead already
+## uses, never omniscient ground truth. Position resolved by the
+## strongest signal actually available for that mortar (live position
+## while visible; its last confirmed sighting; failing that, where it was
+## standing the last time it was detected firing) — see GameConfig.
+## MORTAR_DENSITY_FORCE_SCOOT_COUNT's own doc comment for why this count
+## specifically (not just "is there a known enemy mortar at all") is what
+## should be driving how urgently a crew needs to keep displacing.
+func _known_enemy_mortars_in_range(pos: Vector2) -> int:
+	var count := 0
+	for u in enemy_units:
+		if u.kind != Unit.Kind.MORTAR:
+			continue
+		if u.state != Unit.State.ACTIVE and u.state != Unit.State.RETREATING:
+			continue
+		var known_pos: Vector2
+		if u.is_visible:
+			known_pos = u.global_position
+		elif u.player_has_been_sighted:
+			known_pos = u.player_known_position
+		elif mortar_ever_detected_firing(u):
+			known_pos = _last_detected_mortar_fire[u].position
+		else:
+			continue
+		if known_pos.distance_to(pos) <= GameConfig.MORTAR_MAX_RANGE:
+			count += 1
+	return count
 
 
 ## How dangerous `target` is to `unit`'s OWN side right now, from a

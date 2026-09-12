@@ -2151,6 +2151,30 @@ const MORTAR_EVASION_RADIUS: float = 40.0 * PIXELS_PER_METER
 # somehow inviting more return-fire attempts.
 const MORTAR_COUNTER_BATTERY_CHANCE: float = 0.22 # per shot
 
+## A real, previously-reported failure mode: shoot_and_scoot is a single,
+## fixed per-battle doctrine choice, and even without it, a shot at an
+## enemy mortar specifically already forces an urgent scoot (see
+## BattleManager._tick_fire's own doc comment) — but neither one reacts
+## to how many DIFFERENT enemy mortars are actually known to be in
+## striking range right now, regardless of what's actually being shot at.
+## The real risk compounds fast: with `count` independent enemy mortars
+## each able to roll MORTAR_COUNTER_BATTERY_CHANCE against the same shot
+## (see _resolve_mortar_counter_battery), the chance at least one answers
+## is 1-(1-0.22)^count — 22% for one, but already 39% for two and 63% for
+## four, the exact case that got a mortar destroyed for holding position
+## in a genuinely dense counter-battery environment. This constant is
+## that count threshold, not a cited figure but a direct read of the
+## above formula: two independently-confirmed enemy mortars in range
+## already means a worse-than-a-third chance of return fire on the very
+## next shot, well past the point where any standing "hold position"
+## preference is still a reasonable bet. Once met, BattleManager._tick_
+## fire forces an urgent scoot after EVERY shot regardless of the
+## shoot_and_scoot doctrine setting — see _known_enemy_mortars_in_range
+## for how "known" is resolved (never omniscient ground truth). Player-
+## only for now, matching this project's standing "enemy may differ"
+## convention.
+const MORTAR_DENSITY_FORCE_SCOOT_COUNT: int = 2
+
 # How long a mortar's firing position stays "worth pursuing" for counter-
 # battery-range-chasing purposes after being detected (see BattleManager.
 # _launch_mortar_shot / _known_friendly_mortar_position) — real counter-
