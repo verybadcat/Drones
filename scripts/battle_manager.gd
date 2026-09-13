@@ -3799,6 +3799,32 @@ func _decide_mortar_action(m: Unit) -> void:
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Wanted to relocate, no route this tick."}
 		return
 
+	# A real, previously-missed gap: MORTAR_DENSITY_FORCE_SCOOT_COUNT's own
+	# density-awareness (see its own doc comment for the probability math)
+	# used to run ONLY as a bonus check right after firing (_tick_fire /
+	# _resolve_pending_counter_battery) — a mortar that ISN'T currently
+	# shooting (reloading, no valid target, holding fire) got zero benefit
+	# from knowing an enemy mortar could already reach it, no matter how
+	# long that knowledge sat there unacted on. A real crew that's learned
+	# even one enemy tube is in range doesn't wait for its own next shot
+	# before doing anything about it — a lower bar than the post-shot
+	# override's own two (see GameConfig.MORTAR_STANDING_THREAT_COUNT's
+	# own doc comment for why: nothing productive was happening here
+	# anyway, so relocating costs nothing the way overriding an active
+	# doctrine choice would). Player-only, matching that constant's own
+	# "enemy may differ" scope. Non-urgent (ordinary pace and search
+	# radius) — this is a standing precaution against an elevated but not
+	# yet actively confirmed threat, unlike the just-hit/spotted/closing
+	# triggers above, which all still take priority when they also apply.
+	if m.team == Unit.Team.PLAYER and unit_doctrine_for(m).risk == "inherit" \
+			and _known_enemy_mortars_in_range(m.global_position) >= GameConfig.MORTAR_STANDING_THREAT_COUNT:
+		if _relocate_mortar(m, "evade"):
+			combat_log.log_mortar_relocating_from_density(m)
+			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "A known enemy mortar is in range — relocating as a precaution."}
+		else:
+			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "A known enemy mortar is in range — wanted to relocate, no route this tick."}
+		return
+
 	# Tier 2 — Destroy enemy mortars (the MOVEMENT half only — the
 	# targeting half, "an enemy mortar candidate always wins," already
 	# lives unconditionally in _pick_target and is reflected in `target`

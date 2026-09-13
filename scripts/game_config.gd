@@ -2193,6 +2193,23 @@ const MORTAR_COUNTER_BATTERY_CHANCE: float = 0.22 # per shot
 ## convention.
 const MORTAR_DENSITY_FORCE_SCOOT_COUNT: int = 2
 
+## A lower bar than MORTAR_DENSITY_FORCE_SCOOT_COUNT above, and a
+## deliberately different one — that constant justifies overriding an
+## ACTIVE decision (a deliberate hold-position doctrine, right after
+## firing) with real compounding-probability math, since overriding a
+## player's own standing choice needs real justification. This constant
+## instead gates a mortar that's already doing NOTHING productive right
+## now (no shot, not spotted, no threat closing, not out of ammo — see
+## BattleManager._decide_mortar_action's own tier-1 ladder) from sitting
+## still despite knowing even a single enemy mortar can already reach it.
+## There's no meaningful cost to relocating in that idle window — nothing
+## useful was happening anyway — so it doesn't need the same higher bar;
+## one confirmed enemy tube in range is already a real, direct reason to
+## not just sit there. See BattleManager._known_enemy_mortars_in_range
+## for how "known" is resolved. Player-only, matching the same "enemy may
+## differ" convention as the constant above.
+const MORTAR_STANDING_THREAT_COUNT: int = 1
+
 # How long a mortar's firing position stays "worth pursuing" for counter-
 # battery-range-chasing purposes after being detected (see BattleManager.
 # _launch_mortar_shot / _known_friendly_mortar_position) — real counter-
