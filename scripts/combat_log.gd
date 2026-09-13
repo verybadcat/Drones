@@ -133,6 +133,10 @@ func log_bunching_spillover(defender: Unit, spillover: Unit) -> void:
 	add_entry("%s was bunched up with %s — the fire catches both" % [defender.display_name(), spillover.display_name()])
 
 
+func log_blast_collateral(defender: Unit, victim: Unit) -> void:
+	add_entry("The blast aimed at %s also catches %s nearby" % [defender.display_name(), victim.display_name()])
+
+
 func log_mortar_shot_evaded(mortar: Unit, target: Unit) -> void:
 	add_entry("%s's round lands on empty ground — %s had already moved on" % [mortar.display_name(), target.display_name()])
 

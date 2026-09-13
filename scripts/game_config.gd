@@ -2138,7 +2138,11 @@ const MORTAR_UNKNOWN_ENEMY_HOLD_FIRE_CHANCE: float = 0.9
 # position, not a live one — if the target moves more than this far from
 # that anticipated spot by the time the shell arrives, the round lands on
 # empty ground: an outright miss, no roll needed. Roughly a mortar's
-# effective burst radius — close enough and it's still in the beaten zone.
+# effective burst radius — close enough and it's still in the beaten
+# zone. Reused as MORTAR_BLAST_COLLATERAL_MAX_CHANCE's own outer distance
+# too (see that constant's own doc comment) — the same "still in the
+# beaten zone" real distance applies equally to a bystander as to the
+# target itself.
 const MORTAR_FLIGHT_TIME: float = 40.0 # tactical seconds
 const MORTAR_EVASION_RADIUS: float = 40.0 * PIXELS_PER_METER
 
@@ -2502,10 +2506,32 @@ const MORTAR_AMMO_COOKOFF_MAX_CHANCE: float = 0.35
 
 # Squads bunched up this close together (e.g. piled into the same patch of
 # cover) risk a stray hit spreading from whichever of them was actually
-# targeted — real militaries avoid bunching up for exactly this reason. See
-# BattleManager._resolve_fire_and_check_bunching / _bunched_ally.
+# targeted — real militaries avoid bunching up for exactly this reason.
+# Side-agnostic: a stray round from small-arms fire doesn't check whose
+# side the neighboring squad is on, though it's a small, flat, close-range
+# chance (small-arms fire is comparatively discriminating) rather than the
+# much larger, distance-scaled one below for actual HE fragmentation. See
+# BattleManager._resolve_fire_and_check_bunching / _collateral_victim.
 const BUNCHING_RADIUS: float = 30.0 * PIXELS_PER_METER
 const BUNCHING_SPILLOVER_CHANCE: float = 0.25
+
+## A real HE mortar round's fragmentation doesn't check whose side anyone
+## is on — anybody within the round's actual burst radius has a real
+## chance of being caught too, whether they were the intended target, an
+## ally standing nearby, or an enemy unit that happened to be close to
+## where the round landed. Reuses MORTAR_EVASION_RADIUS as the outer edge
+## of "close enough to still be in the beaten zone" (its own doc comment
+## already frames it exactly this way) rather than a new, separate
+## distance — real cited figures for an 82mm HE round put the actual
+## lethal-fragment radius around 26m (Type 67 82mm mortar) with a much
+## smaller ~8m near-certain-casualty core, well inside that 40m outer
+## edge, so the chance is scaled by distance the same way _resolve_
+## pending_counter_battery's own impact_chance already scales a strike's
+## chance of catching a mortar crew that hasn't fully cleared its blast
+## radius — MAX_CHANCE here is calibrated to that inner, most-lethal
+## core, not the full outer edge. A judgment call within that real range,
+## not a single cited figure.
+const MORTAR_BLAST_COLLATERAL_MAX_CHANCE: float = 0.6
 const REPOSITION_SPEED: float = 1.8 * PIXELS_PER_METER # m/s (tactical), for any non-retreat repositioning
 
 # A retreating unit under actual mortar fire (Unit.zigzagging) juke

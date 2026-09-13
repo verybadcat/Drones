@@ -1303,36 +1303,73 @@ func _ally_positions_for(unit: Unit) -> Array[Vector2]:
 	return out
 
 
-## Resolves one shot, logs its consequence, then checks for "bunching"
-## spillover: a squad hit while another squad of its own side is crammed
-## into the same patch of cover close by (see GameConfig.BUNCHING_RADIUS)
-## has a real chance of catching that ally in the same burst/blast too —
-## the actual mechanical teeth behind squads spreading out across DIFFERENT
-## cover instead of piling into the same one (see Unit.seek_cover /
-## GameConfig.nearest_cover_point's avoid_positions).
-func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit) -> void:
+## Resolves one shot, logs its consequence, then checks for collateral
+## damage at the ACTUAL impact point — real distance from where the shot
+## really landed, not "is this unit specifically allied with the target,"
+## is what determines who else might catch it, and neither real HE
+## fragmentation nor a stray round from close-quarters small-arms fire
+## checks whose side anyone is on:
+##
+## - A MORTAR shot's blast doesn't care what it was aimed at — anybody
+##   (any kind, either side) within the round's own real burst radius has
+##   a real, distance-scaled chance of being caught too (see GameConfig.
+##   MORTAR_BLAST_COLLATERAL_MAX_CHANCE's own doc comment for the cited
+##   figures behind it).
+## - Otherwise (direct/small-arms fire), a squad hit while another squad
+##   is crammed into the same patch of cover close by (see GameConfig.
+##   BUNCHING_RADIUS) has a smaller, flat, less-common chance of catching
+##   the same burst — the actual mechanical teeth behind squads spreading
+##   out across DIFFERENT cover instead of piling into the same one (see
+##   Unit.seek_cover / GameConfig.nearest_cover_point's avoid_positions).
+##   Scoped to squad-on-squad specifically: aimed rifle fire is far more
+##   discriminating than an explosive round's fragmentation, and this is
+##   about troops crowded together, not any two units that happen to be
+##   somewhat close.
+##
+## `impact_point` is the real landing spot: the target's own current
+## position for direct fire (it resolves exactly there), or a mortar
+## shell's actual aim_point, which can differ from the target's own
+## position by up to MORTAR_EVASION_RADIUS (a lead that didn't quite pan
+## out still lands somewhere real).
+func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit, impact_point: Vector2) -> void:
 	var before := UnitCombatStats.before_hit(target)
 	unit_combat_stats.register(attacker)
 	var target_was_active := target.state == Unit.State.ACTIVE
-	var hit := CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team), _drone_directing_mortar_fire(attacker))
+	CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team), _drone_directing_mortar_fire(attacker))
 	unit_combat_stats.damage(attacker, target, before)
 	_log_hit_consequence(target, target_was_active)
-	if not hit or target.kind != Unit.Kind.SQUAD:
+	# Collateral risk is about who else is near the actual impact point,
+	# independent of whether the aimed-at unit itself was hit — attacks
+	# are aimed at a unit but hit a location, and a round that misses its
+	# intended target (they moved, ducked into cover, whatever the reason)
+	# still lands somewhere real; anyone else there is exactly as exposed
+	# as if the primary shot had landed true.
+	var victim: Unit
+	var is_blast: bool = attacker.kind == Unit.Kind.MORTAR
+	if is_blast:
+		victim = _collateral_victim(impact_point, [attacker, target], GameConfig.MORTAR_EVASION_RADIUS,
+			func(d: float) -> float: return GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE * clamp(1.0 - d / GameConfig.MORTAR_EVASION_RADIUS, 0.0, 1.0))
+	elif target.kind == Unit.Kind.SQUAD:
+		victim = _collateral_victim(impact_point, [attacker, target], GameConfig.BUNCHING_RADIUS,
+			func(_d: float) -> float: return GameConfig.BUNCHING_SPILLOVER_CHANCE, true)
+	else:
 		return
-	var spillover := _bunched_ally(target)
-	if spillover == null:
+	if victim == null:
 		return
-	var spillover_was_active := spillover.state == Unit.State.ACTIVE
-	var before_spillover := UnitCombatStats.before_hit(spillover)
-	spillover.take_hit(attacker.kind == Unit.Kind.MORTAR, _ally_positions_for(spillover), _known_enemy_positions(spillover.team))
-	unit_combat_stats.damage(attacker, spillover, before_spillover)
-	# A spillover victim is picked purely by proximity to the actual target
-	# (see _bunched_ally) — it never had to be individually spotted to get
-	# caught in the same burst, so unlike `target` above it may still be
-	# unnumbered the first time its name needs to appear in the log.
-	_assign_discovery_number(spillover)
-	combat_log.log_bunching_spillover(target, spillover)
-	_log_hit_consequence(spillover, spillover_was_active)
+	var victim_was_active := victim.state == Unit.State.ACTIVE
+	var before_victim := UnitCombatStats.before_hit(victim)
+	victim.take_hit(is_blast, _ally_positions_for(victim), _known_enemy_positions(victim.team))
+	unit_combat_stats.damage(attacker, victim, before_victim)
+	# A collateral victim is picked purely by proximity to the actual
+	# impact point (see _collateral_victim) — it never had to be
+	# individually spotted to get caught, so unlike `target` above it may
+	# still be unnumbered the first time its name needs to appear in the log.
+	_assign_discovery_number(victim)
+	if is_blast:
+		combat_log.log_blast_collateral(target, victim)
+	else:
+		combat_log.log_bunching_spillover(target, victim)
+	_log_hit_consequence(victim, victim_was_active)
 
 
 ## True while `attacker`'s shot should get GameConfig.DRONE_DIRECTED_MORTAR_
@@ -1352,17 +1389,32 @@ func _drone_directing_mortar_fire(attacker: Unit) -> bool:
 	return active_drone != null or backup_drone != null
 
 
-## A same-side SQUAD close enough to `defender` (see GameConfig.BUNCHING_RADIUS)
-## to plausibly catch the same burst/blast — one candidate per shot, rolled
-## against GameConfig.BUNCHING_SPILLOVER_CHANCE, first qualifying hit wins.
-func _bunched_ally(defender: Unit) -> Unit:
-	for ally in _ally_units_for(defender):
-		if ally.kind != Unit.Kind.SQUAD:
+## Any unit (either SIDE — real HE fragmentation and even a stray round
+## from close-quarters small-arms fire don't check whose side anyone is
+## on) within `radius` of `impact_point` — one candidate per shot, nearest
+## checked first (a real burst is more likely to catch whoever's actually
+## closest), `chance_at(distance)` rolled per candidate until one hits or
+## none do. `exclude` keeps the attacker and the already-resolved primary
+## target out of the pool. DRONE is always excluded — airborne, altitude
+## already protects it from a ground effect the same way it does from
+## everything else (see DRONE_HIT_CHANCE_MULTIPLIER's own reasoning).
+## `only_squads` narrows it further, for the small-arms/bunching case
+## specifically — this is about troops crowded together, not any two
+## units merely somewhat close to each other.
+func _collateral_victim(impact_point: Vector2, exclude: Array[Unit], radius: float, chance_at: Callable, only_squads: bool = false) -> Unit:
+	var candidates: Array[Unit] = []
+	for u in player_units + enemy_units:
+		if u in exclude or u.kind == Unit.Kind.DRONE or u.state != Unit.State.ACTIVE:
 			continue
-		if defender.global_position.distance_to(ally.global_position) > GameConfig.BUNCHING_RADIUS:
+		if only_squads and u.kind != Unit.Kind.SQUAD:
 			continue
-		if randf() < GameConfig.BUNCHING_SPILLOVER_CHANCE:
-			return ally
+		if impact_point.distance_to(u.global_position) > radius:
+			continue
+		candidates.append(u)
+	candidates.sort_custom(func(a, b): return impact_point.distance_to(a.global_position) < impact_point.distance_to(b.global_position))
+	for c in candidates:
+		if randf() < chance_at.call(impact_point.distance_to(c.global_position)):
+			return c
 	return null
 
 
@@ -4360,7 +4412,7 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		"time": scenario_elapsed_time, "is_mortar": false,
 	})
 	_seconds_since_last_shot = 0.0
-	_resolve_fire_and_check_bunching(unit, target)
+	_resolve_fire_and_check_bunching(unit, target, target.global_position)
 	unit.fire_timer = unit.fire_interval
 
 
@@ -4484,7 +4536,7 @@ func _resolve_pending_mortar_shots() -> void:
 			enemy_alerted = true
 			_alert_enemy_squads()
 
-		_resolve_fire_and_check_bunching(shot.mortar, target)
+		_resolve_fire_and_check_bunching(shot.mortar, target, shot.aim_point)
 	_pending_mortar_shots = still_pending
 
 
@@ -5262,6 +5314,23 @@ func _resolve_pending_counter_battery() -> void:
 			_log_hit_consequence(target, true)
 		else:
 			combat_log.log_counter_battery_miss(target)
+		# The shell physically lands at strike.impact_position regardless
+		# of whether it actually caught `target` — real HE fragmentation
+		# from that landing spot can still catch some OTHER nearby unit,
+		# either side, exactly like an ordinary mortar shot's own
+		# collateral check (see _resolve_fire_and_check_bunching's own doc
+		# comment for the shared reasoning and cited figures).
+		if strike.has("attacker") and is_instance_valid(strike.attacker):
+			var collateral_victim := _collateral_victim(strike.impact_position, [strike.attacker, target], GameConfig.MORTAR_EVASION_RADIUS,
+				func(d: float) -> float: return GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE * clamp(1.0 - d / GameConfig.MORTAR_EVASION_RADIUS, 0.0, 1.0))
+			if collateral_victim != null:
+				var collateral_was_active := collateral_victim.state == Unit.State.ACTIVE
+				var before_collateral := UnitCombatStats.before_hit(collateral_victim)
+				collateral_victim.take_hit(true, _ally_positions_for(collateral_victim), _known_enemy_positions(collateral_victim.team))
+				unit_combat_stats.damage(strike.attacker, collateral_victim, before_collateral)
+				_assign_discovery_number(collateral_victim)
+				combat_log.log_blast_collateral(target, collateral_victim)
+				_log_hit_consequence(collateral_victim, collateral_was_active)
 	_pending_counter_battery = still_pending
 
 
