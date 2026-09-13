@@ -5221,6 +5221,20 @@ func _resolve_pending_counter_battery() -> void:
 				"from": responder.global_position, "to": strike.impact_position, "team": responder.team, "time": scenario_elapsed_time, "is_mortar": true,
 			})
 			combat_log.log_counter_battery_incoming(strike.target)
+			# A real, previously-missed gap: _tick_fire's own post-shot
+			# shoot-and-scoot trigger only ever runs for a NORMAL shot — a
+			# counter-battery response fires through this entirely separate
+			# resolution path and never reached it, leaving a shoot-and-scoot
+			# crew sitting in plain sight right after firing back at a known
+			# enemy mortar, exactly the shot that most invites a reply.
+			# Always urgent, matching _tick_fire's own "a shot AT an enemy
+			# mortar is forced urgent" reasoning — a counter-battery
+			# response IS that shot, definitionally.
+			var density_forces_scoot: bool = responder.team == Unit.Team.PLAYER \
+				and _known_enemy_mortars_in_range(responder.global_position) >= GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT
+			if responder.shoot_and_scoot or density_forces_scoot:
+				responder.evading_counter_battery = false
+				_queue_mortar_displacement(responder, "scoot", true)
 			still_pending.append(strike)
 			continue
 		if scenario_elapsed_time < strike.impact_time:
