@@ -6,15 +6,6 @@ extends Node2D
 ## trying again can change the reconnaissance setup itself, not just
 ## doctrine, rather than being stuck with whatever was chosen at launch.
 
-# The playback-speed dropdown's own choices — parallel arrays (index i's
-# label names index i's multiplier) rather than a Dictionary, so the
-# dropdown's item order is exactly this array's order with no separate
-# sort/lookup step. 1/4x to 4x per the request; doubling steps read
-# naturally on a speed control the same way camera zoom or audio playback
-# speed controls usually do.
-const SPEED_OPTIONS: Array[float] = [0.25, 0.5, 1.0, 2.0, 4.0]
-const SPEED_LABELS: Array[String] = ["Speed: 0.25x", "Speed: 0.5x", "Speed: 1x", "Speed: 2x", "Speed: 4x"]
-
 var level_select_screen: LevelSelectScreen
 var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
 
@@ -61,7 +52,6 @@ var pause_button: Button
 var drone_debug_panel
 var decision_inspector
 var inspect_button: Button
-var speed_dropdown: OptionButton
 var schedule_retreat_label: Label
 var scheduled_retreat_slider: HSlider
 var scheduled_retreat_value_label: Label
@@ -386,7 +376,7 @@ func _draw() -> void:
 func _clear_all() -> void:
 	for node in [level_select_screen, deployment_screen, doctrine_panel, start_button, deployment_magnifier, battle_manager,
 			combat_log, casualty_dashboard, retreat_button, pause_button, drone_debug_panel, decision_inspector, inspect_button,
-			speed_dropdown, enemy_heatmap_overlay, report_background, restart_button, review_history_button,
+			enemy_heatmap_overlay, report_background, restart_button, review_history_button,
 			history_viewer, history_slider, history_time_label, history_back_button, history_play_button,
 			schedule_retreat_label, scheduled_retreat_slider, scheduled_retreat_value_label, schedule_retreat_button,
 			scheduled_retreat_status_label, cancel_scheduled_retreat_button]:
@@ -406,7 +396,6 @@ func _clear_all() -> void:
 	drone_debug_panel = null
 	decision_inspector = null
 	inspect_button = null
-	speed_dropdown = null
 	schedule_retreat_label = null
 	scheduled_retreat_slider = null
 	scheduled_retreat_value_label = null
@@ -558,31 +547,14 @@ func _on_start_pressed() -> void:
 	inspect_button.pressed.connect(func(): decision_inspector.visible = not decision_inspector.visible)
 	add_child(inspect_button)
 
-	# Item text carries its own label ("Speed: ...") rather than a separate
-	# Label node next to it — one less node to track through _clear_all's
-	# cleanup for what's otherwise self-explanatory. Placed to the right of
-	# inspect_button, in the open strip above the map rather than the
-	# already-tightly-packed sidebar button row (see retreat_button/
-	# pause_button's own doc comments for how little room that row has
-	# left). Multiplies BattleManager.playback_speed, which scales `delta`
-	# once at the very top of _process — see that var's own doc comment;
-	# is_paused still freezes the battle outright regardless of this.
-	speed_dropdown = OptionButton.new()
-	for i in SPEED_OPTIONS.size():
-		speed_dropdown.add_item(SPEED_LABELS[i])
-	speed_dropdown.selected = SPEED_OPTIONS.find(1.0)
-	speed_dropdown.position = Vector2(280, 8)
-	speed_dropdown.item_selected.connect(func(index): battle_manager.playback_speed = SPEED_OPTIONS[index])
-	add_child(speed_dropdown)
-
 	# Plan a retreat for a later time, distinct from retreat_button's own
 	# immediate order — see BattleManager.order_scheduled_retreat. A
 	# slider rather than a fixed choice, per direct request, so the delay
 	# can be dialed in and re-confirmed (re-pressing the button just
 	# reschedules) rather than picked from a short fixed list. Placed in
-	# the same open strip as inspect_button/speed_dropdown, further right,
-	# since the sidebar's own button row has no spare width left (see
-	# retreat_button/pause_button's own doc comments).
+	# the same open strip as inspect_button, further right, since the
+	# sidebar's own button row has no spare width left (see retreat_
+	# button/pause_button's own doc comments).
 	schedule_retreat_label = Label.new()
 	schedule_retreat_label.text = "Retreat in:"
 	schedule_retreat_label.position = Vector2(430, 12)

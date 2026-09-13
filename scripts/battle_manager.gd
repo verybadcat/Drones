@@ -330,14 +330,6 @@ var battle_over: bool = false
 # everything is driven centrally from here), so this one early return is
 # sufficient to pause the whole battle.
 var is_paused: bool = false
-# Player-controlled playback speed (see main.gd's speed dropdown) —
-# multiplies `delta` at the very top of _process, before it's used for
-# anything else (elapsed_time, scenario_delta, all of it), so the entire
-# simulation speeds up or slows down uniformly rather than needing every
-# individual timing calculation to know about it separately. Orthogonal to
-# is_paused, which still freezes everything outright regardless of this
-# value — pausing at 4x is exactly as frozen as pausing at 1x.
-var playback_speed: float = 1.0
 # scenario_elapsed_time at which order_general_retreat() should fire on
 # its own, or Vector2.INF's scalar equivalent (INF) if none is scheduled.
 # See order_scheduled_retreat/_check_scheduled_retreat — the player's own
@@ -3932,7 +3924,6 @@ func _process(delta: float) -> void:
 	if battle_over or combat_log == null or is_paused:
 		return
 
-	delta *= playback_speed
 	elapsed_time += delta
 	_seconds_since_last_shot += delta
 
