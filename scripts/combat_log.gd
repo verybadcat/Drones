@@ -243,7 +243,7 @@ func log_mortar_relocating_from_threat(unit: Unit) -> void:
 
 
 func log_mortar_relocating_from_density(unit: Unit) -> void:
-	add_entry("%s relocates as a precaution — a known enemy mortar is within range" % unit.display_name())
+	add_entry("%s relocates — its position was given away by recent fire, and a known enemy mortar is within range" % unit.display_name())
 
 
 func log_drone_team_evading(unit: Unit) -> void:

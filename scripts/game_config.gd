@@ -2170,44 +2170,43 @@ const MORTAR_EVASION_RADIUS: float = 40.0 * PIXELS_PER_METER
 const MORTAR_COUNTER_BATTERY_CHANCE: float = 0.22 # per shot
 
 ## A real, previously-reported failure mode: shoot_and_scoot is a single,
-## fixed per-battle doctrine choice, and even without it, a shot at an
-## enemy mortar specifically already forces an urgent scoot (see
-## BattleManager._tick_fire's own doc comment) — but neither one reacts
-## to how many DIFFERENT enemy mortars are actually known to be in
-## striking range right now, regardless of what's actually being shot at.
-## The real risk compounds fast: with `count` independent enemy mortars
-## each able to roll MORTAR_COUNTER_BATTERY_CHANCE against the same shot
-## (see _resolve_mortar_counter_battery), the chance at least one answers
-## is 1-(1-0.22)^count — 22% for one, but already 39% for two and 63% for
+## fixed per-battle doctrine choice — a "hold position" crew otherwise
+## never relocates for this reason regardless of how many enemy mortars
+## are actually known to be in striking range right now. The real risk
+## compounds fast: with `count` independent enemy mortars each able to
+## roll MORTAR_COUNTER_BATTERY_CHANCE against the same shot (see
+## _resolve_mortar_counter_battery), the chance at least one answers is
+## 1-(1-0.22)^count — 22% for one, but already 39% for two and 63% for
 ## four, the exact case that got a mortar destroyed for holding position
 ## in a genuinely dense counter-battery environment. This constant is
 ## that count threshold, not a cited figure but a direct read of the
 ## above formula: two independently-confirmed enemy mortars in range
-## already means a worse-than-a-third chance of return fire on the very
-## next shot, well past the point where any standing "hold position"
-## preference is still a reasonable bet. Once met, BattleManager._tick_
-## fire forces an urgent scoot after EVERY shot regardless of the
-## shoot_and_scoot doctrine setting — see _known_enemy_mortars_in_range
-## for how "known" is resolved (never omniscient ground truth). Player-
-## only for now, matching this project's standing "enemy may differ"
-## convention.
+## already means a worse-than-a-third chance of return fire, well past
+## the point where any standing "hold position" preference is still a
+## reasonable bet. Used by BattleManager._mortar_should_relocate_for_
+## safety to override even a hold-position doctrine once met (still
+## conditioned on the mortar's own position actually being compromised —
+## see that function's own doc comment for the full picture) — see
+## _known_enemy_mortars_in_range for how "known" is resolved (never
+## omniscient ground truth). Player-only for now, matching this project's
+## standing "enemy may differ" convention.
 const MORTAR_DENSITY_FORCE_SCOOT_COUNT: int = 2
 
 ## A lower bar than MORTAR_DENSITY_FORCE_SCOOT_COUNT above, and a
 ## deliberately different one — that constant justifies overriding an
-## ACTIVE decision (a deliberate hold-position doctrine, right after
-## firing) with real compounding-probability math, since overriding a
-## player's own standing choice needs real justification. This constant
-## instead gates a mortar that's already doing NOTHING productive right
-## now (no shot, not spotted, no threat closing, not out of ammo — see
-## BattleManager._decide_mortar_action's own tier-1 ladder) from sitting
-## still despite knowing even a single enemy mortar can already reach it.
-## There's no meaningful cost to relocating in that idle window — nothing
-## useful was happening anyway — so it doesn't need the same higher bar;
-## one confirmed enemy tube in range is already a real, direct reason to
-## not just sit there. See BattleManager._known_enemy_mortars_in_range
-## for how "known" is resolved. Player-only, matching the same "enemy may
-## differ" convention as the constant above.
+## ACTIVE decision (a deliberate hold-position doctrine) with real
+## compounding-probability math, since overriding a player's own standing
+## choice needs real justification. This constant is the baseline
+## requirement in BattleManager._mortar_should_relocate_for_safety: the
+## minimum number of known enemy mortars actually in range before a
+## compromised position is worth doing anything about AT ALL, regardless
+## of doctrine. One confirmed enemy tube in range, with this mortar's own
+## position already given away, is already a real, direct reason to move —
+## it just isn't yet severe enough to override a deliberate hold-position
+## choice (that's what MORTAR_DENSITY_FORCE_SCOOT_COUNT is for). See
+## BattleManager._known_enemy_mortars_in_range for how "known" is
+## resolved. Player-only, matching the same "enemy may differ" convention
+## as the constant above.
 const MORTAR_STANDING_THREAT_COUNT: int = 1
 
 # How long a mortar's firing position stays "worth pursuing" for counter-

@@ -3799,48 +3799,47 @@ func _decide_mortar_action(m: Unit) -> void:
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Wanted to relocate, no route this tick."}
 		return
 
-	# A real, previously-missed gap: MORTAR_DENSITY_FORCE_SCOOT_COUNT's own
-	# density-awareness (see its own doc comment for the probability math)
-	# used to run ONLY as a bonus check right after firing (_tick_fire /
-	# _resolve_pending_counter_battery) — a mortar that ISN'T currently
-	# shooting (reloading, no valid target, holding fire) got zero benefit
-	# from knowing an enemy mortar could already reach it, no matter how
-	# long that knowledge sat there unacted on. A real crew that's learned
-	# even one enemy tube is in range doesn't wait for its own next shot
-	# before doing anything about it — a lower bar than the post-shot
-	# override's own two (see GameConfig.MORTAR_STANDING_THREAT_COUNT's
-	# own doc comment for why: nothing productive was happening here
-	# anyway, so relocating costs nothing the way overriding an active
-	# doctrine choice would). Player-only, matching that constant's own
-	# "enemy may differ" scope. Non-urgent (ordinary pace and search
-	# radius) — this is a standing precaution against an elevated but not
-	# yet actively confirmed threat, unlike the just-hit/spotted/closing
-	# triggers above, which all still take priority when they also apply.
-	#
-	# A real, previously-reported OVER-correction this guards against:
-	# `m.seconds_stationary >= MORTAR_SETUP_TEARDOWN_TIME` is REQUIRED —
-	# the exact same floor _mortar_shot_this_tick already needs before it
-	# will even ATTEMPT to pick a target (see that function's own doc
-	# comment). Without this, a mortar that just arrived from ANY
-	# relocation has `has_shot == false` purely because it hasn't finished
-	# emplacing yet (not because it genuinely has no target) — reaching
-	# this branch on that technicality, with a known enemy mortar still
-	# in range (all but guaranteed, given MORTAR_MAX_RANGE's own size and
-	# how sticky/stale a sighting can be), would relocate it AGAIN before
-	# `seconds_stationary` ever reaches 30s, resetting the clock every
-	# time and permanently locking the mortar out of ever becoming
-	# fire-eligible at all — "always scooting, never shooting." This gate
-	# ensures the mortar always gets a genuine chance to actually look for
-	# a shot (and take one, if `_pick_target` finds one) before this
-	# precaution is even considered.
-	if m.team == Unit.Team.PLAYER and unit_doctrine_for(m).risk == "inherit" \
-			and m.seconds_stationary >= GameConfig.MORTAR_SETUP_TEARDOWN_TIME \
-			and _known_enemy_mortars_in_range(m.global_position) >= GameConfig.MORTAR_STANDING_THREAT_COUNT:
-		if _relocate_mortar(m, "evade"):
-			combat_log.log_mortar_relocating_from_density(m)
-			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "A known enemy mortar is in range — relocating as a precaution."}
+	# The actual, real-world condition for needing to displace: does the
+	# enemy know this position well enough to hit it right now — see
+	# _mortar_should_relocate_for_safety's own doc comment for the full
+	# three-part reasoning (recent+nearby detection, a real known threat
+	# in range, and doctrine/density gating). Deliberately NOT "did I just
+	# fire" (event-based triggers here have twice produced an opposite
+	# failure this session — see the design doc's own revision log for
+	# both directions) and reached here (tier 1, ranked above tier 2
+	# hunting) regardless of whether `has_shot` was true or false THIS
+	# tick, since _mortar_shot_this_tick itself already refuses to look
+	# for a target at all while this condition holds — so reaching this
+	# branch always means there was never a shot to weigh against
+	# relocating in the first place.
+	if _mortar_should_relocate_for_safety(m):
+		var known_in_range: int = _known_enemy_mortars_in_range(m.global_position)
+		var urgent: bool = known_in_range >= GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT
+		if m.has_move_target:
+			# Already moving for some other reason (a hunt, most likely) —
+			# redirect toward safety immediately rather than queuing a
+			# fresh "packing up" delay the crew doesn't need: it's already
+			# on its feet.
+			if _relocate_mortar(m, "scoot", urgent):
+				_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Position compromised — redirecting toward safety."}
+			else:
+				_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Position compromised — no better direction to redirect toward, continuing current move."}
 		else:
-			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "A known enemy mortar is in range — wanted to relocate, no route this tick."}
+			# Only narrated (and only actually queued) on the tick this is
+			# FIRST noticed — _pending_mortar_displacement already tracks
+			# "already handled," so every later tick spent waiting out the
+			# real pack-up delay just quietly confirms the same reasoning
+			# instead of re-queuing (which would reset the delay right back
+			# to the exact bug this whole redesign exists to fix) or
+			# re-logging the same line every tick until it actually departs.
+			if not _pending_mortar_displacement.has(m):
+				_queue_mortar_displacement(m, "scoot", urgent)
+				if _pending_mortar_displacement.has(m):
+					combat_log.log_mortar_relocating_from_density(m)
+			if _pending_mortar_displacement.has(m):
+				_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Position compromised by recent fire, with a known enemy mortar in range — preparing to relocate."}
+			else:
+				_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Position compromised — wanted to relocate, no route this tick."}
 		return
 
 	# Tier 2 — Destroy enemy mortars (the MOVEMENT half only — the
@@ -4325,50 +4324,22 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		_record_shot(unit, target)
 		_launch_mortar_shot(unit, target)
 		unit.fire_timer = unit.reload_time
-		# Shoot-and-scoot doctrine: displace after EVERY shot, procedurally,
-		# whether or not it's currently spotted — that's the whole point of
-		# the doctrine (see design doc). A hold-position mortar does NOT do
-		# this — it only relocates reactively, if actually spotted, which
-		# _update_friendly_mortar_concealment's per-tick check already
-		# covers (including the tick right after firing, if firing is what
-		# exposed it) — no separate trigger needed here for that case.
-		#
-		# A shot AT an enemy mortar is forced urgent — fast (MORTAR_RELOCATE_
-		# SPEED_URGENT) and searching farther out (CONCEALMENT_SEARCH_RINGS_
-		# URGENT_M) — rather than waiting on Unit.evading_counter_battery,
-		# which only gets set reactively once a strike has already landed
-		# nearby (_resolve_pending_counter_battery, 1-3 tactical minutes
-		# later — too late to inform THIS displacement). Engaging a known
-		# enemy mortar directly invites its own side's return fire (mortars
-		# are each other's highest-priority target — see
-		# _resolve_mortar_counter_battery's own doc comment), and with CB
-		# response now a single, higher shared rate for every shot
-		# (MORTAR_COUNTER_BATTERY_CHANCE, see its own doc comment) rather
-		# than a reduced one for a scooting crew, a normal-speed, narrow-
-		# ring displacement right after that specific kind of shot is no
-		# longer urgent enough to reliably be clear when the response
-		# arrives.
-		#
-		# Queued, not issued immediately — a real crew doesn't teleport into
-		# motion the instant the round is away; see _queue_mortar_
-		# displacement / GameConfig.MORTAR_SETUP_TEARDOWN_TIME for the real
-		# pack-up delay before this walk actually begins.
-		#
-		# A hold-position doctrine is a standing preference, not a suicide
-		# pact: with GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT or more
-		# DIFFERENT enemy mortars already known to be in range (regardless
-		# of what's actually being shot at right now), the real per-shot
-		# risk of drawing counter-battery from at least one of them is
-		# already severe enough to override it — see that constant's own
-		# doc comment for the probability math. Player-only, matching this
-		# project's "enemy may differ" convention.
-		var density_forces_scoot: bool = unit.team == Unit.Team.PLAYER \
-			and _known_enemy_mortars_in_range(unit.global_position) >= GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT
-		if unit.shoot_and_scoot or density_forces_scoot:
-			var forced_urgent := target.kind == Unit.Kind.MORTAR or density_forces_scoot
-			var urgent := unit.evading_counter_battery or forced_urgent
-			unit.evading_counter_battery = false
-			_queue_mortar_displacement(unit, "scoot", urgent)
+		# No post-shot scoot-queueing here anymore — see _mortar_shot_
+		# this_tick and _decide_mortar_action's own "relocate for safety"
+		# tier-1 check for why: this used to queue a displacement after
+		# EVERY shot on a real, previously-reported failure mode — a real
+		# crew doesn't reset its own 30-second packing-up clock every time
+		# it fires again, but _queue_mortar_displacement's own overwrite
+		# semantics did exactly that (a fresh call always replaces the
+		# pending entry outright), so a mortar reloading and re-engaging
+		# faster than that 30s window (routine, given reload_time defaults
+		# to the SAME 30s) could perpetually re-queue its own departure
+		# and never actually leave — "always shooting, never scooting."
+		# The real condition for needing to displace was never "did I just
+		# fire" anyway — it's "does the enemy now know where I am well
+		# enough to hit me," which persists (and is checked fresh every
+		# tick, with no resettable timer to game) independent of exactly
+		# how many more shots happen to land in the meantime.
 		return
 
 	_record_shot(unit, target)
@@ -5265,20 +5236,15 @@ func _resolve_pending_counter_battery() -> void:
 				"from": responder.global_position, "to": strike.impact_position, "team": responder.team, "time": scenario_elapsed_time, "is_mortar": true,
 			})
 			combat_log.log_counter_battery_incoming(strike.target)
-			# A real, previously-missed gap: _tick_fire's own post-shot
-			# shoot-and-scoot trigger only ever runs for a NORMAL shot — a
-			# counter-battery response fires through this entirely separate
-			# resolution path and never reached it, leaving a shoot-and-scoot
-			# crew sitting in plain sight right after firing back at a known
-			# enemy mortar, exactly the shot that most invites a reply.
-			# Always urgent, matching _tick_fire's own "a shot AT an enemy
-			# mortar is forced urgent" reasoning — a counter-battery
-			# response IS that shot, definitionally.
-			var density_forces_scoot: bool = responder.team == Unit.Team.PLAYER \
-				and _known_enemy_mortars_in_range(responder.global_position) >= GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT
-			if responder.shoot_and_scoot or density_forces_scoot:
-				responder.evading_counter_battery = false
-				_queue_mortar_displacement(responder, "scoot", true)
+			# The responder's own muzzle blast/trajectory gives ITS position
+			# away too, exactly like any other shot — recorded here so
+			# _mortar_should_relocate_for_safety picks this up on its own,
+			# real next tick, the same unified way as any other fired-from
+			# position (no separate scoot-triggering needed here anymore;
+			# an earlier version of this fix called _queue_mortar_
+			# displacement directly, which is now handled generally instead
+			# of duplicated per firing path).
+			_last_detected_mortar_fire[responder] = {"position": responder.global_position, "time": scenario_elapsed_time}
 			still_pending.append(strike)
 			continue
 		if scenario_elapsed_time < strike.impact_time:
@@ -5561,11 +5527,65 @@ func _mortar_shot_this_tick(m: Unit, opposing: Array[Unit]) -> Unit:
 	# the instant Unit.activity last read MOVING — see _tick_movement), so
 	# a mortar that's never moved at all (seconds_stationary starts at a
 	# huge default) is never held back by this on its very first shot.
+	#
+	# A mortar whose CURRENT position is already compromised (see
+	# _mortar_should_relocate_for_safety's own doc comment) doesn't get to
+	# just keep firing from there regardless — a real crew that knows it's
+	# been found stops trading shots and displaces first. This is the
+	# actual fix for "always shooting, never scooting": the old model
+	# tried to queue a displacement AFTER firing, which a fast enough
+	# reload cycle could perpetually re-trigger and reset before it ever
+	# actually departed. Gating the NEXT shot instead — no new shot is
+	# even attempted while a real displacement is owed — means there's no
+	# timer to reset in the first place.
 	var target: Unit = null
-	if m.seconds_stationary >= GameConfig.MORTAR_SETUP_TEARDOWN_TIME:
+	if m.seconds_stationary >= GameConfig.MORTAR_SETUP_TEARDOWN_TIME and not _mortar_should_relocate_for_safety(m):
 		target = _pick_target(m, opposing)
 	_mortar_tick_shot[m] = {"resolved": true, "target": target}
 	return target
+
+
+## True if a real, KNOWN enemy mortar could plausibly still hit `m` at its
+## CURRENT position — the actual reason a mortar should feel compelled to
+## relocate, replacing every event-based stand-in this project has tried
+## before it ("did I just fire," "how many enemy mortars exist somewhere
+## on the map"). Three real conditions, all required:
+##
+## 1. `m` gave its own position away recently (mortar_recently_detected_
+##    firing — the same muzzle-blast/trajectory detection channel
+##    _known_friendly_mortar_position and the opposing side's own hunting
+##    already rely on, not a new concept) AND hasn't since put real
+##    distance between itself and where that happened. Distance, not just
+##    time, matters: a crew that displaces even a little is no longer
+##    standing where a return shot is aimed, regardless of how much of
+##    the detection's own relevance window (MORTAR_FIRE_DETECTION_EXPIRY)
+##    is left — reusing COUNTER_BATTERY_BLAST_RADIUS here isn't a
+##    coincidence, it's the SAME "close enough to the firing spot to
+##    still be caught" real distance _resolve_pending_counter_battery's
+##    own impact check already uses.
+## 2. At least GameConfig.MORTAR_STANDING_THREAT_COUNT known enemy
+##    mortars are actually within reach (see _known_enemy_mortars_in_
+##    range) — no real threat, no reason to run regardless of doctrine.
+## 3. Either this crew's own shoot-and-scoot doctrine says to bother, OR
+##    the danger has compounded past GameConfig.MORTAR_DENSITY_FORCE_
+##    SCOOT_COUNT known mortars — severe enough to override even a
+##    deliberate hold-position preference (see that constant's own doc
+##    comment for the real probability math behind the threshold).
+##
+## Player-only, matching every other doctrine-aware mortar check's
+## "enemy may differ" scope.
+func _mortar_should_relocate_for_safety(m: Unit) -> bool:
+	if m.team != Unit.Team.PLAYER or unit_doctrine_for(m).risk != "inherit":
+		return false
+	if not mortar_recently_detected_firing(m):
+		return false
+	var last_fire: Dictionary = _last_detected_mortar_fire[m]
+	if m.global_position.distance_to(last_fire.position) >= GameConfig.COUNTER_BATTERY_BLAST_RADIUS:
+		return false # already put real distance between itself and where it was last given away
+	var known_in_range: int = _known_enemy_mortars_in_range(m.global_position)
+	if known_in_range < GameConfig.MORTAR_STANDING_THREAT_COUNT:
+		return false
+	return m.shoot_and_scoot or known_in_range >= GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT
 
 
 ## Original doctrine keeps the legacy overrides. Other profiles compare
