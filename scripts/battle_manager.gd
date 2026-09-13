@@ -5399,18 +5399,33 @@ func _queue_mortar_displacement(mortar: Unit, intent: String, urgent: bool) -> v
 
 
 ## The other half of _queue_mortar_displacement's delay. Skips (and drops)
-## a pending entry whose mortar already has a move order by the time it's
-## ready — a higher-priority trigger (a tier-1 self-preservation evade,
-## most sharply) has since claimed this tick's move, and the routine scoot
-## it would have overwritten is moot; a fresh _decide_mortar_action pass
-## will pick up cleanly from wherever that more urgent move leaves off.
+## a pending entry only when a GENUINELY higher-priority tier-1 self-
+## preservation move (the same sticky-intent list _decide_mortar_action's
+## own step 0b uses — evade/conceal/out_of_ammo/linkup) has since claimed
+## this tick's move; the routine scoot it would have overwritten really is
+## moot then, and a fresh _decide_mortar_action pass picks up cleanly from
+## wherever that more urgent move leaves off.
+##
+## A real, previously-reported failure mode: this used to drop the pending
+## scoot for ANY current move order at all, `has_move_target` alone, with
+## no check on what actually set it — so a mortar that kept re-engaging
+## known enemy mortars (tier 2, "hunt" — LOWER priority than the
+## self-preservation this scoot itself represents) could pick up a fresh
+## hunt order in the 30-second window before the scoot was ever due to
+## start, silently starving it every single time and leaving the crew
+## standing in plain sight after every shot despite a shoot-and-scoot
+## doctrine that should have moved it. Only the tier-1 sticky intents
+## actually outrank a routine scoot; anything else (a mere hunt, most
+## sharply) gets overwritten by the scoot instead of blocking it.
 func _resolve_pending_mortar_displacement() -> void:
 	for mortar in _pending_mortar_displacement.keys():
 		var pending: Dictionary = _pending_mortar_displacement[mortar]
 		if scenario_elapsed_time < pending.ready_time:
 			continue
 		_pending_mortar_displacement.erase(mortar)
-		if mortar.state != Unit.State.ACTIVE or mortar.has_move_target:
+		if mortar.state != Unit.State.ACTIVE:
+			continue
+		if mortar.has_move_target and _mortar_move_intent.get(mortar, "") in ["evade", "conceal", "out_of_ammo", "linkup"]:
 			continue
 		_issue_mortar_move(mortar, pending.destination, pending.speed, pending.intent)
 		combat_log.log_relocate(mortar, pending.urgent)
