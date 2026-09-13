@@ -157,9 +157,18 @@ func test_mortar_with_persistent_target_still_relocates_and_keeps_fighting() -> 
 	# actually watching (see _refresh_visibility's own doc comment), and a
 	# mortar alone fires on spotter-relayed information, not its own direct
 	# observation — without a real observer in player_units, nothing can
-	# ever establish or maintain visibility on the target at all. A spotter
-	# planted right on top of it guarantees a live, sustained sighting.
-	var spotter: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, enemy_mortar.global_position)
+	# ever establish or maintain visibility on the target at all. Offset
+	# 60px (300m) from the target rather than planted exactly on top of it
+	# — comfortably inside DETECTION_BASE_RANGE+SPOTTER_DETECTION_RANGE_
+	# BONUS (280px) for a live, sustained sighting, but outside
+	# MORTAR_EVASION_RADIUS (8px) so the spotter itself isn't sitting in
+	# the beaten zone of every round this test fires at that exact spot —
+	# a real FO calling fire onto a position doesn't stand on it (and now
+	# that fire has real ballistic dispersion plus side-agnostic blast
+	# collateral, a co-located "spotter" was a real, if accidental, self-
+	# inflicted casualty risk that could kill the observer and collapse
+	# the test's whole "permanently known target" premise mid-run).
+	var spotter: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, enemy_mortar.global_position + Vector2(0, 60))
 	bm.player_units.append(spotter)
 
 	bm.unit_type_doctrines[Unit.Team.PLAYER] = Orders.sanitize({})

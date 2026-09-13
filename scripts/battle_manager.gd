@@ -361,7 +361,11 @@ var _pending_counter_battery: Array[Dictionary] = []
 
 # Mortar shots fired but not yet landed — see _launch_mortar_shot /
 # _resolve_pending_mortar_shots. {"mortar": Unit, "target": Unit,
-# "aim_point": Vector2, "impact_time": float}
+# "aim_point": Vector2, "impact_point": Vector2, "impact_time": float}
+# "aim_point" is where the crew calculated/led the shot; "impact_point" is
+# where it actually lands, offset from aim_point by real ballistic
+# dispersion (see _mortar_dispersion_offset) — the two differ on every
+# shot, not just a missed lead.
 var _pending_mortar_shots: Array[Dictionary] = []
 
 # A shoot-and-scoot mortar (Unit) -> {"destination": Vector2, "speed":
@@ -397,6 +401,15 @@ var _mortar_resupply: Dictionary = {}
 # and _known_friendly_mortar_position (consumes it, as a fallback when the
 # mortar isn't currently visible either).
 var _last_detected_mortar_fire: Dictionary = {}
+
+# Unit (a mortar) -> {"target": Unit, "shots": int} — tracks "walking fire"
+# onto the CURRENT target: `shots` counts how many prior rounds at this
+# same target actually got corrected from (see _mortar_fire_observation_
+# quality — a shot nobody could observe teaches the crew nothing, so it
+# doesn't advance this count). Reset outright the instant `target` changes:
+# a correction learned against one aim point says nothing about a
+# different one. See _mortar_dispersion_offset, the sole reader/writer.
+var _mortar_fire_adjustment: Dictionary = {}
 
 # Unit (a mortar) -> Unit (the target it can fire on right now, or literally
 # absent from this dict if not yet resolved this tick) — memoizes _pick_
@@ -1328,9 +1341,10 @@ func _ally_positions_for(unit: Unit) -> Array[Vector2]:
 ##
 ## `impact_point` is the real landing spot: the target's own current
 ## position for direct fire (it resolves exactly there), or a mortar
-## shell's actual aim_point, which can differ from the target's own
-## position by up to MORTAR_EVASION_RADIUS (a lead that didn't quite pan
-## out still lands somewhere real).
+## shell's actual dispersed impact point (_mortar_dispersion_offset off
+## _mortar_aim_point), which can differ from the target's own position by
+## up to MORTAR_EVASION_RADIUS — a bad lead, real ballistic scatter, or
+## both, still lands somewhere real.
 func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit, impact_point: Vector2) -> void:
 	var before := UnitCombatStats.before_hit(target)
 	unit_combat_stats.register(attacker)
@@ -4428,10 +4442,12 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 func _launch_mortar_shot(mortar: Unit, target: Unit) -> void:
 	mortar.mortar_rounds_remaining -= 1 # spent the instant it's fired, hit or miss — you don't get the shell back
 	var aim_point: Vector2 = _mortar_aim_point(target)
+	var impact_point: Vector2 = aim_point + _mortar_dispersion_offset(mortar, target, aim_point)
 	_pending_mortar_shots.append({
 		"mortar": mortar,
 		"target": target,
 		"aim_point": aim_point,
+		"impact_point": impact_point,
 		"impact_time": scenario_elapsed_time + GameConfig.MORTAR_FLIGHT_TIME,
 	})
 	_fire_flashes.append({
@@ -4498,16 +4514,95 @@ func _estimate_unit_velocity(u: Unit) -> Vector2:
 	return Vector2.ZERO
 
 
+## How well `mortar`'s own side can currently see where rounds aimed at
+## `target` are actually landing — real fire-adjustment doctrine requires
+## someone watching the fall of shot, not just knowing the target exists
+## (that's already covered elsewhere: a mortar can fire indirectly at a
+## known-but-unseen contact, but nobody can WALK rounds onto it without
+## eyes on the impact). Approximated as "can any of my own side's units
+## currently see the target itself" (CombatResolver.has_live_observer) —
+## the impact point sits at or near the target, so a live observer on the
+## target effectively also sees the splash. Best-available quality wins:
+## a drone overhead beats a spotter, which beats an ordinary unit's own
+## eyes, which beats nobody at all.
+func _mortar_fire_observation_quality(mortar: Unit, target: Unit) -> String:
+	var allies: Array[Unit] = _ally_units_for(mortar)
+	var drones: Array[Unit] = []
+	var spotters: Array[Unit] = []
+	for u in allies:
+		if u.kind == Unit.Kind.DRONE:
+			drones.append(u)
+		elif u.kind == Unit.Kind.SPOTTER:
+			spotters.append(u)
+	if CombatResolver.has_live_observer(target, drones):
+		return "drone"
+	if CombatResolver.has_live_observer(target, spotters):
+		return "spotter"
+	if CombatResolver.has_live_observer(target, allies):
+		return "squad"
+	return "none"
+
+
+## The real distance between a calculated aim_point and where the round
+## actually lands — see GameConfig.MORTAR_DISPERSION_* for the cited
+## real-world grounding (unadjusted CEP scaling with range; convergence
+## toward a floor as "walked fire" gets corrected shot over shot). Sampled
+## as a circular Gaussian (CEP = 1.1774 * sigma is the standard CEP-to-
+## standard-deviation conversion for a circular normal distribution) rather
+## than a uniform disc, so most rounds cluster well inside the CEP with a
+## long tail of wider misses, matching how real dispersion actually
+## behaves.
+##
+## Also the sole place that advances (or resets) _mortar_fire_adjustment:
+## called exactly once per shot, at launch, so "how many prior rounds have
+## been corrected from" only ever grows once per real round fired.
+func _mortar_dispersion_offset(mortar: Unit, target: Unit, aim_point: Vector2) -> Vector2:
+	var range_to_target: float = mortar.global_position.distance_to(aim_point)
+	var base_cep: float = max(GameConfig.MORTAR_DISPERSION_UNADJUSTED_FLOOR, GameConfig.MORTAR_DISPERSION_CEP_FRACTION_OF_RANGE * range_to_target)
+
+	var adjustment: Dictionary = _mortar_fire_adjustment.get(mortar, {})
+	if adjustment.get("target") != target:
+		adjustment = {"target": target, "shots": 0}
+	var shots_corrected_from: int = adjustment.get("shots", 0)
+
+	var quality: String = _mortar_fire_observation_quality(mortar, target)
+	var decay: float
+	var floor_dist: float
+	match quality:
+		"drone":
+			decay = GameConfig.MORTAR_DISPERSION_DRONE_DECAY
+			floor_dist = GameConfig.MORTAR_DISPERSION_DRONE_FLOOR
+		"spotter":
+			decay = GameConfig.MORTAR_DISPERSION_SPOTTER_DECAY
+			floor_dist = GameConfig.MORTAR_DISPERSION_SPOTTER_FLOOR
+		"squad":
+			decay = GameConfig.MORTAR_DISPERSION_SQUAD_DECAY
+			floor_dist = GameConfig.MORTAR_DISPERSION_SQUAD_FLOOR
+		_: # "none" — unobserved/predicted fire never converges, ever
+			decay = 1.0
+			floor_dist = base_cep
+
+	if quality != "none":
+		adjustment.shots = shots_corrected_from + 1
+	_mortar_fire_adjustment[mortar] = adjustment
+
+	var effective_floor: float = min(floor_dist, base_cep) # a converged shot is never worse than a fresh unadjusted one
+	var cep: float = effective_floor + (base_cep - effective_floor) * pow(decay, shots_corrected_from)
+	var sigma: float = cep / 1.1774
+	return Vector2(randfn(0.0, sigma), randfn(0.0, sigma))
+
+
 ## Resolves any mortar shots whose flight time has elapsed. A target that's
 ## since been destroyed or reached safety leaves nothing for the shell to
-## hit. Otherwise, the shell lands at its aim_point regardless — if the
-## target has since moved beyond MORTAR_EVASION_RADIUS from that spot, the
-## anticipated position was simply wrong and the shot misses outright, no
-## roll needed; a target still nearby gets the normal CombatResolver roll
-## (using ITS CURRENT state at impact — cover, movement — same as any other
-## hit resolution). Enemy-alert and hit-consequence logging happen here,
-## at impact, not at launch — the target doesn't know it's been fired on
-## until the shell actually arrives.
+## hit. Otherwise, the shell lands at its impact_point regardless — set at
+## launch time (_mortar_dispersion_offset), already accounting for both a
+## bad lead AND real ballistic scatter — if the target has since moved (or
+## the shot simply scattered) beyond MORTAR_EVASION_RADIUS from that spot,
+## the shot misses outright, no roll needed; a target still nearby gets the
+## normal CombatResolver roll (using ITS CURRENT state at impact — cover,
+## movement — same as any other hit resolution). Enemy-alert and hit-
+## consequence logging happen here, at impact, not at launch — the target
+## doesn't know it's been fired on until the shell actually arrives.
 func _resolve_pending_mortar_shots() -> void:
 	var still_pending: Array[Dictionary] = []
 	for shot in _pending_mortar_shots:
@@ -4527,7 +4622,7 @@ func _resolve_pending_mortar_shots() -> void:
 		if target.state == Unit.State.RETREATING:
 			target.zigzagging = true # once you know you're under a barrage, keep juking — see Unit.zigzagging
 
-		var drift: float = target.global_position.distance_to(shot.aim_point)
+		var drift: float = target.global_position.distance_to(shot.impact_point)
 		if drift > GameConfig.MORTAR_EVASION_RADIUS:
 			combat_log.log_mortar_shot_evaded(shot.mortar, target)
 			continue
@@ -4536,7 +4631,7 @@ func _resolve_pending_mortar_shots() -> void:
 			enemy_alerted = true
 			_alert_enemy_squads()
 
-		_resolve_fire_and_check_bunching(shot.mortar, target, shot.aim_point)
+		_resolve_fire_and_check_bunching(shot.mortar, target, shot.impact_point)
 	_pending_mortar_shots = still_pending
 
 

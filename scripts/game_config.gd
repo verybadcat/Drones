@@ -2532,6 +2532,57 @@ const BUNCHING_SPILLOVER_CHANCE: float = 0.25
 ## core, not the full outer edge. A judgment call within that real range,
 ## not a single cited figure.
 const MORTAR_BLAST_COLLATERAL_MAX_CHANCE: float = 0.6
+
+## Ballistic dispersion: a mortar's calculated aim point (BattleManager.
+## _mortar_aim_point) isn't where the round actually lands — real indirect
+## fire has inherent scatter from muzzle-velocity variance, propellant
+## temperature, wind, and fin/fuze tolerances, on top of any lead-
+## estimation error. Unadjusted ("predicted") fire's dispersion scales with
+## range: cited NATO figures put an unguided 120mm mortar's CEP at ~136m at
+## max range without an advanced fire control system. This project's 82mm
+## mortar has a shorter max range, so the same ~3% CEP-of-range fraction is
+## applied to THIS project's own MORTAR_MAX_RANGE rather than reusing the
+## 136m figure outright (that number is for a different caliber at a
+## longer real max range). See BattleManager._mortar_dispersion_offset.
+const MORTAR_DISPERSION_CEP_FRACTION_OF_RANGE: float = 0.03
+## Even a short shot isn't perfect — met data, propellant-lot, and lay
+## error impose a floor regardless of range. Judgment call, not directly
+## cited: kept comfortably below MORTAR_EVASION_RADIUS so short-range shots
+## still usually connect.
+const MORTAR_DISPERSION_UNADJUSTED_FLOOR: float = 15.0 * PIXELS_PER_METER
+
+## "Walking fire" onto a target: real indirect-fire doctrine (FM 6-30's
+## successive-bracketing method) has an observer watch where each round
+## lands and radio a correction, converging over a handful of adjusting
+## rounds before "fire for effect" — a real forward observer with
+## instruments can register a mean point of impact to roughly 20m (FM 6-30
+## mortar registration worked example: "MPI ~18-20m R"). Consecutive shots
+## at the SAME target converge dispersion toward a floor, geometrically,
+## for as long as someone can actually see where rounds are landing (see
+## BattleManager._mortar_fire_observation_quality) — with no observer at
+## all, fire stays "predicted": no correction is ever possible, full CEP
+## forever, exactly like unobserved/map-data-only fire in real doctrine.
+##
+## Three observer qualities, most to least precise, each its own
+## convergence rate and floor:
+## - Drone: real-time full-motion video lets a controller see the exact
+##   miss and correct almost immediately — reported Ukraine-war drone-
+##   corrected fire missions destroying a platoon position in ~9 rounds
+##   versus 60-90 unobserved (Ukrainian drone-directed-artillery
+##   reporting, spring 2022), an order-of-magnitude efficiency gain this
+##   project models as the fastest convergence to the tightest floor.
+## - Dedicated spotter (trained FO): doctrine's own baseline case — the
+##   ~20m registered-MPI figure above.
+## - Self-observing squad (no FO instruments, comms lag, not trained
+##   observers): plausible but slower and coarser. Judgment call, not
+##   independently cited.
+const MORTAR_DISPERSION_DRONE_DECAY: float = 0.15
+const MORTAR_DISPERSION_DRONE_FLOOR: float = 6.0 * PIXELS_PER_METER
+const MORTAR_DISPERSION_SPOTTER_DECAY: float = 0.35
+const MORTAR_DISPERSION_SPOTTER_FLOOR: float = 18.0 * PIXELS_PER_METER
+const MORTAR_DISPERSION_SQUAD_DECAY: float = 0.65
+const MORTAR_DISPERSION_SQUAD_FLOOR: float = 30.0 * PIXELS_PER_METER
+
 const REPOSITION_SPEED: float = 1.8 * PIXELS_PER_METER # m/s (tactical), for any non-retreat repositioning
 
 # A retreating unit under actual mortar fire (Unit.zigzagging) juke
