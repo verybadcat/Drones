@@ -2198,9 +2198,10 @@ const MORTAR_DENSITY_FORCE_SCOOT_COUNT: int = 2
 # _launch_mortar_shot / _known_friendly_mortar_position) — real counter-
 # battery detection is via the outgoing round's muzzle blast/trajectory,
 # not visual spotting, so this doesn't require the mortar to stay visually
-# exposed. Tactical seconds; roughly the upper end of the counter-battery
-# response window (COUNTER_BATTERY_DELAY_MAX) — old enough and the mortar
-# has almost certainly moved on, not worth chasing a stale fix.
+# exposed. Tactical seconds; comfortably above the counter-battery response
+# window's own realistic worst case (see COUNTER_BATTERY_LOCATE_TIME_MAX's
+# own doc comment for the full breakdown) — old enough and the mortar has
+# almost certainly moved on, not worth chasing a stale fix.
 const MORTAR_FIRE_DETECTION_EXPIRY: float = 180.0
 
 # The drone's OWN use of the same muzzle-flash/trajectory detection (see
@@ -2266,27 +2267,101 @@ const MORTAR_RELOCATE_TREES_MULTIPLIER: float = 0.8
 # CombatResolver) rather than inventing a separate "set up"/"moving" state
 # machine: Unit.Activity's existing STATIONARY/MOVING split, plus how long
 # a unit has genuinely BEEN stationary, already is that distinction.
-# Gates two things: a mortar can't actually fire (BattleManager.
-# _mortar_shot_this_tick) or respond to counter-battery (_resolve_mortar_
-# counter_battery) until it's been stationary this long since its last
-# real displacement; and a shoot-and-scoot crew doesn't start walking away
+# Gates a mortar's own ability to fire (BattleManager._mortar_shot_this_
+# tick) until it's been stationary this long since its last real
+# displacement, and a shoot-and-scoot crew doesn't start walking away
 # until this long after firing (_queue_mortar_displacement /
-# _resolve_pending_mortar_displacement). A mortar that's never moved at
-# all defaults to Unit.seconds_stationary = 1e9 (already emplaced since
-# before the battle began), so this never delays a hold-position mortar's
-# very first shot.
+# _resolve_pending_mortar_displacement) — that pair together IS "become
+# mobile, then actually walk there" for the crew that just fired: this is
+# the become-mobile half, real movement at MORTAR_RELOCATE_SPEED over the
+# real distance chosen is the other. Reused again below as the SETUP half
+# of a counter-battery responder's own readiness, for the same physical
+# reason. A mortar that's never moved at all defaults to Unit.
+# seconds_stationary = 1e9 (already emplaced since before the battle
+# began), so this never delays a hold-position mortar's very first shot.
 const MORTAR_SETUP_TEARDOWN_TIME: float = 30.0 # tactical seconds
 
-# Counter-battery fire isn't instant: the enemy can only aim at where the
-# mortar WAS when it fired, and it takes real time to organize and fire a
-# response — a random 1-3 tactical minutes, not a fixed interval (see
-# BattleManager._resolve_mortar_counter_battery). By the time it lands, a
-# shoot-and-scoot mortar has likely moved well clear; a hold-position
-# mortar is still standing right there. If the mortar is still within the
-# blast radius when the shell lands, it can still get hit — the odds just
-# fall off with distance from the original firing spot.
-const COUNTER_BATTERY_DELAY_MIN: float = 60.0 # tactical seconds
-const COUNTER_BATTERY_DELAY_MAX: float = 180.0 # tactical seconds
+## Counter-battery fire isn't instant, and isn't one flat random delay
+## either — it's the sum (and, for two of these, the MAX — see below) of
+## real component times a responding crew actually goes through, not a
+## single directly-stored number (see BattleManager._resolve_mortar_
+## counter_battery, which composes these):
+##
+## 1. LOCATE — the original shot's own muzzle blast/trajectory gives its
+##    firing position away instantly (see MORTAR_FIRE_DETECTION_EXPIRY's
+##    own doc comment — this isn't visual spotting, it doesn't need eyes
+##    on the position), but turning "a shot came from roughly that
+##    direction" into an actual usable grid coordinate takes real time.
+##    Modern radar-cued counter-battery can generate a fire mission in
+##    "a matter of seconds"; this project's own early-war setting has no
+##    counter-battery radar at this echelon, so it's slower than that —
+##    but still a small unit
+##    cross-cueing over radio in a compact battle space, not a formal
+##    WWI-style sound-ranging network (which historically took 3-5
+##    minutes to pass a location to the intelligence officer, an entirely
+##    different, much larger organizational process). A judgment call
+##    within that real range, not a single cited figure.
+## 2. SETUP — if the responding mortar was itself still displacing (not
+##    fully emplaced) at the moment the enemy shot landed/fired, it needs
+##    the SAME real transition time as MORTAR_SETUP_TEARDOWN_TIME above
+##    (same tube, same physical act) before it can fire back at all;
+##    already-emplaced (the common case) costs nothing here.
+##
+##    LOCATE and SETUP run in PARALLEL, not stacked — confirmed against
+##    real fire-direction-center procedure, not assumed: doctrine has the
+##    FDO announce "FIRE MISSION" to the gun crews the INSTANT a call for
+##    fire comes in, so the crew starts laying/prepping at the same time
+##    the fire direction center computes the actual firing data, not
+##    after. Different people/systems doing different jobs — a crew
+##    physically emplacing a tube doesn't block whoever is figuring out
+##    where to aim it, and vice versa. So the two are combined with
+##    max(), not +.
+## 3. LAY (+ fire) — once BOTH a location and a ready tube exist, actually
+##    laying onto that specific azimuth/elevation and firing. Grounded on
+##    real reporting that a crew given a fire mission gets its first
+##    round downrange within about 10 seconds — this covers that same
+##    step, not a separate long process.
+## 4. FLIGHT — MORTAR_FLIGHT_TIME, already modeled and reused as-is; the
+##    round's own physical time in the air, identical physics to every
+##    other mortar shot in this file.
+##
+## The resulting total (roughly 75-165 tactical seconds react + flight,
+## depending on rolls) lands in the same real ballpark independently
+## reported for Ukraine-war counter-battery: full radar-cued engagement
+## (including flight) at "1-2 minutes, 3 at the outside," and a mortar
+## crew has on the order of 90-120 seconds after its last round to
+## displace before a radar-cued response catches it. By the time it
+## lands, a shoot-and-scoot mortar has likely moved well clear; a
+## hold-position mortar is still standing right there. If the mortar is
+## still within the blast radius when the shell lands, it can still get
+## hit — the odds just fall off with distance from the original firing
+## spot.
+##
+## LOCATE's own range specifically (not SETUP or LAY) was tuned by direct
+## measurement, not guessed and left unchecked: an earlier pass (20-90s)
+## reproduced a REAL average of ~55s for an already-emplaced responder —
+## faster on average than the single flat 60-180s range (the FULL
+## detect-to-fire time, not just the reaction portion) this replaced ever
+## was for that exact case, since that's the common one (most responders
+## are already set up when they get shot at, not mid-relocation) — a
+## real, measured 20-30-trial Monte Carlo showed player-mortar
+## destruction roughly DOUBLING versus the pre-rework baseline as a
+## direct result: counter-battery simply landed sooner, on average,
+## against a target that hadn't moved (and often can't, if not on a
+## shoot-and-scoot doctrine) at all. Retuned to 30-110s so LOCATE + LAY's
+## own average (70 + 10 = 80s) matches the OLD flat range's own average
+## reaction time (110s midpoint - 40s flight = 70s... old average was
+## actually the midpoint of [20,140], i.e. 80s) for that same common
+## case — the decomposition is real and the "if moving" realism is
+## still there (SETUP still wins the max() whenever a responder's own
+## remaining setup time exceeds however LOCATE happened to roll), it
+## just no longer silently makes an already-set-up mortar's own return
+## fire arrive faster than before purely as a side effect of picking
+## ranges that summed to a smaller number than the range being replaced.
+const COUNTER_BATTERY_LOCATE_TIME_MIN: float = 30.0 # tactical seconds
+const COUNTER_BATTERY_LOCATE_TIME_MAX: float = 110.0 # tactical seconds
+const COUNTER_BATTERY_LAY_TIME_MIN: float = 5.0 # tactical seconds
+const COUNTER_BATTERY_LAY_TIME_MAX: float = 15.0 # tactical seconds
 const COUNTER_BATTERY_BLAST_RADIUS: float = 150.0 * PIXELS_PER_METER # beyond this, the old position is safe
 
 # A squad hit by mortar fire may bolt for nearby cover regardless of overall

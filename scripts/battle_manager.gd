@@ -5138,43 +5138,35 @@ func _weighted_advance_point_pick(candidates: Array[Vector2], angles_deg: Array[
 ## post-shot scoot hop) — see _resolve_pending_counter_battery for the
 ## delayed impact that actually checks whether it's still nearby — THAT
 ## check, not this one, is where shoot-and-scoot's own real protection
-## actually lives. GameConfig.COUNTER_BATTERY_DELAY_MIN/MAX (1-3 tactical
-## minutes, not a fixed interval) is the FULL detect-to-impact time — real
-## counter-battery response varies with how quickly the opposing crew can
-## get a fire mission organized — and is split here into the reaction
-## portion (detect, compute a solution, lay and fire — no visible flash
-## yet, nothing has actually been fired) and GameConfig.MORTAR_FLIGHT_TIME
-## (the responding round's own physical flight time, the exact same
-## constant every other mortar shot in this file already flies on) for the
-## flight portion — carved OUT of the existing total, not stacked on top
-## of it, so the overall time-to-possible-impact envelope this constant
-## was already tuned around is unchanged. A real, previously-reported
-## confusion this fixes: the responding mortar's own muzzle flash used to
-## be drawn HERE, at the instant this function runs — the same tick as the
-## ORIGINAL shot that triggered it — even though the doc comment (and the
-## combat log's own "fire inbound" wording) describes real time passing
-## before that crew actually gets its own round off. See
-## _resolve_pending_counter_battery for where the flash actually gets
-## drawn now: the moment the responding mortar itself fires, not the
-## moment it merely decided to.
+## actually lives.
+##
+## The reaction delay before the response even fires (before
+## GameConfig.MORTAR_FLIGHT_TIME even starts) is composed from real
+## component times, not one directly-stored random range — see
+## GameConfig.COUNTER_BATTERY_LOCATE_TIME_MIN's own doc comment for the
+## full real-world reasoning behind each piece and why LOCATE and SETUP
+## run in parallel (max), not stacked (+):
+##   react_delay = max(locate_time, setup_remaining) + lay_time
+## A responder still mid-relocation (seconds_stationary below
+## MORTAR_SETUP_TEARDOWN_TIME) no longer skips responding entirely the way
+## it used to — a real, previously-reported gap this fixes: it now still
+## answers, just with whatever setup time it genuinely has left to finish
+## factored into the delay like everything else, exactly the way a moving
+## crew would in reality rather than being unable to fire back at all
+## until it happened to already be standing still.
 func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 	var opposing: Array[Unit] = player_units if firing_mortar.team == Unit.Team.ENEMY else enemy_units
 	var chance: float = GameConfig.MORTAR_COUNTER_BATTERY_CHANCE
 	for m in opposing:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
 			continue
-		# A tube that's still slung over a shoulder mid-relocation (or only
-		# just set back down) can't turn around and fire a fire mission —
-		# see GameConfig.MORTAR_SETUP_TEARDOWN_TIME's own doc comment; the
-		# same seconds_stationary floor _mortar_shot_this_tick uses for a
-		# mortar's own next shot applies just as physically to firing back.
-		if m.seconds_stationary < GameConfig.MORTAR_SETUP_TEARDOWN_TIME:
-			continue
 		if m.global_position.distance_to(firing_mortar.global_position) > GameConfig.MORTAR_MAX_RANGE:
 			continue # out of range — this mortar physically cannot reach back
 		if randf() < chance:
-			var total_delay: float = randf_range(GameConfig.COUNTER_BATTERY_DELAY_MIN, GameConfig.COUNTER_BATTERY_DELAY_MAX)
-			var react_delay: float = max(total_delay - GameConfig.MORTAR_FLIGHT_TIME, 0.0)
+			var locate_time: float = randf_range(GameConfig.COUNTER_BATTERY_LOCATE_TIME_MIN, GameConfig.COUNTER_BATTERY_LOCATE_TIME_MAX)
+			var setup_remaining: float = max(GameConfig.MORTAR_SETUP_TEARDOWN_TIME - m.seconds_stationary, 0.0)
+			var lay_time: float = randf_range(GameConfig.COUNTER_BATTERY_LAY_TIME_MIN, GameConfig.COUNTER_BATTERY_LAY_TIME_MAX)
+			var react_delay: float = max(locate_time, setup_remaining) + lay_time
 			unit_combat_stats.register(m)
 			unit_combat_stats.shot(m, true)
 			_pending_counter_battery.append({
@@ -5182,7 +5174,7 @@ func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 				"target": firing_mortar,
 				"impact_position": firing_mortar.global_position,
 				"fire_time": scenario_elapsed_time + react_delay,
-				"impact_time": scenario_elapsed_time + total_delay,
+				"impact_time": scenario_elapsed_time + react_delay + GameConfig.MORTAR_FLIGHT_TIME,
 				"fired": false,
 			})
 			# A mortar's muzzle flash/trajectory can give it away here even
