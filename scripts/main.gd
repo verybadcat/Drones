@@ -41,6 +41,12 @@ var start_button: Button
 # the same brand-new-class_name reason as drone_debug_panel/
 # enemy_heatmap_overlay below — see that field's own doc comment.
 var deployment_magnifier
+# Whichever token the magnifier showed most recently — kept around so the
+# loupe can stay on screen showing that placement after the drag ends,
+# instead of vanishing the instant the player lets go (see the _process
+# poll below). Reset alongside deployment_magnifier itself in _clear_all so
+# a fresh deployment phase starts with nothing to show yet.
+var _magnifier_last_token: UnitToken = null
 
 var battle_manager: BattleManager
 var combat_log: CombatLog
@@ -230,17 +236,26 @@ func _process(delta: float) -> void:
 		var elevation_m: float = GameConfig.elevation_m(_map_mouse_world_position())
 		_elevation_label.text = "Elevation: %dm" % int(round(elevation_m))
 
-	# The magnifier only has anything useful to show while a token is
-	# actually being dragged — DeploymentScreen's own _dragging is the
-	# single source of truth for that, read directly here (same "poll a
-	# child screen's live state" pattern _clock_label/scheduled_retreat_*
-	# already use above) rather than adding a signal just for this.
+	# Stays on screen through the whole setup phase, not just while a token
+	# is actively being dragged — showing whichever token was placed most
+	# recently, so the player can keep checking a placement after letting
+	# go instead of the loupe vanishing the instant they release the
+	# mouse. DeploymentScreen's own _dragging is the single source of
+	# truth for an in-progress drag (same "poll a child screen's live
+	# state" pattern _clock_label/scheduled_retreat_* already use above);
+	# _magnifier_last_token carries that over once the drag ends. Nothing
+	# to show at all until the first token is ever dragged, and the whole
+	# node is freed at the end of the deployment phase either way (see
+	# _clear_all), so this never lingers once the battle actually starts.
 	if deployment_magnifier:
 		var dragging: UnitToken = deployment_screen._dragging if deployment_screen else null
-		deployment_magnifier.visible = dragging != null
 		if dragging != null:
-			deployment_magnifier.focus_position = dragging.position
-			deployment_magnifier.unit_kind = dragging.kind
+			_magnifier_last_token = dragging
+		var shown: UnitToken = dragging if dragging != null else _magnifier_last_token
+		deployment_magnifier.visible = shown != null
+		if shown != null:
+			deployment_magnifier.focus_position = shown.position
+			deployment_magnifier.unit_kind = shown.kind
 			deployment_magnifier.queue_redraw()
 
 	_clock_label.text = battle_manager.clock_string() if battle_manager else "%02d:00:00" % int(GameConfig.SCENARIO_START_HOUR)
@@ -382,6 +397,7 @@ func _clear_all() -> void:
 	doctrine_panel = null
 	start_button = null
 	deployment_magnifier = null
+	_magnifier_last_token = null
 	battle_manager = null
 	combat_log = null
 	casualty_dashboard = null
