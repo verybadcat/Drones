@@ -2948,14 +2948,43 @@ static func clamp_to_operating_area(point: Vector2) -> Vector2:
 	)
 
 
+## How much farther than the ring search's own nearest hidden candidate
+## it's worth walking for the reverse slope's more DURABLE kind of masking
+## (a whole hill blocking LOS, which stays valid even if a threat shifts,
+## vs. a point that merely tests clear against today's exact positions —
+## see _reverse_slope_candidate's own doc comment for that reasoning). A
+## real, previously-reported failure mode: the hill candidate used to win
+## UNCONDITIONALLY whenever it found anything at all, with no comparison
+## against the ring search's own result — on the diagnosed map, this sent
+## an ordinary "spotted, no shot" concealment move over 1100m to a specific
+## hill, EVERY time, when a fully-hidden spot 250m away (found by the ring
+## search alone) would have done the exact same job. A judgment call, not
+## cited — enough to prefer the hill's durability for a modest premium
+## without paying for a multi-hundred-meter detour past equally-valid,
+## much closer cover.
+const CONCEALMENT_HILL_MAX_EXTRA_M: float = 300.0
+
 static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false) -> Vector2:
 	if threat_positions.is_empty():
 		return from
 
 	var hill_spot := _reverse_slope_candidate(from, threat_positions, avoid_buildings)
-	if hill_spot != from:
-		return hill_spot
+	var ring_spot := _ring_search_hidden_point(from, threat_positions, avoid_buildings, urgent)
 
+	if hill_spot == from:
+		return ring_spot
+	if ring_spot == from:
+		return hill_spot
+	if from.distance_to(hill_spot) > from.distance_to(ring_spot) + CONCEALMENT_HILL_MAX_EXTRA_M * PIXELS_PER_METER:
+		return ring_spot
+	return hill_spot
+
+
+## The ring-search half of nearest_hidden_point, split out so it can be
+## compared against the reverse-slope candidate above instead of only ever
+## running when the hill search finds nothing at all. Returns `from` if
+## nothing in any ring is hidden from every threat.
+static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool) -> Vector2:
 	var rings: Array[float] = CONCEALMENT_SEARCH_RINGS_URGENT_M if urgent else CONCEALMENT_SEARCH_RINGS_M
 	for radius_m in rings:
 		var radius_px: float = radius_m * PIXELS_PER_METER
