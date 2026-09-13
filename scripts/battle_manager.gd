@@ -3816,7 +3816,25 @@ func _decide_mortar_action(m: Unit) -> void:
 	# radius) — this is a standing precaution against an elevated but not
 	# yet actively confirmed threat, unlike the just-hit/spotted/closing
 	# triggers above, which all still take priority when they also apply.
+	#
+	# A real, previously-reported OVER-correction this guards against:
+	# `m.seconds_stationary >= MORTAR_SETUP_TEARDOWN_TIME` is REQUIRED —
+	# the exact same floor _mortar_shot_this_tick already needs before it
+	# will even ATTEMPT to pick a target (see that function's own doc
+	# comment). Without this, a mortar that just arrived from ANY
+	# relocation has `has_shot == false` purely because it hasn't finished
+	# emplacing yet (not because it genuinely has no target) — reaching
+	# this branch on that technicality, with a known enemy mortar still
+	# in range (all but guaranteed, given MORTAR_MAX_RANGE's own size and
+	# how sticky/stale a sighting can be), would relocate it AGAIN before
+	# `seconds_stationary` ever reaches 30s, resetting the clock every
+	# time and permanently locking the mortar out of ever becoming
+	# fire-eligible at all — "always scooting, never shooting." This gate
+	# ensures the mortar always gets a genuine chance to actually look for
+	# a shot (and take one, if `_pick_target` finds one) before this
+	# precaution is even considered.
 	if m.team == Unit.Team.PLAYER and unit_doctrine_for(m).risk == "inherit" \
+			and m.seconds_stationary >= GameConfig.MORTAR_SETUP_TEARDOWN_TIME \
 			and _known_enemy_mortars_in_range(m.global_position) >= GameConfig.MORTAR_STANDING_THREAT_COUNT:
 		if _relocate_mortar(m, "evade"):
 			combat_log.log_mortar_relocating_from_density(m)
