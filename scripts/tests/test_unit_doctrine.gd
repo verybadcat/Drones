@@ -213,6 +213,51 @@ func test_collateral_damage() -> void:
 	check(found_cb_collateral, "A counter-battery strike's own impact must be able to produce a collateral hit on a nearby bystander, not just its specific mortar target")
 
 
+## Collateral damage being side-agnostic means a unit's "casualties
+## inflicted" can include friendly fire — a real, user-reported confusion:
+## a sidebar total that didn't match the sum of per-unit "casualties
+## inflicted" rows turned out to be exactly this, a friendly-fire casualty
+## credited to the attacker's own row but invisible in the report as such.
+## The report must call this out explicitly when it happens, and stay
+## silent when it doesn't.
+func test_friendly_fire_reporting() -> void:
+	# Case 1: a real friendly-fire hit must show up as friendly_fire_
+	# casualties on the ATTACKER's own row, and the report must annotate
+	# that unit's line (and the side's TOTAL INFLICTED line) with it.
+	var found_friendly_fire := false
+	for i in 300:
+		seed(i)
+		var bm = make_battle()
+		var shooter := spawn(bm, Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2.ZERO)
+		var enemy_mortar := spawn(bm, Unit.Team.ENEMY, Unit.Kind.MORTAR, Vector2(20, 0))
+		var own_side_bystander := spawn(bm, Unit.Team.PLAYER, Unit.Kind.SQUAD, Vector2(20, 5))
+		var before_pips := own_side_bystander.pips
+		bm._resolve_fire_and_check_bunching(shooter, enemy_mortar, enemy_mortar.global_position)
+		if own_side_bystander.pips < before_pips:
+			found_friendly_fire = true
+			var row: Dictionary = bm.unit_combat_stats.rows[shooter.get_instance_id()]
+			var amount: int = before_pips - own_side_bystander.pips
+			check(row.friendly_fire_casualties == amount, "A friendly-fire hit must be tracked on the attacker's own row, exactly matching the pips actually lost")
+			var report: String = "\n".join(bm.unit_combat_stats.report_lines())
+			check(report.contains("(%d friendly fire)" % row.friendly_fire_casualties), "The attacker's own summary line must call out its friendly fire by name")
+			check(report.contains("%d friendly fire" % row.friendly_fire_casualties) and report.contains("TOTAL INFLICTED"), "The side's TOTAL INFLICTED line must also surface the friendly-fire count")
+		clean(bm)
+		if found_friendly_fire:
+			break
+	check(found_friendly_fire, "Must find at least one friendly-fire case across 300 seeded attempts to actually exercise the reporting")
+
+	# Case 2: a battle with ZERO friendly fire must not mention it at all —
+	# no "(0 friendly fire)" noise on a unit that never committed any.
+	var bm2 = make_battle()
+	var shooter2 := spawn(bm2, Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2.ZERO)
+	shooter2.base_hit_chance = 1.0
+	var target2 := spawn(bm2, Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(20, 0))
+	bm2._resolve_fire_and_check_bunching(shooter2, target2, target2.global_position)
+	var report2: String = "\n".join(bm2.unit_combat_stats.report_lines())
+	check(not report2.contains("friendly fire"), "A report with no friendly fire anywhere must not mention it at all")
+	clean(bm2)
+
+
 func test_drone_risk() -> void:
 	var bm = make_battle()
 	var crew := spawn(bm, Unit.Team.PLAYER, Unit.Kind.DRONE_TEAM, Vector2.ZERO)
@@ -254,6 +299,7 @@ func run() -> void:
 	test_risk_changes_actions()
 	test_damage_credit()
 	test_collateral_damage()
+	test_friendly_fire_reporting()
 	test_drone_risk()
 	test_full_battles()
 	print("Per-type doctrine tests: %d failures" % failures)

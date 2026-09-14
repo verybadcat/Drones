@@ -23,7 +23,8 @@ func register(unit: Unit) -> void:
 	rows[unit.get_instance_id()] = {"unit_ref": unit, "label_fallback": unit.display_name(),
 		"team": int(unit.team), "kind": int(unit.kind),
 		"shots": 0, "counter_battery": 0, "hits": 0, "casualties": 0, "killed": 0,
-		"wounded": 0, "heavily_wounded": 0, "walking_wounded": 0, "airframes": 0, "targets": {}}
+		"wounded": 0, "heavily_wounded": 0, "walking_wounded": 0, "airframes": 0,
+		"friendly_fire_casualties": 0, "targets": {}}
 
 func shot(unit: Unit, counter_battery: bool = false) -> void:
 	rows[unit.get_instance_id()]["counter_battery" if counter_battery else "shots"] += 1
@@ -55,6 +56,14 @@ func damage(attacker: Unit, target: Unit, before: Dictionary) -> void:
 		row.heavily_wounded += heavily
 		row.walking_wounded += walking
 		row.wounded += amount - deaths
+		# Collateral damage is side-agnostic (see BattleManager.
+		# _collateral_victim's own doc comment) — a unit's "casualties
+		# inflicted" can include people it hurt on its OWN side, not just
+		# the enemy. Tracked separately so the report can call this out
+		# explicitly instead of silently folding friendly fire into a
+		# number that reads as "damage dealt to the enemy."
+		if attacker.team == target.team:
+			row.friendly_fire_casualties += amount
 	var target_id := target.get_instance_id()
 	row.targets[target_id] = int(row.targets.get(target_id, 0)) + amount
 
@@ -99,7 +108,7 @@ static func _by_roster_order(a: Dictionary, b: Dictionary) -> bool:
 
 func report_lines() -> PackedStringArray:
 	var lines := PackedStringArray(["DAMAGE BY UNIT — EXACT SIMULATION RESULTS",
-		"Casualties = people this unit killed or wounded ON THE ENEMY (what it dealt out, not what it took). These totals are separate from battlefield estimates.", ""])
+		"Casualties = people this unit killed or wounded (what it dealt out, not what it took) — usually on the enemy, but collateral damage is side-agnostic, so a rare friendly-fire casualty is included too and called out separately when it happens. These totals are separate from battlefield estimates.", ""])
 	for side in [Unit.Team.PLAYER, Unit.Team.ENEMY]:
 		lines.append("YOUR UNITS" if side == Unit.Team.PLAYER else "ENEMY UNITS")
 		var team_rows: Array = rows.values().filter(func(row): return row.team == side)
@@ -108,24 +117,37 @@ func report_lines() -> PackedStringArray:
 		var total_heavily_wounded := 0
 		var total_walking_wounded := 0
 		var total_airframes := 0
+		var total_friendly_fire := 0
 		for row in team_rows:
 			if row.kind not in [Unit.Kind.SQUAD, Unit.Kind.MORTAR]: continue
-			lines.append("%s: %d casualties inflicted / %d shots / %d CB strikes" % [_resolve_name(row), row.casualties, row.shots, row.counter_battery])
+			# Only called out when it actually happened — most units never
+			# commit friendly fire, and a "(0 friendly fire)" on every
+			# line would just be noise.
+			var friendly_fire_note: String = " (%d friendly fire)" % row.friendly_fire_casualties if row.friendly_fire_casualties > 0 else ""
+			lines.append("%s: %d casualties inflicted%s / %d shots / %d CB strikes" % [_resolve_name(row), row.casualties, friendly_fire_note, row.shots, row.counter_battery])
 			total_killed += row.killed
 			total_heavily_wounded += row.heavily_wounded
 			total_walking_wounded += row.walking_wounded
 			total_airframes += row.airframes
+			total_friendly_fire += row.friendly_fire_casualties
 		# Same "inflicted, not suffered" framing as every other number in
 		# this report — this side's total casualties inflicted equal the
-		# OTHER side's total casualties suffered, so both totals together
-		# already give the full picture for either side without a separate,
+		# OTHER side's total casualties suffered PLUS any friendly fire
+		# this side inflicted on itself (broken out via total_friendly_
+		# fire below, not folded in silently), so both sides' totals
+		# together still give the full, exact picture without a separate,
 		# fog-of-war-limited figure: this whole report is the exact,
 		# omniscient one, unlike _end_battle's own "Player/Enemy casualties"
 		# lines elsewhere in the AAR. Heavily wounded vs. walking wounded
 		# split out here the same way _end_battle's own casualty lines
 		# already do — "wounded" alone hid the difference between a
 		# casualty who's out of the fight and one who kept going.
-		lines.append("TOTAL INFLICTED: %d killed, %d heavily wounded, %d walking wounded (%d total)%s" % [total_killed, total_heavily_wounded, total_walking_wounded, total_killed + total_heavily_wounded + total_walking_wounded, ", %d drone(s) destroyed" % total_airframes if total_airframes > 0 else ""])
+		var total_suffix: String = ""
+		if total_airframes > 0:
+			total_suffix += ", %d drone(s) destroyed" % total_airframes
+		if total_friendly_fire > 0:
+			total_suffix += ", %d friendly fire" % total_friendly_fire
+		lines.append("TOTAL INFLICTED: %d killed, %d heavily wounded, %d walking wounded (%d total)%s" % [total_killed, total_heavily_wounded, total_walking_wounded, total_killed + total_heavily_wounded + total_walking_wounded, total_suffix])
 		lines.append("")
 	lines.append("DETAILS (CB = counter-battery; impacts include splash) — each row is what THAT unit dealt out; to see what a unit received, look for it under \"Against ...\" in another unit's own row below")
 	var detail_rows: Array = rows.values()
