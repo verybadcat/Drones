@@ -2945,19 +2945,59 @@ static func _exclude_dangerous(candidates: Array[Dictionary], known_enemy_positi
 ## technically on the correct side, nothing else nearby is) left the
 ## eventual weighted-random pick a real chance of the 2400m+ one anyway —
 ## direction-compliant, but no less an unreasonable walk for a routine hit.
+##
+## A real, reported failure mode this used to allow: budget was always
+## measured from `nearest_overall` — the single closest candidate in ANY
+## direction — so whenever the closest cover zone of all happened to sit
+## on the WRONG side (common; cover isn't laid out with retreat direction
+## in mind), that nearby wrong-side point could set an artificially tight
+## budget that then EXCLUDED a real, perfectly reachable correct-side
+## option for merely being farther than "wrong-side blip + 500m," while
+## RETREAT_DIRECTION_TOLERANCE's small forward allowance let that same
+## nearby wrong-side point win outright. Confirmed directly at the
+## mortar's own actual map deployment point: ordering a retreat sent it
+## walking toward the enemy first (to a cover zone ~90-115m forward) for
+## its whole initial "go to cover" leg, before ever starting the real
+## retreat dash. Now budgeted separately per pass: the strict (correct-
+## side, no tolerance) pass measures its own budget from the nearest
+## candidate that's ALREADY on the correct side, not from whatever's
+## nearest overall — a real correct-side option no longer gets starved by
+## an unrelated nearby wrong-side one. This still protects against the
+## originally-diagnosed 638m/2400m case (both correct-side, nothing
+## closer): the budget is nearest-COMPLIANT + 500m, so a compliant option
+## far past the nearest compliant one is excluded exactly as before. Only
+## when NOTHING qualifies on the correct side at all does this fall back
+## to the original nearest-overall-based lenient pass (small wrong-side
+## tolerance), so a unit with genuinely no correct-side cover anywhere
+## reasonable still gets SOME nearby answer rather than none.
 static func _prefer_retreat_direction(candidates: Array[Dictionary], from: Vector2, retreat_dir: float) -> Array[Dictionary]:
 	if retreat_dir == 0.0 or candidates.is_empty():
 		return candidates
+
+	var nearest_compliant: float = INF
+	for c in candidates:
+		if (c.zone.center.x - from.x) * retreat_dir >= 0.0:
+			nearest_compliant = min(nearest_compliant, from.distance_to(c.zone.center))
+	if nearest_compliant < INF:
+		var strict_budget: float = nearest_compliant + RETREAT_DIRECTION_MAX_EXTRA_M * PIXELS_PER_METER
+		var strict: Array[Dictionary] = []
+		for c in candidates:
+			var dist: float = from.distance_to(c.zone.center)
+			if dist <= strict_budget and (c.zone.center.x - from.x) * retreat_dir >= 0.0:
+				strict.append(c)
+		if not strict.is_empty():
+			return strict
+
 	var nearest_overall: float = INF
 	for c in candidates:
 		nearest_overall = min(nearest_overall, from.distance_to(c.zone.center))
-	var budget: float = nearest_overall + RETREAT_DIRECTION_MAX_EXTRA_M * PIXELS_PER_METER
-	var compliant: Array[Dictionary] = []
+	var lenient_budget: float = nearest_overall + RETREAT_DIRECTION_MAX_EXTRA_M * PIXELS_PER_METER
+	var lenient: Array[Dictionary] = []
 	for c in candidates:
 		var dist: float = from.distance_to(c.zone.center)
-		if dist <= budget and (c.zone.center.x - from.x) * retreat_dir >= -RETREAT_DIRECTION_TOLERANCE:
-			compliant.append(c)
-	return compliant if not compliant.is_empty() else candidates
+		if dist <= lenient_budget and (c.zone.center.x - from.x) * retreat_dir >= -RETREAT_DIRECTION_TOLERANCE:
+			lenient.append(c)
+	return lenient if not lenient.is_empty() else candidates
 
 
 ## Same "prefer, don't force an unreasonable detour for" pattern as
