@@ -41,6 +41,27 @@ const MORTAR_COVER_MULTIPLIER := {
 	GameConfig.TerrainType.BUILDING: 0.3,
 }
 
+## The real chance a mortar blast causes a casualty at `distance` from the
+## impact point — used for both collateral bystanders and a counter-
+## battery strike's own target, replacing what used to be a flat LINEAR
+## falloff to a hard, certain zero at some fixed radius. See GameConfig.
+## MORTAR_BLAST_CASUALTY_RADIUS's own doc comment for why that was wrong:
+## a real "casualty radius" is conventionally the distance at which HALF
+## of exposed personnel become casualties, not a wall beyond which harm
+## stops being possible. Modeled as exponential decay calibrated so
+## chance(MORTAR_BLAST_CASUALTY_RADIUS) is exactly half of `max_chance`
+## (the chance right at the impact point itself), continuing smoothly
+## outward rather than hitting a hard zero. `terrain` applies this same
+## file's own MORTAR_COVER_MULTIPLIER table (already real-world-grounded
+## — see its own doc comment citing FM 7-90's exposed/prone/dug-in
+## casualty figures) normalized against OPEN, so a victim standing in the
+## open gets exactly the bare exponential curve and cover reduces it
+## proportionally — a direct answer to "cover would also matter."
+static func blast_casualty_chance(distance: float, max_chance: float, terrain: GameConfig.TerrainType) -> float:
+	var decay: float = exp(-log(2.0) * distance / GameConfig.MORTAR_BLAST_CASUALTY_RADIUS)
+	var cover_factor: float = MORTAR_COVER_MULTIPLIER.get(terrain, 1.0) / MORTAR_COVER_MULTIPLIER[GameConfig.TerrainType.OPEN]
+	return clamp(max_chance * decay * cover_factor, 0.0, 1.0)
+
 # Concealment: reduces the chance of being spotted in the first place.
 const CONCEALMENT_MULTIPLIER := {
 	GameConfig.TerrainType.OPEN: 1.0,

@@ -2559,19 +2559,62 @@ const BUNCHING_SPILLOVER_CHANCE: float = 0.25
 ## is on — anybody within the round's actual burst radius has a real
 ## chance of being caught too, whether they were the intended target, an
 ## ally standing nearby, or an enemy unit that happened to be close to
-## where the round landed. Reuses MORTAR_EVASION_RADIUS as the outer edge
-## of "close enough to still be in the beaten zone" (its own doc comment
-## already frames it exactly this way) rather than a new, separate
-## distance — real cited figures for an 82mm HE round put the actual
-## lethal-fragment radius around 26m (Type 67 82mm mortar) with a much
-## smaller ~8m near-certain-casualty core, well inside that 40m outer
-## edge, so the chance is scaled by distance the same way _resolve_
-## pending_counter_battery's own impact_chance already scales a strike's
-## chance of catching a mortar crew that hasn't fully cleared its blast
-## radius — MAX_CHANCE here is calibrated to that inner, most-lethal
-## core, not the full outer edge. A judgment call within that real range,
-## not a single cited figure.
-const MORTAR_BLAST_COLLATERAL_MAX_CHANCE: float = 0.6
+## where the round landed.
+##
+## The distance at which this chance actually falls off is MORTAR_BLAST_
+## CASUALTY_RADIUS below, NOT this file's own MORTAR_EVASION_RADIUS —
+## despite both being real distances derived from the same 82mm round,
+## they answer two different questions. MORTAR_EVASION_RADIUS is about
+## whether a shot is close enough to the AIMED-AT point to still register
+## as a real near-miss on the primary target (an aiming/ballistics
+## concept). This constant is about the round's own actual fragmentation
+## reach once it lands — a real physical effect, independent of what it
+## was aimed at, that a bystander is exactly as exposed to as the intended
+## target. See MORTAR_BLAST_CASUALTY_RADIUS's own doc comment for why they
+## used to be conflated and why that mattered.
+const MORTAR_BLAST_COLLATERAL_MAX_CHANCE: float = 0.95
+
+## The real, cited distance behind CombatResolver.blast_casualty_chance's
+## exponential falloff — NOT a "safe beyond this" wall the way this
+## project's blast-radius constants (COUNTER_BATTERY_BLAST_RADIUS,
+## MORTAR_EVASION_RADIUS) are used elsewhere. "Casualty radius" is a real,
+## specific military-planning term: the distance at which a STATED
+## PERCENTAGE — conventionally 50% — of EXPOSED personnel become
+## casualties. It is explicitly NOT the outer edge of all possible harm:
+## real reporting on HE fragmentation states it plainly — "casualty
+## radius is a statistical planning figure, not a wall: fragments kill
+## well beyond the published radius, and people survive inside it." That
+## is exactly why this project's own blast-chance math used to be wrong —
+## both existing call sites (this collateral check and _resolve_pending_
+## counter_battery's own impact_chance) modeled a flat LINEAR falloff to
+## a hard, certain zero at their radius's edge, which is neither how real
+## fragmentation behaves (it decays smoothly, never truly to zero within
+## any reachable game distance) nor what "casualty radius" as a term even
+## claims to describe (a 50%-point, not a boundary of possibility).
+##
+## Cited: 82mm Type 67 mortar HE, ~26m lethal-fragment radius — this
+## project's own mortar is already modeled as this caliber elsewhere (see
+## this constant's own prior use, before this rewrite, citing the same
+## source). 81mm rounds generally are reported with a somewhat larger
+## ~35-40m effective casualty radius and 120mm rounds in the "tens of
+## meters," so 26m sits at the smaller, more conservative end of the real
+## range for a mortar this size — a deliberate, explicitly-flagged choice
+## rather than an attempt to average multiple different-caliber figures
+## into one number.
+const MORTAR_BLAST_CASUALTY_RADIUS: float = 26.0 * PIXELS_PER_METER
+
+## The outer radius _collateral_victim actually searches for a bystander
+## around a blast — used to be a reuse of MORTAR_EVASION_RADIUS (40m),
+## which (see MORTAR_BLAST_COLLATERAL_MAX_CHANCE's own doc comment) exists
+## for a different, aiming-related reason and just happened to be a
+## convenient existing number. Now sized to give CombatResolver.
+## blast_casualty_chance's own smooth exponential tail (see MORTAR_BLAST_
+## CASUALTY_RADIUS's doc comment on why it doesn't hit a hard zero) real
+## room to actually apply beyond the cited casualty radius, rather than
+## cutting it off almost immediately past it — a judgment call on how far
+## out that real but low-probability tail is still worth modeling at all,
+## not a cited figure of its own.
+const MORTAR_BLAST_COLLATERAL_SEARCH_RADIUS: float = 60.0 * PIXELS_PER_METER
 
 ## Ballistic dispersion: a mortar's calculated aim point (BattleManager.
 ## _mortar_aim_point) isn't where the round actually lands — real indirect

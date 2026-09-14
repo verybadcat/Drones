@@ -1396,11 +1396,11 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit, impact_point
 	var victim: Unit
 	var is_blast: bool = attacker.kind == Unit.Kind.MORTAR
 	if is_blast:
-		victim = _collateral_victim(impact_point, [attacker, target], GameConfig.MORTAR_EVASION_RADIUS,
-			func(d: float) -> float: return GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE * clamp(1.0 - d / GameConfig.MORTAR_EVASION_RADIUS, 0.0, 1.0))
+		victim = _collateral_victim(impact_point, [attacker, target], GameConfig.MORTAR_BLAST_COLLATERAL_SEARCH_RADIUS,
+			func(d: float, pos: Vector2) -> float: return CombatResolver.blast_casualty_chance(d, GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, GameConfig.get_terrain_type_at(pos)))
 	elif target.kind == Unit.Kind.SQUAD:
 		victim = _collateral_victim(impact_point, [attacker, target], GameConfig.BUNCHING_RADIUS,
-			func(_d: float) -> float: return GameConfig.BUNCHING_SPILLOVER_CHANCE, true)
+			func(_d: float, _pos: Vector2) -> float: return GameConfig.BUNCHING_SPILLOVER_CHANCE, true)
 	else:
 		return
 	if victim == null:
@@ -1449,7 +1449,10 @@ func _drone_directing_mortar_fire(attacker: Unit) -> bool:
 ## everything else (see DRONE_HIT_CHANCE_MULTIPLIER's own reasoning).
 ## `only_squads` narrows it further, for the small-arms/bunching case
 ## specifically — this is about troops crowded together, not any two
-## units merely somewhat close to each other.
+## units merely somewhat close to each other. `chance_at` is called with
+## both the distance AND the candidate's own position — the blast-
+## casualty case needs the latter to read real terrain cover at the
+## candidate's own location (see CombatResolver.blast_casualty_chance).
 func _collateral_victim(impact_point: Vector2, exclude: Array[Unit], radius: float, chance_at: Callable, only_squads: bool = false) -> Unit:
 	var candidates: Array[Unit] = []
 	for u in player_units + enemy_units:
@@ -1462,7 +1465,7 @@ func _collateral_victim(impact_point: Vector2, exclude: Array[Unit], radius: flo
 		candidates.append(u)
 	candidates.sort_custom(func(a, b): return impact_point.distance_to(a.global_position) < impact_point.distance_to(b.global_position))
 	for c in candidates:
-		if randf() < chance_at.call(impact_point.distance_to(c.global_position)):
+		if randf() < chance_at.call(impact_point.distance_to(c.global_position), c.global_position):
 			return c
 	return null
 
@@ -5447,7 +5450,24 @@ func _resolve_pending_counter_battery() -> void:
 		# the crew now knows they've been found and relocates accordingly
 		# next time (farther, faster — see Unit.evading_counter_battery).
 		target.evading_counter_battery = true
-		var impact_chance: float = clamp(1.0 - distance / GameConfig.COUNTER_BATTERY_BLAST_RADIUS, 0.0, 1.0)
+		# COUNTER_BATTERY_BLAST_RADIUS above is still the real hard cutoff
+		# for whether a strike can reach the target AT ALL (scope
+		# deliberately unchanged here — that constant's "beyond this, the
+		# old position is safe" meaning is now load-bearing for several
+		# other mortar-relocation mechanics; widening it is a separate,
+		# larger design question this doesn't attempt). Within it, the
+		# actual chance uses the same real, cover-aware exponential
+		# falloff as an ordinary blast's collateral chance (see
+		# CombatResolver.blast_casualty_chance's own doc comment) instead
+		# of a flat linear ramp to a hard, certain zero right at the
+		# boundary — a crew that's displaced most of the way to safety but
+		# hasn't fully cleared it faces a real, low, nonzero risk, not
+		# either "basically as exposed as if it never moved" (small
+		# distances, old linear model) or "impossible" (right at the edge,
+		# old linear model) — max_chance=1.0 since a target still THIS
+		# close to a landing round has no reason to be less vulnerable
+		# than an ordinary bystander caught in the same blast.
+		var impact_chance: float = CombatResolver.blast_casualty_chance(distance, 1.0, GameConfig.get_terrain_type_at(target.global_position))
 		if randf() < impact_chance:
 			var before := UnitCombatStats.before_hit(target)
 			target.take_hit(true, [], _known_enemy_positions(target.team))
@@ -5464,8 +5484,8 @@ func _resolve_pending_counter_battery() -> void:
 		# collateral check (see _resolve_fire_and_check_bunching's own doc
 		# comment for the shared reasoning and cited figures).
 		if strike.has("attacker") and is_instance_valid(strike.attacker):
-			var collateral_victim := _collateral_victim(strike.impact_position, [strike.attacker, target], GameConfig.MORTAR_EVASION_RADIUS,
-				func(d: float) -> float: return GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE * clamp(1.0 - d / GameConfig.MORTAR_EVASION_RADIUS, 0.0, 1.0))
+			var collateral_victim := _collateral_victim(strike.impact_position, [strike.attacker, target], GameConfig.MORTAR_BLAST_COLLATERAL_SEARCH_RADIUS,
+				func(d: float, pos: Vector2) -> float: return CombatResolver.blast_casualty_chance(d, GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, GameConfig.get_terrain_type_at(pos)))
 			if collateral_victim != null:
 				var collateral_was_active := collateral_victim.state == Unit.State.ACTIVE
 				var before_collateral := UnitCombatStats.before_hit(collateral_victim)
