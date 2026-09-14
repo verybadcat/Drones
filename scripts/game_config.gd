@@ -2404,7 +2404,25 @@ const COUNTER_BATTERY_LOCATE_TIME_MIN: float = 30.0 # tactical seconds
 const COUNTER_BATTERY_LOCATE_TIME_MAX: float = 110.0 # tactical seconds
 const COUNTER_BATTERY_LAY_TIME_MIN: float = 5.0 # tactical seconds
 const COUNTER_BATTERY_LAY_TIME_MAX: float = 15.0 # tactical seconds
-const COUNTER_BATTERY_BLAST_RADIUS: float = 150.0 * PIXELS_PER_METER # beyond this, the old position is safe
+## How far a crew needs to actually move to be clear of counter-battery
+## fire aimed at its old position — real doctrine cites 75-100m for
+## EMERGENCY displacement under pressure to keep firing (short enough that
+## the same firing data still applies with only a minor adjustment, not a
+## whole fresh fire mission), versus a much shorter 25-30m for a merely
+## PLANNED move to an alternate position with no immediate threat driving
+## it. This project's own scoot trigger (_mortar_should_relocate_for_
+## safety) is always the former case — the position has already been
+## detected AND a real known threat is in range — so the lower end of the
+## cited emergency range is the right anchor, not an arbitrary number
+## between the two doctrine figures. Previously 150m with no real
+## citation behind it; real doctrine explicitly frames longer moves as a
+## responsiveness cost, not a free safety upgrade ("frequent displacement
+## enhances survivability... but can degrade the ability of mortars to
+## provide immediate massed fires") — a real, reported symptom this
+## grounds: scoots covering hundreds to thousands of meters, several
+## times too far even for the doctrine's own worst-case emergency figure,
+## and long enough to put other units sited along the way at real risk.
+const COUNTER_BATTERY_BLAST_RADIUS: float = 75.0 * PIXELS_PER_METER # beyond this, the old position is safe
 
 # A squad hit by mortar fire may bolt for nearby cover regardless of overall
 # casualties — mortar fire is disruptive even when it doesn't kill outright.
@@ -3134,12 +3152,27 @@ static func retreat_cover_point_toward(from: Vector2, reference_point: Vector2, 
 
 # How far out (and in how many steps) to search for a concealed spot — see
 # nearest_hidden_point. Three expanding rings, nearest checked first, so a
-# mortar prefers a short hop to cover over a long trek if both work. The
-# URGENT set (a crew that's actually taken counter-battery fire recently —
-# see Unit.evading_counter_battery) searches noticeably farther out: real
-# distance from a position that's been found, not just the usual shuffle.
-const CONCEALMENT_SEARCH_RINGS_M: Array[float] = [250.0, 450.0, 650.0]
-const CONCEALMENT_SEARCH_RINGS_URGENT_M: Array[float] = [450.0, 700.0, 1000.0]
+# mortar prefers a short hop to cover over a long trek if both work.
+#
+# Grounded on the same real displacement doctrine as COUNTER_BATTERY_
+# BLAST_RADIUS's own doc comment (75-100m emergency, 25-30m planned) —
+# every scoot this project models is the emergency case (a real known
+# threat, already detected), so both sets stay within that cited band
+# rather than the two being split across radically different distances
+# the way an early version of this project had them (250-1000m,
+# discovered to be 3-10x too far once real figures were actually
+# researched — see the design doc's own entry). The routine set's
+# smallest ring sits exactly at COUNTER_BATTERY_BLAST_RADIUS, preserving
+# nearest_hidden_point's own "clears the blast radius by construction"
+# guarantee for BOTH sets, not just the urgent one. The URGENT set (a
+# crew that's actually taken counter-battery fire recently, been spotted,
+# or has a threat closing — see Unit.evading_counter_battery and
+# _decide_mortar_action's own tier-1 urgent branches) still searches
+# somewhat farther and moves at MORTAR_RELOCATE_SPEED_URGENT — real
+# additional danger buys real additional distance and speed, just not the
+# order-of-magnitude gap the old numbers had.
+const CONCEALMENT_SEARCH_RINGS_M: Array[float] = [75.0, 100.0, 130.0]
+const CONCEALMENT_SEARCH_RINGS_URGENT_M: Array[float] = [100.0, 130.0, 160.0]
 const CONCEALMENT_SEARCH_SAMPLES: int = 16
 
 # How far (at most) it's worth walking to reach an actual hill's reverse
@@ -3186,6 +3219,23 @@ const REVERSE_SLOPE_MAX_TRAVEL_M: float = 1500.0
 ## own commit history / the design doc's own entry for the before/after
 ## comparison).
 const MORTAR_RECENT_POSITION_MEMORY_COUNT: int = 5
+
+## How close counts as "the same spot" for MORTAR_RECENT_POSITION_MEMORY_
+## COUNT's own exclusion — used to reuse COUNTER_BATTERY_BLAST_RADIUS
+## directly, back when both concepts operated at the same 150m scale. No
+## longer sound once CONCEALMENT_SEARCH_RINGS_* were retuned to their own
+## real-world-grounded short-hop distances (75-160m, per real mortar
+## displacement doctrine) — reusing COUNTER_BATTERY_BLAST_RADIUS (also
+## retuned, to 75m) meant a single remembered position's own exclusion
+## disk was comparable in size to the ENTIRE reachable search area, and a
+## small handful of them could blanket nearly all of it, confirmed
+## directly: a real full-battle diagnostic found the mortar coming up
+## with NO relocation at all for over a quarter of every tick it was
+## actively compromised. A small fraction of the smallest routine ring
+## keeps this doing its real job (don't immediately re-pick the exact
+## spot just vacated) without also starving the search of room to work
+## in at this much smaller scale.
+const MORTAR_RECENT_POSITION_EXCLUSION_RADIUS: float = 20.0 * PIXELS_PER_METER
 
 ## A nearby point with NO direct line of sight from ANY of `threat_positions`
 ## — true concealment (like the reverse slope of a hill, or behind a
@@ -3276,10 +3326,45 @@ static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2]
 
 ## The ring-search half of nearest_hidden_point, split out so it can be
 ## compared against the reverse-slope candidate above instead of only ever
-## running when the hill search finds nothing at all. Returns `from` if
-## nothing in any ring is hidden from every threat.
+## running when the hill search finds nothing at all.
+##
+## A real, explicit correction to how this used to work: MOVEMENT is the
+## actual requirement here, not concealment. Especially when the enemy
+## can't currently see this unit at all (the ordinary shoot-and-scoot
+## case — the whole trigger is "the enemy knows my last position," not
+## "I've been spotted"), the crew doesn't need to end up somewhere hidden
+## to be safer than where it started; it needs to have genuinely MOVED.
+## Real LOS-blocking concealment (a wall, a fold in the ground, a
+## treeline) is a real, meaningful factor IN FAVOR of one candidate over
+## another, not a pass/fail gate — and a previously-reported, empirically
+## confirmed consequence of treating it as a hard gate: real concealment
+## simply doesn't always exist within CONCEALMENT_SEARCH_RINGS_*'s own
+## short-hop reach (75-160m, per real mortar displacement doctrine), and
+## a full battle log found the mortar with NO relocation at all, fully
+## exposed, for a third of every tick it was actively compromised.
+##
+## So every candidate that clears the real HARD constraints below (stays
+## on the map, doesn't walk through a building, respects the home leash/
+## progress floor, isn't a position just vacated) is a genuinely valid
+## answer, SCORED rather than filtered by three real, softer preferences:
+## real concealment, real standoff from known threats (MORTAR_CREW_
+## OVERRUN_DANGER_RANGE), and facing away from the threat picture rather
+## than toward it. The final choice is a weighted-random pick among the
+## best-scoring candidates, not a deterministic "the one true best spot"
+## — a crew that reliably ran to the single most-hidden location every
+## time would itself be a predictable pattern, exactly the thing shoot-
+## and-scoot doctrine exists to avoid.
 static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0) -> Vector2:
 	var rings: Array[float] = CONCEALMENT_SEARCH_RINGS_URGENT_M if urgent else CONCEALMENT_SEARCH_RINGS_M
+
+	var avg_threat := Vector2.ZERO
+	for t in threat_positions:
+		avg_threat += t
+	avg_threat /= max(threat_positions.size(), 1)
+	var away_from_threat: Vector2 = from - avg_threat
+	var away_theta: float = away_from_threat.angle() if away_from_threat.length() > 1.0 else 0.0
+
+	var candidates: Array[Dictionary] = []
 	for radius_m in rings:
 		var radius_px: float = radius_m * PIXELS_PER_METER
 		for i in CONCEALMENT_SEARCH_SAMPLES:
@@ -3293,42 +3378,93 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 			# limit_left is exactly -WEST_FLANK_WIDTH_PX) — invisible, not
 			# just far away. See clamp_to_operating_area's own doc comment.
 			var candidate: Vector2 = clamp_to_operating_area(from + Vector2(cos(theta), sin(theta)) * radius_px)
+			# Hard constraints — genuinely required, not preferences: can't
+			# walk through a building, can't abandon supporting distance
+			# of the position this crew exists to help defend (home_leash
+			# — a real tactical limit, not just a preference).
 			if avoid_buildings and (is_building_at(candidate) or path_crosses_building(from, candidate)):
 				continue
 			if home_position.distance_to(candidate) > home_leash:
 				continue
-			if home_position.distance_to(candidate) < min_distance_from_home:
-				continue
-			# See MORTAR_RECENT_POSITION_MEMORY_COUNT's own doc comment —
-			# a candidate too close to a position this same unit recently
-			# occupied defeats the point of relocating at all, even though
-			# it's perfectly hidden from the CURRENT known threats.
+
+			# Soft preferences from here — a real weight in favor, never
+			# an absolute requirement, EXCEPT min_distance_from_home
+			# (tracked but not filtered out here — see the two-stage
+			# selection below). A crucial real gap this closes: at
+			# CONCEALMENT_SEARCH_RINGS_*'s short-hop scale, a long-running
+			# danger episode can ratchet min_distance_from_home (see its
+			# own doc comment — a high-water mark, not a ceiling) up
+			# until it leaves almost no room between the floor and
+			# home_leash for a fresh ring to land in at all — confirmed
+			# via a disposable diagnostic (instrumented rejection counts
+			# by cause) to be, by a wide margin, the dominant reason the
+			# ring search itself ever came up with literally zero
+			# candidates (1225 such ticks across a 20-trial run; zero
+			# after switching it from a hard gate to the two-stage
+			# preferred-but-not-absolute treatment below). Undoing real
+			# progress is a real, meaningful cost — worth excluding
+			# whenever a real alternative exists at all, matching this
+			# project's own prior, deliberately-tested guarantee (see
+			# test_relocation_never_undoes_progress_from_a_different_
+			# threat) — but "didn't gain distance from home" must never
+			# outrank "didn't move at all" the way an unconditional hard
+			# gate did, per the user's own explicit standard for this
+			# whole function ("it does need to be moving"). A recently-
+			# vacated position is a real but genuinely softer cost (about
+			# unpredictability, not safety) — a straight score penalty is
+			# enough there.
+			var score := 1.0
+			var floor_ok: bool = home_position.distance_to(candidate) >= min_distance_from_home
 			var too_close_to_recent := false
 			for p in avoid_positions:
-				if candidate.distance_to(p) < COUNTER_BATTERY_BLAST_RADIUS:
+				if candidate.distance_to(p) < MORTAR_RECENT_POSITION_EXCLUSION_RADIUS:
 					too_close_to_recent = true
 					break
 			if too_close_to_recent:
-				continue
+				score *= 0.3
 			var hidden := true
+			var min_threat_dist := INF
 			for threat in threat_positions:
-				# Being out of direct LOS alone isn't real safety on its
-				# own — a candidate can be LOS-blocked by a single wall or
-				# fold in the ground while still standing right around the
-				# corner from a known enemy: one step by either side, or a
-				# threat this search simply doesn't know about yet, and
-				# it's exposed again with no warning. MORTAR_CREW_OVERRUN_
-				# DANGER_RANGE is reused here as a general "too close to
-				# read as a real hiding spot" standoff, not a mortar-only
-				# concept — the same "close enough that a small shift ruins
-				# it" reasoning applies to any ground unit relocating for
-				# safety (see this function's three call sites).
-				if has_direct_los(candidate, threat) or candidate.distance_to(threat) < MORTAR_CREW_OVERRUN_DANGER_RANGE:
+				if has_direct_los(candidate, threat):
 					hidden = false
-					break
+				min_threat_dist = min(min_threat_dist, candidate.distance_to(threat))
 			if hidden:
-				return candidate
-	return from
+				score *= 3.0 # real LOS-blocking concealment — a strong preference, not a requirement
+			if min_threat_dist < MORTAR_CREW_OVERRUN_DANGER_RANGE:
+				score *= 0.5 # still a valid move, just a weaker one this close to a known threat
+			# Facing away from the threat picture is worth up to 1.5x;
+			# facing directly toward it is worth as little as 0.5x — a
+			# real, strong bias, not an absolute exclusion (see this
+			# function's own doc comment on why toward-threat still has
+			# to remain possible when it's genuinely the best answer).
+			var angle_diff: float = absf(wrapf(theta - away_theta, -PI, PI))
+			score *= 1.0 + 0.5 * cos(angle_diff)
+			candidates.append({"point": candidate, "score": score, "floor_ok": floor_ok})
+
+	if candidates.is_empty():
+		return from
+
+	# Prefer floor-respecting candidates exclusively whenever at least one
+	# exists — only fall back to a floor-violating candidate when every
+	# single candidate this pass found violates it, i.e. genuinely no
+	# other option. See this loop's own doc comment above.
+	var floor_respecting: Array[Dictionary] = candidates.filter(func(c): return c.floor_ok)
+	if not floor_respecting.is_empty():
+		candidates = floor_respecting
+
+	candidates.sort_custom(func(a, b): return a.score > b.score)
+	var pool_size: int = min(5, candidates.size())
+	var pool := candidates.slice(0, pool_size)
+	var total_weight := 0.0
+	for c in pool:
+		total_weight += c.score
+	var roll: float = randf() * total_weight
+	var cumulative := 0.0
+	for c in pool:
+		cumulative += c.score
+		if roll <= cumulative:
+			return c.point
+	return pool[pool.size() - 1].point
 
 
 ## The reverse slope of whichever nearby HILL (within REVERSE_SLOPE_MAX_TRAVEL_M)
@@ -3383,7 +3519,7 @@ static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vect
 		# this way still correctly falls through to the ring search below.
 		var too_close_to_recent := false
 		for p in avoid_positions:
-			if candidate.distance_to(p) < COUNTER_BATTERY_BLAST_RADIUS:
+			if candidate.distance_to(p) < MORTAR_RECENT_POSITION_EXCLUSION_RADIUS:
 				too_close_to_recent = true
 				break
 		if too_close_to_recent:

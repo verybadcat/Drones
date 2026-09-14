@@ -265,6 +265,19 @@ func test_mortar_avoids_recently_used_scoot_positions() -> void:
 ## See BattleManager._mortar_max_distance_from_home's own doc comment for
 ## the fix (a floor, not a ceiling, on distance from home — reset once the
 ## mortar is no longer compromised by anything, not a permanent ratchet).
+## Tested via the full _mortar_relocation_plan pipeline (hill-or-ring,
+## whichever nearest_hidden_point picks) rather than isolating to the ring
+## search alone — the reverse-slope hill candidate isn't subject to
+## CONCEALMENT_SEARCH_RINGS_*'s own real-world-grounded short-hop scale
+## (it has its own, much larger REVERSE_SLOPE_MAX_TRAVEL_M reach) and
+## isn't affected by the ring search's own away-from-threat scoring bias
+## either, so geometry that puts a real hill within reach is a more robust way to
+## exercise min_distance_from_home than trying to force the ring search
+## alone to find something in a flat, feature-less synthetic area (an
+## earlier version of this test tried exactly that and failed for reasons
+## unrelated to the floor: no genuine LOS-blocking terrain existed
+## anywhere nearby in the synthetic geometry used, which the ring search
+## correctly refuses to fabricate).
 func test_relocation_never_undoes_progress_from_a_different_threat() -> void:
 	var bm = make_battle()
 	var home: Vector2 = GameConfig.CURRENT_MAP.player.mortar_default_position # known-valid, open ground
