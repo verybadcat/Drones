@@ -1821,12 +1821,34 @@ const MORTAR_RESUPPLY_ROUNDS: int = 20
 ## (an ammunition supply point, not piled at an exposed forward position)
 ## rather than pushed all the way forward "just in case." A modest 1.5x the
 ## starting load reflects a slightly-larger-than-initial ready pit, not a
-## second full load sitting exposed next to the gun. See
-## _update_mortar_resupply's arrival handling for how a wave actually gets
-## held back (never dispatched at all) once the position is already at
-## this ceiling, rather than a run walking all the way up only to be
-## capped/wasted on arrival.
+## second full load sitting exposed next to the gun. Still the real hard
+## ceiling a delivered run's rounds are capped against (see
+## _resolve_resupply_run_arrivals) — MORTAR_RESUPPLY_REORDER_POINT is the
+## separate, lower threshold that decides whether a run gets dispatched
+## at all in the first place.
 const MORTAR_MAX_AMMO_ON_HAND: int = 30
+
+## The real dispatch trigger for a physical resupply run — not "is the
+## position already completely full" (MORTAR_MAX_AMMO_ON_HAND), a
+## previously-reported gap: a wave scheduled well before combat actually
+## draws ammo down could arrive to find the tube barely touched (e.g.
+## 29/30) and still send a full cross-map run to deliver a single round.
+## Requesting stays proactive (see _update_mortar_resupply_requests — the
+## long, ~hour-plus transit time means the request itself can't wait for a
+## real shortage), but real logistics doctrine doesn't dispatch a
+## vulnerable forward-moving vehicle just because a position isn't
+## literally topped off either: FM 7-90's own resupply methods (routine/
+## emergency/prestock) stage ammunition based on anticipated need and
+## consumption, and its "pull"/in-position technique explicitly avoids
+## pushing a real vehicle forward for a marginal delivery, preferring to
+## hold at a rear point until the trip is actually worth the exposure. A
+## wave held back this way isn't lost — see _update_mortar_resupply's own
+## per-wave hold check — it simply never becomes a physical, spottable,
+## targetable RESUPPLY_RUN unit at all for that check. Half of a full
+## MORTAR_STARTING_AMMO load: low enough that a genuinely under-supplied
+## position still gets topped off promptly, high enough that a real
+## reserve remains on hand when the run is actually committed.
+const MORTAR_RESUPPLY_REORDER_POINT: int = 10
 
 # A resupply run's delay from the moment it's requested — genuinely random,
 # not a fixed countdown, modeled as log-normal (right-skewed: it can run

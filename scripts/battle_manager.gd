@@ -1557,17 +1557,19 @@ func _update_mortar_resupply() -> void:
 				resolved[i] = true
 				if m.state != Unit.State.ACTIVE:
 					pass # the position is gone — nothing to send a run toward
-				elif m.mortar_rounds_remaining >= GameConfig.MORTAR_MAX_AMMO_ON_HAND:
-					# The position is already about as stocked as a forward
-					# firing point realistically keeps — the run simply never
-					# leaves the rear (an ammunition supply point, not an
-					# exposed load sitting next to the gun) rather than
-					# walking all the way up only to be capped or wasted on
-					# arrival. Requests were never gated on ammo level in the
-					# first place (see _update_mortar_resupply_requests'
-					# own doc comment) specifically so this can be checked
-					# late, right before actually committing a physical run
-					# to the trip, without ever having blocked the supply
+				elif m.mortar_rounds_remaining > GameConfig.MORTAR_RESUPPLY_REORDER_POINT:
+					# Not "is the position already completely full" — see
+					# GameConfig.MORTAR_RESUPPLY_REORDER_POINT's own doc
+					# comment for the real logistics reasoning. The run
+					# simply never leaves the rear (an ammunition supply
+					# point, not an exposed load sitting next to the gun)
+					# rather than walking all the way up only to be capped
+					# or wasted delivering a handful of rounds on arrival.
+					# Requests were never gated on ammo level in the first
+					# place (see _update_mortar_resupply_requests' own doc
+					# comment) specifically so this can be checked late,
+					# right before actually committing a physical run to
+					# the trip, without ever having blocked the supply
 					# chain from starting to move.
 					if _should_narrate_mortar_logistics(m):
 						combat_log.log_mortar_resupply_held(m)

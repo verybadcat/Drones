@@ -183,10 +183,10 @@ func log_mortar_resupply_failed(unit: Unit) -> void:
 	add_entry("%s: resupply run failed to get through — request again when ready" % unit.display_name())
 
 
-## The position is already stocked up to GameConfig.MORTAR_MAX_AMMO_ON_
-## HAND — the wave simply never leaves the rear (no run ever appears on
-## the map for this one) rather than delivering ammunition nobody has
-## anywhere realistic to put.
+## The position still has more than GameConfig.MORTAR_RESUPPLY_REORDER_
+## POINT on hand — the wave simply never leaves the rear (no run ever
+## appears on the map for this one) rather than risking a real, spottable
+## delivery run for a marginal top-up nobody urgently needs yet.
 func log_mortar_resupply_held(unit: Unit) -> void:
 	add_entry("%s: resupply held in the rear — position already well-stocked (%s on hand)" % [unit.display_name(), GameConfig.round_count_text(unit.mortar_rounds_remaining)])
 
