@@ -207,9 +207,51 @@ func test_mortar_with_persistent_target_still_relocates_and_keeps_fighting() -> 
 	bm.free()
 
 
+## "Shoot and scoot" isn't just clearing COUNTER_BATTERY_BLAST_RADIUS from
+## wherever the crew just fired — a real reported symptom: the mortar
+## visibly pacing back and forth between the same 2-3 hiding spots over
+## an entire engagement, confirmed directly by logging real scoot
+## destinations across several full battles (each individual move DID
+## clear the blast radius from its own immediate prior position, but nearest_
+## hidden_point/​_reverse_slope_candidate have no memory of where the crew
+## has already been, and a hill's reverse-slope candidate in particular is
+## anchored to fixed hill/threat-bearing geometry — the SAME point every
+## time for an unchanged threat picture). See GameConfig.MORTAR_RECENT_
+## POSITION_MEMORY_COUNT's own doc comment for the fix and its real,
+## measured before/after improvement.
+func test_mortar_avoids_recently_used_scoot_positions() -> void:
+	var bm = make_battle()
+	var start: Vector2 = GameConfig.CURRENT_MAP.player.mortar_default_position
+	bm._friendly_mortar_home_position = start
+	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, start)
+	bm.player_units.append(mortar)
+	var enemy: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, start + Vector2(300, 0))
+	bm.enemy_units.append(enemy)
+	enemy.player_has_been_sighted = true
+	enemy.player_known_position = enemy.global_position
+
+	var destinations: Array[Vector2] = []
+	for i in 6:
+		var plan: Dictionary = bm._mortar_relocation_plan(mortar, false)
+		check(not plan.is_empty(), "A relocation plan must be found with room to maneuver on an open map")
+		if plan.is_empty():
+			break
+		destinations.append(plan.destination)
+		mortar.global_position = plan.destination # simulate having actually arrived before the next relocation
+
+	for i in destinations.size():
+		for j in i:
+			if i - j <= GameConfig.MORTAR_RECENT_POSITION_MEMORY_COUNT:
+				check(destinations[i].distance_to(destinations[j]) >= GameConfig.COUNTER_BATTERY_BLAST_RADIUS,
+					"Destination #%d must not land within COUNTER_BATTERY_BLAST_RADIUS of destination #%d, still inside the remembered-position window — a mortar shouldn't pace back and forth between the same spots" % [i, j])
+	bm.combat_log.free()
+	bm.free()
+
+
 func run() -> void:
 	test_compromised_idle_mortar_still_evades_a_known_threat()
 	test_uncompromised_mortar_does_not_needlessly_evade()
 	test_mortar_with_persistent_target_still_relocates_and_keeps_fighting()
+	test_mortar_avoids_recently_used_scoot_positions()
 	print("Mortar evasion-balance tests: %d failures" % failures)
 	quit(1 if failures else 0)

@@ -3087,6 +3087,44 @@ const CONCEALMENT_SEARCH_SAMPLES: int = 16
 # worth a real walk.
 const REVERSE_SLOPE_MAX_TRAVEL_M: float = 1500.0
 
+## Real crews deliberately vary firing positions specifically to avoid
+## being predictable — reoccupying the same handful of "good" hiding
+## spots defeats the whole point of shooting and scooting, even if each
+## individual move technically clears COUNTER_BATTERY_BLAST_RADIUS from
+## wherever it just came from (a real, reported symptom: the mortar
+## visibly pacing back and forth between the same 2-3 spots over an
+## entire engagement, confirmed directly by logging real scoot
+## destinations across several full battles). Reuses COUNTER_BATTERY_
+## BLAST_RADIUS itself as the exclusion distance around each remembered
+## position — the same real justification already established for why a
+## position that close still counts as "not actually clear" applies just
+## as well to a position the crew itself recently vacated, not just the
+## one it's currently standing on. A short, ROLLING memory (oldest
+## remembered position forgotten once a new one is added), not permanent
+## avoidance: real predictability risk fades enough over an engagement
+## that a genuinely excellent position is still worth reoccupying once
+## it's no longer one of the last few used, and a fixed cap also avoids
+## the relocation search eventually running out of valid candidates
+## entirely on a map with only a few good hiding spots relative to a
+## fixed threat layout — the exact case the diagnostic run to confirm
+## this actually found.
+##
+## The remembered history is shared across every relocation reason
+## (scoot, evade, conceal, ...), not scoot-specific — a mortar reacting
+## to an immediate threat (evade/conceal) still shouldn't walk back onto
+## its own recently-used ground either. That sharing means a single
+## intervening evade/conceal move consumes one of the remembered slots,
+## which measurably shortened the effective scoot-to-scoot memory in
+## practice (confirmed directly: an evade between two scoots pushed a
+## still-relevant scoot position out of the window two steps early,
+## letting a later scoot land back within 33m of it). 5, not 3, gives
+## real headroom against that without the added complexity of tracking
+## per-intent histories separately — a judgment call, not independently
+## cited, re-verified empirically after raising it (see this constant's
+## own commit history / the design doc's own entry for the before/after
+## comparison).
+const MORTAR_RECENT_POSITION_MEMORY_COUNT: int = 5
+
 ## A nearby point with NO direct line of sight from ANY of `threat_positions`
 ## — true concealment (like the reverse slope of a hill, or behind a
 ## building), not just the reduced spot-chance TREES/BUILDING give as
@@ -3132,12 +3170,12 @@ static func clamp_to_operating_area(point: Vector2) -> Vector2:
 ## much closer cover.
 const CONCEALMENT_HILL_MAX_EXTRA_M: float = 300.0
 
-static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false) -> Vector2:
+static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false, avoid_positions: Array[Vector2] = []) -> Vector2:
 	if threat_positions.is_empty():
 		return from
 
-	var hill_spot := _reverse_slope_candidate(from, threat_positions, avoid_buildings)
-	var ring_spot := _ring_search_hidden_point(from, threat_positions, avoid_buildings, urgent)
+	var hill_spot := _reverse_slope_candidate(from, threat_positions, avoid_buildings, avoid_positions)
+	var ring_spot := _ring_search_hidden_point(from, threat_positions, avoid_buildings, urgent, avoid_positions)
 
 	if hill_spot == from:
 		return ring_spot
@@ -3152,7 +3190,7 @@ static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2]
 ## compared against the reverse-slope candidate above instead of only ever
 ## running when the hill search finds nothing at all. Returns `from` if
 ## nothing in any ring is hidden from every threat.
-static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool) -> Vector2:
+static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool, avoid_positions: Array[Vector2] = []) -> Vector2:
 	var rings: Array[float] = CONCEALMENT_SEARCH_RINGS_URGENT_M if urgent else CONCEALMENT_SEARCH_RINGS_M
 	for radius_m in rings:
 		var radius_px: float = radius_m * PIXELS_PER_METER
@@ -3168,6 +3206,17 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 			# just far away. See clamp_to_operating_area's own doc comment.
 			var candidate: Vector2 = clamp_to_operating_area(from + Vector2(cos(theta), sin(theta)) * radius_px)
 			if avoid_buildings and (is_building_at(candidate) or path_crosses_building(from, candidate)):
+				continue
+			# See MORTAR_RECENT_POSITION_MEMORY_COUNT's own doc comment —
+			# a candidate too close to a position this same unit recently
+			# occupied defeats the point of relocating at all, even though
+			# it's perfectly hidden from the CURRENT known threats.
+			var too_close_to_recent := false
+			for p in avoid_positions:
+				if candidate.distance_to(p) < COUNTER_BATTERY_BLAST_RADIUS:
+					too_close_to_recent = true
+					break
+			if too_close_to_recent:
 				continue
 			var hidden := true
 			for threat in threat_positions:
@@ -3208,7 +3257,7 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 ## which is guaranteed to clear it by construction (its nearest ring is
 ## already farther out than the blast radius).
 ## Returns `from` (no better option this way) if no hill qualifies.
-static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool) -> Vector2:
+static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, avoid_positions: Array[Vector2] = []) -> Vector2:
 	var avg_threat := Vector2.ZERO
 	for t in threat_positions:
 		avg_threat += t
@@ -3230,6 +3279,19 @@ static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vect
 			continue
 		if d < COUNTER_BATTERY_BLAST_RADIUS:
 			continue # too close to be a real scoot -- let the ring search find something further out
+		# This candidate is anchored to the hill/threat-bearing geometry
+		# alone, not to `from` — for an unchanged threat picture it's the
+		# SAME point every time, which is exactly what let a mortar
+		# oscillate right back onto its own last couple of positions (see
+		# MORTAR_RECENT_POSITION_MEMORY_COUNT). A hill candidate rejected
+		# this way still correctly falls through to the ring search below.
+		var too_close_to_recent := false
+		for p in avoid_positions:
+			if candidate.distance_to(p) < COUNTER_BATTERY_BLAST_RADIUS:
+				too_close_to_recent = true
+				break
+		if too_close_to_recent:
+			continue
 		if avoid_buildings and (is_building_at(candidate) or path_crosses_building(from, candidate)):
 			continue
 		var hidden := true

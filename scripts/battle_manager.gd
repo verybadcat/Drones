@@ -411,6 +411,17 @@ var _last_detected_mortar_fire: Dictionary = {}
 # different one. See _mortar_dispersion_offset, the sole reader/writer.
 var _mortar_fire_adjustment: Dictionary = {}
 
+# Unit (a mortar) -> Array[Vector2], a short rolling history of this
+# mortar's own last few relocation destinations (both sides) — see
+# GameConfig.MORTAR_RECENT_POSITION_MEMORY_COUNT's own doc comment and
+# _remember_mortar_position, the sole writer. Read by _mortar_relocation_
+# plan and fed into GameConfig.nearest_hidden_point as extra positions to
+# avoid, so shoot-and-scoot can't just cycle between the same 2-3 "best"
+# hiding spots relative to a static threat picture — confirmed as a real,
+# reported symptom by logging actual scoot destinations across several
+# full battles before this existed.
+var _mortar_recent_positions: Dictionary = {}
+
 # Unit (a mortar) -> Unit (the target it can fire on right now, or literally
 # absent from this dict if not yet resolved this tick) — memoizes _pick_
 # target's own result for a mortar across the several things that ask "does
@@ -5526,8 +5537,10 @@ func _relocate_mortar(mortar: Unit, intent: String, force_urgent: bool = false) 
 ## the enemy's own mortar(s) at all to check against.
 func _mortar_relocation_plan(mortar: Unit, urgent: bool) -> Dictionary:
 	var threats := _known_enemy_positions(mortar.team)
+	var recent: Array[Vector2] = []
+	recent.assign(_mortar_recent_positions.get(mortar, []))
 	var destination: Vector2 = (
-		GameConfig.nearest_hidden_point(mortar.global_position, threats, true, urgent)
+		GameConfig.nearest_hidden_point(mortar.global_position, threats, true, urgent, recent)
 		if not threats.is_empty()
 		else GameConfig.nearest_cover_point(mortar.global_position, 0.0, true)
 	)
@@ -5538,7 +5551,25 @@ func _mortar_relocation_plan(mortar: Unit, urgent: bool) -> Dictionary:
 	var speed: float = GameConfig.MORTAR_RELOCATE_SPEED_URGENT if urgent else GameConfig.MORTAR_RELOCATE_SPEED
 	if GameConfig.get_terrain_type_at(destination) == GameConfig.TerrainType.TREES:
 		speed *= GameConfig.MORTAR_RELOCATE_TREES_MULTIPLIER
+	_remember_mortar_position(mortar, destination)
 	return {"destination": destination, "speed": speed}
+
+
+## See GameConfig.MORTAR_RECENT_POSITION_MEMORY_COUNT's own doc comment —
+## a short, rolling memory of this mortar's own last few relocation
+## destinations, fed back into nearest_hidden_point so it doesn't keep
+## finding its way back onto a position the crew only just vacated. Oldest
+## entry drops off once a new one pushes the list past the cap; recorded
+## here (the single place a relocation plan is actually accepted) rather
+## than at the call site so a rejected plan (home-range cap, no threats)
+## never pollutes the history with a destination that was never really used.
+func _remember_mortar_position(mortar: Unit, destination: Vector2) -> void:
+	var history: Array[Vector2] = []
+	history.assign(_mortar_recent_positions.get(mortar, []))
+	history.append(destination)
+	while history.size() > GameConfig.MORTAR_RECENT_POSITION_MEMORY_COUNT:
+		history.pop_front()
+	_mortar_recent_positions[mortar] = history
 
 
 ## A shoot-and-scoot crew doesn't vanish from its firing position the
