@@ -248,10 +248,69 @@ func test_mortar_avoids_recently_used_scoot_positions() -> void:
 	bm.free()
 
 
+## User-reported, and confirmed directly via real logging across full
+## battles: even with recent-position avoidance in place, the mortar's
+## overall trajectory could still wander back and forth rather than making
+## consistent progress away from wherever it was first compromised — a
+## quarter of all real scoots moved the mortar measurably CLOSER to its
+## own launch point than the previous one (average path efficiency, net
+## displacement / total distance traveled, just 0.36). Root cause,
+## confirmed by tracing every real search call, not theorized: evade/
+## conceal/scoot share no memory of each other — each is purely reactive
+## to wherever the mortar currently is, so an evade reacting to some
+## OTHER, unrelated threat has no idea a scoot already put real distance
+## between the crew and the position that compromised it, and its own
+## search (which has no notion of which direction is actually away from
+## where the danger started) can walk it right back toward that danger.
+## See BattleManager._mortar_max_distance_from_home's own doc comment for
+## the fix (a floor, not a ceiling, on distance from home — reset once the
+## mortar is no longer compromised by anything, not a permanent ratchet).
+func test_relocation_never_undoes_progress_from_a_different_threat() -> void:
+	var bm = make_battle()
+	var home: Vector2 = GameConfig.CURRENT_MAP.player.mortar_default_position # known-valid, open ground
+	bm._friendly_mortar_home_position = home
+	# The mortar is already partway through an escape — 320px (1600m) out.
+	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, home + Vector2(320, 0))
+	bm.player_units.append(mortar)
+
+	# A threat positioned FURTHER from home than the mortar, on the same
+	# side — "away from this threat" naturally means heading back TOWARD
+	# home, exactly the geometry that used to let an evade undo a scoot's
+	# own progress.
+	var threat := bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, home + Vector2(700, 0))
+	bm.enemy_units.append(threat)
+	threat.player_has_been_sighted = true
+	threat.player_known_position = threat.global_position
+
+	# Set directly rather than built up through prior scoots — deterministic,
+	# and isolates exactly what's under test: does THIS call respect an
+	# already-established floor, not "does a multi-step scenario happen to
+	# end up far from home anyway." Below the mortar's own current 320px
+	# distance (so the floor is a real, active constraint, not already
+	# satisfied trivially) and comfortably inside MORTAR_HUNT_MAX_RANGE_
+	# FROM_HOME (500px/2500m).
+	const ARTIFICIAL_FLOOR := 300.0
+	bm._mortar_max_distance_from_home[mortar] = ARTIFICIAL_FLOOR
+
+	var found_qualifying := false
+	seed(90210)
+	for i in 15:
+		var plan: Dictionary = bm._mortar_relocation_plan(mortar, true) # urgent, matching a real evade
+		if plan.is_empty():
+			continue
+		found_qualifying = true
+		check(home.distance_to(plan.destination) >= ARTIFICIAL_FLOOR - 1.0,
+			"A relocation reacting to a threat that naturally pulls the mortar back toward home must still respect an already-established progress floor (floor=%.0fpx, got %.0fpx)" % [ARTIFICIAL_FLOOR, home.distance_to(plan.destination)])
+	check(found_qualifying, "At least one draw across 15 attempts should find a real, floor-respecting candidate on open ground")
+	bm.combat_log.free()
+	bm.free()
+
+
 func run() -> void:
 	test_compromised_idle_mortar_still_evades_a_known_threat()
 	test_uncompromised_mortar_does_not_needlessly_evade()
 	test_mortar_with_persistent_target_still_relocates_and_keeps_fighting()
 	test_mortar_avoids_recently_used_scoot_positions()
+	test_relocation_never_undoes_progress_from_a_different_threat()
 	print("Mortar evasion-balance tests: %d failures" % failures)
 	quit(1 if failures else 0)

@@ -422,6 +422,30 @@ var _mortar_fire_adjustment: Dictionary = {}
 # full battles before this existed.
 var _mortar_recent_positions: Dictionary = {}
 
+# Unit (a mortar) -> float, the farthest distance from _friendly_mortar_
+# home_position any relocation has actually put this mortar at DURING THE
+# CURRENT danger episode — a high-water mark, never voluntarily given up
+# while still compromised. Fed into GameConfig.nearest_hidden_point's own
+# min_distance_from_home as a floor on the NEXT relocation, whatever
+# triggers it. Exists because none of evade/conceal/scoot share any
+# memory of each other: each is purely reactive to wherever the mortar
+# currently is and whatever's currently threatening it, so an evade
+# reacting to some OTHER, unrelated threat has no idea a scoot already
+# put real distance between the crew and the position that got it
+# compromised in the first place, and can walk it right back toward that
+# danger — confirmed directly (not theorized) by tracing every real
+# relocation-search call during an actual oscillating battle: the
+# reverse-slope candidate was essentially always rejected as "too far"
+# once the mortar had moved on, and the ring search, which has no notion
+# of which direction is actually away from where the danger started, was
+# the one producing the wandering. Reset to 0.0 (see _decide_mortar_
+# action's own reset check) the instant the mortar is no longer
+# compromised by ANY of the tier-1 triggers — this is a floor for the
+# duration of one continuous escape, not a permanent one-way ratchet that
+# would eventually strand the crew at the far edge of its own home leash
+# long after the actual threat that caused it has passed.
+var _mortar_max_distance_from_home: Dictionary = {}
+
 # Unit (a mortar) -> Unit (the target it can fire on right now, or literally
 # absent from this dict if not yet resolved this tick) — memoizes _pick_
 # target's own result for a mortar across the several things that ask "does
@@ -3913,6 +3937,17 @@ func _decide_mortar_action(m: Unit) -> void:
 				_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Position compromised — wanted to relocate, no route this tick."}
 		return
 
+	# Reached only when NONE of the tier-1 self-preservation triggers
+	# above applied this tick — the mortar isn't currently compromised by
+	# anything. Resets _mortar_max_distance_from_home's own high-water
+	# mark here, not on a timer or once "safe enough": the floor exists
+	# only to stop ONE continuous escape from being undone by a
+	# differently-triggered relocation mid-episode, not to permanently
+	# ratchet the mortar outward for the rest of the battle once the
+	# actual danger that caused it has passed.
+	if m.team == Unit.Team.PLAYER:
+		_mortar_max_distance_from_home.erase(m)
+
 	# Tier 2 — Destroy enemy mortars (the MOVEMENT half only — the
 	# targeting half, "an enemy mortar candidate always wins," already
 	# lives unconditionally in _pick_target and is reflected in `target`
@@ -5541,19 +5576,44 @@ func _mortar_relocation_plan(mortar: Unit, urgent: bool) -> Dictionary:
 	var threats := _known_enemy_positions(mortar.team)
 	var recent: Array[Vector2] = []
 	recent.assign(_mortar_recent_positions.get(mortar, []))
+	# The home-range leash is now enforced INSIDE the search itself (see
+	# GameConfig.nearest_hidden_point's own doc comment) so a candidate
+	# beyond it is never proposed in the first place — checking only the
+	# final result used to let a search that's oblivious to home (the
+	# reverse-slope candidate especially, anchored to threat bearing, not
+	# position) repeatedly fail outright near the leash's own edge and
+	# later settle for whatever different, often much closer, candidate a
+	# later tick happened to find instead. Enemy has no tracked home
+	# position at all, so it gets no cap here, same as before.
+	var home_position: Vector2 = _friendly_mortar_home_position if mortar.team == Unit.Team.PLAYER else Vector2.INF
+	var home_leash: float = GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME if mortar.team == Unit.Team.PLAYER else INF
+	# See _mortar_max_distance_from_home's own doc comment — a floor, not
+	# just a ceiling: whatever the best distance from home a PRIOR
+	# relocation this same danger episode already achieved, don't let a
+	# fresh, differently-triggered search (evade reacting to some other
+	# threat, most commonly) walk the crew back toward the position that
+	# got it compromised in the first place.
+	var min_distance_from_home: float = _mortar_max_distance_from_home.get(mortar, 0.0) if mortar.team == Unit.Team.PLAYER else 0.0
 	var destination: Vector2 = (
-		GameConfig.nearest_hidden_point(mortar.global_position, threats, true, urgent, recent)
+		GameConfig.nearest_hidden_point(mortar.global_position, threats, true, urgent, recent, home_position, home_leash, min_distance_from_home)
 		if not threats.is_empty()
 		else GameConfig.nearest_cover_point(mortar.global_position, 0.0, true)
 	)
 	if destination == mortar.global_position:
 		return {}
+	# Kept as a safety net — should no longer normally trigger now that
+	# the search itself respects the leash, but nearest_cover_point's own
+	# path (the no-known-threats branch above) has no leash awareness at
+	# all, so this still matters for that case.
 	if mortar.team == Unit.Team.PLAYER and destination.distance_to(_friendly_mortar_home_position) > GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME:
 		return {}
 	var speed: float = GameConfig.MORTAR_RELOCATE_SPEED_URGENT if urgent else GameConfig.MORTAR_RELOCATE_SPEED
 	if GameConfig.get_terrain_type_at(destination) == GameConfig.TerrainType.TREES:
 		speed *= GameConfig.MORTAR_RELOCATE_TREES_MULTIPLIER
 	_remember_mortar_position(mortar, destination)
+	if mortar.team == Unit.Team.PLAYER:
+		var achieved: float = destination.distance_to(home_position)
+		_mortar_max_distance_from_home[mortar] = max(_mortar_max_distance_from_home.get(mortar, 0.0), achieved)
 	return {"destination": destination, "speed": speed}
 
 

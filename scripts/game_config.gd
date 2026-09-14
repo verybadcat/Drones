@@ -3232,12 +3232,38 @@ static func clamp_to_operating_area(point: Vector2) -> Vector2:
 ## much closer cover.
 const CONCEALMENT_HILL_MAX_EXTRA_M: float = 300.0
 
-static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false, avoid_positions: Array[Vector2] = []) -> Vector2:
+## `home_position`/`home_leash`: an optional hard cap on how far a
+## candidate may sit from a fixed reference point (used for the player
+## mortar's own home-range leash — see MORTAR_HUNT_MAX_RANGE_FROM_HOME's
+## own doc comment). Applied INSIDE the search, not just checked against
+## the final result afterward, so a search that naturally gravitates away
+## from threats (the reverse-slope candidate especially, anchored to
+## threat bearing rather than the unit's own position) can't repeatedly
+## propose a candidate beyond the leash and have the whole attempt fail.
+##
+## `min_distance_from_home`: the OPPOSITE constraint — a floor, not a
+## ceiling, on distance from `home_position`. See BattleManager._mortar_
+## max_distance_from_home's own doc comment for why this exists: an
+## evade/conceal reaction to some OTHER, unrelated threat has no memory of
+## how much distance a previous scoot already put between the mortar and
+## the position that got it compromised in the first place, and its own
+## search — being just as purely reactive to whatever's nearest right now
+## as scoot's — can easily send the mortar right back toward exactly that
+## danger. Confirmed directly this way, not theorized: tracing every real
+## search call during an actual oscillating battle showed the reverse-
+## slope candidate essentially always losing (rejected as "too far" once
+## the mortar has moved on), and the ring search — which has NO notion of
+## which direction is actually away from where the danger started —
+## responsible for the wandering.
+##
+## All four of these left at their defaults (INF/INF/0.0) preserves every
+## existing caller's behavior exactly.
+static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0) -> Vector2:
 	if threat_positions.is_empty():
 		return from
 
-	var hill_spot := _reverse_slope_candidate(from, threat_positions, avoid_buildings, avoid_positions)
-	var ring_spot := _ring_search_hidden_point(from, threat_positions, avoid_buildings, urgent, avoid_positions)
+	var hill_spot := _reverse_slope_candidate(from, threat_positions, avoid_buildings, avoid_positions, home_position, home_leash, min_distance_from_home)
+	var ring_spot := _ring_search_hidden_point(from, threat_positions, avoid_buildings, urgent, avoid_positions, home_position, home_leash, min_distance_from_home)
 
 	if hill_spot == from:
 		return ring_spot
@@ -3252,7 +3278,7 @@ static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2]
 ## compared against the reverse-slope candidate above instead of only ever
 ## running when the hill search finds nothing at all. Returns `from` if
 ## nothing in any ring is hidden from every threat.
-static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool, avoid_positions: Array[Vector2] = []) -> Vector2:
+static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0) -> Vector2:
 	var rings: Array[float] = CONCEALMENT_SEARCH_RINGS_URGENT_M if urgent else CONCEALMENT_SEARCH_RINGS_M
 	for radius_m in rings:
 		var radius_px: float = radius_m * PIXELS_PER_METER
@@ -3268,6 +3294,10 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 			# just far away. See clamp_to_operating_area's own doc comment.
 			var candidate: Vector2 = clamp_to_operating_area(from + Vector2(cos(theta), sin(theta)) * radius_px)
 			if avoid_buildings and (is_building_at(candidate) or path_crosses_building(from, candidate)):
+				continue
+			if home_position.distance_to(candidate) > home_leash:
+				continue
+			if home_position.distance_to(candidate) < min_distance_from_home:
 				continue
 			# See MORTAR_RECENT_POSITION_MEMORY_COUNT's own doc comment —
 			# a candidate too close to a position this same unit recently
@@ -3319,7 +3349,7 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 ## which is guaranteed to clear it by construction (its nearest ring is
 ## already farther out than the blast radius).
 ## Returns `from` (no better option this way) if no hill qualifies.
-static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, avoid_positions: Array[Vector2] = []) -> Vector2:
+static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0) -> Vector2:
 	var avg_threat := Vector2.ZERO
 	for t in threat_positions:
 		avg_threat += t
@@ -3341,6 +3371,10 @@ static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vect
 			continue
 		if d < COUNTER_BATTERY_BLAST_RADIUS:
 			continue # too close to be a real scoot -- let the ring search find something further out
+		if home_position.distance_to(candidate) > home_leash:
+			continue # beyond the leash -- anchored to threat bearing alone, this candidate has no notion of home at all
+		if home_position.distance_to(candidate) < min_distance_from_home:
+			continue # would undo real progress already made escaping -- see min_distance_from_home's own doc comment
 		# This candidate is anchored to the hill/threat-bearing geometry
 		# alone, not to `from` — for an unchanged threat picture it's the
 		# SAME point every time, which is exactly what let a mortar
