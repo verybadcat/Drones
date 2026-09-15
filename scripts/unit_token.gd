@@ -25,11 +25,15 @@ func contains_point(p: Vector2) -> bool:
 
 
 func _draw() -> void:
-	# The mortar's real max range (3500m) is a hard cutoff now, not
-	# unlimited — show it during deployment so its placement is an informed
-	# choice, not a guess.
+	# The mortar's real max range is a hard cutoff now, not unlimited —
+	# show it during deployment so its placement is an informed choice, not
+	# a guess. Deployment is always the PLAYER's own units (the enemy is
+	# AI-controlled with no deployment UI), so this always means the
+	# player's own real-world-cited range (GameConfig.MORTAR_MAX_RANGE_
+	# PLAYER — see its own doc comment for why it differs from the
+	# enemy's).
 	if kind == Unit.Kind.MORTAR:
-		draw_arc(Vector2.ZERO, GameConfig.MORTAR_MAX_RANGE, 0.0, TAU, 64, Color(1.0, 0.55, 0.15, 0.35), 1.5, true)
+		draw_arc(Vector2.ZERO, GameConfig.MORTAR_MAX_RANGE_PLAYER, 0.0, TAU, 64, Color(1.0, 0.55, 0.15, 0.35), 1.5, true)
 
 	var color := Color(0.25, 0.55, 1.0, 0.9)
 	if kind == Unit.Kind.SPOTTER or kind == Unit.Kind.DRONE_TEAM:

@@ -1656,22 +1656,36 @@ const SQUAD_ENGAGEMENT_RANGE: float = 400.0 * PIXELS_PER_METER
 # enemy squads the way a rifle's muzzle flash does. But it is NOT unlimited
 # range: a real light/medium mortar tops out well short of the whole map.
 #
-# Raised from an earlier, uncited 3500m to real, recent (2023-2024) 82mm
-# figures from this exact war: reporting on Ukrainian-produced 82mm mortar
-# shells cites a max range of 4500m, and Russia's currently-issued 2B24
-# 82mm light mortar is rated to 6000m — both well above the older Soviet-
-# era 82-BM-37's own 3040m, which the previous 3500m figure was closer to
-# despite not actually citing it. Set at the conservative end of that
-# 4500-6000m range, not the high end, matching this file's own established
-# practice for a cited range with real uncertainty in it (see
-# DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER's identical reasoning). Found
-# to matter concretely, not just cosmetically: at the old 3500m, a direct
-# empirical check found the median real distance between the two sides'
-# own mortar positions on this game's current (larger, right-tailed-
-# assault) maps already exceeded it — cross-mortar counter-battery duels
-# were geometrically impossible more often than any hold/scoot chance
-# tuning could ever compensate for.
-const MORTAR_MAX_RANGE: float = 5000.0 * PIXELS_PER_METER
+# Split by side rather than one shared figure — the two real 82mm systems
+# behind this game's own citations are genuinely different weapons, not
+# the same tube with a rounding difference. Previously a single uncited
+# 3500m (closer to the older Soviet-era 82-BM-37's own 3040m than either
+# side's real current figure), then a single shared 5000m picked as a
+# conservative compromise between two different-sided citations. Now each
+# side uses its own real, recent (2023-2024) figure from this exact war
+# directly, since there's no reason a Ukrainian-fielded tube's real range
+# should be constrained to match a Russian one's, or vice versa:
+# - PLAYER (Ukraine): reporting on Ukrainian-produced 82mm mortar shells,
+#   fired from the Soviet-legacy tubes (2B14 Podnos and older 82-BM-37/41)
+#   Ukraine's own military inherited and has kept in service, cites a max
+#   range of 4500m.
+# - ENEMY (Russia): Russia's currently-issued 2B24 82mm light mortar (a
+#   more modern tube than either side's older Soviet-era stock) is rated
+#   to 6000m.
+# Found to matter concretely, not just cosmetically, when this was still
+# a single 3500m figure: a direct empirical check found the median real
+# distance between the two sides' own mortar positions on this game's
+# current (larger, right-tailed-assault) maps already exceeded it —
+# cross-mortar counter-battery duels were geometrically impossible more
+# often than any hold/scoot chance tuning could ever compensate for.
+const MORTAR_MAX_RANGE_PLAYER: float = 4500.0 * PIXELS_PER_METER
+const MORTAR_MAX_RANGE_ENEMY: float = 6000.0 * PIXELS_PER_METER
+
+## The correct MORTAR_MAX_RANGE_* for `team` — every call site that used
+## to read a single shared MORTAR_MAX_RANGE now goes through this instead,
+## keyed by whichever side's mortar/engagement the check is actually about.
+static func mortar_max_range(team: Unit.Team) -> float:
+	return MORTAR_MAX_RANGE_PLAYER if team == Unit.Team.PLAYER else MORTAR_MAX_RANGE_ENEMY
 
 ## Squad tactics: the enemy tries to flank toward the friendly mortar (see
 ## BattleManager._enemy_advance_objective/_score_advance_candidate), and
@@ -2279,9 +2293,10 @@ const MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE: float = 1000.0 * PIXELS_PER_METER
 # a SEPARATE concern, already handled by _friendly_mortar_hunt_point's own
 # concealment-seeking — this is about distance from home, full stop, not
 # about avoiding specific known threats along the way). Set to half
-# MORTAR_MAX_RANGE — enough real room to reposition meaningfully for a
-# shot, not half the map.
-const MORTAR_HUNT_MAX_RANGE_FROM_HOME: float = MORTAR_MAX_RANGE * 0.5
+# MORTAR_MAX_RANGE_PLAYER (this constant is explicitly the FRIENDLY
+# mortar's own leash, never the enemy's) — enough real room to reposition
+# meaningfully for a shot, not half the map.
+const MORTAR_HUNT_MAX_RANGE_FROM_HOME: float = MORTAR_MAX_RANGE_PLAYER * 0.5
 
 # A relocating mortar crew actually walks there — real speed, real distance,
 # real time, no separate "cooldown" bolted on top (see BattleManager.
@@ -2302,7 +2317,7 @@ const MORTAR_RELOCATE_TREES_MULTIPLIER: float = 0.8
 # has to actually be set down, leveled, and laid (or broken back down and
 # shouldered) either way. Real, recent reporting on Russia's currently-
 # issued 2B24 82mm light mortar (the same system already cited for
-# MORTAR_MAX_RANGE above) states "the transition from traveling to firing
+# MORTAR_MAX_RANGE_ENEMY above) states "the transition from traveling to firing
 # position, and vice versa, is accomplished in less than 30 seconds" — one
 # real figure covering both directions, used here as a floor on Unit.
 # seconds_stationary (already tracked for spotting-signature decay — see
@@ -2623,10 +2638,12 @@ const MORTAR_BLAST_COLLATERAL_SEARCH_RADIUS: float = 60.0 * PIXELS_PER_METER
 ## estimation error. Unadjusted ("predicted") fire's dispersion scales with
 ## range: cited NATO figures put an unguided 120mm mortar's CEP at ~136m at
 ## max range without an advanced fire control system. This project's 82mm
-## mortar has a shorter max range, so the same ~3% CEP-of-range fraction is
-## applied to THIS project's own MORTAR_MAX_RANGE rather than reusing the
-## 136m figure outright (that number is for a different caliber at a
-## longer real max range). See BattleManager._mortar_dispersion_offset.
+## mortars have a shorter max range (MORTAR_MAX_RANGE_PLAYER/_ENEMY), so
+## the same ~3% CEP-of-range fraction is applied to the ACTUAL shot
+## distance each time rather than reusing the 136m figure outright (that
+## number is for a different caliber at a longer real max range) — a
+## fraction of range works the same regardless of which side's own max
+## range it's measured against. See BattleManager._mortar_dispersion_offset.
 const MORTAR_DISPERSION_CEP_FRACTION_OF_RANGE: float = 0.03
 ## Even a short shot isn't perfect — met data, propellant-lot, and lay
 ## error impose a floor regardless of range. Judgment call, not directly

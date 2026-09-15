@@ -63,7 +63,7 @@ func _forecast_target(unit: Unit) -> Unit:
 			if unit.global_position.distance_to(candidate.global_position) > GameConfig.SQUAD_ENGAGEMENT_RANGE: continue
 			if not GameConfig.has_direct_los(unit.global_position, candidate.global_position): continue
 		elif unit.kind == Unit.Kind.MORTAR:
-			if unit.global_position.distance_to(candidate.global_position) > GameConfig.MORTAR_MAX_RANGE: continue
+			if unit.global_position.distance_to(candidate.global_position) > GameConfig.mortar_max_range(unit.team): continue
 		elif unit.kind != Unit.Kind.DRONE:
 			continue
 		var score := _enemy_target_value(unit, candidate)
@@ -90,7 +90,7 @@ func _risk_forecast(unit: Unit, target: Unit, point: Vector2) -> Dictionary:
 			if age > GameConfig.MORTAR_FIRE_DETECTION_EXPIRY: continue
 			known_position = lead.position
 			confidence = clampf(1.0 - age / GameConfig.MORTAR_FIRE_DETECTION_EXPIRY, 0.0, 1.0)
-		var max_range: float = GameConfig.MORTAR_MAX_RANGE if enemy.kind == Unit.Kind.MORTAR else GameConfig.SQUAD_ENGAGEMENT_RANGE
+		var max_range: float = GameConfig.mortar_max_range(enemy.team) if enemy.kind == Unit.Kind.MORTAR else GameConfig.SQUAD_ENGAGEMENT_RANGE
 		if point.distance_to(known_position) > max_range: continue
 		if enemy.kind == Unit.Kind.SQUAD and not GameConfig.has_direct_los(known_position, point): continue
 		if enemy.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(known_position): continue
@@ -236,7 +236,7 @@ func _record_target_choice(unit: Unit, candidates: Array[Unit], chosen: Unit, re
 		if not target.is_targetable():
 			rejection = "No longer targetable"
 		elif not eligible:
-			var limit: float = GameConfig.SQUAD_ENGAGEMENT_RANGE if unit.kind == Unit.Kind.SQUAD else GameConfig.MORTAR_MAX_RANGE
+			var limit: float = GameConfig.SQUAD_ENGAGEMENT_RANGE if unit.kind == Unit.Kind.SQUAD else GameConfig.mortar_max_range(unit.team)
 			rejection = "Out of range" if unit.global_position.distance_to(target.global_position) > limit else "Line of sight blocked"
 		rows.append({"target": decisions.label_for(target), "eligible": eligible,
 			"rejection": rejection, "score": _enemy_target_value(unit, target) if eligible else 0.0,
@@ -2186,7 +2186,7 @@ func _update_joint_mortar_hunt() -> void:
 func _friendly_mortar_hunt_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 	var threats := _known_enemy_positions(mortar.team).filter(func(p): return p.distance_to(target_pos) > 1.0)
 	var base_dir: Vector2 = (target_pos - mortar.global_position).normalized()
-	var target_distance: float = GameConfig.MORTAR_MAX_RANGE * 0.9 # comfortably in range, not right on the edge
+	var target_distance: float = GameConfig.mortar_max_range(mortar.team) * 0.9 # comfortably in range, not right on the edge
 
 	var valid_candidates: Array[Vector2] = []
 	for offset_deg in [0.0, -15.0, 15.0, -30.0, 30.0, -45.0, 45.0]:
@@ -3349,9 +3349,9 @@ func _flank_watch_candidates() -> Array:
 ## question — _drone_search_target's own top tier). A RETREATING mortar
 ## has already had its crew abandon the gun for good (Unit.
 ## _apply_crew_casualties — it will never fire again no matter how well
-## it's watched), and one outside
-## GameConfig.MORTAR_MAX_RANGE of the friendly mortar can't be engaged
-## right now regardless of visibility — sacrificing a drone, or spending a
+## it's watched), and one outside the friendly mortar's own real range
+## (GameConfig.mortar_max_range) can't be engaged right now regardless of
+## visibility — sacrificing a drone, or spending a
 ## backup's own limited flight time, over either just wastes an asset that
 ## could instead find (or wait for) a mortar actually worth acting on.
 func _visible_engageable_mortar() -> Unit:
@@ -3426,7 +3426,7 @@ func _priority_visible_enemy_mortar() -> Dictionary:
 func _can_engage_position(pos: Vector2) -> bool:
 	for m in player_units:
 		if m.kind == Unit.Kind.MORTAR and m.state == Unit.State.ACTIVE:
-			return m.global_position.distance_to(pos) <= GameConfig.MORTAR_MAX_RANGE
+			return m.global_position.distance_to(pos) <= GameConfig.mortar_max_range(m.team)
 	return false
 
 
@@ -3714,7 +3714,7 @@ func _drone_routine_recon_target(flank_candidates: Array) -> Dictionary:
 ## works.
 func _mortar_advance_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 	var base_dir: Vector2 = (target_pos - mortar.global_position).normalized()
-	var target_distance: float = GameConfig.MORTAR_MAX_RANGE * 0.9 # comfortably in range, not right on the edge
+	var target_distance: float = GameConfig.mortar_max_range(mortar.team) * 0.9 # comfortably in range, not right on the edge
 	for offset_deg in [0.0, -15.0, 15.0, -30.0, 30.0, -45.0, 45.0]:
 		var dir: Vector2 = base_dir.rotated(deg_to_rad(offset_deg))
 		var candidate: Vector2 = target_pos - dir * target_distance
@@ -3957,7 +3957,7 @@ func _decide_mortar_action(m: Unit) -> void:
 	# above whenever one's actually in range).
 	var fix := _mortar_hunt_fix_for(m)
 	if not fix.is_empty():
-		if m.global_position.distance_to(fix.position) <= GameConfig.MORTAR_MAX_RANGE:
+		if m.global_position.distance_to(fix.position) <= GameConfig.mortar_max_range(m.team):
 			if current_intent == "hunt":
 				# Now in range — stop closing and get to work, rather than
 				# finishing the walk to a farther point computed earlier.
@@ -5331,11 +5331,11 @@ func _weighted_advance_point_pick(candidates: Array[Vector2], angles_deg: Array[
 ## signature, not a prediction of what this specific target will do
 ## next). Mortars are a high-priority target for each other. This isn't
 ## abstract: the return fire has to physically come from an opposing
-## mortar that could actually reach this position — one beyond
-## GameConfig.MORTAR_MAX_RANGE simply can't respond, no matter how
-## exposed the firing mortar was. A mortar dug in deep enough to be out
-## of both enemy tubes' range trades away some of its own reach for
-## genuine counter-battery immunity.
+## mortar that could actually reach this position — one beyond its own
+## side's real range (GameConfig.mortar_max_range) simply can't respond,
+## no matter how exposed the firing mortar was. A mortar dug in deep
+## enough to be out of both enemy tubes' range trades away some of its
+## own reach for genuine counter-battery immunity.
 ##
 ## The strike isn't instant: it can only ever target where THIS mortar was
 ## standing right now, at the moment it fired (captured here, before any
@@ -5364,7 +5364,7 @@ func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 	for m in opposing:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
 			continue
-		if m.global_position.distance_to(firing_mortar.global_position) > GameConfig.MORTAR_MAX_RANGE:
+		if m.global_position.distance_to(firing_mortar.global_position) > GameConfig.mortar_max_range(m.team):
 			continue # out of range — this mortar physically cannot reach back
 		if randf() < chance:
 			var locate_time: float = randf_range(GameConfig.COUNTER_BATTERY_LOCATE_TIME_MIN, GameConfig.COUNTER_BATTERY_LOCATE_TIME_MAX)
@@ -5741,8 +5741,9 @@ func _log_hit_consequence(unit: Unit, was_active_before: bool) -> void:
 ## information, so e.is_targetable() (a LIVE fact — see _refresh_visibility,
 ## maintained every tick by whether some friendly currently has line of
 ## sight, not a permanent flag) already covers whether anyone can see it at
-## all. It DOES have a real maximum range (GameConfig.MORTAR_MAX_RANGE) —
-## a mortar tube only throws a shell so far, regardless of who's spotting.
+## all. It DOES have a real maximum range (GameConfig.mortar_max_range,
+## split by side — see its own doc comment) — a mortar tube only throws a
+## shell so far, regardless of who's spotting.
 ##
 ## Mortars are the highest-value target on the battlefield for both sides —
 ## if one is a legal target at all, it's always preferred over a squad or
@@ -5869,7 +5870,7 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 			if not GameConfig.has_direct_los(unit.global_position, e.global_position):
 				continue
 		elif unit.kind == Unit.Kind.MORTAR:
-			if unit.global_position.distance_to(e.global_position) > GameConfig.MORTAR_MAX_RANGE:
+			if unit.global_position.distance_to(e.global_position) > GameConfig.mortar_max_range(unit.team):
 				continue
 		candidates.append(e)
 	if _risk_holds.has(unit) and unit.state == Unit.State.ACTIVE:
@@ -6169,7 +6170,7 @@ func _known_enemy_mortars_in_range(pos: Vector2) -> int:
 			known_pos = _last_detected_mortar_fire[u].position
 		else:
 			continue
-		if known_pos.distance_to(pos) <= GameConfig.MORTAR_MAX_RANGE:
+		if known_pos.distance_to(pos) <= GameConfig.mortar_max_range(u.team):
 			count += 1
 	return count
 

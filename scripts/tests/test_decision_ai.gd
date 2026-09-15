@@ -95,7 +95,7 @@ func test_preferences() -> void:
 	actor.kind = Unit.Kind.MORTAR
 	actor.mortar_rounds_remaining = GameConfig.MORTAR_STARTING_AMMO / 2
 	actor.is_visible = true
-	far.position = Vector2(GameConfig.MORTAR_MAX_RANGE * 0.8, 0)
+	far.position = Vector2(GameConfig.MORTAR_MAX_RANGE_PLAYER * 0.8, 0)
 	for id in ["cautious", "aggressive"]:
 		var p: Dictionary = Profile.preset(id)
 		p.deterministic = true
