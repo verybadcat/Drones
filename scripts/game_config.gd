@@ -1297,11 +1297,6 @@ static var PLAYER_SAFE_X: float # -(WEST_FLANK_WIDTH_M - 100.0) * PIXELS_PER_MET
 ## toward safety throughout, never stalling to purely sidestep.
 const RETREAT_THREAT_STEER_FRACTION: float = 0.6
 
-# How much slack a cover zone gets on the "wrong" side of a retreating
-# unit's current position before it's excluded as a detour toward the
-# front — see nearest_cover_point/safest_cover_point's retreat_dir param.
-const RETREAT_DIRECTION_TOLERANCE: float = 100.0 * PIXELS_PER_METER
-
 ## How much farther than the nearest cover zone overall it's worth walking
 ## just to stay on retreat_dir's own "correct" side — a real, previously-
 ## reported failure mode: retreat_dir is a blanket per-team assumption
@@ -2976,8 +2971,8 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 		return from
 
 	candidates = _exclude_dangerous(candidates, known_enemy_positions)
-	candidates = _prefer_clear_path(candidates, from, avoid_buildings)
 	candidates = _prefer_retreat_direction(candidates, from, retreat_dir)
+	candidates = _prefer_clear_path(candidates, from, avoid_buildings)
 
 	if not avoid_positions.is_empty():
 		var unclaimed: Array[Dictionary] = []
@@ -3065,11 +3060,33 @@ static func _exclude_dangerous(candidates: Array[Dictionary], known_enemy_positi
 ## an unrelated nearby wrong-side one. This still protects against the
 ## originally-diagnosed 638m/2400m case (both correct-side, nothing
 ## closer): the budget is nearest-COMPLIANT + 500m, so a compliant option
-## far past the nearest compliant one is excluded exactly as before. Only
-## when NOTHING qualifies on the correct side at all does this fall back
-## to the original nearest-overall-based lenient pass (small wrong-side
-## tolerance), so a unit with genuinely no correct-side cover anywhere
-## reasonable still gets SOME nearby answer rather than none.
+## far past the nearest compliant one is excluded exactly as before.
+##
+## A SECOND real, reported failure mode, caught only once real battle
+## geometry (not just a hand-built scenario) exercised this: when NOTHING
+## at all qualifies on the correct side — not even loosely, within
+## RETREAT_DIRECTION_TOLERANCE — this used to give up on direction
+## ENTIRELY and hand back every remaining candidate completely
+## unranked by how wrong-direction each one actually was. A real repro
+## against a live battle found exactly this: `_prefer_clear_path` had
+## already stripped every correct-side option (a building blocked the
+## straight line to each one), leaving only two candidates roughly 1100m
+## due EAST — and this function, finding neither one within the small
+## 100m tolerance, shrugged and returned both with no preference between
+## them, leaving whichever one happened to win a LATER, direction-blind
+## tie-break (nearest-to-resupply-corridor) to decide — sending the
+## mortar ~950m further toward the enemy than the OTHER candidate in the
+## very same returned set would have. "No good option exists" is real,
+## but it never justifies being indifferent between two bad options when
+## one is closer to correct than the other — the exact same "prefer, but
+## budget the detour" logic the strict pass already applies to distance,
+## applied here to DIRECTIONAL wrongness instead: find whichever
+## candidate is least wrong-direction, then keep anything within
+## RETREAT_DIRECTION_MAX_EXTRA_M of that candidate's own wrongness ties
+## it, but a badly-wrong outlier riding along in the same unfiltered set
+## no longer can. Subsumes the small tolerance check the same way — a
+## candidate within the ordinary tolerance is automatically "least wrong"
+## already, so there's no separate mechanism to keep in sync.
 static func _prefer_retreat_direction(candidates: Array[Dictionary], from: Vector2, retreat_dir: float) -> Array[Dictionary]:
 	if retreat_dir == 0.0 or candidates.is_empty():
 		return candidates
@@ -3088,16 +3105,23 @@ static func _prefer_retreat_direction(candidates: Array[Dictionary], from: Vecto
 		if not strict.is_empty():
 			return strict
 
-	var nearest_overall: float = INF
+	# Nothing at all qualifies on the correct side — prefer whichever
+	# candidate is LEAST wrong-direction (smallest distance the "wrong"
+	# way), budgeted the same way the strict pass budgets distance, so an
+	# outlier far worse than the least-wrong option can't ride along in
+	# the returned set just because some OTHER downstream tie-break might
+	# otherwise pick it.
+	var least_wrong: float = INF
 	for c in candidates:
-		nearest_overall = min(nearest_overall, from.distance_to(c.zone.center))
-	var lenient_budget: float = nearest_overall + RETREAT_DIRECTION_MAX_EXTRA_M * PIXELS_PER_METER
-	var lenient: Array[Dictionary] = []
+		var wrongness: float = (from.x - c.zone.center.x) * retreat_dir # positive = wrong-direction distance
+		least_wrong = min(least_wrong, wrongness)
+	var wrongness_budget: float = least_wrong + RETREAT_DIRECTION_MAX_EXTRA_M * PIXELS_PER_METER
+	var least_wrong_set: Array[Dictionary] = []
 	for c in candidates:
-		var dist: float = from.distance_to(c.zone.center)
-		if dist <= lenient_budget and (c.zone.center.x - from.x) * retreat_dir >= -RETREAT_DIRECTION_TOLERANCE:
-			lenient.append(c)
-	return lenient if not lenient.is_empty() else candidates
+		var wrongness: float = (from.x - c.zone.center.x) * retreat_dir
+		if wrongness <= wrongness_budget:
+			least_wrong_set.append(c)
+	return least_wrong_set if not least_wrong_set.is_empty() else candidates
 
 
 ## Same "prefer, don't force an unreasonable detour for" pattern as
@@ -3114,6 +3138,29 @@ static func _prefer_retreat_direction(candidates: Array[Dictionary], from: Vecto
 ## in each caller's own candidate-building loop) stays a hard rule — a
 ## mortar crew genuinely doesn't clear and occupy a structure the way a
 ## squad might; only the ROUTING assumption here is soft.
+##
+## Deliberately called AFTER _prefer_retreat_direction in every caller, not
+## before — a real, previously-reported (and previously-MISSED) failure
+## mode: this function's own budget is measured from `nearest_overall`,
+## the closest candidate in ANY direction, exactly the same "wrong-side
+## blip sets an artificially tight budget" trap _prefer_retreat_direction
+## itself used to have (see that function's own doc comment for the
+## original, already-fixed instance of this exact pattern). Running this
+## BEFORE direction preference let a nearby WRONG-side candidate's budget
+## silently exclude a real, reachable correct-side option for merely
+## being farther than "wrong-side blip + 500m" — before direction
+## preference ever got a chance to weigh in at all. Confirmed directly: a
+## real battle had this strip every correct-side cover option down to two
+## candidates roughly 1100m due EAST, sending a general-retreat mortar
+## walking hundreds of meters further toward the enemy than necessary.
+## Running direction preference FIRST means this function's own budget is
+## computed from an already direction-appropriate candidate set, so a
+## wrong-side blip can never contaminate it — and if every direction-
+## correct candidate still turns out to be building-blocked, falling back
+## to a blocked-but-correct-side candidate (this function's own existing
+## "give up, return everything" fallback) is a real but minor routing
+## inconvenience (an actual detour around a building), never a step
+## toward the enemy the way running this first could produce.
 static func _prefer_clear_path(candidates: Array[Dictionary], from: Vector2, avoid_buildings: bool) -> Array[Dictionary]:
 	if not avoid_buildings or candidates.is_empty():
 		return candidates
@@ -3152,8 +3199,8 @@ static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vecto
 		return from
 
 	candidates = _exclude_dangerous(candidates, known_enemy_positions)
-	candidates = _prefer_clear_path(candidates, from, avoid_buildings)
 	candidates = _prefer_retreat_direction(candidates, from, retreat_dir)
+	candidates = _prefer_clear_path(candidates, from, avoid_buildings)
 	for c in candidates:
 		var center: Vector2 = c.zone.center
 		var nearest_enemy_dist: float = INF
@@ -3201,8 +3248,8 @@ static func retreat_cover_point_toward(from: Vector2, reference_point: Vector2, 
 		return from
 
 	candidates = _exclude_dangerous(candidates, known_enemy_positions)
-	candidates = _prefer_clear_path(candidates, from, avoid_buildings)
 	candidates = _prefer_retreat_direction(candidates, from, retreat_dir)
+	candidates = _prefer_clear_path(candidates, from, avoid_buildings)
 	candidates.sort_custom(func(a, b): return a.dist_from_self < b.dist_from_self)
 	var pool_size: int = min(4, candidates.size())
 	var pool := candidates.slice(0, pool_size)

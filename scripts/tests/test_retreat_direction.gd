@@ -3,15 +3,24 @@ extends SceneTree
 ## point/safest_cover_point/retreat_cover_point_toward, so a fix here
 ## covers every retreating unit kind at once.
 ##
-## A real, user-reported bug: "I hit retreat now. The mortar started my
-## moving forwards a fair distance. Then it retreated." Confirmed directly
-## at the mortar's own real map deployment position — retreat_cover_
-## point_toward consistently chose a cover zone ~90-115m EAST (toward the
-## enemy) of the mortar's current position as its first "go to cover"
-## waypoint, because RETREAT_DIRECTION_TOLERANCE's small forward allowance
-## let that close wrong-side candidate outrank a real, reachable correct-
-## side one that existed further out but well within the same overall
-## travel budget the code was already willing to pay.
+## A real, user-reported bug, TWICE: "I hit retreat now. The mortar started
+## my moving forwards a fair distance. Then it retreated." Confirmed
+## directly at the mortar's own real map deployment position — retreat_
+## cover_point_toward consistently chose a cover zone ~90-115m EAST (toward
+## the enemy) of the mortar's current position as its first "go to cover"
+## waypoint, because the old lenient-tolerance fallback's small forward
+## allowance let that close wrong-side candidate outrank a real, reachable
+## correct-side one that existed further out but well within the same
+## overall travel budget the code was already willing to pay.
+##
+## Reported again after that fix shipped, this time ~1000m forward — real
+## battle geometry (not this file's own simpler hand-built scenarios)
+## found a SECOND, deeper gap: when _prefer_clear_path strips out every
+## correct-side candidate (a building blocks the straight line to each
+## one), the old code gave up on direction ENTIRELY and returned every
+## remaining wrong-side candidate with no preference for the least-wrong
+## one — see _prefer_retreat_direction's own doc comment for the exact
+## repro and the "prefer least-wrong, budgeted" fix.
 ##
 ## Run: godot --headless --path . --script scripts/tests/test_retreat_direction.gd
 var failures := 0
@@ -72,6 +81,26 @@ func test_no_correct_side_falls_back_to_lenient_nearby() -> void:
 	check(result.size() == 1, "With no correct-side option anywhere, the nearby wrong-side one must still be returned, not an empty result")
 
 
+## The exact second reported shape (see this file's own doc comment): with
+## NOTHING at all on the correct side, and more than one wrong-side option
+## at meaningfully different distances, the badly-wrong-direction outlier
+## must be excluded, not returned alongside the least-wrong one for some
+## LATER, direction-blind tie-break to pick indifferently between them.
+func test_no_correct_side_prefers_least_wrong_over_worse_outlier() -> void:
+	var from := Vector2(0, 0)
+	var mildly_wrong := _candidate(50.0, 0.0) # 50px east — the least-wrong option
+	var badly_wrong := _candidate(1000.0, 0.0) # 1000px east — a real repro found ~950m worse than this
+	var candidates: Array[Dictionary] = [mildly_wrong, badly_wrong]
+	var result := GameConfig._prefer_retreat_direction(candidates, from, -1.0)
+	var has_mild := false
+	var has_bad := false
+	for c in result:
+		if c.zone.center.x < 500.0: has_mild = true
+		if c.zone.center.x >= 500.0: has_bad = true
+	check(has_mild, "The least-wrong-direction candidate must survive")
+	check(not has_bad, "A badly-wrong-direction outlier must not ride along just because nothing correct-side exists at all (got %d candidates)" % result.size())
+
+
 ## End-to-end reproduction of the exact reported scenario, at the real
 ## mortar's real map deployment position — the destination a retreat
 ## order would actually walk to first must never be forward of where the
@@ -91,6 +120,7 @@ func run() -> void:
 	test_correct_side_preferred_over_close_wrong_side()
 	test_near_correct_side_excludes_far_correct_side_outlier()
 	test_no_correct_side_falls_back_to_lenient_nearby()
+	test_no_correct_side_prefers_least_wrong_over_worse_outlier()
 	test_real_map_mortar_retreat_never_goes_forward()
 	if failures == 0:
 		print("Retreat direction tests: 0 failures")
