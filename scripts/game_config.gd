@@ -3344,6 +3344,50 @@ const MORTAR_RECENT_POSITION_MEMORY_COUNT: int = 5
 ## in at this much smaller scale.
 const MORTAR_RECENT_POSITION_EXCLUSION_RADIUS: float = 20.0 * PIXELS_PER_METER
 
+## How far apart same-side mortars should try hard to stay from each
+## other — a real, cited minimum, not a guess, but a DIFFERENT real
+## citation than an earlier version of this constant used (300m, FM 7-90
+## Ch.6's figure for splitting a whole PLATOON into two separate firing
+## positions) — that figure was the wrong scale for what this constant
+## actually needs to achieve. This project's own individual "enemy
+## mortar" units are each their own tube/crew, not multi-tube sections,
+## and — confirmed empirically once the 300m version measurably failed
+## to change anything — a single relocation hop only ever covers
+## CONCEALMENT_SEARCH_RINGS_*'s own real-world-grounded 75-160m reach
+## (see that constant's own doc comment). Requiring 300m of clearance in
+## ONE hop is geometrically impossible the moment two mortars are already
+## within a few hundred meters of each other — which, given this
+## project's own even-spacing spawn formula putting adjacent mortars as
+## little as 125m apart at ENEMY_MORTAR_COUNT_MAX (5), is true from the
+## very first tick — so the "prefer, fall back only if nothing clears it"
+## selection always fell back, and bunching avoidance silently did
+## nothing at all. The real citation that actually matches this scale:
+## FM 7-90 (Ch.7) states mortar platoons maintain "a lateral dispersion
+## between mortars equal to the bursting diameter of an HE round of that
+## mortar system" — i.e. individual TUBE spacing within one firing
+## position, not whole-section separation. Using this project's own
+## already-cited 82mm Type 67 lethal-fragment radius (~26m — see
+## MORTAR_BLAST_CASUALTY_RADIUS) doubled for a bursting diameter (~52m)
+## gives a real, comfortably SUB-ring-scale target a single hop can
+## actually achieve most of the time. A SECOND real gap found once this
+## smaller radius was empirically verified against real battles: several
+## mortars all pushed toward the same map edge (or all reacting to the
+## same single threat) compresses every mortar's own escape directions
+## down to nearly one dimension, so even at this smaller scale a
+## two-stage "prefer fully-clear, else ignore entirely" selection still
+## sometimes found NOTHING fully clear and threw away all preference
+## between a candidate that's merely somewhat too close and one that's
+## nearly on top of a sibling. _ring_search_hidden_point applies this as
+## a smooth, continuous score factor instead (more separation always
+## scores better, down to a small floor rather than a hard cliff) for
+## exactly that reason. The hunting destination search
+## (_mortar_advance_point) uses its own analogous "prefer full clearance,
+## else the least-bad available" fallback — see its own doc comment —
+## matching this project's own established "movement must never be
+## starved to zero" principle for every other soft preference in this
+## same family of searches.
+const MORTAR_BUNCHING_AVOIDANCE_RADIUS: float = 52.0 * PIXELS_PER_METER
+
 ## A nearby point with NO direct line of sight from ANY of `threat_positions`
 ## — true concealment (like the reverse slope of a hill, or behind a
 ## building), not just the reduced spot-chance TREES/BUILDING give as
@@ -3415,12 +3459,12 @@ const CONCEALMENT_HILL_MAX_EXTRA_M: float = 300.0
 ##
 ## All four of these left at their defaults (INF/INF/0.0) preserves every
 ## existing caller's behavior exactly.
-static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0) -> Vector2:
+static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = []) -> Vector2:
 	if threat_positions.is_empty():
 		return from
 
-	var hill_spot := _reverse_slope_candidate(from, threat_positions, avoid_buildings, avoid_positions, home_position, home_leash, min_distance_from_home)
-	var ring_spot := _ring_search_hidden_point(from, threat_positions, avoid_buildings, urgent, avoid_positions, home_position, home_leash, min_distance_from_home)
+	var hill_spot := _reverse_slope_candidate(from, threat_positions, avoid_buildings, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions)
+	var ring_spot := _ring_search_hidden_point(from, threat_positions, avoid_buildings, urgent, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions)
 
 	if hill_spot == from:
 		return ring_spot
@@ -3461,7 +3505,7 @@ static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2]
 ## — a crew that reliably ran to the single most-hidden location every
 ## time would itself be a predictable pattern, exactly the thing shoot-
 ## and-scoot doctrine exists to avoid.
-static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0) -> Vector2:
+static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = []) -> Vector2:
 	var rings: Array[float] = CONCEALMENT_SEARCH_RINGS_URGENT_M if urgent else CONCEALMENT_SEARCH_RINGS_M
 
 	var avg_threat := Vector2.ZERO
@@ -3522,6 +3566,32 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 			# enough there.
 			var score := 1.0
 			var floor_ok: bool = home_position.distance_to(candidate) >= min_distance_from_home
+			# See MORTAR_BUNCHING_AVOIDANCE_RADIUS's own doc comment (a real,
+			# cited minimum separation, not a guess) — a CONTINUOUS score
+			# factor, not a two-stage hard/soft split like floor_ok above.
+			# An earlier version of this used the same two-stage pattern
+			# (exclude exclusively whenever any fully-clear candidate
+			# exists) and it measurably failed in exactly the case that
+			# matters most: several mortars all pushed toward the SAME map
+			# edge (or all reacting to the same single threat) compresses
+			# every mortar's own escape directions down to nearly one
+			# dimension, so NONE of a mortar's own candidates fully clear
+			# the radius from an already-nearby sibling — and the two-
+			# stage version's fallback ("nothing qualifies, so ignore
+			# bunching entirely") threw away the real, continuous
+			# difference between a candidate that's merely somewhat too
+			# close and one that's almost on top of a sibling, letting the
+			# worse of the two win just as often as the better one. This
+			# scales smoothly instead: full credit once a candidate clears
+			# the radius, decaying (never to literal zero, so a genuinely
+			# cornered mortar can still move) the closer it is to a
+			# sibling — always still preferring more separation over less,
+			# with no cliff where the preference just vanishes.
+			var nearest_sibling_dist := INF
+			for p in bunch_avoid_positions:
+				nearest_sibling_dist = min(nearest_sibling_dist, candidate.distance_to(p))
+			if nearest_sibling_dist < INF:
+				score *= clampf(nearest_sibling_dist / MORTAR_BUNCHING_AVOIDANCE_RADIUS, 0.05, 1.0)
 			var too_close_to_recent := false
 			for p in avoid_positions:
 				if candidate.distance_to(p) < MORTAR_RECENT_POSITION_EXCLUSION_RADIUS:
@@ -3592,7 +3662,7 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 ## which is guaranteed to clear it by construction (its nearest ring is
 ## already farther out than the blast radius).
 ## Returns `from` (no better option this way) if no hill qualifies.
-static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0) -> Vector2:
+static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = []) -> Vector2:
 	var avg_threat := Vector2.ZERO
 	for t in threat_positions:
 		avg_threat += t
@@ -3630,6 +3700,18 @@ static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vect
 				too_close_to_recent = true
 				break
 		if too_close_to_recent:
+			continue
+		# See MORTAR_BUNCHING_AVOIDANCE_RADIUS's own doc comment — same
+		# "falls through to the ring search" reasoning as the recent-
+		# position check just above; this candidate is anchored to hill
+		# geometry alone, with no room here for the ring search's own
+		# two-stage prefer/fallback treatment of the same constraint.
+		var too_close_to_sibling := false
+		for p in bunch_avoid_positions:
+			if candidate.distance_to(p) < MORTAR_BUNCHING_AVOIDANCE_RADIUS:
+				too_close_to_sibling = true
+				break
+		if too_close_to_sibling:
 			continue
 		if avoid_buildings and (is_building_at(candidate) or path_crosses_building(from, candidate)):
 			continue

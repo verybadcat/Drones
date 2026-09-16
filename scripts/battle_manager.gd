@@ -354,6 +354,14 @@ var enemy_alerted: bool = false
 var player_general_retreat_ordered: bool = false
 var enemy_general_retreat_ordered: bool = false
 
+# One-shot: has the enemy's own mortar force been pulled back specifically
+# because no enemy squad is left fighting any more? See
+# _check_enemy_mortar_isolated_retreat's own doc comment — independent of
+# enemy_general_retreat_ordered above, since a force can lose every squad
+# without ever crossing the whole-force hopeless casualty threshold that
+# flag is gated on.
+var enemy_mortar_isolated_retreat_ordered: bool = false
+
 # Counter-battery strikes triggered but not yet landed — see
 # _resolve_mortar_counter_battery / _resolve_pending_counter_battery.
 # {"target": Unit, "impact_position": Vector2, "impact_time": float}
@@ -637,6 +645,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	enemy_alerted = false
 	player_general_retreat_ordered = false
 	enemy_general_retreat_ordered = false
+	enemy_mortar_isolated_retreat_ordered = false
 	_last_detected_mortar_fire.clear()
 	_mortar_tick_shot.clear()
 	_mortar_move_intent.clear()
@@ -1154,15 +1163,21 @@ func order_general_retreat() -> void:
 ## decent shape can still get pulled back here if the attack overall has
 ## clearly failed. One-shot per battle, checked every tick.
 ##
-## SQUADS only — mortars are deliberately left out. Calling off the infantry
-## assault doesn't mean abandoning fire support: a mortar sitting well to
-## the rear isn't at risk of being overrun the way forward squads are, and
-## a real commander keeps supporting fires going (harassing the enemy,
-## covering the withdrawal, still hunting for counter-battery range on the
+## SQUADS only — mortars are deliberately left out HERE. Calling off the
+## infantry assault doesn't mean abandoning fire support while there's
+## still an infantry fight to support: a mortar sitting well to the rear
+## isn't at risk of being overrun the way forward squads are, and a real
+## commander keeps supporting fires going (harassing the enemy, covering
+## the withdrawal, still hunting for counter-battery range on the
 ## opposing mortar) rather than pulling a perfectly good gun out of action
-## for no tactical reason. A mortar still retreats on its own if it's
-## personally hit (Unit._apply_crew_casualties) — this just means the
-## infantry giving up doesn't automatically drag it along too.
+## for no tactical reason — AS LONG AS some squad is still out there
+## fighting or withdrawing for the mortar to actually be supporting. Once
+## that stops being true — see _check_enemy_mortar_isolated_retreat, this
+## function's own companion check — the mortar retreats too. A mortar
+## still retreats on its own if it's personally hit (Unit.
+## _apply_crew_casualties) regardless of either check — this just means
+## the infantry giving up doesn't AUTOMATICALLY drag it along too, not
+## that it never will.
 ##
 ## The log banner states the actual casualty percentage that triggered
 ## this — no guessing after the fact why the retreat happened.
@@ -1198,6 +1213,65 @@ func _check_enemy_commander_retreat() -> void:
 	if any_ordered:
 		var casualty_percent: float = _compute_side_stats(enemy_units).casualty_percent
 		combat_log.add_entry("--- Enemy commander orders a general retreat: the attack has failed (%.0f%% casualties) — mortars continue the fire mission ---" % casualty_percent)
+
+
+## The companion this function's own doc comment refers to: the squads-
+## only exemption above only makes tactical sense while there's an actual
+## infantry fight for the mortar to be supporting. Checked independently
+## of enemy_general_retreat_ordered/_enemy_situation_hopeless — a real,
+## previously-reported gap this closes: enemy squads can also retreat one
+## at a time on their own individual casualty threshold (Unit.
+## _check_retreat), not just all at once via the top-down hopeless
+## trigger above, and a force can lose every squad this gradual way
+## without the WHOLE force's casualty percentage ever crossing
+## ENEMY_COMMANDER_RETREAT_THRESHOLD (mortars, undamaged, can keep the
+## overall percentage low even once every squad is gone) — in which case
+## _check_enemy_commander_retreat would never fire at all, and the mortar
+## would otherwise keep fighting alone indefinitely with nothing left to
+## support. One-shot per battle, checked every tick, right after the
+## function above so a mass retreat that empties the squad roster in one
+## pass triggers this the very same tick rather than waiting a full turn
+## for the newly-RETREATING squads to register as inactive.
+##
+## ACTIVE squads specifically, not "any squad still on the field" — a
+## RETREATING squad has already broken off and is trying to escape, not
+## fighting or covering anyone; it provides no more real screen for the
+## mortar than one that's already destroyed or surrendered.
+##
+## Requires at least one SQUAD to have existed in `enemy_units` at all —
+## an enemy force that never fielded any infantry in the first place
+## (a mortar-only doctrine, or a test harness scenario built around an
+## isolated mortar target) has nothing to have "lost," so there's no real
+## isolation event to react to; without this check this fired instantly,
+## every single tick one, for any such roster, since "zero ACTIVE squads"
+## was trivially true from the very first frame.
+func _check_enemy_mortar_isolated_retreat() -> void:
+	if enemy_mortar_isolated_retreat_ordered or battle_over:
+		return
+	var any_squad_ever := false
+	for u in enemy_units:
+		if u.kind == Unit.Kind.SQUAD:
+			any_squad_ever = true
+			if u.state == Unit.State.ACTIVE:
+				return
+	if not any_squad_ever:
+		return
+	var any_mortar_active := false
+	for u in enemy_units:
+		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE:
+			any_mortar_active = true
+			break
+	if not any_mortar_active:
+		return
+	enemy_mortar_isolated_retreat_ordered = true
+	var known_player_positions := _known_enemy_positions(Unit.Team.ENEMY)
+	var claimed: Array[Vector2] = []
+	for unit in enemy_units:
+		if unit.kind == Unit.Kind.MORTAR and unit.state == Unit.State.ACTIVE:
+			unit.order_retreat(known_player_positions, _ally_positions_for(unit) + claimed)
+			claimed.append(unit.move_target if unit.has_move_target else unit.global_position)
+			combat_log.log_ordered_retreat(unit)
+	combat_log.add_entry("--- With no squads left fighting, the enemy mortar(s) pull back too ---")
 
 
 ## Whether a squad just ordered to retreat surrenders in place instead —
@@ -1348,6 +1422,30 @@ func _ally_positions_for(unit: Unit) -> Array[Vector2]:
 	var out: Array[Vector2] = []
 	for u in _ally_units_for(unit):
 		out.append(u.global_position)
+	return out
+
+
+## Other ACTIVE same-team mortars' own positions — fed into GameConfig.
+## nearest_hidden_point/_mortar_advance_point as `bunch_avoid_positions`
+## so a mortar relocating or hunting tries hard not to end up close
+## enough to a sibling that a single counter-battery strike could catch
+## both (see MORTAR_BUNCHING_AVOIDANCE_RADIUS's own doc comment for the
+## real cited standard). A sibling's own PENDING destination counts here,
+## not just its current position — `_update_mortar_decisions` runs every
+## active mortar's own decision once per tick in a fixed order, so
+## without this, two mortars deciding to relocate the SAME tick would
+## each only see the OTHER's stale pre-decision position and could still
+## converge on nearby destinations despite each individually "avoiding"
+## the other's old spot. Narrower than _ally_positions_for on purpose —
+## a mortar has no real reason to keep its distance from a friendly squad
+## the way it does from another mortar (a squad isn't a comparably
+## attractive counter-battery target).
+func _sibling_mortar_positions(mortar: Unit) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for u in _ally_units_for(mortar):
+		if u.kind != Unit.Kind.MORTAR:
+			continue
+		out.append(u.move_target if u.has_move_target else u.global_position)
 	return out
 
 
@@ -3712,16 +3810,37 @@ func _drone_routine_recon_target(flank_candidates: Array) -> Dictionary:
 ## line would put the mortar in or through a building, which it can never
 ## do. Returns `mortar`'s own current position (a no-op move) if no angle
 ## works.
+##
+## Also tries hard to avoid landing within MORTAR_BUNCHING_AVOIDANCE_
+## RADIUS of a sibling mortar's own current or pending position (see
+## _sibling_mortar_positions's own doc comment) — a real, previously-
+## reported gap: multiple enemy mortars hunting the SAME known player
+## mortar had nothing stopping their advance points from converging near
+## each other. The first angle that's building-clear AND sibling-clear
+## wins outright; if none is, falls back to whichever building-clear
+## angle keeps the MOST distance from the nearest sibling, rather than
+## just the first one tried in priority order — still a real hunt move,
+## the best one actually available, not a freeze.
 func _mortar_advance_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 	var base_dir: Vector2 = (target_pos - mortar.global_position).normalized()
 	var target_distance: float = GameConfig.mortar_max_range(mortar.team) * 0.9 # comfortably in range, not right on the edge
+	var siblings: Array[Vector2] = _sibling_mortar_positions(mortar)
+	var best_fallback: Vector2 = mortar.global_position
+	var best_fallback_clearance := -1.0
 	for offset_deg in [0.0, -15.0, 15.0, -30.0, 30.0, -45.0, 45.0]:
 		var dir: Vector2 = base_dir.rotated(deg_to_rad(offset_deg))
 		var candidate: Vector2 = target_pos - dir * target_distance
 		if GameConfig.is_building_at(candidate) or GameConfig.path_crosses_building(mortar.global_position, candidate):
 			continue
-		return candidate
-	return mortar.global_position
+		var nearest_sibling_dist := INF
+		for p in siblings:
+			nearest_sibling_dist = min(nearest_sibling_dist, candidate.distance_to(p))
+		if nearest_sibling_dist >= GameConfig.MORTAR_BUNCHING_AVOIDANCE_RADIUS:
+			return candidate
+		if nearest_sibling_dist > best_fallback_clearance:
+			best_fallback_clearance = nearest_sibling_dist
+			best_fallback = candidate
+	return best_fallback
 
 
 ## Whether an UNWATCHED (not currently is_visible — that's its own,
@@ -4081,6 +4200,7 @@ func _process(delta: float) -> void:
 	_resolve_pending_mortar_displacement()
 	_update_player_intel()
 	_check_enemy_commander_retreat()
+	_check_enemy_mortar_isolated_retreat()
 	_check_scheduled_retreat()
 	_prune_fire_flashes()
 	_record_unit_decisions()
@@ -5614,10 +5734,29 @@ func _mortar_relocation_plan(mortar: Unit, urgent: bool) -> Dictionary:
 	# threat, most commonly) walk the crew back toward the position that
 	# got it compromised in the first place.
 	var min_distance_from_home: float = _mortar_max_distance_from_home.get(mortar, 0.0) if mortar.team == Unit.Team.PLAYER else 0.0
+	# See _sibling_mortar_positions's own doc comment — try hard not to
+	# converge on another same-team mortar's position or destination.
+	# Threaded through BOTH branches below — a real, empirically-confirmed
+	# mistake in an earlier version of this fix assumed the no-known-
+	# threats fallback (nearest_cover_point) was a rare edge case not
+	# worth the trouble, but it's actually the COMMON path for exactly
+	# the scenario this feature exists to fix: "spotted with nothing to
+	# shoot" fires whenever the PLAYER has found this mortar, regardless
+	# of whether the mortar has any idea where the player's own units
+	# are — under drone-heavy player doctrine that's routinely true, so
+	# `threats` (known PLAYER positions, from the enemy's own point of
+	# view) is very often empty right when concealment-seeking matters
+	# most. nearest_cover_point's own avoid_positions has different
+	# semantics (excludes a whole cover zone outright, not a fixed
+	# radius) but that's a real, if coarser, form of the same avoidance —
+	# reused directly rather than adding a whole second radius-based
+	# mechanism to a function this feature doesn't otherwise need to
+	# touch.
+	var siblings: Array[Vector2] = _sibling_mortar_positions(mortar)
 	var destination: Vector2 = (
-		GameConfig.nearest_hidden_point(mortar.global_position, threats, true, urgent, recent, home_position, home_leash, min_distance_from_home)
+		GameConfig.nearest_hidden_point(mortar.global_position, threats, true, urgent, recent, home_position, home_leash, min_distance_from_home, siblings)
 		if not threats.is_empty()
-		else GameConfig.nearest_cover_point(mortar.global_position, 0.0, true)
+		else GameConfig.nearest_cover_point(mortar.global_position, 0.0, true, siblings)
 	)
 	if destination == mortar.global_position:
 		return {}
