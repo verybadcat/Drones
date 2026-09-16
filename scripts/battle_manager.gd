@@ -5904,6 +5904,60 @@ func _clear_mortar_move(m: Unit) -> void:
 func _relocate_mortar(mortar: Unit, intent: String, force_urgent: bool = false) -> bool:
 	var urgent: bool = mortar.evading_counter_battery or force_urgent
 	mortar.evading_counter_battery = false
+	# A real, reported oscillation, confirmed by tracing the FRIENDLY
+	# mortar's own out-of-ammo relocations directly: unspotted and
+	# unthreatened (force_urgent false), that tier calls this function
+	# again on literally every tick has_move_target reads false — which,
+	# given each short relocation leg only takes a tick or two to walk at
+	# this project's own tactical time scale, meant a fresh relocation
+	# was being considered again before the crew had even finished
+	# settling into the last one. With no real threat forcing genuine
+	# progress, most reachable candidates score similarly, and the
+	# search's own weighted-random pick among top-scoring candidates
+	# (deliberate — see nearest_hidden_point's own doc comment on why a
+	# crew that always ran to the single best spot would itself be a
+	# predictable pattern) then wanders among several comparably-good
+	# local optima instead of settling — confirmed directly: the crew
+	# revisited the same handful of points 50-100m apart repeatedly, even
+	# reversing its own immediately-prior leg twice, over about 30
+	# real-world seconds. The existing recently-visited exclusion
+	# (MORTAR_RECENT_POSITION_EXCLUSION_RADIUS) doesn't catch this at
+	# all — it's deliberately small (20m, not the 150m an earlier version
+	# used) specifically so it doesn't starve the search on this
+	# project's own short 75-160m ring scale (see that constant's own
+	# doc comment), well under the 50-100m distances this pattern
+	# actually revisits at.
+	#
+	# GameConfig.MORTAR_VOLUNTARY_RELOCATION_COOLDOWN (180 tactical
+	# seconds, its own dedicated constant — see that constant's own doc
+	# comment for why reusing the much-shorter MORTAR_SETUP_TEARDOWN_TIME
+	# was tried first and measured as barely different from no gate at
+	# all) is the minimum dwell time before a NON-URGENT relocation
+	# reconsiders moving at all. A genuinely urgent one (spotted, a real
+	# threat closing, just took counter-battery fire) is untouched:
+	# survival is never throttled by how recently the crew last moved.
+	if not urgent and mortar.seconds_stationary < GameConfig.MORTAR_VOLUNTARY_RELOCATION_COOLDOWN:
+		return false
+	# See MORTAR_BUNCHING_SATISFIED_RADIUS's own doc comment — a real,
+	# reported regression: with nothing actually urgent driving this
+	# relocation, don't even search for one if every known sibling is
+	# already well clear. Without this, a routine (non-urgent) relocation
+	# call re-fires every time this mortar finishes its current leg
+	# (out of ammo with nothing to shoot is checked EVERY tick), and once
+	# the search's own bunching term is scored against the real 300m
+	# doctrinal target, "improve my distance from a sibling that's ALSO
+	# constantly moving" almost always looks technically achievable,
+	# producing exactly the erratic short-hop churn this guards against.
+	if not urgent:
+		var siblings := _sibling_mortar_positions(mortar)
+		if not siblings.is_empty():
+			var already_dispersed := true
+			for p in siblings:
+				if mortar.global_position.distance_to(p) < GameConfig.MORTAR_BUNCHING_SATISFIED_RADIUS:
+					already_dispersed = false
+					break
+			if already_dispersed:
+				return false
 	var plan: Dictionary = _mortar_relocation_plan(mortar, urgent)
 	if plan.is_empty():
 		return false

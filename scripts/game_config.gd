@@ -2366,6 +2366,34 @@ const MORTAR_RELOCATE_TREES_MULTIPLIER: float = 0.8
 # began), so this never delays a hold-position mortar's very first shot.
 const MORTAR_SETUP_TEARDOWN_TIME: float = 30.0 # tactical seconds
 
+## A minimum dwell time before a NON-URGENT relocation (BattleManager.
+## _relocate_mortar, gated on `not urgent`) is even reconsidered —
+## deliberately its own, separate constant from MORTAR_SETUP_TEARDOWN_
+## TIME above, not a reuse: that one answers "how long until this crew
+## is physically ready to fire again," a real but much SHORTER question
+## than "how long is it reasonable to expect this crew to stay in one
+## spot before voluntarily moving again." Reusing the shorter figure was
+## tried first and measured as barely different from no gate at all — at
+## this project's own real tick granularity (TIME_SCALE_NORMAL/FAST_
+## FORWARD, 30-150 tactical seconds per tick), 30 tactical seconds can
+## already elapse within a SINGLE tick, so a mortar could satisfy that
+## gate the instant it arrived, defeating the entire point.
+##
+## Real reasoning, not an arbitrary bump: this project's own existing
+## doc comments already establish that a single relocation LEG can
+## legitimately take several real minutes to walk at MORTAR_RELOCATE_
+## SPEED over real displacement distances — a crew that just finished
+## one leg has no realistic reason to consider a completely fresh one
+## sooner than that same rough timescale, confirmed directly as the
+## actual missing piece behind a live, reported oscillation: an
+## unspotted, unthreatened out-of-ammo mortar re-relocating almost every
+## tick, criss-crossing the same handful of points 50-100m apart
+## (measured directly — see the design doc's own entry). A genuinely
+## URGENT relocation (spotted, a real threat closing, just took counter-
+## battery fire) is entirely untouched by this — survival is never
+## throttled by how recently the crew last moved.
+const MORTAR_VOLUNTARY_RELOCATION_COOLDOWN: float = 180.0 # tactical seconds
+
 ## Counter-battery fire isn't instant, and isn't one flat random delay
 ## either — it's the sum (and, for two of these, the MAX — see below) of
 ## real component times a responding crew actually goes through, not a
@@ -3494,6 +3522,38 @@ const MORTAR_RECENT_POSITION_EXCLUSION_RADIUS: float = 20.0 * PIXELS_PER_METER
 ## real commanders decide separate firing positions in advance, not
 ## something earned by accumulating small evasive hops under fire.
 const MORTAR_BUNCHING_AVOIDANCE_RADIUS: float = 300.0 * PIXELS_PER_METER
+
+## A real, reported regression found the moment the radius above was
+## restored to its correct 300m citation: TWO OR MORE mortars each
+## re-relocating to maximize distance from the OTHER's CURRENT (also
+## constantly shifting) position, with no floor on how close is "close
+## enough" to stop bothering, produced rapid, erratic short hops instead
+## of one stable move — confirmed directly via a live trace: an enemy
+## mortar re-relocating almost every tick, each leg just a few meters,
+## chasing a sibling that was itself doing the exact same thing. At the
+## old 52m target, this was invisible: nearly every reachable candidate
+## already cleared it and scored the same full 1.0 credit, so the
+## bunching term barely influenced which candidate won at all. At 300m,
+## it became the dominant, most-varying term in the whole score, so a
+## sibling's own ordinary movement (or simply which of many similar
+## candidates the search's own weighted-random pick happened to draw)
+## kept reshuffling which spot looked "best" — the mortar version of two
+## people repeatedly side-stepping the same direction in a hallway.
+##
+## Gates _relocate_mortar's own non-urgent (not force_urgent, not
+## reacting to a real threat) calls: once EVERY known sibling is already
+## this far away, a fresh relocation isn't even attempted for that reason
+## alone — no further improvement is worth the resulting instability.
+## Deliberately smaller than MORTAR_BUNCHING_AVOIDANCE_RADIUS itself, not
+## equal to it: real doctrine's own "up to 300 meters... greatly
+## decreases the enemy's chance of neutralizing them" already frames 300m
+## as sufficient, not a number to hover exactly at and re-litigate every
+## tick as a sibling drifts a few meters either side of it. A genuinely
+## URGENT relocation (spotted, a real threat closing, just took counter-
+## battery fire) is untouched by this — survival always still outranks
+## sibling separation, regardless of how well-dispersed the crew already
+## is.
+const MORTAR_BUNCHING_SATISFIED_RADIUS: float = 200.0 * PIXELS_PER_METER
 
 ## A THIRD real gap found once the continuous score factor above was
 ## verified against full, real, uncapped battles rather than short
