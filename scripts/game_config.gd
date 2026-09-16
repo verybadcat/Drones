@@ -284,8 +284,18 @@ const MAPS: Dictionary = {
 		"squad_spread_min_offset_m": -260.0,
 		"squad_spread_max_offset_m": 260.0,
 		"mortar_rear_x_m": 4700.0, # 200m behind spawn_x, same offset as before
-		"mortar_spread_min_y_m": 1450.0,
-		"mortar_spread_max_y_m": 1950.0,
+		# Span widened from an original 500m to 1200m (same 1700m center)
+		# so enemy_mortar_positions_m's even spacing meets FM 7-90 Ch.6's
+		# own real, cited separate-firing-position figure (up to 300m
+		# apart "greatly decreases the enemy's chance of neutralizing
+		# them with countermortar fire") even at ENEMY_MORTAR_COUNT_MAX
+		# (5, giving exactly 4 gaps of 300m) — real commanders decide
+		# separate positions like this in advance, not something a
+		# relocation should have to re-earn hop by hop under fire. See
+		# MORTAR_BUNCHING_AVOIDANCE_RADIUS's own doc comment for the full
+		# citation and the earlier, since-reversed "wrong scale" call.
+		"mortar_spread_min_y_m": 1100.0,
+		"mortar_spread_max_y_m": 2300.0,
 		# Deep enough into the (now 1500m) west flank to be a real flank,
 		# same 2/3-in proportion as before and as Moshchun.
 		"flank_waypoint_x": -1000.0 * PIXELS_PER_METER,
@@ -537,8 +547,13 @@ const MAPS: Dictionary = {
 		"squad_spread_min_offset_m": -260.0,
 		"squad_spread_max_offset_m": 260.0,
 		"mortar_rear_x_m": 4700.0, # 200m behind spawn_x, same offset as every other map
-		"mortar_spread_min_y_m": 850.0,
-		"mortar_spread_max_y_m": 1350.0,
+		# Span widened from an original 500m to 1200m (same 1100m center)
+		# — see the other map's own identical comment for the real
+		# citation (FM 7-90 Ch.6, up to 300m between separate firing
+		# positions) and why this must guarantee that spacing even at
+		# ENEMY_MORTAR_COUNT_MAX.
+		"mortar_spread_min_y_m": 500.0,
+		"mortar_spread_max_y_m": 1700.0,
 		# Deep enough into the 1500m west flank to be a real flank, same
 		# 2/3-in proportion as every other map.
 		"flank_waypoint_x": -1000.0 * PIXELS_PER_METER,
@@ -3034,6 +3049,30 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 		if not clear_of_siblings.is_empty():
 			candidates = clear_of_siblings
 
+		# A second, softer stage on top of the hard critical-radius floor
+		# above — see MORTAR_BUNCHING_AVOIDANCE_RADIUS's own doc comment.
+		# The critical-radius filter alone only ever guarantees clearing
+		# the narrow single-round-catastrophe distance (26m); this mapped-
+		# cover-zone search had no route at all toward the much larger,
+		# real doctrinal separation target (300m) it should actually be
+		# aiming for whenever a real alternative allows it — the ring
+		# search gained exactly this soft preference via its own
+		# CONCEALMENT_SEARCH_RINGS_BUNCHING_EXTRA_M fix; this is the same
+		# preference applied to the zone-list search's own candidate pool
+		# instead (there's no "extra ring" concept here — the mapped
+		# zones already exist, this only needs to prefer among them).
+		var clear_of_full_radius: Array[Dictionary] = []
+		for c in candidates:
+			var within_soft_radius := false
+			for p in bunch_avoid_positions:
+				if c.zone.center.distance_to(p) < MORTAR_BUNCHING_AVOIDANCE_RADIUS:
+					within_soft_radius = true
+					break
+			if not within_soft_radius:
+				clear_of_full_radius.append(c)
+		if not clear_of_full_radius.is_empty():
+			candidates = clear_of_full_radius
+
 	candidates.sort_custom(func(a, b): return a.dist < b.dist)
 
 	var pool_size: int = min(3, candidates.size())
@@ -3329,6 +3368,24 @@ const CONCEALMENT_SEARCH_RINGS_M: Array[float] = [75.0, 100.0, 130.0]
 const CONCEALMENT_SEARCH_RINGS_URGENT_M: Array[float] = [100.0, 130.0, 160.0]
 const CONCEALMENT_SEARCH_SAMPLES: int = 16
 
+## Extra, farther rings _ring_search_hidden_point samples ONLY when it
+## also has a sibling to avoid (bunch_avoid_positions non-empty) — added
+## specifically so MORTAR_BUNCHING_AVOIDANCE_RADIUS's real, cited 300m
+## separation target is actually reachable by at least some candidates,
+## not permanently out of reach of every ring the routine 75-160m sets
+## above sample. Without this, the continuous bunching score could never
+## get anywhere close to its own full-credit distance, capping its real
+## influence at under half strength regardless of how good a candidate
+## was — the exact mechanical failure an earlier, abandoned attempt at
+## 300m ran into (see that constant's own doc comment). Kept as a
+## SEPARATE set rather than folded into the routine rings above:
+## ordinary concealment-seeking (no sibling to avoid, or one already
+## comfortably clear) has no reason to march this far just to hide from a
+## threat — "a real crew doesn't want to march far just to hide" already
+## established elsewhere in this file — these only ever get sampled when
+## there's an actual bunching problem worth the extra distance to fix.
+const CONCEALMENT_SEARCH_RINGS_BUNCHING_EXTRA_M: Array[float] = [200.0, 300.0]
+
 # How far (at most) it's worth walking to reach an actual hill's reverse
 # slope rather than settling for a closer, weaker spot — see
 # _reverse_slope_candidate. Generous, since real cover (a whole hill
@@ -3392,48 +3449,51 @@ const MORTAR_RECENT_POSITION_MEMORY_COUNT: int = 5
 const MORTAR_RECENT_POSITION_EXCLUSION_RADIUS: float = 20.0 * PIXELS_PER_METER
 
 ## How far apart same-side mortars should try hard to stay from each
-## other — a real, cited minimum, not a guess, but a DIFFERENT real
-## citation than an earlier version of this constant used (300m, FM 7-90
-## Ch.6's figure for splitting a whole PLATOON into two separate firing
-## positions) — that figure was the wrong scale for what this constant
-## actually needs to achieve. This project's own individual "enemy
-## mortar" units are each their own tube/crew, not multi-tube sections,
-## and — confirmed empirically once the 300m version measurably failed
-## to change anything — a single relocation hop only ever covers
-## CONCEALMENT_SEARCH_RINGS_*'s own real-world-grounded 75-160m reach
-## (see that constant's own doc comment). Requiring 300m of clearance in
-## ONE hop is geometrically impossible the moment two mortars are already
-## within a few hundred meters of each other — which, given this
-## project's own even-spacing spawn formula putting adjacent mortars as
-## little as 125m apart at ENEMY_MORTAR_COUNT_MAX (5), is true from the
-## very first tick — so the "prefer, fall back only if nothing clears it"
-## selection always fell back, and bunching avoidance silently did
-## nothing at all. The real citation that actually matches this scale:
-## FM 7-90 (Ch.7) states mortar platoons maintain "a lateral dispersion
-## between mortars equal to the bursting diameter of an HE round of that
-## mortar system" — i.e. individual TUBE spacing within one firing
-## position, not whole-section separation. Using this project's own
-## already-cited 82mm Type 67 lethal-fragment radius (~26m — see
-## MORTAR_BLAST_CASUALTY_RADIUS) doubled for a bursting diameter (~52m)
-## gives a real, comfortably SUB-ring-scale target a single hop can
-## actually achieve most of the time. A SECOND real gap found once this
-## smaller radius was empirically verified against real battles: several
-## mortars all pushed toward the same map edge (or all reacting to the
-## same single threat) compresses every mortar's own escape directions
-## down to nearly one dimension, so even at this smaller scale a
-## two-stage "prefer fully-clear, else ignore entirely" selection still
-## sometimes found NOTHING fully clear and threw away all preference
-## between a candidate that's merely somewhat too close and one that's
-## nearly on top of a sibling. _ring_search_hidden_point applies this as
-## a smooth, continuous score factor instead (more separation always
-## scores better, down to a small floor rather than a hard cliff) for
-## exactly that reason. The hunting destination search
-## (_mortar_advance_point) uses its own analogous "prefer full clearance,
-## else the least-bad available" fallback — see its own doc comment —
-## matching this project's own established "movement must never be
-## starved to zero" principle for every other soft preference in this
-## same family of searches.
-const MORTAR_BUNCHING_AVOIDANCE_RADIUS: float = 52.0 * PIXELS_PER_METER
+## other — FM 7-90 Ch.6's own real, cited figure: splitting a mortar
+## platoon into separate firing positions "up to 300 meters apart...
+## greatly decreases the enemy's chance of neutralizing them with
+## countermortar fire." An EARLIER version of this constant reasoned this
+## was the wrong scale — that 300m describes whole-SECTION separation,
+## not individual-tube spacing, and that this project's own individual
+## "enemy mortar" units (each its own tube/crew, not a multi-tube
+## section) needed the smaller Ch.7 figure instead ("lateral dispersion
+## between mortars equal to the bursting diameter of an HE round," ~52m
+## using this project's own cited 82mm lethal-fragment radius). That
+## reasoning had it backwards: this project's mortars each act as
+## INDEPENDENT firing elements — capable of their own displacement,
+## targeting, and survival, never needing centralized voice/fire control
+## the way tubes sharing one physical position do — which is exactly the
+## separate-SECTIONS scenario Ch.6 describes, not the shared-position
+## scenario Ch.7 describes. The user's own original report ("bunched up,"
+## implying visible clustering vulnerable to being wiped out together) is
+## also about the hazard Ch.6 directly addresses (a countermortar mission
+## neutralizing the whole position at once), not the narrower Ch.7 hazard
+## (one HE round's fragmentation catching two adjacent tubes) — that
+## narrower risk is real too and still worth guarding against absolutely,
+## just at a much tighter distance (see MORTAR_BUNCHING_CRITICAL_RADIUS,
+## unchanged at 26m, its own separate citation — the two constants
+## aren't duplicates, they're a soft doctrinal target layered over a hard
+## catastrophic-risk floor).
+##
+## An earlier attempt at 300m here was reverted after "measurably failing
+## to change anything" in a full-battle diagnostic — but that failure was
+## a MECHANICAL gap, not evidence the citation was wrong: a single
+## relocation hop only ever covered CONCEALMENT_SEARCH_RINGS_*'s own
+## 75-160m reach, so no continuous score ever got within striking
+## distance of 300m's own full credit, permanently capping this factor's
+## real-world influence at under half its intended strength regardless of
+## how good a candidate actually was. Re-verified directly against the
+## primary source (not just the earlier session's own paraphrase) before
+## reinstating this: fixed properly this time by giving
+## _ring_search_hidden_point extra, farther rings to sample specifically
+## when a sibling needs avoiding (see CONCEALMENT_SEARCH_RINGS_BUNCHING_
+## EXTRA_M) rather than quietly settling for a smaller, easier-to-satisfy
+## number. Enemy mortar spawn spacing (CURRENT_MAP.enemy's own
+## mortar_spread_min/max_y_m) was also widened to guarantee this
+## separation from the very first tick, matching Ch.6's own framing —
+## real commanders decide separate firing positions in advance, not
+## something earned by accumulating small evasive hops under fire.
+const MORTAR_BUNCHING_AVOIDANCE_RADIUS: float = 300.0 * PIXELS_PER_METER
 
 ## A THIRD real gap found once the continuous score factor above was
 ## verified against full, real, uncapped battles rather than short
@@ -3459,7 +3519,7 @@ const MORTAR_BUNCHING_AVOIDANCE_RADIUS: float = 52.0 * PIXELS_PER_METER
 ## than ideal." Tracked as its own two-stage hard preference — same
 ## pattern as this function's own floor_ok — specifically because THIS
 ## degree of closeness is different in kind, not just degree, from the
-## softer 52m preference above: never choose a candidate this close if
+## softer 300m preference above: never choose a candidate this close if
 ## literally any alternative clears it, falling back only when nothing
 ## does, matching this project's own established "movement must never be
 ## starved to zero" principle.
@@ -3584,6 +3644,12 @@ static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2]
 ## and-scoot doctrine exists to avoid.
 static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = []) -> Vector2:
 	var rings: Array[float] = CONCEALMENT_SEARCH_RINGS_URGENT_M if urgent else CONCEALMENT_SEARCH_RINGS_M
+	# See CONCEALMENT_SEARCH_RINGS_BUNCHING_EXTRA_M's own doc comment —
+	# only sampled when there's an actual sibling to create real
+	# separation from, so ordinary concealment-seeking never marches
+	# farther than it needs to just because another mortar exists.
+	if not bunch_avoid_positions.is_empty():
+		rings = rings + CONCEALMENT_SEARCH_RINGS_BUNCHING_EXTRA_M
 
 	var avg_threat := Vector2.ZERO
 	for t in threat_positions:
