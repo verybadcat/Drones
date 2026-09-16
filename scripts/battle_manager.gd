@@ -7035,10 +7035,10 @@ func _draw() -> void:
 func _draw_mortar_impact(position: Vector2, t: float) -> void:
 	var core_alpha: float = clampf(1.0 - t * 3.0, 0.0, 1.0) # real HE core flash burns out within the first third
 	if core_alpha > 0.0:
-		draw_circle(position, 6.0, Color(1.0, 0.95, 0.7, core_alpha))
-		draw_circle(position, 3.0, Color(1.0, 1.0, 1.0, core_alpha))
+		draw_circle(position, 9.6, Color(1.0, 0.95, 0.7, core_alpha))
+		draw_circle(position, 4.8, Color(1.0, 1.0, 1.0, core_alpha))
 	var ring_alpha: float = 1.0 - t
-	var ring_radius: float = 4.0 + t * 10.0
+	var ring_radius: float = 6.4 + t * 16.0
 	draw_arc(position, ring_radius, 0.0, TAU, 24, Color(0.35, 0.3, 0.25, ring_alpha * 0.8), 2.0, true)
 	draw_arc(position, ring_radius * 0.65, 0.0, TAU, 24, Color(0.15, 0.12, 0.1, ring_alpha * 0.6), 2.0, true)
 
