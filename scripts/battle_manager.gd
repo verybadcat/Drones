@@ -2025,8 +2025,19 @@ func _mortar_hunt_destination_for(m: Unit, target_pos: Vector2, trusted: bool) -
 	var dest := _friendly_mortar_hunt_point(m, target_pos)
 	if dest == m.global_position:
 		return m.global_position # no safe route found this tick — try again next tick
-	if dest.distance_to(_friendly_mortar_home_position) > GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME:
-		return m.global_position # too far from what the crew considers safe territory, trusted lead or not
+	# The leash isn't an absolute wall — see GameConfig.MORTAR_HUNT_
+	# EXTENDED_RANGE_FROM_HOME's own doc comment for the real correction
+	# behind this (a live, reported bug: a mortar whose only known fix sat
+	# just beyond the ordinary leash was permanently refusing every hunt
+	# candidate, with no way to ever get a shot at all). A CONFIRMED,
+	# currently-trusted target is worth the crew briefly reaching past its
+	# ordinary comfort zone for; a bare, unconfirmed last-known position
+	# is not — the same real distinction MORTAR_HUNT_UNTRUSTED_MAX_
+	# RELOCATE already draws for how big a gamble to risk on this exact
+	# same `trusted` flag.
+	var leash: float = GameConfig.MORTAR_HUNT_EXTENDED_RANGE_FROM_HOME if trusted else GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME
+	if dest.distance_to(_friendly_mortar_home_position) > leash:
+		return m.global_position # too far from what the crew considers safe territory even with this allowance
 	if _friendly_mortar_hunt_destination_is_reckless(m, dest):
 		return m.global_position # would newly put the mortar ahead of, or outside the band held by, its own infantry screen
 	if not trusted and m.global_position.distance_to(dest) > GameConfig.MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE:
@@ -4298,8 +4309,24 @@ func _decide_mortar_action(m: Unit) -> void:
 				combat_log.log_mortar_hunting(m, fix.trusted)
 			_mortar_reasoning[m] = {"tier": "Destroy enemy mortars", "detail": "Closing on a known enemy mortar position."}
 			return
+		# A real, reported bug: this used to `return` here unconditionally,
+		# permanently trapping the mortar in this exact branch for as long
+		# as `fix` stays non-empty — which, per _known_enemy_mortar_lead's
+		# own third fallback (a last-SEEN position, no expiry at all), can
+		# be the rest of the battle. Confirmed directly via the game's own
+		# live debug snapshot during actual play: a player mortar frozen
+		# in place for real minutes, reporting this exact "no acceptable
+		# route" reasoning every single tick, because the known fix sat
+		# far enough past MORTAR_HUNT_MAX_RANGE_FROM_HOME that NO angle
+		# _friendly_mortar_hunt_point tries could ever satisfy the home
+		# leash — a geometric relationship that never changes tick to
+		# tick, so retrying identically forever never helps. Falls
+		# through to the idle "Holding" tier below instead — genuinely
+		# more honest (the mortar isn't accomplishing anything by
+		# pretending to still be working the approach) and gives that
+		# tier's own bunching-dispersal check (if this mortar has
+		# siblings) a chance it could never get while stuck here.
 		_mortar_reasoning[m] = {"tier": "Destroy enemy mortars", "detail": "Wants to close on a known enemy mortar, no acceptable route this tick."}
-		return
 
 	# A mortar with genuinely nothing to shoot, hunt, or displace for is not
 	# actually "done" if it's sitting critically close to a sibling — a

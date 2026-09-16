@@ -2310,21 +2310,49 @@ const MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE: float = 1000.0 * PIXELS_PER_METER
 # takes over.
 const MORTAR_LEAD_SWITCH_MARGIN: float = 100.0 * PIXELS_PER_METER
 
-# An ABSOLUTE ceiling on the friendly mortar's own hunting, independent of
-# how good the intel is — see BattleManager._friendly_mortar_home_position
-# / _update_joint_mortar_hunt / _update_friendly_mortar_hunting. Hunting a
-# known enemy mortar is good, but a real crew still won't range
-# indefinitely far from wherever they were actually set up just because a
-# drone reports a trusted fix — this caps how far a hunt's DESTINATION may
-# end up from that deployment position, regardless of trust level, and
-# regardless of whether any enemy squads are known to be nearby (that's
-# a SEPARATE concern, already handled by _friendly_mortar_hunt_point's own
-# concealment-seeking — this is about distance from home, full stop, not
-# about avoiding specific known threats along the way). Set to half
-# MORTAR_MAX_RANGE_PLAYER (this constant is explicitly the FRIENDLY
-# mortar's own leash, never the enemy's) — enough real room to reposition
-# meaningfully for a shot, not half the map.
+# The PREFERRED ceiling on the friendly mortar's own hunting — see
+# BattleManager._friendly_mortar_home_position / _update_joint_mortar_
+# hunt / _update_friendly_mortar_hunting. Hunting a known enemy mortar is
+# good, but a real crew still won't routinely range indefinitely far
+# from wherever they were actually set up just because a drone reports a
+# trusted fix — this is how far a hunt's DESTINATION may end up from that
+# deployment position under ORDINARY circumstances, regardless of trust
+# level, and regardless of whether any enemy squads are known to be
+# nearby (that's a SEPARATE concern, already handled by
+# _friendly_mortar_hunt_point's own concealment-seeking — this is about
+# distance from home, full stop, not about avoiding specific known
+# threats along the way). Set to half MORTAR_MAX_RANGE_PLAYER (this
+# constant is explicitly the FRIENDLY mortar's own leash, never the
+# enemy's) — enough real room to reposition meaningfully for a shot, not
+# half the map.
+#
+# NOT an absolute wall, though — a real, direct correction, after this
+# constant's own earlier absolute-ceiling framing produced a live,
+# reported bug: a mortar whose only known enemy-mortar fix sat beyond
+# this distance from home in every direction was permanently rejecting
+# every hunt candidate _friendly_mortar_hunt_point ever proposed, with
+# no way to ever get a shot at the single highest-priority target type
+# there is. The user's own correction: "the range leash is not an
+# absolute thing. The mortar could reasonably go briefly outside of it,
+# but then back in to take a shot." See MORTAR_HUNT_EXTENDED_RANGE_
+# FROM_HOME for the real, bounded excursion this constant's own
+# preference now falls back to rather than refusing outright.
 const MORTAR_HUNT_MAX_RANGE_FROM_HOME: float = MORTAR_MAX_RANGE_PLAYER * 0.5
+
+# The real, bounded fallback MORTAR_HUNT_MAX_RANGE_FROM_HOME's own doc
+# comment describes — "briefly outside of it, but then back in to take
+# a shot," not an unlimited excursion. Set to the mortar's own full,
+# uncapped MORTAR_MAX_RANGE_PLAYER (double the preferred leash) —
+# genuinely bounded (this is still a real, finite distance, not "the
+# whole map"), but far enough to actually reach a known enemy mortar
+# that's currently just past the preferred leash, which a real crew
+# chasing the single highest-priority target type on the battlefield
+# would reasonably do. Only ever consulted as a FALLBACK — see
+# _mortar_hunt_destination_for's own two-stage "prefer the tighter
+# leash, only reach for this one when nothing within it works at all"
+# structure, the same pattern already used throughout this family of
+# searches (never an unconditional relaxation of the ordinary leash).
+const MORTAR_HUNT_EXTENDED_RANGE_FROM_HOME: float = MORTAR_MAX_RANGE_PLAYER
 
 # A relocating mortar crew actually walks there — real speed, real distance,
 # real time, no separate "cooldown" bolted on top (see BattleManager.
