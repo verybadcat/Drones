@@ -71,9 +71,13 @@ func _forecast_target(unit: Unit) -> Unit:
 	for candidate in opposing:
 		if not candidate.is_targetable(): continue
 		if unit.kind == Unit.Kind.SQUAD:
+			# See _pick_target's own doc comment — neither weapon can
+			# realistically engage a drone at all.
+			if candidate.kind == Unit.Kind.DRONE: continue
 			if unit.global_position.distance_to(candidate.global_position) > GameConfig.SQUAD_ENGAGEMENT_RANGE: continue
 			if not GameConfig.has_direct_los(unit.global_position, candidate.global_position): continue
 		elif unit.kind == Unit.Kind.MORTAR:
+			if candidate.kind == Unit.Kind.DRONE: continue
 			if unit.global_position.distance_to(candidate.global_position) > GameConfig.mortar_max_range(unit.team): continue
 		elif unit.kind != Unit.Kind.DRONE:
 			continue
@@ -521,6 +525,19 @@ var _mortar_reasoning: Dictionary = {}
 var _joint_mortar_hunt_target: Unit = null
 var _joint_mortar_hunt_start_time: float = 0.0
 
+# Sticky picks among several simultaneously-visible ACTIVE enemy mortars —
+# see _closest_enemy_mortar's own doc comment for why "closest to our
+# mortar, with a switching margin" needs its own remembered state rather
+# than being re-derived fresh from scratch every tick. Two SEPARATE sticky
+# slots, not one shared: _known_enemy_mortar_lead and
+# _priority_visible_enemy_mortar's own fallback branch pick from two
+# genuinely different candidate pools (the second explicitly EXCLUDES
+# whichever mortar the first already claimed as the priority hunt target)
+# — sharing one slot between them would let one function's pick silently
+# overwrite the other's memory of what it was tracking.
+var _known_enemy_mortar_lead_unit: Unit = null
+var _drone_fallback_mortar_watch_unit: Unit = null
+
 # Where the friendly mortar was actually deployed this battle (the
 # player's own doctrine choice, wherever in PLAYER_MORTAR_DEPLOYMENT_ZONE
 # that was) — captured once in _spawn_player_units and never touched
@@ -671,6 +688,8 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_mortar_reasoning.clear()
 	_joint_mortar_hunt_target = null
 	_joint_mortar_hunt_start_time = 0.0
+	_known_enemy_mortar_lead_unit = null
+	_drone_fallback_mortar_watch_unit = null
 	_pending_counter_battery.clear()
 	_pending_mortar_shots.clear()
 	recon_mode = doctrine.get("recon_mode", GameConfig.ReconMode.SPOTTER)
@@ -1561,9 +1580,9 @@ func _drone_directing_mortar_fire(attacker: Unit) -> bool:
 ## checked first (a real burst is more likely to catch whoever's actually
 ## closest), `chance_at(distance)` rolled per candidate until one hits or
 ## none do. `exclude` keeps the attacker and the already-resolved primary
-## target out of the pool. DRONE is always excluded — airborne, altitude
-## already protects it from a ground effect the same way it does from
-## everything else (see DRONE_HIT_CHANCE_MULTIPLIER's own reasoning).
+## target out of the pool. DRONE is always excluded — airborne at
+## DRONE_ALTITUDE_M, it's already unreachable by ground fire entirely
+## (see CombatResolver.hit_probability's own DRONE branch).
 ## `only_squads` narrows it further, for the small-arms/bunching case
 ## specifically — this is about troops crowded together, not any two
 ## units merely somewhat close to each other. `chance_at` is called with
@@ -2074,17 +2093,29 @@ func _known_enemy_mortar_lead() -> Dictionary:
 	#
 	# ACTIVE is preferred outright over RETREATING when both are visible —
 	# a fleeing crew is a mop-up, not an ongoing threat, and shouldn't
-	# out-rank a mortar that's still actually in the fight just because it
-	# happens to come first in enemy_units. Only falls back to a visible
-	# RETREATING one when no ACTIVE mortar is visible at all.
+	# out-rank a mortar that's still actually in the fight. Only falls back
+	# to a visible RETREATING one when no ACTIVE mortar is visible at all.
+	#
+	# Among more than one simultaneously-visible ACTIVE mortar, the closest
+	# one to our own mortar wins (see _closest_enemy_mortar's own doc
+	# comment for the real reasoning and the switching-margin hysteresis)
+	# — collected into a list first rather than returned on sight, since
+	# picking "whichever happens to come first in enemy_units" was itself
+	# the previously-reported bug (the drone tracking the farther of two
+	# known mortars purely because of array order).
 	var retreating_visible: Unit = null
+	var active_visible: Array[Unit] = []
 	for u in enemy_units:
 		if u.kind != Unit.Kind.MORTAR or not u.is_targetable_state() or not u.is_visible:
 			continue
 		if u.state == Unit.State.ACTIVE:
-			return {"position": u.global_position, "trusted": true, "unit": u}
-		if retreating_visible == null:
+			active_visible.append(u)
+		elif retreating_visible == null:
 			retreating_visible = u
+	if not active_visible.is_empty():
+		var chosen: Unit = _closest_enemy_mortar(active_visible, _known_enemy_mortar_lead_unit)
+		_known_enemy_mortar_lead_unit = chosen
+		return {"position": chosen.global_position, "trusted": true, "unit": chosen}
 	if retreating_visible != null:
 		return {"position": retreating_visible.global_position, "trusted": true, "unit": retreating_visible}
 
@@ -2125,6 +2156,59 @@ func _known_enemy_mortar_lead() -> Dictionary:
 	if seen_unit == null:
 		return {}
 	return {"position": seen_pos, "trusted": false, "unit": seen_unit}
+
+
+## Which of several simultaneously-visible ACTIVE enemy mortars counts as
+## "the" one to track — the one closest to our own mortar (the crew that
+## will actually have to close on or fire at it), not whichever happens
+## to come first in `candidates`. A real, previously-reported bug: with
+## more than one enemy mortar spotted at once, the drone was tracking
+## whichever came first in enemy_units (spawn order, unrelated to actual
+## distance), which could easily be the FARTHER one — a real crew has no
+## reason to prefer a farther, harder-to-reach mortar over a nearer one
+## it's already better placed to deal with.
+##
+## Sticky against `sticky` (the caller's own remembered previous pick) via
+## GameConfig.MORTAR_LEAD_SWITCH_MARGIN — with two candidates sitting
+## nearly equidistant, ordinary tick-to-tick movement could otherwise flip
+## which one "wins" back and forth indefinitely, each flip discarding
+## whatever hunt/watch progress the previous pick had already made. A
+## different candidate only takes over once it's CLEARLY closer (by more
+## than the margin), not merely closer by whatever jitter the current tick
+## happens to produce — the same "prefer the least-wrong/best option, but
+## don't thrash over a marginal difference" principle already established
+## elsewhere in this file (see _prefer_retreat_direction's own budget
+## logic for the closest analogue). Deliberately takes and returns the
+## sticky value rather than reading/writing shared state itself —
+## _known_enemy_mortar_lead and _priority_visible_enemy_mortar's own
+## fallback branch call this with two DIFFERENT candidate pools (the
+## second always excludes whichever mortar the first already claimed) and
+## must not silently overwrite each other's memory of what they were each
+## tracking.
+##
+## Falls back to the first candidate when there's no friendly mortar at
+## all to measure distance from (nothing to be "closer" to) — matches
+## every other friendly-mortar-relative check's own graceful behavior once
+## the gun is lost.
+func _closest_enemy_mortar(candidates: Array[Unit], sticky: Unit) -> Unit:
+	if candidates.size() == 1:
+		return candidates[0]
+	var fm := _friendly_mortar()
+	if fm == null:
+		return candidates[0]
+	var origin: Vector2 = fm.global_position
+	var best: Unit = candidates[0]
+	var best_dist: float = origin.distance_to(best.global_position)
+	for u in candidates.slice(1):
+		var d: float = origin.distance_to(u.global_position)
+		if d < best_dist:
+			best = u
+			best_dist = d
+	if sticky != null and sticky != best and candidates.has(sticky):
+		var sticky_dist: float = origin.distance_to(sticky.global_position)
+		if sticky_dist - best_dist < GameConfig.MORTAR_LEAD_SWITCH_MARGIN:
+			return sticky # not clearly closer enough to switch away from the current pick
+	return best
 
 
 ## The single position the mortar/drone team's current joint commitment
@@ -3518,15 +3602,22 @@ func _is_priority_hunt_target(target: Unit) -> bool:
 ## are visible) — general awareness still beats losing contact outright,
 ## it just no longer unconditionally outranks a real squad threat.
 func _priority_visible_enemy_mortar() -> Dictionary:
-	var fallback: Unit = null
+	# Collected rather than returned on sight, same reasoning as
+	# _known_enemy_mortar_lead's own fix — "whichever comes first in
+	# enemy_units" is spawn order, not distance, and was the actual bug
+	# behind the drone tracking the farther of two known mortars.
+	var fallback_candidates: Array[Unit] = []
 	for u in enemy_units:
 		if u.kind != Unit.Kind.MORTAR or u.state != Unit.State.ACTIVE or not u.is_visible:
 			continue
 		if _is_priority_hunt_target(u):
 			return {"unit": u, "priority": true}
-		if fallback == null:
-			fallback = u
-	return {} if fallback == null else {"unit": fallback, "priority": false}
+		fallback_candidates.append(u)
+	if fallback_candidates.is_empty():
+		return {}
+	var chosen: Unit = _closest_enemy_mortar(fallback_candidates, _drone_fallback_mortar_watch_unit)
+	_drone_fallback_mortar_watch_unit = chosen
+	return {"unit": chosen, "priority": false}
 
 
 ## THE single point of truth for "can any friendly asset actually strike
@@ -6139,6 +6230,18 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 	var candidates: Array[Unit] = []
 	for e in enemies:
 		if not e.is_targetable():
+			continue
+		# Neither a mortar's plunging HE round nor a rifleman's aimed fire
+		# can realistically engage a small quadcopter loitering at
+		# DRONE_ALTITUDE_M (300m) — a mortar has no way to aim at or fuze
+		# against a moving aerial point target at all, and ordinary small
+		# arms (no shotgun loads or fire-control optics in this era) are
+		# reported as fundamentally unable to track and hit something this
+		# small and fast even at short range, altitude aside (see the
+		# design doc's own revision-log entry for the real-world sourcing
+		# behind this — a live bug report: enemy mortars were seen firing
+		# HE rounds at a drone hundreds of meters away).
+		if e.kind == Unit.Kind.DRONE:
 			continue
 		if unit.kind == Unit.Kind.SQUAD:
 			if unit.global_position.distance_to(e.global_position) > GameConfig.SQUAD_ENGAGEMENT_RANGE:

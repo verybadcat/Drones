@@ -1413,6 +1413,15 @@ const MORTAR_EXPOSED_CONCEALMENT_MULTIPLIER: float = 0.8 # applies only when NOT
 const DRONE_FLEET_SIZE: int = 4
 const DRONE_SPARE_BATTERIES: int = 4
 const DRONE_TEAM_CREW_SIZE: int = 3
+# Re-checked directly rather than left as the original request's own
+# uncited "hard to see and hard to hit" framing: the Australian Army's
+# own professional-military-education site (The Cove), compiling
+# real lessons from this war, reports small reconnaissance drones as
+# hardest to detect during the day at 100-300m — 300m sits right at the
+# top of that real, cited band, not an arbitrary round number. DJI's own
+# factory-default altitude limit for this drone class is lower (400ft /
+# ~122m), but field-modified drones exceeding that limit for exactly
+# this tactical reason are also documented in this exact conflict.
 const DRONE_ALTITUDE_M: float = 300.0
 # DJI's own published Mavic 3 specs, not a guess: 46-minute max flight time
 # (rated), and a 30km max flight distance rated for a sustained 50.4 kph
@@ -1505,12 +1514,6 @@ const DRONE_BATTERY_SWAP_DURATION: float = 4.0 * 60.0 # tactical seconds
 # signal, no matter how long it lingers.
 const DRONE_GROUND_NOTICE_CHANCE_PER_MINUTE: float = 0.01
 const DRONE_GROUND_NOTICE_MAX_RANGE_M: float = 400.0
-
-# From 300m up, camera resolution and a small, quiet airframe make a drone
-# hard to actually hit with small arms even once someone IS looking right at
-# it. It doesn't stand on any terrain in a meaningful sense, so (unlike the
-# notice roll above) this still applies uniformly regardless of terrain.
-const DRONE_HIT_CHANCE_MULTIPLIER: float = 0.1
 
 # The drone's own view is a genuinely different (better) sensor, not just a
 # bigger number bolted onto the spotter's: a wider detection range, and —
@@ -2276,6 +2279,21 @@ const DRONE_MORTAR_FIRE_LEAD_EXPIRY: float = 600.0
 # is only worth a modest repositioning, not abandoning good cover for a
 # long march on a guess.
 const MORTAR_HUNT_UNTRUSTED_MAX_RELOCATE: float = 1000.0 * PIXELS_PER_METER
+
+# When more than one enemy mortar is simultaneously visible, the closer
+# one to our own mortar is preferred — but not on every single tick's
+# worth of ordinary positional jitter. Without a real margin, two enemy
+# mortars sitting nearly equidistant could flip which one counts as "the"
+# known lead back and forth as normal movement nudges one microscopically
+# closer than the other, each flip discarding whatever the previous pick's
+# hunt was making progress toward — see BattleManager.
+# _known_enemy_mortar_lead's own doc comment. A real distance, not a
+# fraction of range — a judgment call, picked comfortably larger than a
+# single tick's worth of ordinary mortar-relocation movement so genuine
+# jitter can never cross it, while a mortar that's actually, clearly
+# closer (having relocated meaningfully, or simply always was) still
+# takes over.
+const MORTAR_LEAD_SWITCH_MARGIN: float = 100.0 * PIXELS_PER_METER
 
 # An ABSOLUTE ceiling on the friendly mortar's own hunting, independent of
 # how good the intel is — see BattleManager._friendly_mortar_home_position

@@ -299,17 +299,29 @@ static func has_live_observer(target: Unit, observers: Array[Unit]) -> bool:
 ## defender's own side's point of view (so that same retreat never heads
 ## toward, or lands right next to, a threat its own side already knows
 ## about — see nearest_cover_point's DANGER_RADIUS exclusion).
-## A DRONE defender skips the terrain-based cover table entirely — it isn't
-## standing on any ground to take cover in — in favor of a flat, severe
-## DRONE_HIT_CHANCE_MULTIPLIER: altitude, not a foxhole, is what protects it,
-## and that protection doesn't depend on whether it happens to be moving.
+## A DRONE defender is a hard, unconditional zero — not merely a severe
+## reduction — regardless of who's firing. Real-world sourcing (see the
+## design doc's own revision-log entry, prompted by a live bug report of
+## an enemy mortar firing an HE round at a drone hundreds of meters away)
+## found no plausible engagement exists in this scenario's era: a mortar's
+## plunging fire has no way to aim at or fuze against a small moving
+## aerial point target at all, and ordinary infantry small arms — no
+## shotgun loads or fire-control optics here — are reported as unable to
+## even track and hit something this small and fast, altitude aside. It
+## isn't standing on any ground to take cover in either way, so the
+## terrain-based cover table below never applies to it regardless.
+## `_pick_target`/`_forecast_target` already exclude DRONE from ever being
+## chosen as a real target — this is the same conclusion applied to the
+## read-only risk-forecast path (BattleManager._risk_forecast can still
+## ask "what's the risk to this drone," and the honest answer is now none
+## from ground fire), so the two paths can't silently disagree.
 ## The same hit model used for resolution and read-only forecasts.
 static func hit_probability(attacker: Unit, defender: Unit, drone_directed: bool = false, defender_position: Vector2 = Vector2.INF, attacker_position: Vector2 = Vector2.INF) -> float:
 	var point: Vector2 = defender.global_position if is_inf(defender_position.x) else defender_position
 	var origin: Vector2 = attacker.global_position if is_inf(attacker_position.x) else attacker_position
 	var chance: float
 	if defender.kind == Unit.Kind.DRONE:
-		chance = attacker.base_hit_chance * GameConfig.DRONE_HIT_CHANCE_MULTIPLIER
+		chance = 0.0
 	else:
 		var moving := defender.activity == Unit.Activity.MOVING
 		var cover_table: Dictionary = MORTAR_COVER_MULTIPLIER if attacker.kind == Unit.Kind.MORTAR else SQUAD_COVER_MULTIPLIER
