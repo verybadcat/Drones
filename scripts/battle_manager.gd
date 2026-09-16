@@ -1,5 +1,6 @@
 extends Node2D
 class_name BattleManager
+
 ## Runs one battle: spawns units per doctrine, marches the enemy down the
 ## road, resolves spotting and fire each tick, and produces an after-action
 ## report once both sides are done fighting. Commander profiles configure
@@ -3839,6 +3840,18 @@ func _drone_routine_recon_target(flank_candidates: Array) -> Dictionary:
 ## angle keeps the MOST distance from the nearest sibling, rather than
 ## just the first one tried in priority order — still a real hunt move,
 ## the best one actually available, not a freeze.
+##
+## Clamped to the map's real operating area — a real, separate,
+## previously-undiscovered bug found while tracing the bunching fix
+## above: `target_pos - dir * target_distance` can land well past the
+## actual map edge (confirmed directly: x=1074 against a real ~1000
+## boundary) since, unlike GameConfig.clamp_to_operating_area's own
+## callers, this function never clamped its candidates at all. Harmless
+## as long as `target_pos` and `mortar` both sit well inside the map (the
+## common case), but the bunching fix's own step-aside candidates
+## routinely start from wherever a mortar happens to already be — which
+## can be right at the edge — making this a real, reachable bug, not a
+## theoretical one.
 func _mortar_advance_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 	var base_dir: Vector2 = (target_pos - mortar.global_position).normalized()
 	var target_distance: float = GameConfig.mortar_max_range(mortar.team) * 0.9 # comfortably in range, not right on the edge
@@ -3847,7 +3860,7 @@ func _mortar_advance_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 	var best_fallback_clearance := -1.0
 	for offset_deg in [0.0, -15.0, 15.0, -30.0, 30.0, -45.0, 45.0]:
 		var dir: Vector2 = base_dir.rotated(deg_to_rad(offset_deg))
-		var candidate: Vector2 = target_pos - dir * target_distance
+		var candidate: Vector2 = GameConfig.clamp_to_operating_area(target_pos - dir * target_distance)
 		if GameConfig.is_building_at(candidate) or GameConfig.path_crosses_building(mortar.global_position, candidate):
 			continue
 		var nearest_sibling_dist := INF
@@ -3925,6 +3938,42 @@ func _decide_mortar_action(m: Unit) -> void:
 		return
 	var has_shot: bool = target != null and m.mortar_rounds_remaining > 0
 	if has_shot:
+		# Even with a valid shot lined up, a crew sitting critically close
+		# to a sibling is one HE round away from losing both tubes (see
+		# MORTAR_BUNCHING_CRITICAL_RADIUS's own doc comment) — preserve-
+		# self outranks any targeting tier per the user's own stated
+		# priority order, so a genuine dispersal option beats holding this
+		# shot. A real, previously-reported gap: has_shot can stay true
+		# for the mortar's entire ~30-second reload window whenever a
+		# valid target keeps re-selecting, which is most ticks — meaning
+		# this early return, unmodified, was the dominant reason multiple
+		# independently-hunting mortars that converged near each other
+		# then sat bunched indefinitely, never once reaching either the
+		# tier-2 hunt step-aside or the idle-tier dispersal check below
+		# (confirmed directly via a live trace: five enemy mortars stuck
+		# 5-20m apart for many consecutive ticks, every one reporting
+		# "target is selected" the whole time).
+		#
+		# Reactive, not a gate on target selection itself: if no better
+		# spot actually exists this tick (boxed in), _mortar_advance_
+		# point's own no-op fallback means `adjusted == m.global_position`
+		# and the crew simply keeps the shot — a real crew doesn't go
+		# silent forever just because the ideal dispersal spot isn't
+		# available (the same "movement must never be starved to zero"
+		# principle already established for the search itself).
+		var bunch_siblings := _sibling_mortar_positions(m)
+		var critically_bunched := false
+		for p in bunch_siblings:
+			if m.global_position.distance_to(p) < GameConfig.MORTAR_BUNCHING_CRITICAL_RADIUS:
+				critically_bunched = true
+				break
+		if critically_bunched:
+			var adjusted := _mortar_advance_point(m, target.global_position)
+			if adjusted.distance_to(m.global_position) > 1.0:
+				var speed: float = GameConfig.MORTAR_RELOCATE_SPEED if m.team == Unit.Team.PLAYER else GameConfig.REPOSITION_SPEED
+				_issue_mortar_move(m, adjusted, speed, "disperse")
+				_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Holding a valid shot, but too close to a sibling mortar — stepping clear first."}
+				return
 		_mortar_reasoning[m] = {"tier": "Target available", "detail": "A target is selected; no new movement order from this decision. Reload and firing gates still apply."}
 		return
 
@@ -4095,6 +4144,39 @@ func _decide_mortar_action(m: Unit) -> void:
 	var fix := _mortar_hunt_fix_for(m)
 	if not fix.is_empty():
 		if m.global_position.distance_to(fix.position) <= GameConfig.mortar_max_range(m.team):
+			# Checked every tick a mortar finds itself in range, regardless
+			# of HOW it got here or whether it's currently moving — a
+			# real, previously-reported gap: this used to only ever check
+			# bunching (via _mortar_advance_point's own destination
+			# search) while actively closing on a deliberate hunt-walk
+			# (current_intent == "hunt"), but a mortar very often crosses
+			# into range as a pure SIDE EFFECT of an unrelated relocation
+			# (a routine "spotted, seek concealment" hop that happens to
+			# land it within range of the known target) — confirmed
+			# directly via a live trace: mortars showing this exact tier's
+			# own "in range" reasoning while their stored intent was still
+			# "conceal" from an entirely separate tier-1 trigger, meaning
+			# the old `current_intent == "hunt"` gate never even evaluated
+			# for them at all. Multiple mortars can each independently
+			# wander into range near each other this way and then simply
+			# hold, indefinitely, with zero bunching consideration ever
+			# applied — real, sustained clustering (measured directly:
+			# up to 14 real seconds), not the brief mid-transit path
+			# crossings a much smaller share of raw "close" measurements
+			# turn out to be.
+			var siblings := _sibling_mortar_positions(m)
+			var too_close := false
+			for p in siblings:
+				if m.global_position.distance_to(p) < GameConfig.MORTAR_BUNCHING_CRITICAL_RADIUS:
+					too_close = true
+					break
+			if too_close:
+				var adjusted := _mortar_advance_point(m, fix.position)
+				if adjusted.distance_to(m.global_position) > 1.0:
+					var speed: float = GameConfig.MORTAR_RELOCATE_SPEED if m.team == Unit.Team.PLAYER else GameConfig.REPOSITION_SPEED
+					_issue_mortar_move(m, adjusted, speed, "hunt")
+					_mortar_reasoning[m] = {"tier": "Destroy enemy mortars", "detail": "In range, but stepping clear of a nearby sibling mortar first."}
+					return
 			if current_intent == "hunt":
 				# Now in range — stop closing and get to work, rather than
 				# finishing the walk to a farther point computed earlier.
@@ -4115,6 +4197,31 @@ func _decide_mortar_action(m: Unit) -> void:
 			return
 		_mortar_reasoning[m] = {"tier": "Destroy enemy mortars", "detail": "Wants to close on a known enemy mortar, no acceptable route this tick."}
 		return
+
+	# A mortar with genuinely nothing to shoot, hunt, or displace for is not
+	# actually "done" if it's sitting critically close to a sibling — a
+	# real, previously-reported gap: the bunching step-aside above only
+	# ever runs inside tier 2's own "in range of a known enemy mortar"
+	# path, so a mortar that reaches this catch-all (no known fix at all
+	# yet, or one that's mostly holding a selected target — see the
+	# has_shot early return at the very top, which this tier never even
+	# gets a chance to react to) could sit bunched indefinitely with zero
+	# corrective pressure. Confirmed directly via a live trace: a 12-tick
+	# sustained episode where the bunched mortars spent its first ~10
+	# ticks alternating between this exact "nothing worth shooting" state
+	# and "target selected" (has_shot) — never once reaching tier 2 at
+	# all — only correcting once a fix finally became known. Routine
+	# standing dispersion, not an emergency, so deliberately NOT added to
+	# step 0b's sticky list — same reasoning already established for
+	# "scoot" there.
+	var idle_siblings := _sibling_mortar_positions(m)
+	for p in idle_siblings:
+		if m.global_position.distance_to(p) < GameConfig.MORTAR_BUNCHING_CRITICAL_RADIUS:
+			if _relocate_mortar(m, "disperse"):
+				_mortar_reasoning[m] = {"tier": "Holding", "detail": "Nothing worth shooting or hunting, but too close to a sibling mortar — dispersing."}
+			else:
+				_mortar_reasoning[m] = {"tier": "Holding", "detail": "Too close to a sibling mortar, but no better dispersal spot this tick."}
+			return
 
 	_mortar_reasoning[m] = {"tier": "Holding", "detail": "Nothing worth shooting, moving for, or relocating away from right now."}
 
@@ -5773,17 +5880,20 @@ func _mortar_relocation_plan(mortar: Unit, urgent: bool) -> Dictionary:
 	# are — under drone-heavy player doctrine that's routinely true, so
 	# `threats` (known PLAYER positions, from the enemy's own point of
 	# view) is very often empty right when concealment-seeking matters
-	# most. nearest_cover_point's own avoid_positions has different
-	# semantics (excludes a whole cover zone outright, not a fixed
-	# radius) but that's a real, if coarser, form of the same avoidance —
-	# reused directly rather than adding a whole second radius-based
-	# mechanism to a function this feature doesn't otherwise need to
-	# touch.
+	# most. A SECOND mistake found the same way: nearest_cover_point's
+	# own `avoid_positions` (passed here in an earlier version) only
+	# excludes a whole cover zone that literally CONTAINS a sibling's
+	# position — no help at all when a sibling isn't standing inside any
+	# mapped cover zone, which a mortar squeezed against the map edge
+	# with sparse cover very often isn't. Passed as its own dedicated
+	# `bunch_avoid_positions` parameter instead (a real, radius-based
+	# check — see its own doc comment), leaving the zone-based
+	# `avoid_positions` slot for whatever else might use it.
 	var siblings: Array[Vector2] = _sibling_mortar_positions(mortar)
 	var destination: Vector2 = (
 		GameConfig.nearest_hidden_point(mortar.global_position, threats, true, urgent, recent, home_position, home_leash, min_distance_from_home, siblings)
 		if not threats.is_empty()
-		else GameConfig.nearest_cover_point(mortar.global_position, 0.0, true, siblings)
+		else GameConfig.nearest_cover_point(mortar.global_position, 0.0, true, [], [], siblings)
 	)
 	if destination == mortar.global_position:
 		return {}

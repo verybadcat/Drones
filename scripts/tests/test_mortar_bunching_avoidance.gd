@@ -15,6 +15,13 @@ const Orders = preload("res://scripts/unit_doctrine.gd")
 const Log = preload("res://scripts/tests/test_combat_log.gd")
 var failures := 0
 
+## GameConfig.CURRENT_MAP.enemy.mortar_rear_x_m/spread_min/max_y_m all
+## put default enemy mortar spawns hundreds of meters apart — comfortably
+## outside MORTAR_BUNCHING_CRITICAL_RADIUS on their own — so both new
+## tests below place their pair of mortars explicitly this close instead
+## of relying on any default deployment.
+var critically_close_offset: Vector2 = Vector2(GameConfig.MORTAR_BUNCHING_CRITICAL_RADIUS * 0.3, 0)
+
 func check(condition: bool, message: String) -> void:
 	if not condition:
 		failures += 1
@@ -74,7 +81,13 @@ func test_advance_point_avoids_sibling_at_natural_angle() -> void:
 	var mortar: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, Vector2(0, 0))
 	bm.enemy_units.append(mortar)
 	var target_pos := Vector2(500, 0)
-	var natural_point: Vector2 = target_pos - Vector2(1, 0) * (GameConfig.mortar_max_range(mortar.team) * 0.9)
+	# Clamped exactly like _mortar_advance_point's own candidate — the raw,
+	# unclamped point is off the actual operating area for a range this
+	# large (see clamp_to_operating_area's own doc comment), so the
+	# sibling must sit at the position the function can actually land on,
+	# not the theoretical unclamped one, or this stops testing the real
+	# mechanism at all.
+	var natural_point: Vector2 = GameConfig.clamp_to_operating_area(target_pos - Vector2(1, 0) * (GameConfig.mortar_max_range(mortar.team) * 0.9))
 	var sibling: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, natural_point)
 	bm.enemy_units.append(sibling)
 
@@ -101,13 +114,19 @@ func test_advance_point_falls_back_to_least_bad_when_fully_boxed_in() -> void:
 	# function tries, EXCEPT one — that one must win outright, and every
 	# candidate must clearly be "some real point," not a frozen no-op.
 	var farthest_offset := 45.0
+	# Clamped exactly like _mortar_advance_point's own candidates (see
+	# test_advance_point_avoids_sibling_at_natural_angle's own comment) —
+	# without this, several of these siblings land on positions the
+	# function itself can never actually produce, and the "least boxed"
+	# candidate below can end up nowhere near where the function's own
+	# (clamped) search actually considers it.
 	for offset_deg in [0.0, -15.0, 15.0, -30.0, 30.0, -45.0]:
 		var dir: Vector2 = base_dir.rotated(deg_to_rad(offset_deg))
-		var candidate: Vector2 = target_pos - dir * target_distance
+		var candidate: Vector2 = GameConfig.clamp_to_operating_area(target_pos - dir * target_distance)
 		var sib: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, candidate)
 		bm.enemy_units.append(sib)
 	var least_boxed_dir: Vector2 = base_dir.rotated(deg_to_rad(farthest_offset))
-	var least_boxed_candidate: Vector2 = target_pos - least_boxed_dir * target_distance
+	var least_boxed_candidate: Vector2 = GameConfig.clamp_to_operating_area(target_pos - least_boxed_dir * target_distance)
 	var far_sib: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, least_boxed_candidate + Vector2(GameConfig.MORTAR_BUNCHING_AVOIDANCE_RADIUS * 0.5, 0))
 	bm.enemy_units.append(far_sib)
 
@@ -117,9 +136,71 @@ func test_advance_point_falls_back_to_least_bad_when_fully_boxed_in() -> void:
 		"The candidate with the MOST clearance from its nearest sibling must win, not just the first one tried")
 
 
+## The "genuinely idle" gap this session's deeper investigation actually
+## found: the step-aside logic above only ever ran inside tier 2's own
+## "in range of a known enemy mortar" path, so a mortar that reaches the
+## final "Holding" catch-all (no known fix at all, nothing to shoot) with
+## a sibling sitting critically close to it could sit bunched
+## indefinitely — confirmed directly via a live trace: mortars converged
+## from independent hunts and then simply held, for many real seconds,
+## with zero corrective pressure until a fix finally became known.
+func test_idle_holding_disperses_from_critically_close_sibling() -> void:
+	var bm = make_battle()
+	bm.unit_type_doctrines[Unit.Team.ENEMY] = Orders.sanitize({})
+	var mortar: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, Vector2(400, 400))
+	mortar.seconds_stationary = 1e9
+	mortar.mortar_rounds_remaining = 10
+	bm.enemy_units.append(mortar)
+	var sibling: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, mortar.global_position + critically_close_offset)
+	sibling.seconds_stationary = 1e9
+	bm.enemy_units.append(sibling)
+	# No known player position or mortar fix at all, and no player units to
+	# shoot at — genuinely nothing to hunt or engage, isolating this from
+	# every other tier.
+
+	bm._decide_mortar_action(mortar)
+	check(mortar.has_move_target,
+		"A mortar with nothing to shoot or hunt, but critically close to a sibling, must still disperse rather than just hold")
+	check(bm._mortar_move_intent.get(mortar, "") == "disperse",
+		"The idle dispersal move must be recorded with its own intent, not silently folded into another one")
+	check(mortar.move_target.distance_to(sibling.global_position) > critically_close_offset.length(),
+		"The dispersal destination must actually create more clearance from the sibling than the starting position had")
+
+
+## The dominant real-world case the same investigation found: has_shot
+## can stay true for a mortar's entire reload window whenever a valid
+## target keeps re-selecting (most ticks, once one exists) — the "Target
+## available" early return, unmodified, was the actual reason multiple
+## independently-hunting mortars that converged near each other then sat
+## bunched indefinitely, never once reaching tier 2's own step-aside or
+## the idle-tier check above.
+func test_holding_a_shot_still_disperses_from_critically_close_sibling() -> void:
+	var bm = make_battle()
+	bm.unit_type_doctrines[Unit.Team.ENEMY] = Orders.sanitize({})
+	var mortar: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, Vector2(400, 400))
+	mortar.seconds_stationary = 1e9
+	mortar.mortar_rounds_remaining = 10
+	bm.enemy_units.append(mortar)
+	var sibling: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, mortar.global_position + critically_close_offset)
+	sibling.seconds_stationary = 1e9
+	bm.enemy_units.append(sibling)
+
+	var target: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, mortar.global_position + Vector2(100, 0))
+	target.is_visible = true
+	bm.player_units.append(target)
+
+	bm._decide_mortar_action(mortar)
+	check(mortar.has_move_target,
+		"A mortar holding a valid, repeatable shot must still step clear first if it's critically close to a sibling — one HE round away from losing both tubes")
+	check(bm._mortar_move_intent.get(mortar, "") == "disperse",
+		"Stepping clear of a sibling while holding a shot is its own intent, not an ordinary hunt or holding state")
+
+
 func run() -> void:
 	test_ring_search_statistically_prefers_sibling_clearance()
 	test_advance_point_avoids_sibling_at_natural_angle()
 	test_advance_point_falls_back_to_least_bad_when_fully_boxed_in()
+	test_idle_holding_disperses_from_critically_close_sibling()
+	test_holding_a_shot_still_disperses_from_critically_close_sibling()
 	print("Mortar bunching-avoidance tests: %d failures" % failures)
 	quit(1 if failures else 0)

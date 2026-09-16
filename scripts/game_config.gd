@@ -2961,7 +2961,7 @@ static func _random_point_in_cover_zone(zone: Dictionary) -> Vector2:
 	return patch.center_m * PIXELS_PER_METER + Vector2(cos(theta), sin(theta)) * r_m * PIXELS_PER_METER
 
 
-static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false, avoid_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = []) -> Vector2:
+static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false, avoid_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], bunch_avoid_positions: Array[Vector2] = []) -> Vector2:
 	var candidates: Array[Dictionary] = []
 	for zone in _all_cover_zones():
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
@@ -2986,6 +2986,35 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 				unclaimed.append(c)
 		if not unclaimed.is_empty():
 			candidates = unclaimed
+
+	# See MORTAR_BUNCHING_CRITICAL_RADIUS's own doc comment — a real,
+	# separate gap found once _ring_search_hidden_point's own bunching fix
+	# was verified against full real battles: whenever a mortar's own
+	# relocation has no known threats to route around at all (a real,
+	# common case — the enemy's own knowledge of the player's positions,
+	# not whether the mortar itself has been spotted), it lands here
+	# instead of in the ring search, and `avoid_positions` above only
+	# excludes a zone that literally CONTAINS a sibling's position — no
+	# help at all when a sibling isn't standing inside any mapped cover
+	# zone, exactly the sparse-cover, map-edge case this was measured
+	# failing in. A genuine radius-based check, same critical threshold
+	# as the ring search, same two-stage "prefer exclusively, fall back
+	# only if nothing clears it" pattern — kept as its own parameter
+	# rather than folded into `avoid_positions` so the squad-bunching use
+	# of that parameter (a different, already-working mechanism) is
+	# untouched.
+	if not bunch_avoid_positions.is_empty():
+		var clear_of_siblings: Array[Dictionary] = []
+		for c in candidates:
+			var too_close := false
+			for p in bunch_avoid_positions:
+				if c.zone.center.distance_to(p) < MORTAR_BUNCHING_CRITICAL_RADIUS:
+					too_close = true
+					break
+			if not too_close:
+				clear_of_siblings.append(c)
+		if not clear_of_siblings.is_empty():
+			candidates = clear_of_siblings
 
 	candidates.sort_custom(func(a, b): return a.dist < b.dist)
 
@@ -3388,6 +3417,36 @@ const MORTAR_RECENT_POSITION_EXCLUSION_RADIUS: float = 20.0 * PIXELS_PER_METER
 ## same family of searches.
 const MORTAR_BUNCHING_AVOIDANCE_RADIUS: float = 52.0 * PIXELS_PER_METER
 
+## A THIRD real gap found once the continuous score factor above was
+## verified against full, real, uncapped battles rather than short
+## samples (see MORTAR_BUNCHING_AVOIDANCE_RADIUS's own doc comment for
+## the first two): a purely continuous preference still isn't STRONG
+## enough to reliably prevent near-total overlap in the specific
+## degenerate case of several mortars pushed onto the same map edge —
+## clamp_to_operating_area collapses many of a mortar's own ring samples
+## onto nearly the same boundary line regardless of radius, so the
+## away-from-threat scoring bonus can dominate a continuous bunching
+## penalty that's paying a real but comparatively modest cost. Measured
+## directly: 43% of 100 full real battles had mortars land within 15m of
+## each other at some point, worst case 0.1m apart — not a rare tail
+## case, and reproduced by tracing one directly (both mortars pinned to
+## the same map edge, one already stationary firing, the other's own
+## relocation search landing almost exactly on top of it anyway).
+##
+## Reuses MORTAR_BLAST_CASUALTY_RADIUS directly rather than inventing a
+## third distance — a real, meaningful choice, not just convenient reuse:
+## within the actual cited lethal-fragment radius, a single HE round has
+## a real, roughly 50% chance (see CombatResolver.blast_casualty_chance's
+## own calibration) of catching BOTH mortars, not merely "somewhat closer
+## than ideal." Tracked as its own two-stage hard preference — same
+## pattern as this function's own floor_ok — specifically because THIS
+## degree of closeness is different in kind, not just degree, from the
+## softer 52m preference above: never choose a candidate this close if
+## literally any alternative clears it, falling back only when nothing
+## does, matching this project's own established "movement must never be
+## starved to zero" principle.
+const MORTAR_BUNCHING_CRITICAL_RADIUS: float = MORTAR_BLAST_CASUALTY_RADIUS
+
 ## A nearby point with NO direct line of sight from ANY of `threat_positions`
 ## — true concealment (like the reverse slope of a hill, or behind a
 ## building), not just the reduced spot-chance TREES/BUILDING give as
@@ -3592,6 +3651,25 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 				nearest_sibling_dist = min(nearest_sibling_dist, candidate.distance_to(p))
 			if nearest_sibling_dist < INF:
 				score *= clampf(nearest_sibling_dist / MORTAR_BUNCHING_AVOIDANCE_RADIUS, 0.05, 1.0)
+			# A SECOND real gap found once the continuous factor above was
+			# verified against full real battles, not just short samples:
+			# when several mortars are all pushed toward the same map
+			# edge, clamp_to_operating_area collapses many of their own
+			# ring samples onto nearly the same boundary line regardless
+			# of ring radius, so the away-from-threat bonus below can
+			# dominate a continuous factor that's paying a real but
+			# comparatively small penalty — measured directly landing
+			# mortars within literally 0.1-2m of each other in 43% of
+			# real battles, not a rare tail case. Within
+			# MORTAR_BUNCHING_CRITICAL_RADIUS specifically (the real,
+			# cited lethal-fragment radius, MORTAR_BLAST_CASUALTY_RADIUS
+			# — inside this, a single HE round has a real, roughly
+			# coin-flip chance of catching both mortars, not just
+			# "somewhat less than ideal separation"), tracked as its own
+			# two-stage hard preference, same pattern as floor_ok: never
+			# choose a candidate this close if literally any alternative
+			# clears it, only falling back when NOTHING does.
+			var critically_close: bool = nearest_sibling_dist < MORTAR_BUNCHING_CRITICAL_RADIUS
 			var too_close_to_recent := false
 			for p in avoid_positions:
 				if candidate.distance_to(p) < MORTAR_RECENT_POSITION_EXCLUSION_RADIUS:
@@ -3616,7 +3694,7 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 			# to remain possible when it's genuinely the best answer).
 			var angle_diff: float = absf(wrapf(theta - away_theta, -PI, PI))
 			score *= 1.0 + 0.5 * cos(angle_diff)
-			candidates.append({"point": candidate, "score": score, "floor_ok": floor_ok})
+			candidates.append({"point": candidate, "score": score, "floor_ok": floor_ok, "critically_close": critically_close})
 
 	if candidates.is_empty():
 		return from
@@ -3628,6 +3706,14 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 	var floor_respecting: Array[Dictionary] = candidates.filter(func(c): return c.floor_ok)
 	if not floor_respecting.is_empty():
 		candidates = floor_respecting
+
+	# Same pattern again for the tight bunching-critical zone (see
+	# MORTAR_BUNCHING_CRITICAL_RADIUS's own doc comment) — applied AFTER
+	# the floor filter above, so a candidate that both respects the floor
+	# AND clears the critical radius always wins when one exists.
+	var not_critically_close: Array[Dictionary] = candidates.filter(func(c): return not c.critically_close)
+	if not not_critically_close.is_empty():
+		candidates = not_critically_close
 
 	candidates.sort_custom(func(a, b): return a.score > b.score)
 	var pool_size: int = min(5, candidates.size())
