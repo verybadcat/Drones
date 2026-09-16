@@ -8,11 +8,21 @@ class_name BattleManager
 ## No routine per-shot fire log (see CombatLog) — the log only records
 ## moments that change the picture. Fire IS shown visually, though — every
 ## shot leaves a brief tracer (see _fire_flashes / _draw), color-coded by
-## side, so it is always clear when and where the enemy is shooting.
+## side, so it is always clear when and where the enemy is shooting. A
+## mortar round's actual landing gets its own, longer-lived burst (see
+## _mortar_impacts / _draw) — the tracer already shows the shot being
+## fired, but a shell's real flight time (GameConfig.MORTAR_FLIGHT_TIME)
+## means the round lands well after that tracer has already faded, so a
+## separate visual is needed at the real moment of impact.
 
 signal battle_ended(report_text: String)
 
 const FLASH_DURATION: float = 0.3
+## How long a mortar-impact burst stays on screen — real elapsed seconds,
+## same convention as FLASH_DURATION but deliberately longer: a shell
+## landing is a real, arresting moment worth lingering on, not a quick
+## tracer blink.
+const IMPACT_EFFECT_DURATION: float = 1.0
 const CommanderProfile = preload("res://scripts/commander_profile.gd")
 const DecisionRecorder = preload("res://scripts/decision_recorder.gd")
 const UnitDoctrine = preload("res://scripts/unit_doctrine.gd")
@@ -339,6 +349,13 @@ var is_paused: bool = false
 # simply reschedules rather than stacking multiple pending retreats.
 var scheduled_retreat_time: float = INF
 var _fire_flashes: Array[Dictionary] = []
+## Real HE impacts — a mortar shell actually landing, whether it hit
+## anything or not, distinct from _fire_flashes' own tracer-at-firing-
+## time visual. {"position": Vector2, "time": elapsed_time (real seconds,
+## same clock _fire_flashes/_prune_fire_flashes already use)}. See
+## IMPACT_EFFECT_DURATION's own doc comment for why the two use different
+## fade times.
+var _mortar_impacts: Array[Dictionary] = []
 var _seconds_since_last_shot: float = 0.0
 
 # Word travels fast: the moment ANY enemy squad comes under fire, every
@@ -641,6 +658,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	battle_over = false
 	is_paused = false
 	_fire_flashes.clear()
+	_mortar_impacts.clear()
 	_seconds_since_last_shot = 0.0
 	enemy_alerted = false
 	player_general_retreat_ordered = false
@@ -4205,7 +4223,7 @@ func _process(delta: float) -> void:
 	_prune_fire_flashes()
 	_record_unit_decisions()
 	_check_battle_end()
-	queue_redraw() # keep fire-tracer fade-out animating smoothly
+	queue_redraw() # keep fire-tracer and mortar-impact fade-outs animating smoothly
 	for unit in player_units + enemy_units:
 		unit.queue_redraw() # cover ring must track position/terrain live
 
@@ -4780,6 +4798,12 @@ func _resolve_pending_mortar_shots() -> void:
 		if scenario_elapsed_time < shot.impact_time:
 			still_pending.append(shot)
 			continue
+		# The round physically lands here regardless of what happens to
+		# the target in the meantime (fled, died, was never real to begin
+		# with) — a real shell doesn't un-fire itself, so the visual goes
+		# up unconditionally, before any of the below can skip the rest
+		# of this resolution.
+		_mortar_impacts.append({"position": shot.impact_point, "time": elapsed_time})
 		# Checked on the raw Variant, BEFORE assigning to a typed `Unit`
 		# variable — assigning an already-freed instance to a typed var is
 		# itself what throws "Trying to assign invalid previously freed
@@ -5559,6 +5583,9 @@ func _resolve_pending_counter_battery() -> void:
 		if scenario_elapsed_time < strike.impact_time:
 			still_pending.append(strike)
 			continue
+		# See _resolve_pending_mortar_shots' own identical comment — the
+		# round lands here regardless of the target's own state by now.
+		_mortar_impacts.append({"position": strike.impact_position, "time": elapsed_time})
 		var target: Unit = strike.target
 		if target.state != Unit.State.ACTIVE:
 			continue # withdrawn/destroyed since the strike was called in — nothing to hit
@@ -6414,6 +6441,7 @@ func _weighted_mortar_target_pick(unit: Unit, candidates: Array[Unit], evidence:
 
 func _prune_fire_flashes() -> void:
 	_fire_flashes = _fire_flashes.filter(func(f): return elapsed_time - f.time <= FLASH_DURATION)
+	_mortar_impacts = _mortar_impacts.filter(func(m): return elapsed_time - m.time <= IMPACT_EFFECT_DURATION)
 
 
 func _check_battle_end() -> void:
@@ -6878,6 +6906,31 @@ func _draw() -> void:
 		else:
 			draw_line(flash.from, flash.to, color, 2.0)
 		draw_circle(flash.from, 5.0, Color(1.0, 1.0, 0.6, alpha))
+	for impact in _mortar_impacts:
+		var age: float = elapsed_time - impact.time
+		if age > IMPACT_EFFECT_DURATION:
+			continue
+		_draw_mortar_impact(impact.position, age / IMPACT_EFFECT_DURATION)
+
+
+## A real HE round's actual landing — deliberately a real, if brief,
+## explosion rather than just a marker dot: a bright core flash that
+## burns out fast (real HE detonates and is gone almost instantly) plus
+## a slower-fading, outward-expanding double ring standing in for the
+## blast/smoke that lingers a moment longer, matching this project's own
+## established minimalist procedural-drawing style everywhere else (no
+## image assets, just shapes) — see _draw_arc_tracer's own identical
+## approach for the fire tracer. `t` is 0.0 the instant the round lands
+## and 1.0 at the end of IMPACT_EFFECT_DURATION.
+func _draw_mortar_impact(position: Vector2, t: float) -> void:
+	var core_alpha: float = clampf(1.0 - t * 3.0, 0.0, 1.0) # real HE core flash burns out within the first third
+	if core_alpha > 0.0:
+		draw_circle(position, 6.0, Color(1.0, 0.95, 0.7, core_alpha))
+		draw_circle(position, 3.0, Color(1.0, 1.0, 1.0, core_alpha))
+	var ring_alpha: float = 1.0 - t
+	var ring_radius: float = 4.0 + t * 10.0
+	draw_arc(position, ring_radius, 0.0, TAU, 24, Color(0.35, 0.3, 0.25, ring_alpha * 0.8), 2.0, true)
+	draw_arc(position, ring_radius * 0.65, 0.0, TAU, 24, Color(0.15, 0.12, 0.1, ring_alpha * 0.6), 2.0, true)
 
 
 func _draw_arc_tracer(from: Vector2, to: Vector2, color: Color) -> void:
