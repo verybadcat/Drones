@@ -452,6 +452,18 @@ var _mortar_fire_adjustment: Dictionary = {}
 # full battles before this existed.
 var _mortar_recent_positions: Dictionary = {}
 
+# Unit (a mortar) -> bool, whether it has fired at least once since its
+# last accepted relocation — see GameConfig.MORTAR_REVERSAL_DIRECTION_
+# DOT_THRESHOLD's own doc comment for why this exempts a genuine post-
+# fire shoot-and-scoot move from the "don't reverse your last leg"
+# discouragement: reversing WITHOUT ever having fired in between is
+# indecisive backtracking, but reversing AFTER a real fire mission is
+# just the doctrinally-correct next move happening to point back the
+# way the crew came. Set true in _launch_mortar_shot, reset false the
+# instant a fresh relocation is actually accepted (_remember_mortar_
+# position, the same place _mortar_recent_positions itself updates).
+var _mortar_fired_since_relocation: Dictionary = {}
+
 # Unit (a mortar) -> float, the farthest distance from _friendly_mortar_
 # home_position any relocation has actually put this mortar at DURING THE
 # CURRENT danger episode — a high-water mark, never voluntarily given up
@@ -4828,6 +4840,14 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 ## counter-battery radar tracks the outgoing round, not its impact).
 func _launch_mortar_shot(mortar: Unit, target: Unit) -> void:
 	mortar.mortar_rounds_remaining -= 1 # spent the instant it's fired, hit or miss — you don't get the shell back
+	# See _mortar_relocation_plan's own doc comment on MORTAR_REVERSAL_
+	# DIRECTION_DOT_THRESHOLD — a real fire mission between two
+	# relocations means the crew's next move is a genuine, fresh
+	# shoot-and-scoot decision, not indecisive backtracking, so it's
+	# exempt from the "don't reverse your own last leg" discouragement
+	# even if the doctrinally-correct scoot direction happens to point
+	# back the way it came.
+	_mortar_fired_since_relocation[mortar] = true
 	var aim_point: Vector2 = _mortar_aim_point(target)
 	var impact_point: Vector2 = aim_point + _mortar_dispersion_offset(mortar, target, aim_point)
 	_pending_mortar_shots.append({
@@ -6035,10 +6055,35 @@ func _mortar_relocation_plan(mortar: Unit, urgent: bool) -> Dictionary:
 	# check — see its own doc comment), leaving the zone-based
 	# `avoid_positions` slot for whatever else might use it.
 	var siblings: Array[Vector2] = _sibling_mortar_positions(mortar)
+	# See GameConfig.MORTAR_NO_REVERSAL_RADIUS's own doc comment — the
+	# WHOLE remembered history, passed to BOTH branches. Confirmed
+	# directly via a live trace that this project's own enemy mortars
+	# route through the ring search (nearest_hidden_point) essentially
+	# every time, not the no-known-threats fallback (nearest_cover_
+	# point) — `threats` (this side's own knowledge of the opposing
+	# side) is very rarely actually empty once real contact has been
+	# made, unlike the narrower case an earlier version of this
+	# reasoning assumed. Safe from the historical search-starvation
+	# failure mode at either function's own reachable scale — see
+	# _ring_search_hidden_point's own doc comment for why.
+	# See GameConfig.MORTAR_REVERSAL_DIRECTION_DOT_THRESHOLD's own doc
+	# comment — the direction of the immediately-prior COMPLETED leg
+	# (second-to-last remembered destination to the last one), so a
+	# fresh candidate that undoes it outright gets discouraged even if
+	# it doesn't happen to land near any single remembered point.
+	# Exempted whenever the crew has fired at least once since that
+	# prior leg — a real fire mission in between means the next move is
+	# a genuine, fresh shoot-and-scoot decision, not backtracking, per
+	# the user's own direct correction.
+	var travel_direction: Vector2 = Vector2.ZERO
+	if recent.size() >= 2 and not _mortar_fired_since_relocation.get(mortar, false):
+		var raw_direction: Vector2 = recent[-1] - recent[-2]
+		if raw_direction.length() > 1.0:
+			travel_direction = raw_direction.normalized()
 	var destination: Vector2 = (
-		GameConfig.nearest_hidden_point(mortar.global_position, threats, true, urgent, recent, home_position, home_leash, min_distance_from_home, siblings)
+		GameConfig.nearest_hidden_point(mortar.global_position, threats, true, urgent, recent, home_position, home_leash, min_distance_from_home, siblings, recent, travel_direction)
 		if not threats.is_empty()
-		else GameConfig.nearest_cover_point(mortar.global_position, 0.0, true, [], [], siblings)
+		else GameConfig.nearest_cover_point(mortar.global_position, 0.0, true, [], [], siblings, recent, travel_direction)
 	)
 	if destination == mortar.global_position:
 		return {}
@@ -6073,6 +6118,10 @@ func _remember_mortar_position(mortar: Unit, destination: Vector2) -> void:
 	while history.size() > GameConfig.MORTAR_RECENT_POSITION_MEMORY_COUNT:
 		history.pop_front()
 	_mortar_recent_positions[mortar] = history
+	# See _mortar_fired_since_relocation's own doc comment — a fresh leg
+	# is starting, so whatever fire mission (if any) happened during the
+	# PREVIOUS leg no longer exempts the NEXT one.
+	_mortar_fired_since_relocation[mortar] = false
 
 
 ## A shoot-and-scoot crew doesn't vanish from its firing position the

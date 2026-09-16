@@ -3022,7 +3022,7 @@ static func _random_point_in_cover_zone(zone: Dictionary) -> Vector2:
 	return patch.center_m * PIXELS_PER_METER + Vector2(cos(theta), sin(theta)) * r_m * PIXELS_PER_METER
 
 
-static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false, avoid_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], bunch_avoid_positions: Array[Vector2] = []) -> Vector2:
+static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false, avoid_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO) -> Vector2:
 	var candidates: Array[Dictionary] = []
 	for zone in _all_cover_zones():
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
@@ -3101,6 +3101,47 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 		if not clear_of_full_radius.is_empty():
 			candidates = clear_of_full_radius
 
+	# See MORTAR_NO_REVERSAL_RADIUS's own doc comment — this is the path
+	# that was silently receiving NO recent-position protection at all
+	# (the legacy `avoid_positions` above is zone-containment-based, not
+	# radius-based, and a bare remembered point almost never satisfies
+	# it). Same two-stage "prefer exclusively, fall back only if nothing
+	# clears it" pattern as the bunching checks just above. Checked
+	# against the WHOLE remembered history here, not just the single
+	# most-recent entry (unlike the ring search's own, narrower use of
+	# this same radius — see that function's own doc comment for why):
+	# this search draws from every cover zone on the map, not a small
+	# local ring, so there's no comparable starvation risk to widening
+	# it, and a real, measured gap confirmed protecting only the latest
+	# entry still let a mortar return to its SECOND or THIRD most recent
+	# spot instead.
+	if not no_reversal_positions.is_empty():
+		var clear_of_reversal: Array[Dictionary] = []
+		for c in candidates:
+			var reverses := false
+			for p in no_reversal_positions:
+				if c.zone.center.distance_to(p) < MORTAR_NO_REVERSAL_RADIUS:
+					reverses = true
+					break
+			if not reverses:
+				clear_of_reversal.append(c)
+		if not clear_of_reversal.is_empty():
+			candidates = clear_of_reversal
+
+	# See MORTAR_REVERSAL_DIRECTION_DOT_THRESHOLD's own doc comment — a
+	# genuinely different, complementary check from the position-based
+	# one just above: not proximity to a specific old spot, but whether
+	# this candidate's own direction from `from` undoes the crew's most
+	# recent direction of travel outright.
+	if travel_direction != Vector2.ZERO:
+		var clear_of_direction_reversal: Array[Dictionary] = []
+		for c in candidates:
+			var to_candidate: Vector2 = c.zone.center - from
+			if to_candidate.length() < 1.0 or to_candidate.normalized().dot(travel_direction) >= MORTAR_REVERSAL_DIRECTION_DOT_THRESHOLD:
+				clear_of_direction_reversal.append(c)
+		if not clear_of_direction_reversal.is_empty():
+			candidates = clear_of_direction_reversal
+
 	candidates.sort_custom(func(a, b): return a.dist < b.dist)
 
 	var pool_size: int = min(3, candidates.size())
@@ -3113,7 +3154,37 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 		if roll <= cumulative:
 			chosen_index = i
 			break
-	return _random_point_in_cover_zone(candidates[chosen_index].zone)
+	var chosen_zone: Dictionary = candidates[chosen_index].zone
+
+	# A real, previously-reported gap: the reversal checks above filter
+	# by the ZONE'S OWN CENTER, but the actual destination handed back is
+	# a randomized point somewhere WITHIN that zone (see
+	# _random_point_in_cover_zone) — for a forest patch meaningfully
+	# larger than MORTAR_NO_REVERSAL_RADIUS, a zone whose CENTER cleared
+	# every check can still hand back an actual point close enough to
+	# count as a real reversal, since the random draw inside it has no
+	# awareness of either check at all. Confirmed directly via a live
+	# trace: the position/direction filters were correctly finding
+	# non-reversal candidates, yet the mortar kept reversing anyway.
+	# Re-rolled a bounded number of times rather than checked once and
+	# given up — a genuinely large zone can need several draws before
+	# landing in the part of it that's actually clear.
+	var point: Vector2 = _random_point_in_cover_zone(chosen_zone)
+	if not no_reversal_positions.is_empty() or travel_direction != Vector2.ZERO:
+		for attempt in 5:
+			var ok := true
+			for p in no_reversal_positions:
+				if point.distance_to(p) < MORTAR_NO_REVERSAL_RADIUS:
+					ok = false
+					break
+			if ok and travel_direction != Vector2.ZERO:
+				var to_point: Vector2 = point - from
+				if to_point.length() >= 1.0 and to_point.normalized().dot(travel_direction) < MORTAR_REVERSAL_DIRECTION_DOT_THRESHOLD:
+					ok = false
+			if ok:
+				break
+			point = _random_point_in_cover_zone(chosen_zone)
+	return point
 
 
 ## Drops any candidate within DANGER_RADIUS of a known enemy position, as
@@ -3476,6 +3547,63 @@ const MORTAR_RECENT_POSITION_MEMORY_COUNT: int = 5
 ## in at this much smaller scale.
 const MORTAR_RECENT_POSITION_EXCLUSION_RADIUS: float = 20.0 * PIXELS_PER_METER
 
+## A SECOND, separate, much stronger exclusion specifically for the
+## single MOST RECENT relocation destination — not a wider version of
+## MORTAR_RECENT_POSITION_EXCLUSION_RADIUS above, which stays small and
+## shared across all MORTAR_RECENT_POSITION_MEMORY_COUNT remembered
+## spots deliberately (widening THAT one starves the search — see its
+## own doc comment). A real, reported bug found this still wasn't
+## enough: a genuinely spotted mortar's "conceal" relocation was
+## revisiting the same handful of points 50-100m apart repeatedly, well
+## outside the 20m radius, sometimes reversing its own immediately-prior
+## leg outright — the user's own framing: "you might move in different
+## directions, but not reversals that take you right back to where you
+## were." Root cause, traced directly: `nearest_cover_point` (the
+## dominant relocation path whenever there are no known threats to route
+## around — see BattleManager._mortar_relocation_plan's own doc comment)
+## never received the mortar's own recent-position memory AT ALL — its
+## `avoid_positions` parameter checks ZONE CONTAINMENT, not radius,
+## which a bare remembered Vector2 essentially never satisfies, so an
+## earlier version of this fix (`bunch_avoid_positions`) deliberately
+## left that slot alone rather than pass something that wouldn't work
+## there anyway. Reuses COUNTER_BATTERY_BLAST_RADIUS directly — the
+## exact real distance this project already uses everywhere else for
+## "close enough to the old spot to still matter" — applied ONLY to the
+## single most-recent destination (not the whole rolling history), so
+## the total excluded area stays small enough not to reproduce the
+## exact starvation bug MORTAR_RECENT_POSITION_EXCLUSION_RADIUS's own
+## history already found and fixed once.
+const MORTAR_NO_REVERSAL_RADIUS: float = COUNTER_BATTERY_BLAST_RADIUS
+
+## A genuinely different, complementary check from the position-based
+## exclusion just above — the user's own suggestion, after tracing
+## showed a position-radius check alone still missed real cases (a
+## reversal that doesn't happen to land within MORTAR_NO_REVERSAL_
+## RADIUS of any ONE specific remembered point, e.g. several small
+## steps in one direction followed by a big step back the way they
+## came). Directly targets the actual concept the user named: not
+## proximity to a specific old spot, but literally undoing the crew's
+## own most recent direction of travel. A new candidate whose direction
+## from the mortar's current position has a NEGATIVE dot product against
+## the direction of the immediately-prior completed leg (recent[-2] to
+## recent[-1]) — i.e. any real backward component at all, not just a
+## near-exact 180-degree reversal — gets this strong discouragement
+## (the same two-stage "prefer exclusively, fall back only if nothing
+## clears it" pattern as every other hard preference in this family of
+## searches).
+##
+## Explicitly EXEMPTED whenever the crew has fired at least once since
+## that prior leg (BattleManager._mortar_fired_since_relocation) — the
+## user's own direct correction: "if the mortar moves, stops, fires,
+## then moves in the opposite direction after firing, that is probably
+## OK." A real fire mission between two relocations means the next move
+## is a genuine, fresh shoot-and-scoot decision (survivability doesn't
+## care which way the crew happened to arrive from), not indecisive
+## backtracking — only a reversal with NO fire mission in between is the
+## real, reported symptom (a spotted crew relocating repeatedly without
+## ever actually getting a shot off in between).
+const MORTAR_REVERSAL_DIRECTION_DOT_THRESHOLD: float = 0.0
+
 ## How far apart same-side mortars should try hard to stay from each
 ## other — FM 7-90 Ch.6's own real, cited figure: splitting a mortar
 ## platoon into separate firing positions "up to 300 meters apart...
@@ -3656,12 +3784,12 @@ const CONCEALMENT_HILL_MAX_EXTRA_M: float = 300.0
 ##
 ## All four of these left at their defaults (INF/INF/0.0) preserves every
 ## existing caller's behavior exactly.
-static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = []) -> Vector2:
+static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO) -> Vector2:
 	if threat_positions.is_empty():
 		return from
 
-	var hill_spot := _reverse_slope_candidate(from, threat_positions, avoid_buildings, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions)
-	var ring_spot := _ring_search_hidden_point(from, threat_positions, avoid_buildings, urgent, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions)
+	var hill_spot := _reverse_slope_candidate(from, threat_positions, avoid_buildings, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions, no_reversal_positions)
+	var ring_spot := _ring_search_hidden_point(from, threat_positions, avoid_buildings, urgent, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions, no_reversal_positions, travel_direction)
 
 	if hill_spot == from:
 		return ring_spot
@@ -3702,7 +3830,7 @@ static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2]
 ## — a crew that reliably ran to the single most-hidden location every
 ## time would itself be a predictable pattern, exactly the thing shoot-
 ## and-scoot doctrine exists to avoid.
-static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = []) -> Vector2:
+static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO) -> Vector2:
 	var rings: Array[float] = CONCEALMENT_SEARCH_RINGS_URGENT_M if urgent else CONCEALMENT_SEARCH_RINGS_M
 	# See CONCEALMENT_SEARCH_RINGS_BUNCHING_EXTRA_M's own doc comment —
 	# only sampled when there's an actual sibling to create real
@@ -3838,7 +3966,42 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 			# to remain possible when it's genuinely the best answer).
 			var angle_diff: float = absf(wrapf(theta - away_theta, -PI, PI))
 			score *= 1.0 + 0.5 * cos(angle_diff)
-			candidates.append({"point": candidate, "score": score, "floor_ok": floor_ok, "critically_close": critically_close})
+			# See MORTAR_NO_REVERSAL_RADIUS's own doc comment — a
+			# genuinely stronger, HARD (two-stage prefer/fallback, not a
+			# score multiplier) exclusion than the ordinary recent-
+			# position penalty above: that one only ever costs a
+			# candidate a 0.3x score penalty (real, but easily
+			# outweighed by concealment/threat-facing bonuses), which
+			# measurably wasn't enough to stop a spotted mortar from
+			# reversing its own immediately-prior leg outright. Checked
+			# against the WHOLE remembered history, not just the single
+			# most-recent entry — a real, measured gap found once this
+			# went from single-entry to full-history in nearest_cover_
+			# point but NOT here: a live trace showed this project's own
+			# enemy mortars routing through THIS ring search, not that
+			# other function, essentially every time (`threat_positions`
+			# is very rarely actually empty once real contact is made),
+			# so protecting only one entry here left the exact reported
+			# bug almost entirely unaddressed. Safe from the historical
+			# starvation failure mode a wider MORTAR_RECENT_POSITION_
+			# EXCLUSION_RADIUS caused (see that constant's own doc
+			# comment) because this is the same "prefer exclusively,
+			# fall back to the full set if NOTHING clears it" two-stage
+			# pattern already used for floor_ok/critically_close above —
+			# unlike a hard, no-fallback filter, this can never actually
+			# reduce the candidate pool to zero.
+			var is_reversal: bool = false
+			for p in no_reversal_positions:
+				if candidate.distance_to(p) < MORTAR_NO_REVERSAL_RADIUS:
+					is_reversal = true
+					break
+			# See MORTAR_REVERSAL_DIRECTION_DOT_THRESHOLD's own doc
+			# comment — a genuinely different, complementary check: not
+			# proximity to a specific old spot, but whether THIS
+			# candidate's own direction from `from` undoes the crew's
+			# most recent direction of travel outright.
+			var reverses_direction: bool = travel_direction != Vector2.ZERO and (candidate - from).normalized().dot(travel_direction) < MORTAR_REVERSAL_DIRECTION_DOT_THRESHOLD
+			candidates.append({"point": candidate, "score": score, "floor_ok": floor_ok, "critically_close": critically_close, "is_reversal": is_reversal, "reverses_direction": reverses_direction})
 
 	if candidates.is_empty():
 		return from
@@ -3858,6 +4021,22 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 	var not_critically_close: Array[Dictionary] = candidates.filter(func(c): return not c.critically_close)
 	if not not_critically_close.is_empty():
 		candidates = not_critically_close
+
+	# Same pattern a third time, for MORTAR_NO_REVERSAL_RADIUS — applied
+	# last, after the floor and bunching filters, so a candidate that
+	# satisfies all three always wins when one exists.
+	var not_a_reversal: Array[Dictionary] = candidates.filter(func(c): return not c.is_reversal)
+	if not not_a_reversal.is_empty():
+		candidates = not_a_reversal
+
+	# Same pattern a fourth time, for MORTAR_REVERSAL_DIRECTION_DOT_
+	# THRESHOLD — a genuinely different axis than the position-based
+	# check just above (direction of travel, not proximity to a specific
+	# old point), applied last so a candidate satisfying every other
+	# preference too always wins when one exists.
+	var not_direction_reversal: Array[Dictionary] = candidates.filter(func(c): return not c.reverses_direction)
+	if not not_direction_reversal.is_empty():
+		candidates = not_direction_reversal
 
 	candidates.sort_custom(func(a, b): return a.score > b.score)
 	var pool_size: int = min(5, candidates.size())
@@ -3892,7 +4071,7 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 ## which is guaranteed to clear it by construction (its nearest ring is
 ## already farther out than the blast radius).
 ## Returns `from` (no better option this way) if no hill qualifies.
-static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = []) -> Vector2:
+static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = []) -> Vector2:
 	var avg_threat := Vector2.ZERO
 	for t in threat_positions:
 		avg_threat += t
@@ -3930,6 +4109,21 @@ static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vect
 				too_close_to_recent = true
 				break
 		if too_close_to_recent:
+			continue
+		# See MORTAR_NO_REVERSAL_RADIUS's own doc comment — a genuinely
+		# stronger version of the same check just above: this candidate
+		# is anchored to fixed hill geometry, not to `from`, so for an
+		# unchanged threat picture it's the literal SAME point every
+		# time regardless of how far the mortar has since moved — exactly
+		# the mechanism that let a spotted mortar reverse right back onto
+		# a hill it had already used a few relocations ago, well outside
+		# the smaller 20m radius just above.
+		var is_reversal := false
+		for p in no_reversal_positions:
+			if candidate.distance_to(p) < MORTAR_NO_REVERSAL_RADIUS:
+				is_reversal = true
+				break
+		if is_reversal:
 			continue
 		# See MORTAR_BUNCHING_AVOIDANCE_RADIUS's own doc comment — same
 		# "falls through to the ring search" reasoning as the recent-
