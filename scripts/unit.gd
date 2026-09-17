@@ -220,16 +220,18 @@ var concern_threshold: float = 0.25
 # would be if this were still just a flight-time countdown.
 var drone_battery_charge: float = 1.0
 
-# MORTAR only: a small crew-served weapon, CREW_SIZE people including the
-# driver. Tracked as an exact headcount, not a percent — see
-# _apply_crew_casualties(). A hit is decisive either way: it either wipes
-# the whole crew (DESTROYED) or leaves survivors who abandon the gun on the
-# spot and retreat (see order_retreat()) — nobody keeps manning a mortar
-# after taking a hit near it. max_pips is set to crew_size (see setup()) so
-# these casualties feed into the side's overall pips_total/pips_lost tally
-# (BattleManager._compute_side_stats) exactly like a squad's — the mortar
-# and its crew are worth just as much to lose, or to kill, as anyone else.
-const MORTAR_CREW_SIZE: int = 4
+# MORTAR only: a small crew-served weapon, GameConfig.mortar_crew_size(team)
+# people including ammunition carriers — see that function's own doc comment
+# for the real, per-side citations (the two sides field genuinely different
+# 82mm tubes, not the same crew requirement with a rounding difference).
+# Tracked as an exact headcount, not a percent — see _apply_crew_casualties().
+# A hit is decisive either way: it either wipes the whole crew (DESTROYED) or
+# leaves survivors who abandon the gun on the spot and retreat (see
+# order_retreat()) — nobody keeps manning a mortar after taking a hit near
+# it. max_pips is set to crew_size (see setup()) so these casualties feed
+# into the side's overall pips_total/pips_lost tally (BattleManager.
+# _compute_side_stats) exactly like a squad's — the mortar and its crew are
+# worth just as much to lose, or to kill, as anyone else.
 var crew_size: int = 0
 var crew_casualties: int = 0
 
@@ -268,7 +270,7 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 	position = p_position
 	match kind:
 		Kind.MORTAR:
-			crew_size = MORTAR_CREW_SIZE
+			crew_size = GameConfig.mortar_crew_size(p_team)
 			crew_casualties = 0
 			max_pips = crew_size # crew casualties count the same as squad pips — see _apply_crew_casualties
 			base_hit_chance = 0.40

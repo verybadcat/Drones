@@ -1700,6 +1700,41 @@ const MORTAR_MAX_RANGE_ENEMY: float = 6000.0 * PIXELS_PER_METER
 static func mortar_max_range(team: Unit.Team) -> float:
 	return MORTAR_MAX_RANGE_PLAYER if team == Unit.Team.PLAYER else MORTAR_MAX_RANGE_ENEMY
 
+
+## Direct user request: "I want to check the size of the mortar teams
+## against reality for both friendly and enemy mortars." Researched
+## directly, same "same caliber, different real weapon system" split
+## already established for MORTAR_MAX_RANGE_PLAYER/ENEMY above (and
+## MORTAR_SETUP_TEARDOWN_TIME's own citation) — these are genuinely
+## different tubes, not the same crew requirement with a rounding
+## difference:
+## - PLAYER (Ukraine): the Soviet-legacy 2B14 Podnos (the same tube
+##   already cited for MORTAR_MAX_RANGE_PLAYER) is documented with a
+##   crew of 4 — "the entire system can be broken down into manpack
+##   loads to be carried by the four-man crew" (Wikipedia; Military
+##   Periscope's own overview page states the same figure, though its
+##   fuller specifications are paywalled).
+## - ENEMY (Russia): the 2B24 82mm light mortar (the same tube already
+##   cited for MORTAR_MAX_RANGE_ENEMY and MORTAR_SETUP_TEARDOWN_TIME) is
+##   documented with a crew of 5 — "the overall crew is made of five
+##   soldiers, the other three carrying ammunition" (EDR Magazine, the
+##   same source already cited for that tube's other two figures).
+## User's own explicit direction on a real ambiguity found along the way:
+## ammunition carriers should count as part of the team size for this
+## game's own purposes, and after reviewing the sourcing directly, both
+## cited figures above are being treated as already including them (the
+## 2B24's own citation makes this explicit; the 2B14's does not
+## explicitly break down roles, but no source found suggests a materially
+## larger dedicated ammunition-carrying element on top of its own
+## already-cited 4).
+const MORTAR_CREW_SIZE_PLAYER: int = 4
+const MORTAR_CREW_SIZE_ENEMY: int = 5
+
+## The correct MORTAR_CREW_SIZE_* for `team` — mirrors mortar_max_range's
+## own per-team accessor.
+static func mortar_crew_size(team: Unit.Team) -> int:
+	return MORTAR_CREW_SIZE_PLAYER if team == Unit.Team.PLAYER else MORTAR_CREW_SIZE_ENEMY
+
 ## Squad tactics: the enemy tries to flank toward the friendly mortar (see
 ## BattleManager._enemy_advance_objective/_score_advance_candidate), and
 ## friendly squads answer by screening it and by not letting themselves get
