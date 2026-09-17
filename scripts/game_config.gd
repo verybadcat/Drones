@@ -3050,7 +3050,7 @@ static func _random_point_in_cover_zone(zone: Dictionary) -> Vector2:
 	return patch.center_m * PIXELS_PER_METER + Vector2(cos(theta), sin(theta)) * r_m * PIXELS_PER_METER
 
 
-static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false, avoid_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO) -> Vector2:
+static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false, avoid_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO, firing_point: Vector2 = Vector2.INF) -> Vector2:
 	var candidates: Array[Dictionary] = []
 	for zone in _all_cover_zones():
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
@@ -3058,6 +3058,15 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 		candidates.append({"zone": zone, "dist": from.distance_to(zone.center)})
 	if candidates.is_empty():
 		return from
+
+	# See nearest_hidden_point's own doc comment on `firing_point` — the top
+	# priority of a post-fire relocation, checked first and against the
+	# full, unfiltered pool so it always wins when any real alternative
+	# clears it.
+	if firing_point != Vector2.INF:
+		var clear_of_firing_point: Array[Dictionary] = candidates.filter(func(c): return c.zone.center.distance_to(firing_point) >= COUNTER_BATTERY_BLAST_RADIUS)
+		if not clear_of_firing_point.is_empty():
+			candidates = clear_of_firing_point
 
 	candidates = _exclude_dangerous(candidates, known_enemy_positions)
 	candidates = _prefer_retreat_direction(candidates, from, retreat_dir)
@@ -3812,12 +3821,24 @@ const CONCEALMENT_HILL_MAX_EXTRA_M: float = 300.0
 ##
 ## All four of these left at their defaults (INF/INF/0.0) preserves every
 ## existing caller's behavior exactly.
-static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO) -> Vector2:
+##
+## `firing_point`: the real-world reason a mortar relocates in the first
+## place after firing — not merely "hidden from known threats," but
+## specifically clear of the exact coordinate a counter-battery mission
+## will actually be aimed at (see BattleManager._mortar_relocation_plan's
+## own doc comment for how this is resolved, and COUNTER_BATTERY_BLAST_
+## RADIUS for why that's the real distance that matters — the same one
+## _mortar_should_relocate_for_safety's own trigger already uses to decide
+## when a crew has moved far ENOUGH). Left at its default (Vector2.INF)
+## preserves every existing caller's behavior exactly; only a relocation
+## reacting to a crew's own still-live firing signature passes a real
+## value.
+static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO, firing_point: Vector2 = Vector2.INF) -> Vector2:
 	if threat_positions.is_empty():
 		return from
 
-	var hill_spot := _reverse_slope_candidate(from, threat_positions, avoid_buildings, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions, no_reversal_positions)
-	var ring_spot := _ring_search_hidden_point(from, threat_positions, avoid_buildings, urgent, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions, no_reversal_positions, travel_direction)
+	var hill_spot := _reverse_slope_candidate(from, threat_positions, avoid_buildings, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions, no_reversal_positions, firing_point)
+	var ring_spot := _ring_search_hidden_point(from, threat_positions, avoid_buildings, urgent, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions, no_reversal_positions, travel_direction, firing_point)
 
 	if hill_spot == from:
 		return ring_spot
@@ -3858,7 +3879,7 @@ static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2]
 ## — a crew that reliably ran to the single most-hidden location every
 ## time would itself be a predictable pattern, exactly the thing shoot-
 ## and-scoot doctrine exists to avoid.
-static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO) -> Vector2:
+static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO, firing_point: Vector2 = Vector2.INF) -> Vector2:
 	var rings: Array[float] = CONCEALMENT_SEARCH_RINGS_URGENT_M if urgent else CONCEALMENT_SEARCH_RINGS_M
 	# See CONCEALMENT_SEARCH_RINGS_BUNCHING_EXTRA_M's own doc comment —
 	# only sampled when there's an actual sibling to create real
@@ -4029,10 +4050,27 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 			# candidate's own direction from `from` undoes the crew's
 			# most recent direction of travel outright.
 			var reverses_direction: bool = travel_direction != Vector2.ZERO and (candidate - from).normalized().dot(travel_direction) < MORTAR_REVERSAL_DIRECTION_DOT_THRESHOLD
-			candidates.append({"point": candidate, "score": score, "floor_ok": floor_ok, "critically_close": critically_close, "is_reversal": is_reversal, "reverses_direction": reverses_direction})
+			# See nearest_hidden_point's own doc comment on `firing_point` —
+			# the actual coordinate a counter-battery mission will be aimed
+			# at, not just "somewhere hidden from known threats." Checked
+			# first, ahead of every other two-stage preference below: per
+			# the user's own direct framing, this is the TOP priority of a
+			# post-fire relocation, only ever giving way when truly nothing
+			# clears it (the map edge, a boxed-in position) or to a higher-
+			# priority tier entirely (a closing enemy squad, handled well
+			# above this search by the decision ladder itself).
+			var too_close_to_firing_point: bool = firing_point != Vector2.INF and candidate.distance_to(firing_point) < COUNTER_BATTERY_BLAST_RADIUS
+			candidates.append({"point": candidate, "score": score, "floor_ok": floor_ok, "critically_close": critically_close, "is_reversal": is_reversal, "reverses_direction": reverses_direction, "too_close_to_firing_point": too_close_to_firing_point})
 
 	if candidates.is_empty():
 		return from
+
+	# See `firing_point`'s own doc comment just above — checked first, ahead
+	# of every other preference, so it always wins when any real
+	# alternative clears it.
+	var clear_of_firing_point: Array[Dictionary] = candidates.filter(func(c): return not c.too_close_to_firing_point)
+	if not clear_of_firing_point.is_empty():
+		candidates = clear_of_firing_point
 
 	# Prefer floor-respecting candidates exclusively whenever at least one
 	# exists — only fall back to a floor-violating candidate when every
@@ -4099,7 +4137,7 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 ## which is guaranteed to clear it by construction (its nearest ring is
 ## already farther out than the blast radius).
 ## Returns `from` (no better option this way) if no hill qualifies.
-static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = []) -> Vector2:
+static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], firing_point: Vector2 = Vector2.INF) -> Vector2:
 	var avg_threat := Vector2.ZERO
 	for t in threat_positions:
 		avg_threat += t
@@ -4121,6 +4159,13 @@ static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vect
 			continue
 		if d < COUNTER_BATTERY_BLAST_RADIUS:
 			continue # too close to be a real scoot -- let the ring search find something further out
+		# The check above is only ever an approximation of this one (`from`
+		# stands in for "the firing point" when the real coordinate isn't
+		# known) — when it IS known, the real coordinate is what a counter-
+		# battery mission is actually aimed at, not wherever the crew
+		# happens to be standing when this search runs.
+		if firing_point != Vector2.INF and candidate.distance_to(firing_point) < COUNTER_BATTERY_BLAST_RADIUS:
+			continue
 		if home_position.distance_to(candidate) > home_leash:
 			continue # beyond the leash -- anchored to threat bearing alone, this candidate has no notion of home at all
 		if home_position.distance_to(candidate) < min_distance_from_home:

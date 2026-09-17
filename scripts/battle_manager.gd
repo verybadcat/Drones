@@ -4197,22 +4197,32 @@ func _decide_mortar_action(m: Unit) -> void:
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Wanted to relocate, no route this tick."}
 		return
 
-	# The actual, real-world condition for needing to displace: does the
-	# enemy know this position well enough to hit it right now — see
+	# The actual, real-world condition for needing to displace: could the
+	# enemy plausibly hit this position right now — see
 	# _mortar_should_relocate_for_safety's own doc comment for the full
-	# three-part reasoning (recent+nearby detection, a real known threat
-	# in range, and doctrine/density gating). Deliberately NOT "did I just
-	# fire" (event-based triggers here have twice produced an opposite
-	# failure this session — see the design doc's own revision log for
-	# both directions) and reached here (tier 1, ranked above tier 2
-	# hunting) regardless of whether `has_shot` was true or false THIS
-	# tick, since _mortar_shot_this_tick itself already refuses to look
-	# for a target at all while this condition holds — so reaching this
-	# branch always means there was never a shot to weigh against
-	# relocating in the first place.
+	# two-part reasoning (recent detection, not yet cleared + a real enemy
+	# mortar actually in range). Deliberately NOT "did I just fire"
+	# (event-based triggers here have twice produced an opposite failure
+	# this session — see the design doc's own revision log for both
+	# directions) and reached here (tier 1, ranked above tier 2 hunting)
+	# regardless of whether `has_shot` was true or false THIS tick, since
+	# _mortar_shot_this_tick itself already refuses to look for a target
+	# at all while this condition holds — so reaching this branch always
+	# means there was never a shot to weigh against relocating in the
+	# first place.
 	if _mortar_should_relocate_for_safety(m):
+		# `m.shoot_and_scoot` no longer gates WHETHER this fires (see
+		# _mortar_should_relocate_for_safety's own doc comment — a real
+		# threat now always means relocating, regardless of doctrine); it
+		# still means something real here — a crew whose own doctrine
+		# calls for shoot-and-scoot treats ANY real threat as worth the
+		# faster, farther urgent response immediately, while a hold-
+		# position preference still displaces but only escalates to that
+		# once density compounds past MORTAR_DENSITY_FORCE_SCOOT_COUNT
+		# KNOWN mortars — the same real probability math that constant's
+		# own doc comment already lays out.
 		var known_in_range: int = _known_enemy_mortars_in_range(m.global_position)
-		var urgent: bool = known_in_range >= GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT
+		var urgent: bool = m.shoot_and_scoot or known_in_range >= GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT
 		if m.has_move_target:
 			# Already moving for some other reason (a hunt, most likely) —
 			# redirect toward safety immediately rather than queuing a
@@ -4235,7 +4245,7 @@ func _decide_mortar_action(m: Unit) -> void:
 				if _pending_mortar_displacement.has(m):
 					combat_log.log_mortar_relocating_from_density(m)
 			if _pending_mortar_displacement.has(m):
-				_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Position compromised by recent fire, with a known enemy mortar in range — preparing to relocate."}
+				_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Position compromised by recent fire, with an enemy mortar able to reach it — preparing to relocate."}
 			else:
 				_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Position compromised — wanted to relocate, no route this tick."}
 		return
@@ -6107,10 +6117,28 @@ func _mortar_relocation_plan(mortar: Unit, urgent: bool) -> Dictionary:
 		var raw_direction: Vector2 = recent[-1] - recent[-2]
 		if raw_direction.length() > 1.0:
 			travel_direction = raw_direction.normalized()
+	# See GameConfig.nearest_hidden_point's own doc comment on
+	# `firing_point` — direct user correction: "the top priority of
+	# scooting is not being close to the point you fired from." Whatever
+	# tier actually triggered THIS relocation, if this crew's own firing
+	# signature is still live (mortar_recently_detected_firing), a fresh
+	# destination should also want real distance from that exact
+	# coordinate, not just from wherever it happens to be standing right
+	# now — the two can differ by up to COUNTER_BATTERY_BLAST_RADIUS
+	# itself (see _mortar_should_relocate_for_safety's own stopping
+	# condition), and a ring-search candidate merely far from `from` can
+	# still land close to the actual firing point if `from` had already
+	# drifted back toward it. Applies to either team uniformly — this is
+	# the same shared search both sides already route through, and a real
+	# crew of either side wants distance from where it just gave itself
+	# away regardless of which side it's on.
+	var firing_point: Vector2 = Vector2.INF
+	if mortar_recently_detected_firing(mortar):
+		firing_point = _last_detected_mortar_fire[mortar].position
 	var destination: Vector2 = (
-		GameConfig.nearest_hidden_point(mortar.global_position, threats, true, urgent, recent, home_position, home_leash, min_distance_from_home, siblings, recent, travel_direction)
+		GameConfig.nearest_hidden_point(mortar.global_position, threats, true, urgent, recent, home_position, home_leash, min_distance_from_home, siblings, recent, travel_direction, firing_point)
 		if not threats.is_empty()
-		else GameConfig.nearest_cover_point(mortar.global_position, 0.0, true, [], [], siblings, recent, travel_direction)
+		else GameConfig.nearest_cover_point(mortar.global_position, 0.0, true, [], [], siblings, recent, travel_direction, firing_point)
 	)
 	if destination == mortar.global_position:
 		return {}
@@ -6311,11 +6339,11 @@ func _mortar_shot_this_tick(m: Unit, opposing: Array[Unit]) -> Unit:
 	return target
 
 
-## True if a real, KNOWN enemy mortar could plausibly still hit `m` at its
-## CURRENT position — the actual reason a mortar should feel compelled to
-## relocate, replacing every event-based stand-in this project has tried
-## before it ("did I just fire," "how many enemy mortars exist somewhere
-## on the map"). Three real conditions, all required:
+## True if a real enemy mortar could plausibly still hit `m` at its CURRENT
+## position — the actual reason a mortar should feel compelled to relocate,
+## replacing every event-based stand-in this project has tried before it
+## ("did I just fire," "how many enemy mortars exist somewhere on the
+## map"). Two real conditions, both required:
 ##
 ## 1. `m` gave its own position away recently (mortar_recently_detected_
 ##    firing — the same muzzle-blast/trajectory detection channel
@@ -6329,14 +6357,27 @@ func _mortar_shot_this_tick(m: Unit, opposing: Array[Unit]) -> Unit:
 ##    coincidence, it's the SAME "close enough to the firing spot to
 ##    still be caught" real distance _resolve_pending_counter_battery's
 ##    own impact check already uses.
-## 2. At least GameConfig.MORTAR_STANDING_THREAT_COUNT known enemy
-##    mortars are actually within reach (see _known_enemy_mortars_in_
-##    range) — no real threat, no reason to run regardless of doctrine.
-## 3. Either this crew's own shoot-and-scoot doctrine says to bother, OR
-##    the danger has compounded past GameConfig.MORTAR_DENSITY_FORCE_
-##    SCOOT_COUNT known mortars — severe enough to override even a
-##    deliberate hold-position preference (see that constant's own doc
-##    comment for the real probability math behind the threshold).
+## 2. At least GameConfig.MORTAR_STANDING_THREAT_COUNT REAL enemy mortars
+##    (see _enemy_mortars_in_range — ground truth, not "known") are
+##    actually within striking reach.
+##
+## Direct user correction, after a live incident (a mortar hit shortly
+## after firing): "Right after firing, getting away from firing point
+## should be top priority if there are enemy mortars... only nearby enemy
+## squads should [outrank it], or the edge of the map." An EARLIER version
+## of this additionally required the mortars in condition 2 to be KNOWN
+## (detected/sighted) before bothering at all, and even then only
+## overrode a deliberate hold-position doctrine once density compounded
+## past GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT — reasonable-sounding,
+## but backwards from how real shoot-and-scoot doctrine actually works:
+## the whole point is that a crew can never be sure whether it was
+## detected, so the mere fact the enemy fields mortars capable of
+## reaching this position at all is itself the reason to assume
+## counter-battery risk, not proof a specific tube spotted this one.
+## Doctrine no longer gates whether this fires at all — see
+## _decide_mortar_action's own call site for how `m.shoot_and_scoot` is
+## still meaningful (it now controls how URGENTLY the crew responds, not
+## whether it bothers).
 ##
 ## Player-only, matching every other doctrine-aware mortar check's
 ## "enemy may differ" scope.
@@ -6348,10 +6389,25 @@ func _mortar_should_relocate_for_safety(m: Unit) -> bool:
 	var last_fire: Dictionary = _last_detected_mortar_fire[m]
 	if m.global_position.distance_to(last_fire.position) >= GameConfig.COUNTER_BATTERY_BLAST_RADIUS:
 		return false # already put real distance between itself and where it was last given away
-	var known_in_range: int = _known_enemy_mortars_in_range(m.global_position)
-	if known_in_range < GameConfig.MORTAR_STANDING_THREAT_COUNT:
-		return false
-	return m.shoot_and_scoot or known_in_range >= GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT
+	return _enemy_mortars_in_range(m.global_position) >= GameConfig.MORTAR_STANDING_THREAT_COUNT
+
+
+## Ground truth, not "known" — see _known_enemy_mortars_in_range's own doc
+## comment for that distinction and why it still matters separately (it
+## drives how URGENTLY a compromised crew responds, not whether it
+## bothers at all — see _decide_mortar_action's own call site). Used only
+## by _mortar_should_relocate_for_safety's own baseline gate: real
+## shoot-and-scoot doctrine assumes counter-battery risk from the mere
+## fact the enemy fields mortars able to reach this position, not from
+## confirmation a specific tube detected this one — a crew never gets
+## that confirmation in real life either.
+func _enemy_mortars_in_range(pos: Vector2) -> int:
+	var count := 0
+	var range_px: float = GameConfig.mortar_max_range(Unit.Team.ENEMY)
+	for u in enemy_units:
+		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE and pos.distance_to(u.global_position) <= range_px:
+			count += 1
+	return count
 
 
 ## Original doctrine keeps the legacy overrides. Other profiles compare
