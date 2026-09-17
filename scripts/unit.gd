@@ -74,6 +74,26 @@ var player_known_state: State = State.ACTIVE
 var player_known_position: Vector2 = Vector2.INF
 var player_known_position_time: float = -INF
 
+# The mirror image of the player_known_* block above: the ENEMY side's own
+# knowledge of THIS unit — meaningless for the enemy's own units, populated
+# for player_units only by BattleManager._update_enemy_intel. Direct user
+# correction after investigating a real, live-reported asymmetry (a
+# friendly mortar abandoning the gun after a single light wound while an
+# enemy mortar kept fighting with a badly reduced crew): _known_enemy_
+# positions used to resolve the player's own knowledge of the enemy via
+# this exact persistent-memory pattern, but had no equivalent for the
+# enemy's own knowledge of the player at all — only ever checking LIVE
+# is_visible, which is almost always false at any given instant. This
+# project's own stated knowledge-locality principle ("no decision should
+# rely on omniscient truth a real unit couldn't know") was already only
+# being honored for one side. See _known_enemy_positions's own doc
+# comment for the fix built on top of this.
+var enemy_has_been_sighted: bool = false
+var enemy_known_pips: int = 0
+var enemy_known_state: State = State.ACTIVE
+var enemy_known_position: Vector2 = Vector2.INF
+var enemy_known_position_time: float = -INF
+
 var fire_interval: float = 2.0 # seconds between fire attempts
 var fire_timer: float = 0.0
 
@@ -438,7 +458,7 @@ func _check_retreat(known_enemy_positions: Array[Vector2] = [], ally_positions: 
 ## personnel lost, mortars and drone-team crews included, not just squads.
 func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_positions: Array[Vector2] = []) -> void:
 	var remaining: int = crew_size - crew_casualties
-	var newly_down: int = randi_range(1, remaining)
+	var newly_down: int = _roll_crew_casualties(remaining)
 	crew_casualties += newly_down
 	_categorize_casualties(newly_down)
 	pips = crew_size - crew_casualties # feeds the side's overall casualty tally exactly like a squad's pips — see setup()
@@ -491,11 +511,42 @@ func _roll_mortar_ammo_cookoff() -> bool:
 	mortar_rounds_remaining = 0
 	var remaining: int = crew_size - crew_casualties
 	if remaining > 0:
-		var newly_down: int = randi_range(1, remaining)
+		var newly_down: int = _roll_crew_casualties(remaining)
 		crew_casualties += newly_down
 		_categorize_casualties(newly_down)
 	ammo_cooked_off = true
 	return true
+
+
+## See GameConfig.MORTAR_CREW_ADDITIONAL_CASUALTY_CHANCE's own doc comment
+## for the real-world grounding — shared by both _apply_crew_casualties
+## (the original hit) and _roll_mortar_ammo_cookoff (a secondary blast
+## right at the same position), since both are asking the identical
+## question: given this crew was just close enough to a real explosion to
+## be hit at all, how many of them does it actually catch. The first
+## casualty is always guaranteed (whoever's nearest the impact).
+##
+## An earlier version of this rolled each additional survivor as an
+## INDEPENDENT 50-50 draw regardless of how many prior rolls already
+## succeeded — caught by this function's own regression test before
+## shipping: that's a binomial distribution, which is symmetric and
+## PEAKS IN THE MIDDLE (for a 5-person crew, losing 3 total was the single
+## most likely outcome, not losing 1) — the opposite of "front-loaded."
+## Fixed to match CombatResolver.blast_casualty_chance's own already-
+## established exponential-decay shape instead: each successive
+## additional casualty is HALF as likely as the one before it, and a
+## missed roll stops the chain outright (once one survivor is far enough
+## out to be spared, everyone farther out is too) — a real geometric
+## decay, not a coin-flip repeated blindly.
+func _roll_crew_casualties(remaining: int) -> int:
+	var newly_down := 1
+	var chance: float = GameConfig.MORTAR_CREW_ADDITIONAL_CASUALTY_CHANCE
+	for i in range(1, remaining):
+		if randf() >= chance:
+			break
+		newly_down += 1
+		chance *= GameConfig.MORTAR_CREW_ADDITIONAL_CASUALTY_CHANCE
+	return newly_down
 
 
 ## Whether a wounded MORTAR crew (crew_size - crew_casualties survivors)

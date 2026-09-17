@@ -2754,6 +2754,40 @@ const MORTAR_BLAST_COLLATERAL_MAX_CHANCE: float = 0.95
 ## into one number.
 const MORTAR_BLAST_CASUALTY_RADIUS: float = 26.0 * PIXELS_PER_METER
 
+## Direct user correction, after investigating how mortar crews react to
+## being hit: Unit._apply_crew_casualties used to draw the number of
+## newly-down crew via `randi_range(1, remaining)` — a UNIFORM roll,
+## meaning "lose one person" and "lose the entire crew" were treated as
+## EQUALLY likely outcomes of the same hit, for a player crew (size 4)
+## a full 25% chance of instant total loss on every single hit. That has
+## no basis in how fragmentation lethality actually falls off with each
+## additional person beyond the one clearly close enough to be caught —
+## real HE fragmentation decays smoothly with distance, and this
+## project's own already-cited "casualty radius" convention (see MORTAR_
+## BLAST_CASUALTY_RADIUS's own doc comment: the distance at which a
+## STATED PERCENTAGE — conventionally 50% — of EXPOSED personnel become
+## casualties, already used by CombatResolver.blast_casualty_chance's own
+## exponential falloff for squad/collateral casualties) is the real
+## figure to reuse here.
+##
+## Applied as a GEOMETRIC decay (Unit._roll_crew_casualties), not an
+## independent per-person coin flip — an earlier version of this rolled
+## every remaining survivor independently at this same chance, which is
+## actually a symmetric binomial distribution (peaks in the MIDDLE of the
+## crew, not at the low end — for a 5-person crew, losing 3 was the single
+## most likely outcome), caught by this fix's own regression test before
+## shipping. Instead, each successive additional casualty beyond the
+## first (always guaranteed — whoever's nearest the impact) is HALF as
+## likely as the one before it, and a missed roll stops the chain
+## outright — matching blast_casualty_chance's own already-established
+## "halves every casualty-radius interval" shape, just applied
+## sequentially per person (nearest-to-farthest within the small,
+## clustered crew) instead of spatially. Produces a real, front-loaded
+## distribution: losing just the one person nearest the impact is the
+## single most likely outcome, and each further loss is progressively
+## rarer, down to losing the entire crew as the least likely of all.
+const MORTAR_CREW_ADDITIONAL_CASUALTY_CHANCE: float = 0.5
+
 ## The outer radius _collateral_victim actually searches for a bystander
 ## around a blast — used to be a reuse of MORTAR_EVASION_RADIUS (40m),
 ## which (see MORTAR_BLAST_COLLATERAL_MAX_CHANCE's own doc comment) exists

@@ -1410,19 +1410,32 @@ func _enemy_situation_hopeless() -> bool:
 ## seen. ACTIVE or RETREATING only — a SURRENDERED unit has laid down its
 ## arms in place and a WITHDRAWN one has left the field entirely; neither
 ## poses any actual threat any more, so nothing should route around, hide
-## from, or flee one the way it would a real, still-armed contact.
-## For the PLAYER side, this deliberately does NOT mean "currently
-## is_visible" — it means "what the player's own side actually knows,"
-## same standard as Unit.player_known_position/_has_been_sighted (see
-## their own doc comments and _update_player_intel). A contact spotted
-## moments ago and now merely out of direct line-of-sight hasn't un-
-## happened just because the visibility flag flickered off; a retreat or
-## cover choice built on strict real-time visibility alone can walk
-## straight into (or right past) a threat the player's own side already
-## has every reason to remember is there. The ENEMY side has no
-## equivalent persistent-memory field (that fog-of-war model is
-## deliberately one-directional — see the same doc comments), so it still
-## reads plain, real-time is_visible.
+## from, or flee one the way it would a real, still-armed contact. This
+## deliberately does NOT mean "currently is_visible" for EITHER side — it
+## means "what that side's own knowledge actually is," same standard as
+## Unit.player_known_position/_has_been_sighted for the player and Unit.
+## enemy_known_position/_has_been_sighted for the enemy (see their own doc
+## comments and _update_player_intel/_update_enemy_intel). A contact
+## spotted moments ago and now merely out of direct line-of-sight hasn't
+## un-happened just because the visibility flag flickered off; a retreat
+## or cover choice built on strict real-time visibility alone can walk
+## straight into (or right past) a threat that side already has every
+## reason to remember is there.
+##
+## Used to be asymmetric — the ENEMY side read plain, real-time is_visible
+## with no persistent memory at all, reasoned at the time as "the fog-of-
+## war model is deliberately one-directional." Direct user correction,
+## after that asymmetry was traced as the actual cause of a real,
+## live-reported bug (a friendly mortar abandoning the gun after a single
+## light wound, while an enemy mortar with a badly reduced crew never
+## registered a nearby threat at all and kept fighting): this project's
+## own stated knowledge-locality principle never actually called for a
+## ONE-DIRECTIONAL model — an enemy unit forgetting a contact the instant
+## line-of-sight breaks isn't "enemy behavior may reasonably differ" (a
+## different decision-making style, doctrine, or objective — see this
+## project's own established distinction for what that principle actually
+## covers), it's a real gap in what the enemy is even capable of knowing
+## at all. Now genuinely symmetric.
 func _known_enemy_positions(team: Unit.Team) -> Array[Vector2]:
 	var opposing: Array[Unit] = enemy_units if team == Unit.Team.PLAYER else player_units
 	var positions: Array[Vector2] = []
@@ -1433,8 +1446,9 @@ func _known_enemy_positions(team: Unit.Team) -> Array[Vector2]:
 		if team == Unit.Team.PLAYER:
 			if u.player_has_been_sighted:
 				positions.append(u.player_known_position)
-		elif u.is_visible:
-			positions.append(u.global_position)
+		else:
+			if u.enemy_has_been_sighted:
+				positions.append(u.enemy_known_position)
 	return positions
 
 
@@ -4600,6 +4614,7 @@ func _process(delta: float) -> void:
 	_resolve_pending_mortar_shots()
 	_resolve_pending_mortar_displacement()
 	_update_player_intel()
+	_update_enemy_intel()
 	_check_enemy_commander_retreat()
 	_check_enemy_mortar_isolated_retreat()
 	_check_scheduled_retreat()
@@ -4871,6 +4886,22 @@ func _update_player_intel() -> void:
 			u.player_known_state = u.state
 			u.player_known_position = u.global_position
 			u.player_known_position_time = scenario_elapsed_time
+
+
+## The exact mirror of _update_player_intel above, for the enemy's own
+## knowledge of the player's units — see Unit.enemy_has_been_sighted's own
+## doc comment for why this needed to exist at all. Same "run every tick,
+## after this tick's own combat resolution" timing, same reasoning for why
+## a unit destroyed the same tick it was last seen is still correctly
+## captured.
+func _update_enemy_intel() -> void:
+	for u in player_units:
+		if u.is_visible:
+			u.enemy_has_been_sighted = true
+			u.enemy_known_pips = u.pips
+			u.enemy_known_state = u.state
+			u.enemy_known_position = u.global_position
+			u.enemy_known_position_time = scenario_elapsed_time
 
 
 ## `scenario_delta` (tactical seconds) drives a MORTAR's reload timer — a
