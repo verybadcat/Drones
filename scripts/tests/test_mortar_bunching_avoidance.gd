@@ -196,11 +196,73 @@ func test_holding_a_shot_still_disperses_from_critically_close_sibling() -> void
 		"Stepping clear of a sibling while holding a shot is its own intent, not an ordinary hunt or holding state")
 
 
+## nearest_cover_point (the "no known threats" relocation path) used to be
+## the one bunching check in this file left as a hard two-stage exclusion
+## instead of a continuous preference — direct user correction: "300
+## meters should be a guideline, not a hard and fast rule... they are
+## allowed to approach closer than 300 meters if circumstances make other
+## options bad." This is exactly that circumstance: a real cover zone
+## that is by far the closest option to `from`, but sits within 300m of a
+## sibling, must still win a real share of the time — a hard exclusion
+## would have thrown it out unconditionally whenever ANY other zone on
+## the whole map cleared 300m, which on a real map with dozens of zones
+## is effectively always.
+func test_nearest_cover_point_accepts_closer_than_guideline_when_it_is_clearly_best() -> void:
+	var zones: Array[Dictionary] = GameConfig._all_cover_zones()
+	check(zones.size() >= 3, "test needs a real pool of cover zones on the default map to be meaningful")
+	var probe := Vector2(0, 0)
+	zones.sort_custom(func(a, b): return probe.distance_to(a.center) < probe.distance_to(b.center))
+	var zone_a_center: Vector2 = zones[0].center
+	var from: Vector2 = zone_a_center
+	# 60% of the guideline radius -- comfortably "too close" by the old
+	# hard rule, but not critically close (that's a separate, still-
+	# absolute-ish floor -- see MORTAR_BUNCHING_CRITICAL_RADIUS).
+	var sibling: Vector2 = zone_a_center + Vector2(GameConfig.MORTAR_BUNCHING_AVOIDANCE_RADIUS * 0.6, 0)
+	var bunch_avoid: Array[Vector2] = [sibling]
+	const DRAWS := 120
+	var hits_zone_a := 0
+	for i in DRAWS:
+		var p: Vector2 = GameConfig.nearest_cover_point(from, 0.0, false, [], [], bunch_avoid)
+		if p.distance_to(zone_a_center) < 80.0 * GameConfig.PIXELS_PER_METER:
+			hits_zone_a += 1
+	check(hits_zone_a > DRAWS / 4,
+		"A real cover zone that's by far the closest option must still win a real share of the time despite sitting within the 300m guideline of a sibling (%d/%d) -- 300m is a preference, not a wall" % [hits_zone_a, DRAWS])
+
+
+## The other half of the same correction: closer to a sibling must still
+## be genuinely LESS liked, not simply "allowed" -- a candidate sitting
+## right on top of a sibling, competing against two dozen other real
+## zones, should lose out to alternatives far more often than the exact
+## same candidate would when nothing is bunched near it at all.
+func test_nearest_cover_point_still_prefers_clearance_when_alternatives_exist() -> void:
+	var zones: Array[Dictionary] = GameConfig._all_cover_zones()
+	check(zones.size() >= 3, "test needs a real pool of cover zones on the default map to be meaningful")
+	var from := Vector2(0, 0)
+	zones.sort_custom(func(a, b): return from.distance_to(a.center) < from.distance_to(b.center))
+	var closest_center: Vector2 = zones[0].center
+	var bunch_avoid: Array[Vector2] = [closest_center]
+	const DRAWS := 100
+	var hits_without := 0
+	var hits_with := 0
+	for i in DRAWS:
+		var p: Vector2 = GameConfig.nearest_cover_point(from, 0.0, false, [], [], [])
+		if p.distance_to(closest_center) < 80.0 * GameConfig.PIXELS_PER_METER:
+			hits_without += 1
+	for i in DRAWS:
+		var p: Vector2 = GameConfig.nearest_cover_point(from, 0.0, false, [], [], bunch_avoid)
+		if p.distance_to(closest_center) < 80.0 * GameConfig.PIXELS_PER_METER:
+			hits_with += 1
+	check(hits_with < hits_without,
+		"Sitting right on top of a sibling should make a candidate lose out to real alternatives far more often than the same candidate with no sibling nearby (%d/%d vs %d/%d)" % [hits_with, DRAWS, hits_without, DRAWS])
+
+
 func run() -> void:
 	test_ring_search_statistically_prefers_sibling_clearance()
 	test_advance_point_avoids_sibling_at_natural_angle()
 	test_advance_point_falls_back_to_least_bad_when_fully_boxed_in()
 	test_idle_holding_disperses_from_critically_close_sibling()
 	test_holding_a_shot_still_disperses_from_critically_close_sibling()
+	test_nearest_cover_point_accepts_closer_than_guideline_when_it_is_clearly_best()
+	test_nearest_cover_point_still_prefers_clearance_when_alternatives_exist()
 	print("Mortar bunching-avoidance tests: %d failures" % failures)
 	quit(1 if failures else 0)

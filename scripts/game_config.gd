@@ -3105,29 +3105,29 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 		if not clear_of_siblings.is_empty():
 			candidates = clear_of_siblings
 
-		# A second, softer stage on top of the hard critical-radius floor
-		# above — see MORTAR_BUNCHING_AVOIDANCE_RADIUS's own doc comment.
-		# The critical-radius filter alone only ever guarantees clearing
-		# the narrow single-round-catastrophe distance (26m); this mapped-
-		# cover-zone search had no route at all toward the much larger,
-		# real doctrinal separation target (300m) it should actually be
-		# aiming for whenever a real alternative allows it — the ring
-		# search gained exactly this soft preference via its own
-		# CONCEALMENT_SEARCH_RINGS_BUNCHING_EXTRA_M fix; this is the same
-		# preference applied to the zone-list search's own candidate pool
-		# instead (there's no "extra ring" concept here — the mapped
-		# zones already exist, this only needs to prefer among them).
-		var clear_of_full_radius: Array[Dictionary] = []
+		# A second, softer preference on top of the hard critical-radius
+		# floor above — see MORTAR_BUNCHING_AVOIDANCE_RADIUS's own doc
+		# comment: 300m is a real cited separation GUIDELINE, not an
+		# absolute wall, and this used to be a second hard two-stage
+		# exclusion here. That reproduced exactly the starvation failure
+		# mode _ring_search_hidden_point's own continuous factor was built
+		# to avoid (see that function's own doc comment) — per the user's
+		# own direct correction, mortars should like closer separation
+		# less and less as it shrinks, but must still be allowed to accept
+		# it when every mapped cover zone near a cluster of siblings sits
+		# within 300m anyway. Scales the effective search distance up
+		# smoothly instead of excluding: no penalty once fully clear,
+		# growing (never to a hard wall) the closer a zone sits to a
+		# sibling — folded into the same `dist` field the sort below
+		# already ranks on, so a closer-but-clear zone can still outrank a
+		# farther, more-bunched one instead of the two being incomparable.
 		for c in candidates:
-			var within_soft_radius := false
+			var nearest_sibling_dist: float = INF
 			for p in bunch_avoid_positions:
-				if c.zone.center.distance_to(p) < MORTAR_BUNCHING_AVOIDANCE_RADIUS:
-					within_soft_radius = true
-					break
-			if not within_soft_radius:
-				clear_of_full_radius.append(c)
-		if not clear_of_full_radius.is_empty():
-			candidates = clear_of_full_radius
+				nearest_sibling_dist = min(nearest_sibling_dist, c.zone.center.distance_to(p))
+			if nearest_sibling_dist < INF:
+				var bunch_factor: float = clampf(nearest_sibling_dist / MORTAR_BUNCHING_AVOIDANCE_RADIUS, 0.05, 1.0)
+				c.dist = c.dist / bunch_factor
 
 	# See MORTAR_NO_REVERSAL_RADIUS's own doc comment — this is the path
 	# that was silently receiving NO recent-position protection at all
