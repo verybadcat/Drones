@@ -3225,9 +3225,28 @@ func _drone_search_target() -> Vector2:
 		# High priority once the fight's effectively over (the enemy's own
 		# general retreat) — but while the battle is still actually going,
 		# one broken, defanged straggler (a mortar crew that's abandoned its
-		# gun counts here too, not as "the mortar priority") is a low-
-		# priority distraction next to whatever's still actually fighting.
+		# gun, or fled off the map as a last resort — see BattleManager.
+		# _mortar_flee_as_last_resort — counts here too, not as "the mortar
+		# priority") is a low-priority distraction next to whatever's still
+		# actually fighting.
 		var retreating_score: float = GameConfig.TARGET_PRIORITY_RETREATING_ENEMY if enemy_general_retreat_ordered else GameConfig.TARGET_PRIORITY_RETREATING_ENEMY_LOW
+		# Direct user correction: "a fleeing enemy mortar should be a lower
+		# priority target than enemy squads... at least than squads that
+		# are not fleeing." The comment above already stated that exact
+		# intent, but the flat TARGET_PRIORITY_RETREATING_ENEMY_LOW
+		# constant (2.0) was still just compared against best_squad_score's
+		# own continuous, distance-based scale (0 to TARGET_PRIORITY_SQUAD_
+		# MAX) — a real, currently-visible, still-ACTIVE squad merely
+		# distant from any friendly (score under 2) could still lose the
+		# comparison to a fleeing straggler, backwards from the stated
+		# principle. Capped so a real active squad — whatever its own
+		# individual danger score happens to be right now — always wins
+		# while the fight is still on: best_score already reflects
+		# best_squad_score (or something higher) by this point whenever
+		# best_squad is non-null, so capping to it can only ever prevent
+		# this tier from winning, never help it.
+		if not enemy_general_retreat_ordered and best_squad != null:
+			retreating_score = min(retreating_score, best_score)
 		if retreating_score > best_score:
 			best_score = retreating_score
 			best_pos = best_retreating.global_position
