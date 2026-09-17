@@ -299,6 +299,14 @@ static func has_live_observer(target: Unit, observers: Array[Unit]) -> bool:
 ## defender's own side's point of view (so that same retreat never heads
 ## toward, or lands right next to, a threat its own side already knows
 ## about — see nearest_cover_point's DANGER_RADIUS exclusion).
+##
+## `impact_distance` — likewise passed straight through to `take_hit`: how
+## far the round's real impact point (a mortar's own dispersion, or the
+## defender's own position for direct fire — see BattleManager.
+## _resolve_fire_and_check_bunching's own doc comment) landed from the
+## defender. Only a MORTAR/DRONE_TEAM defender's own crew-casualty roll
+## ever reads it (Unit._apply_crew_casualties); everyone else's casualty
+## count is unrelated to this specific number.
 ## A DRONE defender is a hard, unconditional zero — not merely a severe
 ## reduction — regardless of who's firing. Real-world sourcing (see the
 ## design doc's own revision-log entry, prompted by a live bug report of
@@ -351,9 +359,9 @@ static func hit_probability(attacker: Unit, defender: Unit, drone_directed: bool
 	return clampf(chance, 0.0, 1.0)
 
 
-static func resolve_fire(attacker: Unit, defender: Unit, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], drone_directed: bool = false) -> bool:
+static func resolve_fire(attacker: Unit, defender: Unit, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], drone_directed: bool = false, impact_distance: float = 0.0) -> bool:
 	var chance := hit_probability(attacker, defender, drone_directed)
 	var hit: bool = randf() < chance
 	if hit:
-		defender.take_hit(attacker.kind == Unit.Kind.MORTAR, ally_positions, known_enemy_positions)
+		defender.take_hit(attacker.kind == Unit.Kind.MORTAR, ally_positions, known_enemy_positions, impact_distance)
 	return hit

@@ -352,14 +352,23 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 ## retreat picked with no idea where the enemy is could otherwise head
 ## straight for cover the enemy happens to be occupying, or even walk
 ## toward a known enemy position outright.
-func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = []) -> void:
+##
+## `impact_distance` — how far the round's real, physically-dispersed
+## impact point landed from THIS unit's own position (0.0 for direct fire,
+## which always resolves exactly at the target — see BattleManager.
+## _resolve_fire_and_check_bunching's own doc comment). Only meaningful for
+## a MORTAR/DRONE_TEAM crew's own casualty roll (_apply_crew_casualties) —
+## everyone else's casualty count still comes from GameConfig.
+## mortar_casualty_count(pips)/a flat 1, unrelated to how far a round
+## actually landed from any one specific person in a multi-person squad.
+func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], impact_distance: float = 0.0) -> void:
 	if state == State.DESTROYED:
 		return
 	took_hit.emit(self)
 	queue_redraw()
 
 	if kind == Kind.MORTAR or kind == Kind.DRONE_TEAM:
-		_apply_crew_casualties(known_enemy_positions, ally_positions)
+		_apply_crew_casualties(known_enemy_positions, ally_positions, from_mortar, impact_distance)
 		return
 
 	# A rifle round is aimed at one person; a mortar round's fragmentation
@@ -456,9 +465,13 @@ func _check_retreat(known_enemy_positions: Array[Vector2] = [], ally_positions: 
 ## _compute_side_stats's killed/heavily_wounded/walking_wounded/
 ## wounded_left_behind breakdown always summing to the side's actual total
 ## personnel lost, mortars and drone-team crews included, not just squads.
-func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_positions: Array[Vector2] = []) -> void:
+func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_positions: Array[Vector2] = [], from_mortar: bool = true, impact_distance: float = 0.0) -> void:
 	var remaining: int = crew_size - crew_casualties
-	var newly_down: int = _roll_crew_casualties(remaining)
+	# Direct/small-arms fire is a single aimed shot at one person, not a
+	# blast covering an area — it stays a flat single casualty, exactly
+	# like a squad's own from_mortar distinction (see take_hit above).
+	# Only a real HE hit rolls the distance-and-cover-aware model below.
+	var newly_down: int = _roll_crew_casualties(remaining, impact_distance, terrain_type()) if from_mortar else min(1, remaining)
 	crew_casualties += newly_down
 	_categorize_casualties(newly_down)
 	pips = crew_size - crew_casualties # feeds the side's overall casualty tally exactly like a squad's pips — see setup()
@@ -511,41 +524,38 @@ func _roll_mortar_ammo_cookoff() -> bool:
 	mortar_rounds_remaining = 0
 	var remaining: int = crew_size - crew_casualties
 	if remaining > 0:
-		var newly_down: int = _roll_crew_casualties(remaining)
+		# The secondary explosion goes off right where the crew already is —
+		# a real distance of 0, not the original round's own impact point.
+		var newly_down: int = _roll_crew_casualties(remaining, 0.0, terrain_type())
 		crew_casualties += newly_down
 		_categorize_casualties(newly_down)
 	ammo_cooked_off = true
 	return true
 
 
-## See GameConfig.MORTAR_CREW_ADDITIONAL_CASUALTY_CHANCE's own doc comment
-## for the real-world grounding — shared by both _apply_crew_casualties
-## (the original hit) and _roll_mortar_ammo_cookoff (a secondary blast
-## right at the same position), since both are asking the identical
-## question: given this crew was just close enough to a real explosion to
-## be hit at all, how many of them does it actually catch. The first
-## casualty is always guaranteed (whoever's nearest the impact).
+## Shared by both _apply_crew_casualties (the original hit, a real impact_distance
+## from the round's own dispersion) and _roll_mortar_ammo_cookoff (a
+## secondary blast right at the crew's own position, impact_distance 0.0),
+## since both are asking the identical question: given a real HE blast at
+## this distance with this terrain's cover, how many of the remaining crew
+## does it actually catch.
 ##
-## An earlier version of this rolled each additional survivor as an
-## INDEPENDENT 50-50 draw regardless of how many prior rolls already
-## succeeded — caught by this function's own regression test before
-## shipping: that's a binomial distribution, which is symmetric and
-## PEAKS IN THE MIDDLE (for a 5-person crew, losing 3 total was the single
-## most likely outcome, not losing 1) — the opposite of "front-loaded."
-## Fixed to match CombatResolver.blast_casualty_chance's own already-
-## established exponential-decay shape instead: each successive
-## additional casualty is HALF as likely as the one before it, and a
-## missed roll stops the chain outright (once one survivor is far enough
-## out to be spared, everyone farther out is too) — a real geometric
-## decay, not a coin-flip repeated blindly.
-func _roll_crew_casualties(remaining: int) -> int:
-	var newly_down := 1
-	var chance: float = GameConfig.MORTAR_CREW_ADDITIONAL_CASUALTY_CHANCE
-	for i in range(1, remaining):
-		if randf() >= chance:
-			break
-		newly_down += 1
-		chance *= GameConfig.MORTAR_CREW_ADDITIONAL_CASUALTY_CHANCE
+## Two earlier versions of this were tried and replaced, both caught by
+## this function's own regression test before shipping: a flat uniform
+## `randi_range(1, remaining)` (lose-one and lose-everyone equally likely);
+## then a geometric-decay chain with a guaranteed first casualty (ignored
+## how far the round actually landed from the crew entirely). This version
+## is the user's own proposed replacement: each remaining crew member is
+## an independent Bernoulli draw against the same distance-and-cover-aware
+## fragmentation curve every other blast casualty in this game already
+## uses, so a crew can get lucky and take nothing from a near miss, or
+## unlucky and lose more than one from a hit that scattered wide.
+func _roll_crew_casualties(remaining: int, impact_distance: float, terrain: GameConfig.TerrainType) -> int:
+	var chance: float = CombatResolver.blast_casualty_chance(impact_distance, 1.0, terrain)
+	var newly_down := 0
+	for i in remaining:
+		if randf() < chance:
+			newly_down += 1
 	return newly_down
 
 

@@ -1559,7 +1559,7 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit, impact_point
 	var before := UnitCombatStats.before_hit(target)
 	unit_combat_stats.register(attacker)
 	var target_was_active := target.state == Unit.State.ACTIVE
-	CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team), _drone_directing_mortar_fire(attacker))
+	CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team), _drone_directing_mortar_fire(attacker), target.global_position.distance_to(impact_point))
 	unit_combat_stats.damage(attacker, target, before)
 	_log_hit_consequence(target, target_was_active)
 	# Collateral risk is about who else is near the actual impact point,
@@ -1582,7 +1582,7 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit, impact_point
 		return
 	var victim_was_active := victim.state == Unit.State.ACTIVE
 	var before_victim := UnitCombatStats.before_hit(victim)
-	victim.take_hit(is_blast, _ally_positions_for(victim), _known_enemy_positions(victim.team))
+	victim.take_hit(is_blast, _ally_positions_for(victim), _known_enemy_positions(victim.team), impact_point.distance_to(victim.global_position))
 	unit_combat_stats.damage(attacker, victim, before_victim)
 	# A collateral victim is picked purely by proximity to the actual
 	# impact point (see _collateral_victim) — it never had to be
@@ -6110,7 +6110,7 @@ func _resolve_pending_counter_battery() -> void:
 		var impact_chance: float = CombatResolver.blast_casualty_chance(distance, 1.0, GameConfig.get_terrain_type_at(target.global_position))
 		if randf() < impact_chance:
 			var before := UnitCombatStats.before_hit(target)
-			target.take_hit(true, [], _known_enemy_positions(target.team))
+			target.take_hit(true, [], _known_enemy_positions(target.team), distance)
 			if strike.has("attacker") and is_instance_valid(strike.attacker):
 				unit_combat_stats.damage(strike.attacker, target, before)
 			combat_log.log_counter_battery(target)
@@ -6129,7 +6129,7 @@ func _resolve_pending_counter_battery() -> void:
 			if collateral_victim != null:
 				var collateral_was_active := collateral_victim.state == Unit.State.ACTIVE
 				var before_collateral := UnitCombatStats.before_hit(collateral_victim)
-				collateral_victim.take_hit(true, _ally_positions_for(collateral_victim), _known_enemy_positions(collateral_victim.team))
+				collateral_victim.take_hit(true, _ally_positions_for(collateral_victim), _known_enemy_positions(collateral_victim.team), strike.impact_position.distance_to(collateral_victim.global_position))
 				unit_combat_stats.damage(strike.attacker, collateral_victim, before_collateral)
 				_assign_discovery_number(collateral_victim)
 				combat_log.log_blast_collateral(target, collateral_victim)
