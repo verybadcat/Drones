@@ -307,6 +307,87 @@ func test_scoot_settles_between_ticks_instead_of_churning_every_tick() -> void:
 	bm.free()
 
 
+## The SAME churn bug through a SECOND, deeper path the fix above never
+## touched: the "already moving — redirect toward safety" branch in
+## _decide_mortar_action called _relocate_mortar every SINGLE tick this
+## tier was reached, with no check for whether the crew was already
+## displacing for this EXACT reason — its own comment claimed "already
+## moving for some OTHER reason (a hunt, most likely)" but the code never
+## actually verified that. `urgent` reading true from DENSITY alone
+## (GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT known enemy mortars —
+## nothing to do with doctrine at all) reproduces the identical
+## bypass-the-cooldown-every-tick churn as the doctrine-driven version the
+## sibling test above guards against. Caught directly from a second live
+## report on the very next battle after that first fix landed.
+func test_scoot_settles_under_density_driven_urgency_too() -> void:
+	seed(20260916)
+	var bm = make_battle()
+	var start: Vector2 = GameConfig.CURRENT_MAP.player.mortar_default_position
+	bm._friendly_mortar_home_position = start
+	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, start)
+	bm.player_units.append(mortar)
+	mortar.mortar_rounds_remaining = 30
+	mortar.base_hit_chance = 1.0
+	mortar.shoot_and_scoot = false # deliberately NOT relying on doctrine this time
+
+	# The actual firing target — kept visible/known throughout, exactly
+	# like the sibling "persistent target" test above.
+	var enemy_mortar: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, start + Vector2(200, 0))
+	bm.enemy_units.append(enemy_mortar)
+	enemy_mortar.is_visible = true
+	enemy_mortar.mortar_rounds_remaining = 0
+	enemy_mortar.crew_size = 1000
+
+	# A SECOND known enemy mortar, purely to push known-in-range density to
+	# GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT (2) — the actual
+	# condition under test, independent of doctrine entirely.
+	var second_enemy_mortar: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, start + Vector2(-200, 0))
+	bm.enemy_units.append(second_enemy_mortar)
+	second_enemy_mortar.is_visible = true
+	second_enemy_mortar.mortar_rounds_remaining = 0
+	second_enemy_mortar.crew_size = 1000
+
+	var spotter: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, enemy_mortar.global_position + Vector2(0, 60))
+	bm.player_units.append(spotter)
+	var spotter2: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, second_enemy_mortar.global_position + Vector2(0, 60))
+	bm.player_units.append(spotter2)
+
+	bm.unit_type_doctrines[Unit.Team.PLAYER] = Orders.sanitize({})
+
+	var last_rounds: int = mortar.mortar_rounds_remaining
+	var fired := false
+	var move_target_changes := 0
+	var last_move_target: Vector2 = mortar.global_position
+	var first_move_tick: int = -1
+	var ticks_since_first_move: int = 0
+	var ticks := 0
+	while ticks < 6000 and not bm.battle_over and ticks_since_first_move < 30:
+		bm._process(1.0 / 60.0)
+		if not is_instance_valid(mortar):
+			break
+		mortar.is_visible = false # isolates this from the separate "genuinely spotted" trigger
+		if mortar.mortar_rounds_remaining < last_rounds:
+			fired = true
+			last_rounds = mortar.mortar_rounds_remaining
+		if fired and mortar.has_move_target:
+			if first_move_tick == -1:
+				first_move_tick = ticks
+				last_move_target = mortar.move_target
+			elif mortar.move_target.distance_to(last_move_target) > 1.0:
+				move_target_changes += 1
+				last_move_target = mortar.move_target
+		if first_move_tick != -1:
+			ticks_since_first_move += 1
+		ticks += 1
+
+	check(fired, "The mortar must actually fire at least once for this test to mean anything")
+	check(first_move_tick != -1, "The mortar must actually start a scoot displacement after firing for this test to mean anything")
+	check(move_target_changes <= 3,
+		"The scoot destination changed %d times in the 30 ticks right after the crew set out (0.5 real seconds), driven by DENSITY alone (shoot_and_scoot is false here) — it must settle on a destination, not reshuffle every tick" % move_target_changes)
+	bm.combat_log.free()
+	bm.free()
+
+
 ## "Shoot and scoot" isn't just clearing COUNTER_BATTERY_BLAST_RADIUS from
 ## wherever the crew just fired — a real reported symptom: the mortar
 ## visibly pacing back and forth between the same 2-3 hiding spots over
@@ -426,5 +507,6 @@ func run() -> void:
 	test_mortar_avoids_recently_used_scoot_positions()
 	test_relocation_never_undoes_progress_from_a_different_threat()
 	test_scoot_settles_between_ticks_instead_of_churning_every_tick()
+	test_scoot_settles_under_density_driven_urgency_too()
 	print("Mortar evasion-balance tests: %d failures" % failures)
 	quit(1 if failures else 0)

@@ -4234,7 +4234,24 @@ func _decide_mortar_action(m: Unit) -> void:
 		# this cooldown-bypass without reopening this exact bug.
 		var known_in_range: int = _known_enemy_mortars_in_range(m.global_position)
 		var urgent: bool = known_in_range >= GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT
-		if m.has_move_target:
+		if current_intent == "scoot" and m.has_move_target:
+			# A real, previously-reported live regression, deeper than the
+			# doctrine-vs-urgent one fixed above: this branch used to call
+			# _relocate_mortar every SINGLE tick this tier was reached,
+			# with no check for whether the crew was already displacing
+			# for this EXACT same reason — the comment below ("already
+			# moving for some OTHER reason") was never actually enforced
+			# in code. Whenever `urgent` reads true for ANY reason
+			# (density alone is enough — MORTAR_DENSITY_FORCE_SCOOT_COUNT
+			# known mortars, nothing to do with doctrine), that repeated
+			# call bypasses MORTAR_VOLUNTARY_RELOCATION_COOLDOWN every
+			# tick just like the doctrine-driven version did, reproducing
+			# the identical churn through a path the previous fix never
+			# touched. Sticky against itself now, same pattern already
+			# used one tier up for evade/conceal/out_of_ammo/linkup — a
+			# scoot already under way for this reason just keeps walking.
+			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Continuing a displacement already under way (scoot)."}
+		elif m.has_move_target:
 			# Already moving for some other reason (a hunt, most likely) —
 			# redirect toward safety immediately rather than queuing a
 			# fresh "packing up" delay the crew doesn't need: it's already
