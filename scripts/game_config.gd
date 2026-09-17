@@ -2599,20 +2599,37 @@ const WOUNDED_ABANDON_MAX_CHANCE: float = 0.85
 ## able to overrun the position; beyond it, the position itself is safe
 ## enough that only crew strength (not proximity) drives the decision.
 ##
-## Proximity alone, though: whether that's enough on its own to call a
-## known enemy a real threat varies by call site. BattleManager._decide_
+## Raised from an earlier 600m and its own former direct-LOS requirement
+## dropped, after a live incident: an enemy squad given a genuine "run the
+## mortar down directly" pursuit (see BattleManager._chasing_mortar_in_
+## hot_pursuit) closed in and destroyed the crew before it ever started
+## running. Re-checked against FM 7-90 directly rather than guessed at: the
+## manual gives no explicit distance for this specific question (crew
+## self-defense reaction range to closing infantry), but its own doctrine
+## for local security networks around a firing position uses intervisible
+## observation posts at roughly 500m intervals specifically to give early
+## warning of an approaching force BEFORE it reaches the position — the
+## same underlying principle this constant exists to encode. Direct user
+## correction, twice over: "It's enough if you know they are there, or
+## even if you recently knew they were there" — genuine direct line of
+## sight was too strict a bar for THIS specific question. A nearby-but-
+## currently-blind known enemy (terrain in the way right now) is still a
+## real reason for a crew to displace before it closes the remaining
+## distance and gets a clear shot — unlike _pick_target's own hold-fire
+## calculus (a different question: "is this specific candidate worth a
+## round right now"), self-preservation doesn't get to wait for
+## confirmation the danger has already arrived. BattleManager._decide_
 ## mortar_action's own proactive "is anything closing in on us" check
-## additionally requires genuine line of sight from the threat to the
-## crew's own position (GameConfig.has_direct_los) — a nearby-but-blind
-## enemy (terrain in the way) isn't actually a reason to abandon a
-## perfectly concealed position. The REACTIVE checks (_mortar_crew_holds_
-## position's post-hit hold-or-flee roll, _pick_target's own overrun
-## override) don't add that requirement — by the time either of those
-## runs, the crew has either already been hit (so something can already
-## reach them regardless of this range) or is actively choosing whether
-## to spend a round on a candidate already inside normal engagement
-## range, a different question than "is anything about to find us."
-const MORTAR_CREW_OVERRUN_DANGER_RANGE: float = 600.0 * PIXELS_PER_METER
+## (_unwatched_threat_closing) now reads purely off known position and
+## distance — no LOS requirement at all. The REACTIVE checks (_mortar_
+## crew_holds_position's post-hit hold-or-flee roll, _pick_target's own
+## overrun override) never had one to begin with — by the time either of
+## those runs, the crew has either already been hit (so something can
+## already reach them regardless of this range) or is actively choosing
+## whether to spend a round on a candidate already inside normal
+## engagement range, a different question than "is anything about to find
+## us."
+const MORTAR_CREW_OVERRUN_DANGER_RANGE: float = 750.0 * PIXELS_PER_METER
 
 ## How far out a known enemy actually CLOSING on the drone team's ground
 ## position (see BattleManager._update_drone_team_evasion) starts to be

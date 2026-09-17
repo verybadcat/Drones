@@ -521,6 +521,19 @@ var _mortar_move_intent: Dictionary = {}
 # see _decide_mortar_action and mortar_decision_debug_snapshot.
 var _mortar_reasoning: Dictionary = {}
 
+# Unit (a mortar) -> Array[Dictionary], a bounded rolling trace of recent
+# threat-assessment inputs (position, visibility, closing-threat status) —
+# direct user request, after a mortar was destroyed and the only
+# visibility into what led up to it was a single frozen final-state
+# snapshot: "get yourself enough visibility so that if this happens again
+# you can see what happened." See _record_mortar_debug_history and
+# mortar_decision_debug_snapshot's own "recent_history" field. Capped by
+# entry COUNT, not tactical time, since this project's own time scale
+# varies 60-300x — a fixed count gives a consistent amount of recent
+# DECISION history regardless of how much tactical time each entry spans.
+var _mortar_debug_history: Dictionary = {}
+const MORTAR_DEBUG_HISTORY_LIMIT: int = 40
+
 # The single enemy mortar the friendly mortar and the drone/spotter are
 # CURRENTLY, JOINTLY committed to running down together, or null if
 # nothing's being hunted right now — see _update_joint_mortar_hunt. Exists
@@ -3991,20 +4004,26 @@ func _mortar_advance_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 ## Whether an UNWATCHED (not currently is_visible — that's its own,
 ## separate "spotted" trigger, checked before this is even called) known
 ## enemy has actually closed to genuine overrun danger of `m`'s crew.
-## Proximity alone isn't the real question — a known enemy unit merely
-## being nearby doesn't mean it can actually find this position; it needs
-## real line of sight to it, same as any other spotting-adjacent check in
-## this file. Without this, a mortar would panic and abandon a perfectly
-## good, still-concealed position just because an enemy happened to pass
-## within range while blind to it (terrain in the way) — "the self risk
-## would be low because we don't think the enemy has scouting on our
-## position" is exactly the case this excludes. A stronger, deterministic
-## check than waiting on the real (probabilistic, gradual) spot roll:
-## genuinely blocked LOS means no route to being found exists right now,
-## not just "hasn't happened yet."
+##
+## Used to require genuine direct line of sight on top of proximity — a
+## real, previously-reported failure mode found once enemy squads got a
+## genuine "run the mortar down directly" pursuit (see BattleManager.
+## _chasing_mortar_in_hot_pursuit): a squad closing from behind a fold in
+## the ground or a treeline could be well inside real danger range without
+## ever registering as LOS-clear, so the crew never started running until
+## it was already too late. Direct user correction, after exactly that
+## got a mortar destroyed: "It's enough if you know they are there, or
+## even if you recently knew they were there" — see MORTAR_CREW_OVERRUN_
+## DANGER_RANGE's own doc comment for the re-checked doctrine reasoning
+## (FM 7-90's own local-security network exists to give warning of an
+## approaching force BEFORE it's actually in the open in front of you, not
+## only once it is). Proximity to a genuinely KNOWN position (see
+## _known_enemy_positions — sighted at some point, not omniscient ground
+## truth) is enough on its own now: a real crew doesn't need to physically
+## see a closing threat to justify displacing before it arrives.
 func _unwatched_threat_closing(m: Unit) -> bool:
 	for pos in _known_enemy_positions(m.team):
-		if m.global_position.distance_to(pos) <= GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE and GameConfig.has_direct_los(pos, m.global_position):
+		if m.global_position.distance_to(pos) <= GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE:
 			return true
 	return false
 
@@ -4039,6 +4058,7 @@ func _unwatched_threat_closing(m: Unit) -> bool:
 ## picks up the pursuit, exactly as if nothing had been available to
 ## shoot at all.
 func _decide_mortar_action(m: Unit) -> void:
+	_record_mortar_debug_history(m)
 	var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
 
 	# Step 0 — resolve this tick's shot exactly once, through the memoized
@@ -4425,6 +4445,32 @@ func _update_mortar_decisions() -> void:
 		_decide_mortar_action(m)
 
 
+## See _mortar_debug_history's own doc comment for why this exists.
+## Recorded unconditionally at the very top of _decide_mortar_action,
+## before any tier or early return, so it captures every tick regardless
+## of which path the decision ladder actually takes that tick (including
+## "had a shot, stood and fought" ticks — the full picture of what a
+## crew was doing right up to the moment something happened to it, not
+## just the self-preservation-relevant ticks).
+func _record_mortar_debug_history(m: Unit) -> void:
+	var nearest_known_m: float = INF
+	for p in _known_enemy_positions(m.team):
+		nearest_known_m = min(nearest_known_m, m.global_position.distance_to(p) / GameConfig.PIXELS_PER_METER)
+	var entry: Dictionary = {
+		"t": snappedf(scenario_elapsed_time, 0.1),
+		"position": _pos_to_debug_dict(m.global_position),
+		"is_visible": m.is_visible,
+		"threat_closing": (not m.is_visible) and _unwatched_threat_closing(m),
+	}
+	if not is_inf(nearest_known_m):
+		entry["nearest_known_enemy_m"] = snappedf(nearest_known_m, 1.0)
+	var history: Array = _mortar_debug_history.get(m, [])
+	history.append(entry)
+	while history.size() > MORTAR_DEBUG_HISTORY_LIMIT:
+		history.pop_front()
+	_mortar_debug_history[m] = history
+
+
 ## Public accessor for an out-of-band developer view of live mortar
 ## decisions, mirroring drone_pilot_debug_snapshot() — see main.gd's
 ## _write_debug_snapshot for why this is written unconditionally, every
@@ -4447,6 +4493,7 @@ func mortar_decision_debug_snapshot() -> Dictionary:
 			"state": Unit.State.keys()[m.state],
 			"move_intent": _mortar_move_intent.get(m, "none"),
 			"reasoning": reasoning,
+			"recent_history": _mortar_debug_history.get(m, []),
 		}
 	return out
 
