@@ -4211,18 +4211,29 @@ func _decide_mortar_action(m: Unit) -> void:
 	# means there was never a shot to weigh against relocating in the
 	# first place.
 	if _mortar_should_relocate_for_safety(m):
-		# `m.shoot_and_scoot` no longer gates WHETHER this fires (see
-		# _mortar_should_relocate_for_safety's own doc comment — a real
-		# threat now always means relocating, regardless of doctrine); it
-		# still means something real here — a crew whose own doctrine
-		# calls for shoot-and-scoot treats ANY real threat as worth the
-		# faster, farther urgent response immediately, while a hold-
-		# position preference still displaces but only escalates to that
-		# once density compounds past MORTAR_DENSITY_FORCE_SCOOT_COUNT
-		# KNOWN mortars — the same real probability math that constant's
-		# own doc comment already lays out.
+		# `urgent` here means "bypass MORTAR_VOLUNTARY_RELOCATION_COOLDOWN
+		# and search faster/farther" (see _relocate_mortar's own doc
+		# comment) — a real, previously-reported live regression found
+		# `m.shoot_and_scoot` folded into this: seconds_stationary resets
+		# to 0 every tick a unit is actively MOVING (_tick_movement), so
+		# the cooldown check is the ONLY thing stopping this tier from
+		# recomputing a fresh, randomly-redrawn destination every SINGLE
+		# tick for as long as _mortar_should_relocate_for_safety holds —
+		# which, since that condition no longer requires a KNOWN threat,
+		# can now be true continuously for many consecutive ticks. Folding
+		# a steady-state doctrine PREFERENCE into `urgent` bypassed that
+		# cooldown for the entire duration, reproducing — under a doctrine
+		# choice as ordinary as "shoot and scoot" — the exact tick-by-tick
+		# churn MORTAR_VOLUNTARY_RELOCATION_COOLDOWN was built to prevent
+		# in the first place (see that constant's own doc comment).
+		# Density-only, matching the original, already-correct formula:
+		# `m.shoot_and_scoot` doesn't currently affect this tier at all —
+		# a real, deliberate gap, not silently patched over. Doctrine
+		# still matters for WHETHER this tier fires at all (see
+		# _mortar_should_relocate_for_safety) — it just can't also control
+		# this cooldown-bypass without reopening this exact bug.
 		var known_in_range: int = _known_enemy_mortars_in_range(m.global_position)
-		var urgent: bool = m.shoot_and_scoot or known_in_range >= GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT
+		var urgent: bool = known_in_range >= GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT
 		if m.has_move_target:
 			# Already moving for some other reason (a hunt, most likely) —
 			# redirect toward safety immediately rather than queuing a

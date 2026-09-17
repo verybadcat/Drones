@@ -207,6 +207,106 @@ func test_mortar_with_persistent_target_still_relocates_and_keeps_fighting() -> 
 	bm.free()
 
 
+## A real, live-observed regression, caught the first time a real battle
+## was actually run against it rather than only single-call tests: seconds_
+## stationary resets to 0.0 every SINGLE tick a unit's activity is MOVING
+## (BattleManager._tick_movement), so the ONLY thing that stops the
+## "position compromised" tier from recomputing a fresh, randomly-redrawn
+## destination on literally every tick is MORTAR_VOLUNTARY_RELOCATION_
+## COOLDOWN's own check in _relocate_mortar — which is bypassed
+## unconditionally whenever `urgent` is true. A since-reverted version of
+## this tier folded `m.shoot_and_scoot` (a steady-state DOCTRINE
+## preference, not a discrete emergency) into `urgent`, which for any
+## shoot-and-scoot-doctrine mortar made it permanently true for as long as
+## _mortar_should_relocate_for_safety held — now able to hold for many
+## consecutive ticks, since that condition no longer requires a KNOWN
+## threat (see this file's own top-of-file doc comment and the design
+## doc's own 2026-09-16 "top priority of scooting" entry). The visible
+## symptom was indistinguishable from the oscillation this whole file
+## exists to guard against: a mortar reported hit immediately after firing
+## its very first shot of a real battle. This test simulates exactly that
+## shape — real per-frame ticks, shoot_and_scoot doctrine, a real (never
+## sighted) enemy mortar in range — and asserts the crew actually SETTLES
+## into a destination instead of reshuffling it every tick.
+func test_scoot_settles_between_ticks_instead_of_churning_every_tick() -> void:
+	seed(20260916)
+	var bm = make_battle()
+	var start: Vector2 = GameConfig.CURRENT_MAP.player.mortar_default_position
+	bm._friendly_mortar_home_position = start
+	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, start)
+	bm.player_units.append(mortar)
+	mortar.mortar_rounds_remaining = 30
+	mortar.base_hit_chance = 1.0
+	mortar.shoot_and_scoot = true
+
+	# A real enemy mortar in range, but NEVER sighted or otherwise "known"
+	# — isolates this from the density/known-threat override entirely,
+	# matching the exact live scenario (a mortar's very FIRST shot, before
+	# anything has necessarily been spotted yet).
+	var enemy_mortar: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, start + Vector2(200, 0))
+	bm.enemy_units.append(enemy_mortar)
+	enemy_mortar.is_visible = false
+	enemy_mortar.mortar_rounds_remaining = 0
+	enemy_mortar.crew_size = 1000
+
+	# A real target so the mortar actually fires its first shot promptly —
+	# a squad, not the enemy mortar itself, so "known enemy mortar" stays
+	# false throughout (see this test's own doc comment above). A mortar
+	# fires on spotter-relayed information, not its own direct observation
+	# (see the sibling test's own doc comment above) — is_visible alone
+	# gets dropped again within a tick with no real observer watching.
+	var target: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, start + Vector2(300, 0))
+	bm.enemy_units.append(target)
+	target.is_visible = true
+	var spotter: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, target.global_position + Vector2(0, 60))
+	bm.player_units.append(spotter)
+
+	bm.unit_type_doctrines[Unit.Team.PLAYER] = Orders.sanitize({})
+
+	# Measures the window right after the crew actually STARTS walking, not
+	# just the whole post-fire span — a crew that happens to clear
+	# COUNTER_BATTERY_BLAST_RADIUS quickly in a given geometry can escape
+	# the buggy tier's own trigger condition within a couple of real
+	# seconds even while churning every tick along the way, diluting a
+	# whole-window average below any reasonable threshold. Churning is a
+	# per-tick failure — a real crew reissuing a fresh, randomly-redrawn
+	# destination on almost every one of the first 30 ticks after setting
+	# out is exactly "oscillated immediately," regardless of how quickly
+	# it later escapes.
+	var last_rounds: int = mortar.mortar_rounds_remaining
+	var fired := false
+	var move_target_changes := 0
+	var last_move_target: Vector2 = mortar.global_position
+	var first_move_tick: int = -1
+	var ticks_since_first_move: int = 0
+	var ticks := 0
+	while ticks < 6000 and not bm.battle_over and ticks_since_first_move < 30:
+		bm._process(1.0 / 60.0)
+		if not is_instance_valid(mortar):
+			break
+		mortar.is_visible = false # isolates this from the separate "genuinely spotted" trigger
+		if mortar.mortar_rounds_remaining < last_rounds:
+			fired = true
+			last_rounds = mortar.mortar_rounds_remaining
+		if fired and mortar.has_move_target:
+			if first_move_tick == -1:
+				first_move_tick = ticks
+				last_move_target = mortar.move_target
+			elif mortar.move_target.distance_to(last_move_target) > 1.0:
+				move_target_changes += 1
+				last_move_target = mortar.move_target
+		if first_move_tick != -1:
+			ticks_since_first_move += 1
+		ticks += 1
+
+	check(fired, "The mortar must actually fire at least once for this test to mean anything")
+	check(first_move_tick != -1, "The mortar must actually start a scoot displacement after firing for this test to mean anything")
+	check(move_target_changes <= 3,
+		"The scoot destination changed %d times in the 30 ticks right after the crew set out (0.5 real seconds) — it must settle on a destination and walk there, not reshuffle to a fresh one almost every tick" % move_target_changes)
+	bm.combat_log.free()
+	bm.free()
+
+
 ## "Shoot and scoot" isn't just clearing COUNTER_BATTERY_BLAST_RADIUS from
 ## wherever the crew just fired — a real reported symptom: the mortar
 ## visibly pacing back and forth between the same 2-3 hiding spots over
@@ -325,5 +425,6 @@ func run() -> void:
 	test_mortar_with_persistent_target_still_relocates_and_keeps_fighting()
 	test_mortar_avoids_recently_used_scoot_positions()
 	test_relocation_never_undoes_progress_from_a_different_threat()
+	test_scoot_settles_between_ticks_instead_of_churning_every_tick()
 	print("Mortar evasion-balance tests: %d failures" % failures)
 	quit(1 if failures else 0)
