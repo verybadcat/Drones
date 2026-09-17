@@ -146,10 +146,48 @@ func test_hot_pursuit_actually_closes_the_gap_as_mortar_moves() -> void:
 		"The squad must end up genuinely closer to the mortar than it started (start=%.0f, end=%.0f) — real progress, not back-and-forth dancing" % [start_dist, end_dist])
 
 
+## A second, live-reported bug alongside the first: "once it was adjacent,
+## the enemy squad let the mortar get away... unless the enemy squad is
+## under some sort of pressure (fire, etc), which it was not." Root cause:
+## `_pick_target(u, player_units) != null` used to short-circuit this
+## whole tier the instant the squad had ANY valid shot at all — including
+## one at some other, unrelated player unit merely nearby, not the mortar
+## it was actively running down. A squad already in hot pursuit of a
+## known mortar must keep closing on it even with a lesser target also in
+## range, rather than freezing to fight the lesser target and letting the
+## mortar simply walk off unpursued.
+func test_hot_pursuit_outranks_a_lesser_shot_available() -> void:
+	var bm = make_battle()
+	var mortar_pos := Vector2(0, 0)
+	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, mortar_pos)
+	bm.player_units.append(mortar)
+	mortar.is_visible = true
+
+	var squad_pos: Vector2 = mortar_pos + Vector2(GameConfig.SQUAD_DANGER_RANGE * 0.5, 0)
+	var squad: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, squad_pos)
+	bm.enemy_units.append(squad)
+	squad.sought_cover = true
+
+	# A separate, unrelated player squad well within engagement range and
+	# LOS — a real, currently-shootable target, but not the mortar this
+	# squad is actively running down.
+	var decoy: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, squad_pos + Vector2(GameConfig.SQUAD_ENGAGEMENT_RANGE * 0.2, 0))
+	bm.player_units.append(decoy)
+	decoy.is_visible = true
+
+	check(bm._pick_target(squad, bm.player_units) != null,
+		"Setup check: the decoy squad must actually be a valid, in-range shot for this test to mean anything")
+
+	bm._update_enemy_squad_advance()
+	check(squad.has_move_target and squad.move_target.distance_to(mortar_pos) < 1.0,
+		"A squad already in hot pursuit of a known mortar must keep closing directly on it even with a lesser target also in range, not freeze to fight the lesser target and let the mortar go")
+
+
 func run() -> void:
 	test_close_squad_chases_mortar_directly()
 	test_distant_squad_still_uses_bent_advance()
 	test_flanking_squad_does_not_hot_pursue()
 	test_hot_pursuit_actually_closes_the_gap_as_mortar_moves()
+	test_hot_pursuit_outranks_a_lesser_shot_available()
 	print("Enemy squad mortar-pursuit tests: %d failures" % failures)
 	quit(1 if failures else 0)

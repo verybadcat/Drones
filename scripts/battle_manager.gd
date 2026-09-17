@@ -4104,7 +4104,28 @@ func _decide_mortar_action(m: Unit) -> void:
 		_mortar_reasoning[m] = {"tier": "Self-risk policy", "detail": m.last_order_reason}
 		return
 	var has_shot: bool = target != null and m.mortar_rounds_remaining > 0
-	if has_shot:
+
+	# Computed here, before has_shot gets a say, so an available shot can
+	# never itself block the one check that's supposed to outrank it — see
+	# `overrun_danger`'s own doc comment immediately below for the live bug
+	# this fixes. Tier 1's own later use of these two names further down
+	# reuses this same computation rather than re-deriving it.
+	var spotted: bool = m.is_visible
+	var threat_closing: bool = not spotted and _unwatched_threat_closing(m)
+	# Direct, live-reported bug: "Mortar just let an enemy squad get
+	# adjacent to it. It should not." Root cause: has_shot used to return
+	# early UNCONDITIONALLY once any target was selected, with no check at
+	# all for whether the crew itself was in real danger — meaning the
+	# moment a closing enemy squad became a valid, in-range target, the
+	# crew locked into "just keep firing" for the rest of the engagement,
+	# with no self-preservation check ever run again, backwards from this
+	# function's own stated priority order (preserve self outranks
+	# destroying squads, not the other way around). `spotted`/
+	# `threat_closing` are exactly the same real-danger signals tier 1
+	# already uses below to decide whether to flee; `overrun_danger` lets
+	# has_shot defer to that same logic instead of silently overriding it.
+	var overrun_danger: bool = (spotted or threat_closing) and unit_doctrine_for(m).risk == "inherit"
+	if has_shot and not overrun_danger:
 		# Even with a valid shot lined up, a crew sitting critically close
 		# to a sibling is one HE round away from losing both tubes (see
 		# MORTAR_BUNCHING_CRITICAL_RADIUS's own doc comment) — preserve-
@@ -4143,6 +4164,10 @@ func _decide_mortar_action(m: Unit) -> void:
 				return
 		_mortar_reasoning[m] = {"tier": "Target available", "detail": "A target is selected; no new movement order from this decision. Reload and firing gates still apply."}
 		return
+	# has_shot and overrun_danger both true: fall through to tier 1 below
+	# exactly as if no shot had been available this tick at all — the
+	# spotted/threat_closing branch there is what actually issues the
+	# relocation order.
 
 	# Step 0b — an in-progress EMERGENCY self-preservation walk isn't
 	# interruptible by a lower tier (hunting): evade/conceal/out_of_ammo/
@@ -4175,14 +4200,8 @@ func _decide_mortar_action(m: Unit) -> void:
 
 	# Tier 1 — Preserve self. Precedence among sub-reasons matches the
 	# functions this replaces: out-of-ammo framing wins over a merely
-	# spotted/threatened framing when both would apply.
-	# Computed once, up front, so every tier below (including out-of-ammo,
-	# which used to decide entirely without checking this at all) can
-	# react to "something is actually bearing down on me right now" —
-	# see _relocate_mortar's own `force_urgent` doc comment for why that
-	# distinction matters beyond just which combat-log line narrates it.
-	var spotted: bool = m.is_visible
-	var threat_closing: bool = not spotted and _unwatched_threat_closing(m)
+	# spotted/threatened framing when both would apply. `spotted`/
+	# `threat_closing` were already computed above, before has_shot.
 
 	if m.mortar_rounds_remaining <= 0:
 		var run := _active_resupply_run_for(m)
@@ -5322,8 +5341,8 @@ func _update_enemy_squad_advance() -> void:
 			continue
 		if not u.sought_cover:
 			continue
-		if _pick_target(u, player_units) != null or _risk_holds.has(u):
-			continue # something to shoot at right now — stay and fight
+		if _risk_holds.has(u):
+			continue # an explicit risk-avoidance hold outranks everything below
 		# Direct user correction: "Mortar should be a primary target for
 		# the enemy forces. They should chase it when they get close. In
 		# the latest battle, they were dancing back and forth, but not
@@ -5344,9 +5363,30 @@ func _update_enemy_squad_advance() -> void:
 		# established and accepted for actual mortar-hunts-mortar
 		# pursuit — instead of committing to a single bent leg and only
 		# reconsidering once it finishes.
+		#
+		# Checked BEFORE the "something to shoot at right now" bail-out
+		# below too — a second, live-reported bug: "once it was adjacent,
+		# the enemy squad let the mortar get away... unless the enemy squad
+		# is under some sort of pressure, which it was not." Root cause:
+		# `_pick_target(u, player_units) != null` used to short-circuit
+		# this whole tier the instant the squad had ANY valid shot —
+		# including a shot at some other, unrelated player unit merely
+		# passing through LOS, or a marginal shot at the mortar itself
+		# right as it started to displace — freezing the squad in place
+		# for as long as that shot kept re-qualifying, tick after tick,
+		# while an unpursued mortar simply walked out of contact.
+		# _chase_mortar_directly already stops advancing and correctly
+		# yields to ordinary _pick_target-driven fighting the instant the
+		# mortar itself is within real engagement range, so reordering
+		# these two checks changes nothing once genuinely in range — it
+		# only stops the squad from settling for a lesser target, or a
+		# fleeting shot, while a known, high-value, actively-fleeing
+		# mortar is still there to be run down.
 		if _chasing_mortar_in_hot_pursuit(u):
 			_chase_mortar_directly(u)
 			continue
+		if _pick_target(u, player_units) != null:
+			continue # something to shoot at right now, and not mid-chase on a known mortar — stay and fight
 		if u.has_move_target:
 			continue
 		var rush_target := _next_advance_point(u)
