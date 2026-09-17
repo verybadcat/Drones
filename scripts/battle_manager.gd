@@ -4158,6 +4158,8 @@ func _decide_mortar_action(m: Unit) -> void:
 			if _should_narrate_mortar_logistics(m):
 				combat_log.log_mortar_relocating_out_of_ammo(m)
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Out of ammunition — relocating."}
+		elif spotted or threat_closing:
+			_mortar_flee_as_last_resort(m)
 		else:
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Out of ammunition — wanted to relocate, no route this tick."}
 		return
@@ -4174,7 +4176,7 @@ func _decide_mortar_action(m: Unit) -> void:
 			combat_log.log_relocate(m, true)
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Just took counter-battery fire — displacing."}
 		else:
-			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Just took counter-battery fire — wanted to displace, no route this tick."}
+			_mortar_flee_as_last_resort(m)
 		return
 
 	if (spotted or threat_closing) and unit_doctrine_for(m).risk == "inherit":
@@ -4194,7 +4196,7 @@ func _decide_mortar_action(m: Unit) -> void:
 					combat_log.log_mortar_relocating_from_threat(m)
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Spotted with nothing to shoot — relocating for cover." if spotted else "A threat with a clear line of sight is closing — relocating."}
 		else:
-			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Wanted to relocate, no route this tick."}
+			_mortar_flee_as_last_resort(m)
 		return
 
 	# The actual, real-world condition for needing to displace: could the
@@ -5219,12 +5221,37 @@ func _alert_enemy_squads() -> void:
 ## own multi-waypoint set_path already.
 func _update_enemy_squad_advance() -> void:
 	for u in enemy_units:
-		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or u.has_move_target:
+		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE:
 			continue
 		if not u.sought_cover:
 			continue
 		if _pick_target(u, player_units) != null or _risk_holds.has(u):
 			continue # something to shoot at right now — stay and fight
+		# Direct user correction: "Mortar should be a primary target for
+		# the enemy forces. They should chase it when they get close. In
+		# the latest battle, they were dancing back and forth, but not
+		# really chasing." Traced directly: _next_advance_point's own
+		# bent-angle, cover/encirclement-scored candidates and its
+		# ENEMY_SURROUND_STANDOFF_RADIUS stop distance are the right model
+		# for closing on a STATIC objective (the village) under fire, not
+		# for running down a MOVING, actively evading one — each fresh
+		# bound is aimed at wherever the mortar happened to be when this
+		# tier last got a turn (only once has_move_target clears), so a
+		# mortar that keeps relocating between reassessments produces
+		# exactly the reported "dancing": a short bent leg toward a
+		# already-stale point, arrive, reassess, repeat, with no
+		# guarantee of ever converging. Checked BEFORE the has_move_target
+		# gate below (bypassing it entirely) so a squad already close on a
+		# known, active mortar keeps re-aiming at its CURRENT position
+		# every tick — the same "re-aims every tick" idiom already
+		# established and accepted for actual mortar-hunts-mortar
+		# pursuit — instead of committing to a single bent leg and only
+		# reconsidering once it finishes.
+		if _chasing_mortar_in_hot_pursuit(u):
+			_chase_mortar_directly(u)
+			continue
+		if u.has_move_target:
+			continue
 		var rush_target := _next_advance_point(u)
 		if rush_target == u.global_position:
 			continue
@@ -5234,6 +5261,52 @@ func _update_enemy_squad_advance() -> void:
 		u.move_queue.clear()
 		u.move_speed = GameConfig.ENEMY_ADVANCE_SPEED
 		u.movement_predictable = false # a deliberate rush, not the road-bound march
+
+
+## True once `u` is close enough to a known, ACTIVE friendly mortar that
+## running it down directly outranks the ordinary measured, bent-angle
+## advance-by-bounds toward it as an objective. Same range this codebase
+## already uses elsewhere for "close enough to react to at all"
+## (SQUAD_DANGER_RANGE — see _retreat_avoidance_offset's own use of it),
+## reused here rather than inventing a new number: a squad this close to
+## a fleeing high-value target should already be actively running it
+## down, not still treating it as a distant objective to bound toward.
+## Excludes a squad still executing its own wide flanking route
+## (flanking_route_active) — see _enemy_advance_objective's own doc
+## comment: it hasn't actually arrived at the point where the mortar
+## becomes its real objective yet, so it isn't "in the chase" at all.
+func _chasing_mortar_in_hot_pursuit(u: Unit) -> bool:
+	if u.flanking_route_active:
+		return false
+	if not _friendly_mortar_is_active():
+		return false
+	var mortar_pos: Vector2 = _known_friendly_mortar_position()
+	if is_inf(mortar_pos.x):
+		return false
+	return u.global_position.distance_to(mortar_pos) <= GameConfig.SQUAD_DANGER_RANGE
+
+
+## The actual "run it down" step: aims directly at the mortar's own
+## CURRENT known position every tick (no bent angle, no cover/
+## encirclement scoring, no ENEMY_SURROUND_STANDOFF_RADIUS stop distance
+## — those all serve a measured siege of a static objective, not a hot
+## pursuit) and keeps re-aiming as it moves. Stops advancing once within
+## real engagement range (SQUAD_ENGAGEMENT_RANGE) — close enough to
+## actually fight it, at which point _pick_target's own normal targeting
+## takes over; no reason to walk any closer than that.
+func _chase_mortar_directly(u: Unit) -> void:
+	var mortar_pos: Vector2 = _known_friendly_mortar_position()
+	if u.global_position.distance_to(mortar_pos) <= GameConfig.SQUAD_ENGAGEMENT_RANGE:
+		u.has_move_target = false
+		return
+	if u.has_move_target and u.move_target.distance_to(mortar_pos) < Unit.MOVE_ARRIVE_RADIUS:
+		return # already aimed at essentially the right spot — no need to reissue the identical order every tick
+	u.last_order_reason = "Closing directly on a known enemy mortar — hot pursuit."
+	u.move_target = mortar_pos
+	u.has_move_target = true
+	u.move_queue.clear()
+	u.move_speed = GameConfig.ENEMY_ADVANCE_SPEED
+	u.movement_predictable = false
 
 
 ## A bounded step toward the current objective from `u`'s current position
@@ -6088,6 +6161,35 @@ func _relocate_mortar(mortar: Unit, intent: String, force_urgent: bool = false) 
 		return false
 	_issue_mortar_move(mortar, plan.destination, plan.speed, intent)
 	return true
+
+
+## A genuine last resort, reached only when the crew is already under
+## real, urgent pressure (spotted, an unwatched threat closing, or just
+## hit by counter-battery fire — every call site here is already inside
+## one of those branches) AND _relocate_mortar's own leashed, concealment-
+## seeking search has ALREADY come up completely empty. Direct user
+## request: "Let's allow the mortar to run away off the left edge of the
+## map. But if it does, let's consider it to have retreated from the
+## battle. It is safe but can no longer participate. So it should only do
+## that if there is no reasonable alternative. For example, an enemy
+## squad may be chasing it so it can't stay on the map."
+##
+## Deliberately reuses Unit.order_retreat completely unchanged rather
+## than inventing a separate mechanism: fleeing off the map is a genuine
+## one-way retreat, exactly like a general retreat's own RETREATING
+## state, and gets every one of today's own retreat fixes for free (skip
+## an unnecessary cover detour if the straight run to the edge is
+## already clear, never detour backward once already past the safe line,
+## the real total-trip-aware cover search if a detour genuinely is
+## needed first). Once this returns, `m.state != ACTIVE`, so
+## _update_mortar_decisions stops processing this crew from the very
+## next tick on — permanently out of the fight, matching "can no longer
+## participate" exactly.
+func _mortar_flee_as_last_resort(m: Unit) -> void:
+	m.order_retreat(_known_enemy_positions_for_retreat(m.team), [])
+	if m.team == Unit.Team.PLAYER:
+		combat_log.log_mortar_fled_off_map(m)
+	_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "No safe relocation option remained nearby — fleeing off the map."}
 
 
 ## The destination/speed-picking half of _relocate_mortar, split out so

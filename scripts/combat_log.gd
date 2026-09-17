@@ -68,6 +68,10 @@ func log_withdrawn(unit: Unit) -> void:
 	add_entry("%s has withdrawn from the battle" % unit.display_name())
 
 
+func log_mortar_fled_off_map(unit: Unit) -> void:
+	add_entry("%s has no safe ground left nearby and flees off the map — out of the fight, but safe" % unit.display_name())
+
+
 func log_squad_surrendered(unit: Unit) -> void:
 	add_entry("%s lays down arms rather than risk the retreat — surrendered" % unit.display_name())
 
