@@ -3050,12 +3050,26 @@ static func _random_point_in_cover_zone(zone: Dictionary) -> Vector2:
 	return patch.center_m * PIXELS_PER_METER + Vector2(cos(theta), sin(theta)) * r_m * PIXELS_PER_METER
 
 
-static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false, avoid_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO, firing_point: Vector2 = Vector2.INF) -> Vector2:
+static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false, avoid_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO, firing_point: Vector2 = Vector2.INF, reference_point: Vector2 = Vector2.INF) -> Vector2:
 	var candidates: Array[Dictionary] = []
 	for zone in _all_cover_zones():
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
 			continue
-		candidates.append({"zone": zone, "dist": from.distance_to(zone.center)})
+		var d: float = from.distance_to(zone.center)
+		# See retreat_cover_point_toward's own doc comment on this same
+		# principle — cover is a MEANS to reaching `reference_point` (the
+		# map edge, for a retreat), not a competing goal: ranking by REAL
+		# total trip distance (here to the zone, then on to the edge)
+		# instead of raw distance from `from` alone is what stops a zone
+		# that's merely closer RIGHT NOW from beating one that's actually
+		# on the way, direct user correction after exactly this cost a
+		# mortar its life taking a real, avoidable detour instead. Left at
+		# its default (Vector2.INF) for every non-retreat caller (a squad
+		# diving for cover mid-fight has no "edge" to aim for at all) —
+		# only order_retreat's own callers pass a real value.
+		if reference_point != Vector2.INF:
+			d += zone.center.distance_to(reference_point)
+		candidates.append({"zone": zone, "dist": d})
 	if candidates.is_empty():
 		return from
 
@@ -3472,11 +3486,37 @@ static func retreat_cover_point_toward(from: Vector2, reference_point: Vector2, 
 	candidates = _exclude_dangerous(candidates, known_enemy_positions)
 	candidates = _prefer_retreat_direction(candidates, from, retreat_dir)
 	candidates = _prefer_clear_path(candidates, from, avoid_buildings)
-	candidates.sort_custom(func(a, b): return a.dist_from_self < b.dist_from_self)
-	var pool_size: int = min(4, candidates.size())
-	var pool := candidates.slice(0, pool_size)
-	pool.sort_custom(func(a, b): return a.zone.center.distance_to(reference_point) < b.zone.center.distance_to(reference_point))
-	return _random_point_in_cover_zone(pool[0].zone)
+	return _random_point_in_cover_zone(_best_cover_zone_by_total_trip(candidates, reference_point).zone)
+
+
+## Direct user correction, after a mortar was destroyed taking exactly
+## this route: "the map edge is better than cover. Cover is simply a
+## means to reaching the map edge... a safe retreat path existed. The
+## mortar didn't take it." The OLD version here picked the 4 zones
+## nearest to `from` FIRST, and only THEN preferred whichever of those
+## happened to be closest to `reference_point` (the edge) — cover treated
+## as competing with reaching the edge, not a means to it. Once the
+## danger exclusion above has already thinned the pool (routine with this
+## many known enemy positions scattered around), the 4 nearest-to-self
+## zones can all land off to one side with no relation to the edge at
+## all, and a zone genuinely on the way there — even one much farther
+## from `from` right now — never even entered the shortlist to compete.
+## Ranked by REAL total trip distance instead: self to the zone, then the
+## zone on to the edge, so a longer first leg only wins when it actually
+## shortens the whole journey. Split out from retreat_cover_point_toward
+## as its own function purely so it can be tested directly against a
+## synthetic candidate list — the real map's own sparse zone layout
+## doesn't reliably reproduce the old bug's exact shape on demand.
+## `candidates` entries need "zone" and "dist_from_self" (distance from
+## the retreating unit's own current position) already set — the same
+## shape retreat_cover_point_toward's own candidate list already has
+## after the filters above.
+static func _best_cover_zone_by_total_trip(candidates: Array[Dictionary], reference_point: Vector2) -> Dictionary:
+	var scored: Array[Dictionary] = candidates.duplicate()
+	for c in scored:
+		c["total_trip"] = c.dist_from_self + c.zone.center.distance_to(reference_point)
+	scored.sort_custom(func(a, b): return a.total_trip < b.total_trip)
+	return scored[0]
 
 
 # How far out (and in how many steps) to search for a concealed spot — see

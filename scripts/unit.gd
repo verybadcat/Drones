@@ -596,7 +596,76 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 		speed_multiplier = _resolve_wounded_evacuation(known_enemy_positions)
 		retreat_speed *= speed_multiplier # permanent for the rest of this (one-way) retreat
 
-	if not GameConfig.is_in_cover(terrain_type()):
+	# A real, live-observed failure found alongside the cover-detour one
+	# below: a rear-echelon unit (a DRONE_TEAM home base, most often) can
+	# already be sitting AT OR PAST its own retreat_target_x — the exact
+	# line _step_retreat's own "reached" check uses to mark WITHDRAWN — at
+	# the moment a general retreat is ordered, simply because that's where
+	# it was already operating from. Every retreat used to unconditionally
+	# route through a cover leg first regardless, meaning an already-safe
+	# unit could still get sent on a real, sometimes backward, detour to
+	# some cover point before ever getting a chance to just recognize "I'm
+	# already home" — confirmed directly: a drone team already past its
+	# own safe line was routed BACKWARD, toward the enemy, to reach cover
+	# distant units were also converging on, before finally reaching
+	# safety anyway. Checked before anything else below: no reason to
+	# consider cover, known threats, or anything else once the unit is
+	# already at its destination.
+	var already_safe: bool = (global_position.x <= retreat_target_x) if team == Team.PLAYER else (global_position.x >= retreat_target_x)
+	if already_safe:
+		has_move_target = false
+		state_changed.emit(self)
+		return
+
+	# Direct user correction, refined twice over several real incidents:
+	# "The primary consideration in retreating is safety. Cover may be a
+	# way to achieve safety... People could have just retreated backwards
+	# safely" — then, after a mortar was destroyed taking a long detour to
+	# reach cover anyway: "The primary consideration should be safety, not
+	# cover... We want a safe path. Cover is one way to achieve that. But
+	# avoiding the enemy could often be better... I'm concerned that you
+	# may be over-emphasizing cover at a basic level."
+	#
+	# An EARLIER version of this gated cover-seeking on raw distance to
+	# the nearest known enemy — closer than this project's own existing
+	# "worth reacting to at all" range (the same one _retreat_avoidance_
+	# offset uses for its own continuous bending). That was still cover-
+	# centric in the wrong way: a known position merely being "in range"
+	# doesn't mean this unit is in any active danger from it RIGHT NOW —
+	# only that it's known to exist somewhere within a fairly generous
+	# radius, quite possibly no longer even watching this unit at all
+	# (see the design doc's own live-incident entries on stale player_
+	# known_position data). Real cover/concealment earns its real cost
+	# (a detour, time exposed getting there) specifically by breaking
+	# LINE OF SIGHT to something that can actually see or reach this unit
+	# — not merely by existing somewhere nearby. Two real conditions,
+	# either one enough:
+	#   1. This unit is CURRENTLY visible (is_visible) — actively being
+	#      watched/engaged right now, the clearest possible case for real
+	#      concealment.
+	#   2. A known enemy sits within actual direct-fire/overrun range
+	#      (SQUAD_ENGAGEMENT_RANGE — real combat range, not the far more
+	#      generous "worth bending away from" SQUAD_DANGER_RANGE; MORTAR_
+	#      CREW_OVERRUN_DANGER_RANGE for a mortar crew, same range
+	#      _unwatched_threat_closing already uses for this exact
+	#      reasoning) AND has actual direct LOS to this unit's position —
+	#      close enough and unobstructed enough to plausibly engage even
+	#      without a formal "spotted" roll landing yet.
+	# Otherwise, the straight retreat itself is already the safe path:
+	# _step_retreat's own continuous per-tick bending away from whatever
+	# IS known already produces the user's own "slant slightly south" for
+	# whichever units actually have something nearby, without committing
+	# to a single fixed detour chosen once and then walked blindly
+	# regardless of how the situation changes afterward.
+	var needs_real_cover: bool = is_visible
+	if not needs_real_cover:
+		var close_range: float = GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE if kind == Kind.MORTAR else GameConfig.SQUAD_ENGAGEMENT_RANGE
+		for p in known_enemy_positions:
+			if global_position.distance_to(p) <= close_range and GameConfig.has_direct_los(p, global_position):
+				needs_real_cover = true
+				break
+
+	if needs_real_cover and not GameConfig.is_in_cover(terrain_type()):
 		var retreat_dir: float = -1.0 if team == Team.PLAYER else 1.0
 		var avoid_buildings: bool = kind == Kind.MORTAR
 		if kind == Kind.MORTAR and not known_enemy_positions.is_empty():
@@ -618,7 +687,18 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 		elif (kind == Kind.SPOTTER or kind == Kind.DRONE_TEAM) and not known_enemy_positions.is_empty():
 			move_target = GameConfig.safest_cover_point(global_position, known_enemy_positions, retreat_dir, avoid_buildings)
 		else:
-			move_target = GameConfig.nearest_cover_point(global_position, retreat_dir, avoid_buildings, avoid_positions, known_enemy_positions)
+			# Same "cover is a MEANS to reaching the edge, not a competing
+			# goal" principle as retreat_cover_point_toward's own doc
+			# comment — this plain squad path had NO edge-awareness at
+			# all before this: a real, previously-reported live failure,
+			# several squads converging on the same distant cover zone
+			# regardless of how far out of the way it actually was.
+			# `retreat_target_x` is the exact same line already_safe/
+			# _step_retreat's own "reached" check uses, so this stays
+			# consistent with what "the edge" means everywhere else in
+			# this function.
+			var reference_point := Vector2(retreat_target_x, global_position.y)
+			move_target = GameConfig.nearest_cover_point(global_position, retreat_dir, avoid_buildings, avoid_positions, known_enemy_positions, [], [], Vector2.ZERO, Vector2.INF, reference_point)
 		has_move_target = true
 		move_queue.clear()
 		move_speed = GameConfig.REPOSITION_SPEED * speed_multiplier

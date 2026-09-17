@@ -4449,6 +4449,46 @@ func mortar_decision_debug_snapshot() -> Dictionary:
 	return out
 
 
+## Out-of-band developer view of EVERY unit on BOTH sides — position,
+## state, current move order, and (for a RETREATING unit) why — the same
+## "read it directly, don't guess from a screenshot" visibility the mortar
+## and drone snapshots already give, generalized to the whole battle. This
+## is what a general-retreat investigation actually needs and the other
+## two snapshots don't cover at all: which cover point (if any) a specific
+## unit is currently walking to, not just its own kind's own narrower
+## slice of the decision space. Same conventions as mortar_decision_debug_
+## snapshot: both sides, unconditional, written every frame regardless of
+## any on-screen toggle (see main.gd's own _write_debug_snapshot).
+func general_unit_debug_snapshot() -> Dictionary:
+	var out: Dictionary = {}
+	for u in player_units + enemy_units:
+		var entry: Dictionary = {
+			"team": "player" if u.team == Unit.Team.PLAYER else "enemy",
+			"kind": Unit.Kind.keys()[u.kind],
+			"state": Unit.State.keys()[u.state],
+			"position": _pos_to_debug_dict(u.global_position),
+			"has_move_target": u.has_move_target,
+			"last_order_reason": u.last_order_reason,
+		}
+		if u.has_move_target:
+			entry["move_target"] = _pos_to_debug_dict(u.move_target)
+		# A real, previously-reported gap this exact field was added to
+		# close: a retreat decision reasons about what the PLAYER actually
+		# knew about an enemy (player_has_been_sighted/player_known_
+		# position — see _known_enemy_positions's own "if team == PLAYER:
+		# ... player_known_position" branch), a frozen last-sighting
+		# snapshot that can differ substantially from this same unit's own
+		# live global_position above once contact is lost — ground truth
+		# alone can't explain (or rule out) a retreat decision at all.
+		if u.team == Unit.Team.ENEMY:
+			entry["is_visible"] = u.is_visible
+			entry["player_has_been_sighted"] = u.player_has_been_sighted
+			if u.player_has_been_sighted:
+				entry["player_known_position"] = _pos_to_debug_dict(u.player_known_position)
+		out[u.display_name()] = entry
+	return out
+
+
 func _process(delta: float) -> void:
 	if battle_over or combat_log == null or is_paused:
 		return

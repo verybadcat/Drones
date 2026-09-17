@@ -127,6 +127,13 @@ const DRONE_DEBUG_SNAPSHOT_PATH: String = "res://debug_state/drone_pilot_snapsho
 # for an on-screen panel).
 const MORTAR_DEBUG_SNAPSHOT_PATH: String = "res://debug_state/mortar_decision_snapshot.json"
 
+# Same reasoning again, for battle_manager.general_unit_debug_snapshot() —
+# every unit on BOTH sides, not just mortars/drones. Built directly from a
+# real investigation (a general-retreat order routing squads through a
+# distant, unnecessary cover detour) that the other two snapshots had no
+# visibility into at all — this is the general-purpose one.
+const UNIT_DEBUG_SNAPSHOT_PATH: String = "res://debug_state/unit_snapshot.json"
+
 # Always present, in both the deployment and battle phases — not cleared by
 # _clear_all(). A real 5km map needs a frame of reference: this shows real
 # ground elevation under the cursor, and a fixed-length scale bar gives a
@@ -289,6 +296,7 @@ func _process(delta: float) -> void:
 	if battle_manager:
 		_write_debug_snapshot(DRONE_DEBUG_SNAPSHOT_PATH, battle_manager.drone_pilot_debug_snapshot())
 		_write_debug_snapshot(MORTAR_DEBUG_SNAPSHOT_PATH, battle_manager.mortar_decision_debug_snapshot())
+		_write_debug_snapshot(UNIT_DEBUG_SNAPSHOT_PATH, battle_manager.general_unit_debug_snapshot())
 
 	# History playback: BattleHistoryViewer owns the actual time-advance
 	# logic (advance_playback); this just drives it every frame and keeps
