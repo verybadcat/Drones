@@ -183,11 +183,39 @@ func test_hot_pursuit_outranks_a_lesser_shot_available() -> void:
 		"A squad already in hot pursuit of a known mortar must keep closing directly on it even with a lesser target also in range, not freeze to fight the lesser target and let the mortar go")
 
 
+## A direct live follow-up right after the fix above landed: "shooting at
+## the mortar might make sense. But I'm not sure it was." There was no way
+## to check — a squad holding to fight left no record of WHAT it was
+## actually engaging. `_update_enemy_squad_advance` now names the real
+## target directly in `last_order_reason` (already exposed by
+## general_unit_debug_snapshot() for every unit) instead of leaving the
+## reason blank/stale whenever this branch fires.
+func test_staying_to_fight_names_the_actual_target() -> void:
+	var bm = make_battle()
+	var squad_pos := Vector2(0, 0)
+	var squad: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, squad_pos)
+	bm.enemy_units.append(squad)
+	squad.sought_cover = true
+
+	var target: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, squad_pos + Vector2(GameConfig.SQUAD_ENGAGEMENT_RANGE * 0.2, 0))
+	bm.player_units.append(target)
+	target.is_visible = true
+
+	check(bm._pick_target(squad, bm.player_units) == target,
+		"Setup check: this must be a real, resolvable shot for the test to mean anything")
+
+	bm._update_enemy_squad_advance()
+	check(not squad.has_move_target, "Setup check: with nothing to chase and a real shot available, the squad must hold rather than advance")
+	check(squad.last_order_reason.find(target.display_name()) != -1,
+		"A squad holding to fight must name the actual target it's engaging in last_order_reason, not leave it blank or stale — got '%s'" % squad.last_order_reason)
+
+
 func run() -> void:
 	test_close_squad_chases_mortar_directly()
 	test_distant_squad_still_uses_bent_advance()
 	test_flanking_squad_does_not_hot_pursue()
 	test_hot_pursuit_actually_closes_the_gap_as_mortar_moves()
 	test_hot_pursuit_outranks_a_lesser_shot_available()
+	test_staying_to_fight_names_the_actual_target()
 	print("Enemy squad mortar-pursuit tests: %d failures" % failures)
 	quit(1 if failures else 0)

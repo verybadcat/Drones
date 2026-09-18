@@ -5382,10 +5382,26 @@ func _update_enemy_squad_advance() -> void:
 		# only stops the squad from settling for a lesser target, or a
 		# fleeting shot, while a known, high-value, actively-fleeing
 		# mortar is still there to be run down.
+		#
+		# The target below is now named directly in last_order_reason
+		# rather than left implicit — a direct live follow-up right after
+		# this fix landed: "shooting at the mortar might make sense. But
+		# I'm not sure it was." There was no way to check, before or after
+		# the fact: general_unit_debug_snapshot() already exposes
+		# last_order_reason for every unit, but this branch never wrote
+		# one, so a squad sitting still here showed nothing beyond
+		# whatever stale reason its last real move order left behind.
+		# Reuses the exact target this same call already resolves — no
+		# second _pick_target call, so this adds no new risk from its own
+		# internal randomness (the baseline squad path's uniform choice
+		# among candidates) disagreeing with whatever _tick_fire itself
+		# acts on this same tick.
 		if _chasing_mortar_in_hot_pursuit(u):
 			_chase_mortar_directly(u)
 			continue
-		if _pick_target(u, player_units) != null:
+		var shootable: Unit = _pick_target(u, player_units)
+		if shootable != null:
+			u.last_order_reason = "Staying to fight %s (in range and line of sight) instead of continuing to close." % shootable.display_name()
 			continue # something to shoot at right now, and not mid-chase on a known mortar — stay and fight
 		if u.has_move_target:
 			continue
