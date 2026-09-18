@@ -98,6 +98,43 @@ func test_advance_point_avoids_sibling_at_natural_angle() -> void:
 		"A real alternative angle exists here (open ground, no buildings) — it must be chosen over one that still bunches")
 
 
+## Direct, live-confirmed bug found while investigating "insufficient
+## anti-bunching, need a happy medium": every one of _mortar_advance_
+## point's candidates sits on an arc at the SAME fixed distance from the
+## SAME shared target_pos — when several mortars converge on one known
+## target from broadly similar directions (a real, common case: the enemy
+## usually fields more tubes than the player has mortars to hunt),
+## clamp_to_operating_area can clip every single candidate to the exact
+## same boundary point. Reproduced directly with a disposable smoke test
+## (four mortars at realistic spread positions, one shared target,
+## every one of them landing on the identical clamped point — 0.0m
+## apart) before this fix widened the offset set and switched to the
+## graduated bunch-score-factor selection.
+func test_advance_point_never_collapses_multiple_hunters_onto_the_same_point() -> void:
+	var bm = make_battle()
+	var target_pos := Vector2(3000, 1500) # the exact degenerate repro coordinates that produced a real 0m collapse before this fix
+	var start_positions: Array[Vector2] = [
+		Vector2(4700, 900), Vector2(4700, 1500), Vector2(4700, 2100), Vector2(4700, 2700),
+	]
+	var mortars: Array[Unit] = []
+	for pos in start_positions:
+		var m: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, pos)
+		bm.enemy_units.append(m)
+		mortars.append(m)
+
+	var destinations: Array[Vector2] = []
+	for m in mortars:
+		var dest: Vector2 = bm._mortar_advance_point(m, target_pos)
+		destinations.append(dest)
+		m.move_target = dest
+		m.has_move_target = true
+
+	for i in destinations.size():
+		for j in range(i + 1, destinations.size()):
+			check(destinations[i].distance_to(destinations[j]) > 1.0,
+				"Mortars %d and %d hunting the same known target must not collapse onto the exact same destination (got %s and %s)" % [i, j, destinations[i], destinations[j]])
+
+
 ## When EVERY candidate angle is within the avoidance radius of some
 ## sibling (a real, if rare, geometrically cornered case), the function
 ## must still return a genuine move — never freeze in place — and must
@@ -113,14 +150,20 @@ func test_advance_point_falls_back_to_least_bad_when_fully_boxed_in() -> void:
 	# Place a sibling directly on top of every single candidate angle this
 	# function tries, EXCEPT one — that one must win outright, and every
 	# candidate must clearly be "some real point," not a frozen no-op.
-	var farthest_offset := 45.0
+	# Widened alongside _mortar_advance_point's own offset set (a direct
+	# fix for a confirmed exact-overlap bug when several mortars converge
+	# on one shared target — see that function's own doc comment): every
+	# offset except the intentionally-open 90.0 must now be blocked, or
+	# the search would simply find one of the OTHER new, unblocked angles
+	# instead of the one this test means to exercise.
+	var farthest_offset := 90.0
 	# Clamped exactly like _mortar_advance_point's own candidates (see
 	# test_advance_point_avoids_sibling_at_natural_angle's own comment) —
 	# without this, several of these siblings land on positions the
 	# function itself can never actually produce, and the "least boxed"
 	# candidate below can end up nowhere near where the function's own
 	# (clamped) search actually considers it.
-	for offset_deg in [0.0, -15.0, 15.0, -30.0, 30.0, -45.0]:
+	for offset_deg in [0.0, -15.0, 15.0, -30.0, 30.0, -45.0, 45.0, -60.0, 60.0, -75.0, 75.0, -90.0]:
 		var dir: Vector2 = base_dir.rotated(deg_to_rad(offset_deg))
 		var candidate: Vector2 = GameConfig.clamp_to_operating_area(target_pos - dir * target_distance)
 		var sib: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, candidate)
@@ -256,13 +299,53 @@ func test_nearest_cover_point_still_prefers_clearance_when_alternatives_exist() 
 		"Sitting right on top of a sibling should make a candidate lose out to real alternatives far more often than the same candidate with no sibling nearby (%d/%d vs %d/%d)" % [hits_with, DRAWS, hits_without, DRAWS])
 
 
+## Direct calibration check on GameConfig.mortar_bunch_score_factor itself
+## — guards the "happy medium" fix after live bunching recurred despite
+## the whole mechanism already existing ("you had it prevented, but that
+## caused other problems, so you had the code merely discourage it...
+## insufficient anti-bunching... need a happy medium"). At HALF the
+## avoidance radius, the SQUARED curve must give a much steeper penalty
+## (~0.25x) than the old LINEAR one would have (0.5x) — a live 20-trial
+## measurement showed the linear version too easy for a single 3.0x
+## concealment bonus alone to outweigh.
+func test_bunch_score_factor_is_squared_not_linear() -> void:
+	var half_radius: float = GameConfig.MORTAR_BUNCHING_AVOIDANCE_RADIUS * 0.5
+	var factor: float = GameConfig.mortar_bunch_score_factor(half_radius)
+	check(absf(factor - 0.25) < 0.001,
+		"At half the avoidance radius, the squared factor must be ~0.25 (quadrupling the old linear 0.5x penalty), got %.4f" % factor)
+	check(absf(GameConfig.mortar_bunch_score_factor(GameConfig.MORTAR_BUNCHING_AVOIDANCE_RADIUS) - 1.0) < 0.001,
+		"Right at the avoidance radius, the factor must still be exactly full credit (1.0), got %.4f" % GameConfig.mortar_bunch_score_factor(GameConfig.MORTAR_BUNCHING_AVOIDANCE_RADIUS))
+	check(GameConfig.mortar_bunch_score_factor(0.0) >= 0.049 and GameConfig.mortar_bunch_score_factor(0.0) <= 0.051,
+		"Right on top of a sibling, the factor must sit at its floor (0.05, never literal zero — a cornered mortar must still be able to move), got %.4f" % GameConfig.mortar_bunch_score_factor(0.0))
+
+
+## Direct user correction: an earlier version of enemy_mortar_positions_m
+## spaced ENEMY_MORTAR_COUNT_MAX mortars EXACTLY at MORTAR_BUNCHING_
+## AVOIDANCE_RADIUS apart (4 gaps of exactly 300m across a 1200m span) —
+## zero margin, so any single subsequent relocation for an unrelated
+## reason could immediately violate the cited separation. Widened spans
+## must now give real margin above the radius at the maximum force size.
+func test_enemy_mortar_spawn_spacing_has_real_margin_at_max_count() -> void:
+	var positions: Array[Vector2] = GameConfig.enemy_mortar_positions_m(GameConfig.ENEMY_MORTAR_COUNT_MAX)
+	check(positions.size() == GameConfig.ENEMY_MORTAR_COUNT_MAX,
+		"Setup check: must actually generate ENEMY_MORTAR_COUNT_MAX positions")
+	var avoidance_radius_m: float = GameConfig.MORTAR_BUNCHING_AVOIDANCE_RADIUS / GameConfig.PIXELS_PER_METER
+	for i in range(1, positions.size()):
+		var gap: float = positions[i].distance_to(positions[i - 1])
+		check(gap > avoidance_radius_m * 1.1,
+			"Adjacent enemy mortar spawn positions at max force size must clear the avoidance radius with real margin (got %.0fm, radius is %.0fm)" % [gap, avoidance_radius_m])
+
+
 func run() -> void:
 	test_ring_search_statistically_prefers_sibling_clearance()
 	test_advance_point_avoids_sibling_at_natural_angle()
+	test_advance_point_never_collapses_multiple_hunters_onto_the_same_point()
 	test_advance_point_falls_back_to_least_bad_when_fully_boxed_in()
 	test_idle_holding_disperses_from_critically_close_sibling()
 	test_holding_a_shot_still_disperses_from_critically_close_sibling()
 	test_nearest_cover_point_accepts_closer_than_guideline_when_it_is_clearly_best()
 	test_nearest_cover_point_still_prefers_clearance_when_alternatives_exist()
+	test_bunch_score_factor_is_squared_not_linear()
+	test_enemy_mortar_spawn_spacing_has_real_margin_at_max_count()
 	print("Mortar bunching-avoidance tests: %d failures" % failures)
 	quit(1 if failures else 0)

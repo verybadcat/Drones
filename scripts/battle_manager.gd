@@ -4016,9 +4016,28 @@ func _mortar_advance_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 	var base_dir: Vector2 = (target_pos - mortar.global_position).normalized()
 	var target_distance: float = GameConfig.mortar_max_range(mortar.team) * 0.9 # comfortably in range, not right on the edge
 	var siblings: Array[Vector2] = _sibling_mortar_positions(mortar)
-	var best_fallback: Vector2 = mortar.global_position
-	var best_fallback_clearance := -1.0
-	for offset_deg in [0.0, -15.0, 15.0, -30.0, 30.0, -45.0, 45.0]:
+	var best: Vector2 = mortar.global_position
+	var best_score := -1.0
+	# Direct, live-confirmed bug: with only the original ±45° spread, every
+	# one of these candidates sits on an arc at the SAME fixed distance
+	# from the SAME shared target_pos — when several mortars converge on
+	# one known target (a real, common case: the enemy usually has more
+	# tubes than the player has mortars to hunt) from broadly similar
+	# directions, clamp_to_operating_area can clip every single candidate
+	# to the exact same boundary point, collapsing what should have been a
+	# real spread into literal 0m separation — reproduced directly with a
+	# disposable smoke test (four mortars, one shared target, all four
+	# landing on the identical clamped point). Widened to ±90° so a
+	# genuinely different, in-bounds alternative exists far more often.
+	# Also switched from "first to clear the radius wins, else track
+	# whichever clears the most" to the same graduated
+	# GameConfig.mortar_bunch_score_factor scoring every other mortar
+	# relocation search already uses — picking the single best-SCORING
+	# candidate (ties broken toward the smaller, more direct offset by
+	# iteration order) is strictly more informative than a binary
+	# clear-or-not split, and keeps this function's own behavior
+	# consistent with the rest of the bunching-avoidance mechanism.
+	for offset_deg in [0.0, -15.0, 15.0, -30.0, 30.0, -45.0, 45.0, -60.0, 60.0, -75.0, 75.0, -90.0, 90.0]:
 		var dir: Vector2 = base_dir.rotated(deg_to_rad(offset_deg))
 		var candidate: Vector2 = GameConfig.clamp_to_operating_area(target_pos - dir * target_distance)
 		if GameConfig.is_building_at(candidate) or GameConfig.path_crosses_building(mortar.global_position, candidate):
@@ -4026,12 +4045,11 @@ func _mortar_advance_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 		var nearest_sibling_dist := INF
 		for p in siblings:
 			nearest_sibling_dist = min(nearest_sibling_dist, candidate.distance_to(p))
-		if nearest_sibling_dist >= GameConfig.MORTAR_BUNCHING_AVOIDANCE_RADIUS:
-			return candidate
-		if nearest_sibling_dist > best_fallback_clearance:
-			best_fallback_clearance = nearest_sibling_dist
-			best_fallback = candidate
-	return best_fallback
+		var score: float = GameConfig.mortar_bunch_score_factor(nearest_sibling_dist) if nearest_sibling_dist < INF else 1.0
+		if score > best_score:
+			best_score = score
+			best = candidate
+	return best
 
 
 ## Whether an UNWATCHED (not currently is_visible — that's its own,

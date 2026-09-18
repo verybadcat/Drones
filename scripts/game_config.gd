@@ -284,18 +284,20 @@ const MAPS: Dictionary = {
 		"squad_spread_min_offset_m": -260.0,
 		"squad_spread_max_offset_m": 260.0,
 		"mortar_rear_x_m": 4700.0, # 200m behind spawn_x, same offset as before
-		# Span widened from an original 500m to 1200m (same 1700m center)
-		# so enemy_mortar_positions_m's even spacing meets FM 7-90 Ch.6's
-		# own real, cited separate-firing-position figure (up to 300m
-		# apart "greatly decreases the enemy's chance of neutralizing
-		# them with countermortar fire") even at ENEMY_MORTAR_COUNT_MAX
-		# (5, giving exactly 4 gaps of 300m) — real commanders decide
-		# separate positions like this in advance, not something a
-		# relocation should have to re-earn hop by hop under fire. See
-		# MORTAR_BUNCHING_AVOIDANCE_RADIUS's own doc comment for the full
-		# citation and the earlier, since-reversed "wrong scale" call.
-		"mortar_spread_min_y_m": 1100.0,
-		"mortar_spread_max_y_m": 2300.0,
+		# Span widened from an original 500m to 1200m (same 1700m center),
+		# then to 1600m — direct user correction after live bunching
+		# recurred: an EXACT 1200m/4-gap layout placed mortars at
+		# ENEMY_MORTAR_COUNT_MAX precisely AT FM 7-90 Ch.6's own cited
+		# separate-firing-position figure (300m, "greatly decreases the
+		# enemy's chance of neutralizing them with countermortar fire"),
+		# with zero margin — any single subsequent relocation for an
+		# unrelated reason could immediately violate it. 1600m/4 gaps =
+		# 400m, a real margin above the cited floor rather than sitting
+		# exactly on it. See MORTAR_BUNCHING_AVOIDANCE_RADIUS's own doc
+		# comment for the full citation and the earlier, since-reversed
+		# "wrong scale" call.
+		"mortar_spread_min_y_m": 900.0,
+		"mortar_spread_max_y_m": 2500.0,
 		# Deep enough into the (now 1500m) west flank to be a real flank,
 		# same 2/3-in proportion as before and as Moshchun.
 		"flank_waypoint_x": -1000.0 * PIXELS_PER_METER,
@@ -547,13 +549,13 @@ const MAPS: Dictionary = {
 		"squad_spread_min_offset_m": -260.0,
 		"squad_spread_max_offset_m": 260.0,
 		"mortar_rear_x_m": 4700.0, # 200m behind spawn_x, same offset as every other map
-		# Span widened from an original 500m to 1200m (same 1100m center)
-		# — see the other map's own identical comment for the real
-		# citation (FM 7-90 Ch.6, up to 300m between separate firing
-		# positions) and why this must guarantee that spacing even at
-		# ENEMY_MORTAR_COUNT_MAX.
-		"mortar_spread_min_y_m": 500.0,
-		"mortar_spread_max_y_m": 1700.0,
+		# Span widened from an original 500m to 1200m, then to 1600m (same
+		# 1100m center) — see the other map's own identical comment for
+		# the real citation (FM 7-90 Ch.6, up to 300m between separate
+		# firing positions) and why an exact 4-gaps-of-300m layout left no
+		# margin at ENEMY_MORTAR_COUNT_MAX.
+		"mortar_spread_min_y_m": 300.0,
+		"mortar_spread_max_y_m": 1900.0,
 		# Deep enough into the 1500m west flank to be a real flank, same
 		# 2/3-in proportion as every other map.
 		"flank_waypoint_x": -1000.0 * PIXELS_PER_METER,
@@ -3217,8 +3219,8 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 			for p in bunch_avoid_positions:
 				nearest_sibling_dist = min(nearest_sibling_dist, c.zone.center.distance_to(p))
 			if nearest_sibling_dist < INF:
-				var bunch_factor: float = clampf(nearest_sibling_dist / MORTAR_BUNCHING_AVOIDANCE_RADIUS, 0.05, 1.0)
-				c.dist = c.dist / bunch_factor
+				# See mortar_bunch_score_factor's own doc comment.
+				c.dist = c.dist / mortar_bunch_score_factor(nearest_sibling_dist)
 
 	# See MORTAR_NO_REVERSAL_RADIUS's own doc comment — this is the path
 	# that was silently receiving NO recent-position protection at all
@@ -3858,6 +3860,33 @@ const MORTAR_BUNCHING_SATISFIED_RADIUS: float = 200.0 * PIXELS_PER_METER
 ## starved to zero" principle.
 const MORTAR_BUNCHING_CRITICAL_RADIUS: float = MORTAR_BLAST_CASUALTY_RADIUS
 
+## Shared by nearest_hidden_point and nearest_cover_point's own bunching
+## terms — one function so a mortar's two different relocation search
+## paths (the ring search and the cover-zone search) can never drift out
+## of sync with each other. Direct user correction after live bunching
+## recurred despite the whole mechanism already existing: "you had it
+## prevented, but that caused other problems, so you had the code merely
+## discourage it... insufficient anti-bunching... need a happy medium."
+## Traced directly: the original LINEAR ramp gave a candidate at HALF the
+## avoidance radius only a 2x penalty — trivially outweighed by
+## `nearest_hidden_point`'s own `hidden` bonus alone (3.0x), let alone
+## stacked with its threat-facing bonus (up to 1.5x) on top. Two mortars
+## independently gravitating toward the same good concealment spot could
+## then win on hidden-ness despite sitting well inside the avoidance
+## radius — confirmed directly with a live 20-trial full-battle
+## measurement: under the linear curve, 6/20 real battles had enemy
+## mortars land within 15m of each other at some point (several under
+## 2m — effectively on top of one another), 9/20 within the avoidance
+## radius itself. SQUARED roughly quadruples the penalty at that same
+## half-radius point (0.25x instead of 0.5x), enough to reliably
+## outweigh the concealment bonus alone. Still a genuine CONTINUOUS
+## factor, never a hard exclusion (the 0.05 floor is unchanged, so a
+## genuinely cornered mortar can still move) — a steeper, harder-to-
+## outbid curve, not a new hard gate.
+static func mortar_bunch_score_factor(nearest_sibling_dist: float) -> float:
+	return clampf(pow(nearest_sibling_dist / MORTAR_BUNCHING_AVOIDANCE_RADIUS, 2.0), 0.05, 1.0)
+
+
 ## A nearby point with NO direct line of sight from ANY of `threat_positions`
 ## — true concealment (like the reverse slope of a hill, or behind a
 ## building), not just the reduced spot-chance TREES/BUILDING give as
@@ -4079,7 +4108,9 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 			for p in bunch_avoid_positions:
 				nearest_sibling_dist = min(nearest_sibling_dist, candidate.distance_to(p))
 			if nearest_sibling_dist < INF:
-				score *= clampf(nearest_sibling_dist / MORTAR_BUNCHING_AVOIDANCE_RADIUS, 0.05, 1.0)
+				# See mortar_bunch_score_factor's own doc comment for why
+				# this is squared, not linear.
+				score *= mortar_bunch_score_factor(nearest_sibling_dist)
 			# A SECOND real gap found once the continuous factor above was
 			# verified against full real battles, not just short samples:
 			# when several mortars are all pushed toward the same map
