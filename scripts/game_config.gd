@@ -1912,6 +1912,13 @@ const MORTAR_MAX_AMMO_ON_HAND: int = 30
 ## MORTAR_STARTING_AMMO load: low enough that a genuinely under-supplied
 ## position still gets topped off promptly, high enough that a real
 ## reserve remains on hand when the run is actually committed.
+##
+## That "isn't lost" claim above was aspirational for a while, not actual
+## behavior — a real, live-reported bug: the code marked a held run
+## resolved the instant its transit timer expired regardless of ammo, so
+## it WAS effectively lost, silently discarded rather than genuinely
+## staged and waiting. Fixed directly in _update_mortar_resupply — see
+## that function's own doc comment for the live report and the fix.
 const MORTAR_RESUPPLY_REORDER_POINT: int = 10
 
 # A resupply run's delay from the moment it's requested — genuinely random,
@@ -1926,13 +1933,6 @@ const MORTAR_RESUPPLY_REORDER_POINT: int = 10
 # third of the median time.
 const MORTAR_RESUPPLY_DELAY_MEDIAN: float = 60.0 * 60.0 # tactical seconds
 const MORTAR_RESUPPLY_DELAY_SIGMA: float = 1.0
-# The second wave's delay is measured from the FIRST wave's own (already
-# random) arrival, not from the original request — "a further 20 rounds
-# will arrive after approximately another hour" reads as one more hour on
-# top of the first, not a fixed ~2 hours from the request. Both waves are
-# scheduled at request time regardless of how wave 1 actually turns out
-# (including if it fails) — see request_mortar_resupply.
-const MORTAR_RESUPPLY_WAVE_COUNT: int = 2
 
 # Every resupply run, independently, can simply fail to get through —
 # nothing wrong with the request itself, the convoy just doesn't make it.

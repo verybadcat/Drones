@@ -165,7 +165,7 @@ func log_relocate(unit: Unit, urgent: bool = false) -> void:
 
 
 func log_mortar_resupply_requested(unit: Unit) -> void:
-	add_entry("%s requests ammunition resupply — first run inbound" % unit.display_name())
+	add_entry("%s requests ammunition resupply — run inbound" % unit.display_name())
 
 
 ## "Roughly" is the whole point — see GameConfig.MORTAR_RESUPPLY_ETA_WARNING_
@@ -184,7 +184,7 @@ func log_resupply_run_departed(unit: Unit, rounds: int) -> void:
 
 
 func log_mortar_resupply_failed(unit: Unit) -> void:
-	add_entry("%s: resupply run failed to get through — request again when ready" % unit.display_name())
+	add_entry("%s: resupply run failed to get through — another is already being organized" % unit.display_name())
 
 
 ## The position still has more than GameConfig.MORTAR_RESUPPLY_REORDER_

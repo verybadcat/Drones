@@ -416,12 +416,20 @@ var _enemy_sighted_enemy: bool = false
 
 # One entry per mortar with an active resupply request — see
 # request_mortar_resupply/_update_mortar_resupply. Keyed by the mortar
-# Unit; removed once both waves have resolved (a successful wave hands off
-# to a real, physical Unit.Kind.RESUPPLY_RUN — see _spawn_resupply_run —
-# so this dict's own job ends at the moment a run sets out; delivery/loss
-# is tracked on the run itself, not here). Fields: wave_arrival_times/
-# warning_times (Array[float], one per GameConfig.MORTAR_RESUPPLY_WAVE_
-# COUNT wave), wave_warned/wave_resolved (Array[bool]).
+# Unit; removed the moment the run actually commits (dispatched as a real,
+# physical Unit.Kind.RESUPPLY_RUN — see _spawn_resupply_run — or fails
+# outright), at which point _update_mortar_resupply immediately requests
+# the NEXT one — a continuous pipeline, not a batch. Direct user
+# correction after a live-observed bug: a wave whose scheduled transit
+# time elapsed while the mortar still had plenty of ammo used to be
+# discarded outright (marked resolved with no run ever dispatched),
+# effectively delaying real resupply by a full extra cycle instead of
+# just waiting for the moment it's actually needed. Fields: arrival_time/
+# warning_time (float) — when the run finishes its transit and becomes
+# staged, ready to enter the moment ammo is low enough — and warned/staged
+# (bool), the second only ever narrated once (see _update_mortar_resupply
+# itself for the "arrived but ammo still high" hold behavior this exists
+# to describe).
 var _mortar_resupply: Dictionary = {}
 
 # Unit (a mortar) -> {"position": Vector2, "time": float} — where and when
@@ -1685,19 +1693,15 @@ func _has_sighted_enemy(team: Unit.Team) -> bool:
 
 
 ## The one real entry point for "resupply can be requested" — called
-## automatically by _update_mortar_resupply_requests for both sides, no
-## player click involved for either one. Schedules BOTH waves
-## up front (GameConfig.MORTAR_RESUPPLY_WAVE_COUNT — currently 2), each an
-## independently-sampled log-normal delay (see GameConfig.
-## sample_resupply_delay), with wave 2's delay measured from wave 1's own
-## (already random) arrival rather than from this request — "a further 20
-## rounds will arrive after approximately another hour" reads as one more
-## hour on top of the first, not from the original ask. Both waves are
-## scheduled regardless of how either one actually turns out later
-## (including a failure) — see _update_mortar_resupply for where each one
-## is actually resolved, independently, at its own arrival moment.
-## Returns false (no-op) if this mortar isn't eligible: no confirmed
-## contact yet, the crew's gone, or a request is already in flight.
+## automatically by _update_mortar_resupply_requests the first time (on
+## confirmed contact) and then by _update_mortar_resupply itself every
+## time afterward, immediately upon the previous run committing (whether
+## it actually got through or failed) — a continuous pipeline, one run in
+## the system at a time, not a fixed batch. Schedules a single transit
+## delay (see GameConfig.sample_resupply_delay) plus a separately-sampled
+## ETA-warning lead time. Returns false (no-op) if this mortar isn't
+## eligible: no confirmed contact yet, the crew's gone, or a request is
+## already in flight.
 func request_mortar_resupply(mortar: Unit) -> bool:
 	if mortar.kind != Unit.Kind.MORTAR or mortar.state != Unit.State.ACTIVE:
 		return false
@@ -1706,24 +1710,18 @@ func request_mortar_resupply(mortar: Unit) -> bool:
 	if _mortar_resupply.has(mortar):
 		return false
 
-	var wave_arrival_times: Array[float] = []
-	var warning_times: Array[float] = []
-	var t: float = scenario_elapsed_time
-	for i in GameConfig.MORTAR_RESUPPLY_WAVE_COUNT:
-		t += GameConfig.sample_resupply_delay(GameConfig.MORTAR_RESUPPLY_DELAY_MEDIAN, GameConfig.MORTAR_RESUPPLY_DELAY_SIGMA)
-		wave_arrival_times.append(t)
-		# See GameConfig.MORTAR_RESUPPLY_ETA_WARNING_MEDIAN's own comment —
-		# this is a SEPARATELY estimated lead time, not (arrival - 15min)
-		# computed with perfect hindsight, so the "roughly 15 minutes"
-		# heads-up really can end up wrong once the run actually resolves.
-		var lead: float = GameConfig.sample_resupply_delay(GameConfig.MORTAR_RESUPPLY_ETA_WARNING_MEDIAN, GameConfig.MORTAR_RESUPPLY_ETA_WARNING_SIGMA)
-		warning_times.append(t - lead)
+	var arrival_time: float = scenario_elapsed_time + GameConfig.sample_resupply_delay(GameConfig.MORTAR_RESUPPLY_DELAY_MEDIAN, GameConfig.MORTAR_RESUPPLY_DELAY_SIGMA)
+	# See GameConfig.MORTAR_RESUPPLY_ETA_WARNING_MEDIAN's own comment —
+	# this is a SEPARATELY estimated lead time, not (arrival - 15min)
+	# computed with perfect hindsight, so the "roughly 15 minutes"
+	# heads-up really can end up wrong once the run actually resolves.
+	var lead: float = GameConfig.sample_resupply_delay(GameConfig.MORTAR_RESUPPLY_ETA_WARNING_MEDIAN, GameConfig.MORTAR_RESUPPLY_ETA_WARNING_SIGMA)
 
 	_mortar_resupply[mortar] = {
-		"wave_arrival_times": wave_arrival_times,
-		"warning_times": warning_times,
-		"wave_warned": [false, false],
-		"wave_resolved": [false, false],
+		"arrival_time": arrival_time,
+		"warning_time": arrival_time - lead,
+		"warned": false,
+		"staged": false,
 	}
 	if _should_narrate_mortar_logistics(mortar):
 		combat_log.log_mortar_resupply_requested(mortar)
@@ -1736,65 +1734,66 @@ func request_mortar_resupply(mortar: Unit) -> bool:
 ## regardless of whether that mortar itself is doing anything else right
 ## now (moving, firing, out of ammo) — the resupply pipeline runs in the
 ## background either way, exactly like a real supply run would. A
-## successful wave now hands off to a real, physical run (see
-## _spawn_resupply_run) rather than staging rounds at a fixed point —
-## unless the mortar itself isn't ACTIVE any more by the time its wave
-## comes due, in which case the request quietly lapses (nothing to deliver
-## to, and no run should ever be sent chasing a position that's gone).
+## successful transit hands off to a real, physical run (see
+## _spawn_resupply_run) rather than staging rounds at a fixed point.
+##
+## Direct user correction after a live-observed bug: "the resupply run
+## was set to arrive, but the mortar still had over 10 rounds. It delayed
+## the run by an hour. That's the wrong reaction. What should happen is
+## that the run should go into a state of 'waiting offmap'. It should
+## remain in that state until the mortar gets down to ten rounds. When
+## that happens, the resupply run should immediately enter the map, and
+## the next run should be requested." A run whose transit time has
+## elapsed while the mortar still has more than MORTAR_RESUPPLY_REORDER_
+## POINT on hand now genuinely WAITS (this loop just keeps re-checking it
+## every subsequent tick) instead of being discarded outright the instant
+## its own scheduled arrival passes — matching what GameConfig.
+## MORTAR_RESUPPLY_REORDER_POINT's own doc comment already said the
+## design was supposed to do ("a wave held back this way isn't lost...
+## it simply never becomes a physical, spottable, targetable RESUPPLY_RUN
+## unit"), which the old resolved-regardless code never actually
+## delivered on. The failure-chance roll is deferred to the moment the
+## run actually commits (ammo genuinely low enough), not rolled uselessly
+## against a run that was never going anywhere yet. The instant this run
+## commits — dispatched or failed, it doesn't matter which — the NEXT
+## request goes out immediately: a continuous one-run-at-a-time pipeline,
+## not "wait for this one to be used before asking again."
 func _update_mortar_resupply() -> void:
 	for m in _mortar_resupply.keys():
 		var record: Dictionary = _mortar_resupply[m]
-		var arrivals: Array = record.wave_arrival_times
-		var warnings: Array = record.warning_times
-		var warned: Array = record.wave_warned
-		var resolved: Array = record.wave_resolved
-		for i in arrivals.size():
-			if resolved[i]:
-				continue
-			if not warned[i] and scenario_elapsed_time >= warnings[i]:
-				warned[i] = true
+		if m.state != Unit.State.ACTIVE:
+			_mortar_resupply.erase(m) # the position is gone — nothing to send a run toward
+			continue
+		if not record.warned and scenario_elapsed_time >= record.warning_time:
+			record.warned = true
+			if _should_narrate_mortar_logistics(m):
+				combat_log.log_mortar_resupply_eta_warning(m)
+			_mortar_resupply[m] = record
+		if scenario_elapsed_time < record.arrival_time:
+			continue # still in transit
+		if m.mortar_rounds_remaining > GameConfig.MORTAR_RESUPPLY_REORDER_POINT:
+			# Not "is the position already completely full" — see
+			# GameConfig.MORTAR_RESUPPLY_REORDER_POINT's own doc comment
+			# for the real logistics reasoning. The run is staged, ready,
+			# and simply waits here — re-checked every tick from now on —
+			# rather than walking all the way up only to be capped or
+			# wasted delivering a handful of rounds on arrival.
+			if not record.staged:
+				record.staged = true
+				_mortar_resupply[m] = record
 				if _should_narrate_mortar_logistics(m):
-					combat_log.log_mortar_resupply_eta_warning(m)
-			if scenario_elapsed_time >= arrivals[i]:
-				resolved[i] = true
-				if m.state != Unit.State.ACTIVE:
-					pass # the position is gone — nothing to send a run toward
-				elif m.mortar_rounds_remaining > GameConfig.MORTAR_RESUPPLY_REORDER_POINT:
-					# Not "is the position already completely full" — see
-					# GameConfig.MORTAR_RESUPPLY_REORDER_POINT's own doc
-					# comment for the real logistics reasoning. The run
-					# simply never leaves the rear (an ammunition supply
-					# point, not an exposed load sitting next to the gun)
-					# rather than walking all the way up only to be capped
-					# or wasted delivering a handful of rounds on arrival.
-					# Requests were never gated on ammo level in the first
-					# place (see _update_mortar_resupply_requests' own doc
-					# comment) specifically so this can be checked late,
-					# right before actually committing a physical run to
-					# the trip, without ever having blocked the supply
-					# chain from starting to move.
-					if _should_narrate_mortar_logistics(m):
-						combat_log.log_mortar_resupply_held(m)
-				elif randf() < GameConfig.MORTAR_RESUPPLY_FAILURE_CHANCE:
-					if _should_narrate_mortar_logistics(m):
-						combat_log.log_mortar_resupply_failed(m)
-				else:
-					_spawn_resupply_run(m)
-		record.wave_warned = warned
-		record.wave_resolved = resolved
-		_mortar_resupply[m] = record
-
-	# Clean up once every wave has resolved — a fresh request cycle is only
-	# eligible after that (see _update_mortar_resupply_requests).
-	for m in _mortar_resupply.keys():
-		var record: Dictionary = _mortar_resupply[m]
-		var all_resolved := true
-		for r in record.wave_resolved:
-			if not r:
-				all_resolved = false
-				break
-		if all_resolved:
-			_mortar_resupply.erase(m)
+					combat_log.log_mortar_resupply_held(m)
+			continue
+		# Ammo has genuinely drawn down enough — commit the run now. Erased
+		# before requesting the next one so request_mortar_resupply's own
+		# "already in flight" eligibility check doesn't block it.
+		_mortar_resupply.erase(m)
+		if randf() < GameConfig.MORTAR_RESUPPLY_FAILURE_CHANCE:
+			if _should_narrate_mortar_logistics(m):
+				combat_log.log_mortar_resupply_failed(m)
+		else:
+			_spawn_resupply_run(m)
+		request_mortar_resupply(m)
 
 
 ## Nobody clicks a button for this on either side — each side's mortar
@@ -1805,15 +1804,16 @@ func _update_mortar_resupply() -> void:
 ## shortage before asking would already be too late. Deliberately NOT
 ## gated on current ammo level for that reason — a real commander gets the
 ## supply chain moving the moment a fight looks likely, not after the guns
-## have gone quiet for want of rounds. `_mortar_resupply.has(m)` is the
-## only real throttle: once a full 2-wave cycle resolves and is collected
-## (see _update_mortar_resupply's own cleanup), THAT eligibility check
-## re-applies — mostly harmless if the mortar barely fired in the
-## meantime, but by then it typically has. Symmetric — the player's own
-## mortar follows exactly the same rule as the enemy's, since a
-## doctrine-driven game already puts unit-level logistics calls like this
-## in the same autonomous-AI bucket as everything else a unit decides for
-## itself mid-battle.
+## have gone quiet for want of rounds. This is only ever the BOOTSTRAP —
+## `_mortar_resupply.has(m)` is the throttle, and once first contact is
+## made it stays true essentially forever: the instant one request
+## commits (dispatched or failed), _update_mortar_resupply itself
+## immediately requests the next one, so this function's only real job is
+## getting that continuous pipeline started in the first place. Symmetric
+## — the player's own mortar follows exactly the same rule as the enemy's,
+## since a doctrine-driven game already puts unit-level logistics calls
+## like this in the same autonomous-AI bucket as everything else a unit
+## decides for itself mid-battle.
 func _update_mortar_resupply_requests() -> void:
 	for m in player_units + enemy_units:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
@@ -7033,30 +7033,23 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 	return _record_target_choice(unit, candidates, chosen, "Original squad rule: uniform choice among eligible targets.", {"conditional_probability": 1.0 / candidates.size()})
 
 
-## 0.0 (nothing pending, or the soonest still-unresolved wave is still
+## 0.0 (nothing pending, or the pending run's own transit is still
 ## GameConfig.MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES or more away) to 1.0
-## (a real run is already en route — as urgent/certain as it gets short of
-## rounds already being in the tube), ramping linearly as the soonest
-## still-unresolved wave's actual arrival time approaches. Drives
-## _pick_target's own sliding-scale ammo conservation — see GameConfig.
-## MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES's own comment for the full
-## reasoning. Also the source for CasualtyDashboard's live "resupply ~Nm
-## out" / "resupply run en route" readout (see mortar_resupply_status).
+## (a real run is already en route, OR one has finished transit and is
+## staged waiting for ammo to draw down — either way, as certain as it
+## gets short of rounds already being in the tube), ramping linearly as
+## the pending run's own transit time elapses. Drives _pick_target's own
+## sliding-scale ammo conservation — see GameConfig.MORTAR_RESUPPLY_
+## URGENCY_HORIZON_MINUTES's own comment for the full reasoning. Also the
+## source for CasualtyDashboard's live resupply readout (see
+## mortar_resupply_status).
 func _mortar_resupply_urgency(mortar: Unit) -> float:
 	if _active_resupply_run_for(mortar) != null:
 		return 1.0
 	var record: Dictionary = _mortar_resupply.get(mortar, {})
 	if record.is_empty():
 		return 0.0
-	var arrivals: Array = record.get("wave_arrival_times", [])
-	var resolved: Array = record.get("wave_resolved", [])
-	var soonest: float = INF
-	for i in arrivals.size():
-		if not resolved[i]:
-			soonest = min(soonest, float(arrivals[i]))
-	if is_inf(soonest):
-		return 0.0
-	var minutes_left: float = max(soonest - scenario_elapsed_time, 0.0) / 60.0
+	var minutes_left: float = max(record.arrival_time - scenario_elapsed_time, 0.0) / 60.0
 	return clamp(1.0 - minutes_left / GameConfig.MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES, 0.0, 1.0)
 
 
@@ -7080,20 +7073,18 @@ func _mortar_ammo_scarcity(mortar: Unit) -> float:
 ## state _mortar_resupply_urgency already computes from.
 func mortar_resupply_status(mortar: Unit) -> Dictionary:
 	if _active_resupply_run_for(mortar) != null:
-		return {"pending": true, "in_transit": true}
+		return {"pending": true, "in_transit": true, "staged": false}
 	var record: Dictionary = _mortar_resupply.get(mortar, {})
 	if record.is_empty():
 		return {"pending": false}
-	var arrivals: Array = record.get("wave_arrival_times", [])
-	var resolved: Array = record.get("wave_resolved", [])
-	var soonest: float = INF
-	for i in arrivals.size():
-		if not resolved[i]:
-			soonest = min(soonest, float(arrivals[i]))
-	if is_inf(soonest):
-		return {"pending": false}
-	var minutes_left: float = max(soonest - scenario_elapsed_time, 0.0) / 60.0
-	return {"pending": true, "in_transit": false, "minutes_until_next": minutes_left}
+	if record.get("staged", false):
+		# Transit is done and the run is genuinely just waiting, off-map,
+		# for ammo to draw down to GameConfig.MORTAR_RESUPPLY_REORDER_
+		# POINT — distinct from "in transit," so the player isn't told a
+		# truck is 0 minutes out when it's actually parked at the ready.
+		return {"pending": true, "in_transit": false, "staged": true}
+	var minutes_left: float = max(record.arrival_time - scenario_elapsed_time, 0.0) / 60.0
+	return {"pending": true, "in_transit": false, "staged": false, "minutes_until_next": minutes_left}
 
 
 ## Public accessor for CasualtyDashboard's enemy mortar row: true if

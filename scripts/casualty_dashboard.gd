@@ -301,6 +301,8 @@ func _resupply_status_suffix(u: Unit) -> String:
 		return ""
 	if status.in_transit:
 		return ", resupply run en route"
+	if status.get("staged", false):
+		return ", resupply staged, ready when needed"
 	return ", resupply ~%dm out" % int(round(float(status.minutes_until_next)))
 
 
