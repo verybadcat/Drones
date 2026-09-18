@@ -29,6 +29,23 @@ extends SceneTree
 ## _step_retreat's own continuous per-tick bending for anything known but
 ## not actually an immediate threat.
 ##
+## A THIRD real incident, live-caught, found the SAME "cover is a means,
+## not a competing goal" principle still wasn't fully applied: a mortar
+## crew that had already spent real time failing to shake a close, LOS-
+## having enemy squad — the exact "genuinely nowhere safe nearby" case —
+## still got routed to yet another "cover" detour once ordered to
+## retreat, EVEN THOUGH the search's own chosen point didn't actually
+## break LOS from that same squad. `nearest_cover_point`/`safest_cover_
+## point`/`retreat_cover_point_toward` never return "nothing" (same
+## "movement must never be starved to zero" principle as every other
+## relocation search in this project), so "a candidate exists" was being
+## treated as "cover is worth the detour" even when that candidate didn't
+## achieve real concealment at all. Fixed: the chosen point is now
+## checked against every known enemy position — if it's still visible to
+## even one, the detour is skipped entirely and the straight retreat
+## takes over immediately, exactly as if no cover had been worth
+## considering in the first place.
+##
 ## Run: godot --headless --path . --script scripts/tests/test_general_retreat_safety.gd
 const Log = preload("res://scripts/tests/test_combat_log.gd")
 var failures := 0
@@ -104,15 +121,42 @@ func test_currently_visible_seeks_cover() -> void:
 
 ## A known enemy within actual direct-fire/overrun range AND with real
 ## line of sight is a real, immediate threat even without a formal
-## "spotted" roll landing yet — must still seek cover.
-func test_close_enemy_with_los_seeks_cover_even_if_not_yet_spotted() -> void:
+## "spotted" roll landing yet — must still seek cover, PROVIDED a real,
+## LOS-breaking cover point actually exists to seek. Uses `is_visible`
+## as the trigger (rather than the close-range+LOS path — engineering a
+## position where a threat is BOTH within SQUAD_ENGAGEMENT_RANGE and has
+## a real hidden point behind the same nearby building proved far more
+## fragile against actual map geometry) — verified directly that a real,
+## genuinely hidden point exists ~15-20 units away here, reliably across
+## many seeds (nearest_cover_point's own weighted-random pick among its
+## top candidates), since a real building sits just south of this squad.
+func test_spotted_squad_with_real_nearby_cover_uses_it() -> void:
+	var bm = make_battle()
+	var squad: Unit = _make_retreating_squad(bm, Vector2(290, 250))
+	squad.is_visible = true
+	var known: Array[Vector2] = [Vector2(290, 50)] # far enough that is_visible, not close-range LOS, is what's actually triggering this
+	squad.order_retreat(known, [])
+	check(squad.has_move_target,
+		"A currently-visible unit must still seek cover when real, LOS-breaking cover actually exists nearby")
+	check(not GameConfig.has_direct_los(known[0], squad.move_target),
+		"The cover point actually chosen must genuinely break LOS from the known threat, not just exist")
+
+
+## Direct, live-caught correction: a close, LOS-having threat with NO
+## real cover anywhere nearby (open ground, confirmed directly: the
+## search's own best candidate here lands over 500 units away and STILL
+## doesn't break LOS from this threat) must not send the unit on a
+## pointless detour anyway — skip straight to the ordinary retreat.
+func test_close_enemy_with_no_real_cover_nearby_skips_the_detour() -> void:
 	var bm = make_battle()
 	var squad: Unit = _make_retreating_squad(bm, Vector2(0, 0))
 	squad.is_visible = false
-	var known: Array[Vector2] = [Vector2(GameConfig.SQUAD_ENGAGEMENT_RANGE * 0.5, 0)] # close, open ground -- real LOS
+	var known: Array[Vector2] = [Vector2(GameConfig.SQUAD_ENGAGEMENT_RANGE * 0.5, 0)] # close, open ground -- real LOS, no real cover anywhere nearby
+	check(GameConfig.has_direct_los(known[0], squad.global_position),
+		"Setup check: the threat must actually have LOS to the squad's starting position for this test to mean anything")
 	squad.order_retreat(known, [])
-	check(squad.has_move_target,
-		"A known enemy within real engagement range and direct LOS must still trigger cover-seeking, even without this unit having been formally spotted yet")
+	check(not squad.has_move_target,
+		"With no genuine LOS-breaking cover anywhere nearby, the unit must skip the pointless detour entirely and rely on the straight retreat instead of walking toward a 'cover' point that doesn't actually help")
 
 
 ## A second, independent live-observed failure found in the same
@@ -227,7 +271,8 @@ func run() -> void:
 	test_no_known_threat_skips_cover_detour_entirely()
 	test_known_but_not_close_and_not_visible_does_not_force_cover()
 	test_currently_visible_seeks_cover()
-	test_close_enemy_with_los_seeks_cover_even_if_not_yet_spotted()
+	test_spotted_squad_with_real_nearby_cover_uses_it()
+	test_close_enemy_with_no_real_cover_nearby_skips_the_detour()
 	test_already_past_retreat_line_never_detours_regardless_of_threat()
 	test_mixed_squads_only_the_threatened_one_detours()
 	test_safe_retreat_actually_makes_progress_toward_home()

@@ -762,9 +762,33 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 			# this function.
 			var reference_point := Vector2(retreat_target_x, global_position.y)
 			move_target = GameConfig.nearest_cover_point(global_position, retreat_dir, avoid_buildings, avoid_positions, known_enemy_positions, [], [], Vector2.ZERO, Vector2.INF, reference_point)
-		has_move_target = true
-		move_queue.clear()
-		move_speed = GameConfig.REPOSITION_SPEED * speed_multiplier
+		# Direct, live-caught correction: none of the cover-point searches
+		# above ever return "nothing" (same "movement must never be
+		# starved to zero" principle as every other relocation search in
+		# this project) — they always hand back SOME point, even one that
+		# doesn't actually break LOS from what's already watching this
+		# unit. Treating "a candidate exists" as "cover is worth seeking"
+		# let a crew that had already spent real time failing to shake a
+		# close, LOS-having threat get sent on ANOTHER detour to a spot
+		# that doesn't actually help either — confirmed live: a mortar
+		# already unable to find genuine concealment nearby, directly
+		# engaged by an adjacent enemy squad, got routed to a nearby
+		# "cover" point still fully visible to that same squad instead of
+		# just running for the exit. If the chosen point doesn't actually
+		# achieve real concealment from every currently-known threat, a
+		# cover detour has nothing left to offer over the straight retreat
+		# it would otherwise be competing with — skip it.
+		var actually_hidden: bool = true
+		for p in known_enemy_positions:
+			if GameConfig.has_direct_los(p, move_target):
+				actually_hidden = false
+				break
+		if actually_hidden:
+			has_move_target = true
+			move_queue.clear()
+			move_speed = GameConfig.REPOSITION_SPEED * speed_multiplier
+		else:
+			has_move_target = false
 	else:
 		has_move_target = false
 	state_changed.emit(self)

@@ -4244,7 +4244,7 @@ func _decide_mortar_action(m: Unit) -> void:
 		# evasion already treats as urgent; this used to only ever get
 		# the ordinary, unhurried relocation regardless of how close a
 		# threat with a clear shot already was.
-		if _relocate_mortar(m, "out_of_ammo", spotted or threat_closing):
+		if _relocate_mortar(m, "out_of_ammo", spotted or threat_closing) and _mortar_relocation_actually_helps(m):
 			if _should_narrate_mortar_logistics(m):
 				combat_log.log_mortar_relocating_out_of_ammo(m)
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Out of ammunition — relocating."}
@@ -4262,7 +4262,7 @@ func _decide_mortar_action(m: Unit) -> void:
 		# got one. Now it's a first-class reason to displace on its own —
 		# "they've found us" is exactly what "preserve self" as the top
 		# goal means.
-		if _relocate_mortar(m, "evade"):
+		if _relocate_mortar(m, "evade") and _mortar_relocation_actually_helps(m):
 			combat_log.log_relocate(m, true)
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Just took counter-battery fire — displacing."}
 		else:
@@ -4278,7 +4278,7 @@ func _decide_mortar_action(m: Unit) -> void:
 		# "spotted or a threat has a clear shot from overrun range," the
 		# same "current position is compromised" situation counter-
 		# battery evasion treats as urgent above.
-		if _relocate_mortar(m, "conceal" if spotted else "evade", true):
+		if _relocate_mortar(m, "conceal" if spotted else "evade", true) and _mortar_relocation_actually_helps(m):
 			if _should_narrate_mortar_logistics(m):
 				if spotted:
 					combat_log.log_mortar_relocating_for_cover(m)
@@ -6423,6 +6423,31 @@ func _mortar_flee_as_last_resort(m: Unit) -> void:
 	if m.team == Unit.Team.PLAYER:
 		combat_log.log_mortar_fled_off_map(m)
 	_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "No safe relocation option remained nearby — fleeing off the map."}
+
+
+## Whether the relocation _relocate_mortar just issued (m.move_target,
+## still fresh — this must be called immediately after a successful
+## _relocate_mortar call, before anything else can overwrite it) actually
+## achieves real concealment, not just "some candidate was found." Direct,
+## live-caught correction, the proactive-decision counterpart to the same
+## fix in Unit.order_retreat (see that function's own doc comment for the
+## full incident): _relocate_mortar's own underlying search never returns
+## "nothing" (same "movement must never be starved to zero" principle as
+## every relocation search in this project) — it always hands back SOME
+## point, even one still fully exposed to the exact threat that triggered
+## the relocation. Treating "a candidate was found" as "the crew is now
+## safe" let a mortar keep accepting these hollow relocations indefinitely
+## instead of ever concluding there was genuinely nowhere left to hide and
+## fleeing off the map, exactly as _mortar_flee_as_last_resort already
+## exists to do. Every call site below now requires this to ALSO be true
+## before accepting a `_relocate_mortar` success, falling through to
+## _mortar_flee_as_last_resort exactly as if _relocate_mortar itself had
+## returned false.
+func _mortar_relocation_actually_helps(m: Unit) -> bool:
+	for p in _known_enemy_positions(m.team):
+		if GameConfig.has_direct_los(p, m.move_target):
+			return false
+	return true
 
 
 ## The destination/speed-picking half of _relocate_mortar, split out so
