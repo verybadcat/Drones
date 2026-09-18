@@ -735,6 +735,8 @@ func _on_review_history_pressed() -> void:
 	var history: Array[Dictionary] = battle_manager.battle_history()
 	history_viewer.setup(history, battle_manager.battle_history_fire_events())
 	map_viewport.add_child(history_viewer)
+	if casualty_dashboard:
+		casualty_dashboard.history_viewer = history_viewer
 
 	history_slider = HSlider.new()
 	history_slider.position = Vector2(20, 610)
@@ -798,6 +800,8 @@ func _update_history_time_label() -> void:
 ## AAR report and the live units' own (final, current) visibility exactly
 ## as they were.
 func _on_history_back_pressed() -> void:
+	if casualty_dashboard:
+		casualty_dashboard.history_viewer = null
 	for node in [history_viewer, history_slider, history_time_label, history_back_button, history_play_button]:
 		if node:
 			node.queue_free()

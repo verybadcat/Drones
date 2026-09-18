@@ -37,6 +37,12 @@ const STATUS_COLOR := {
 const UNKNOWN_COLOR := Color(0.35, 0.35, 0.4)
 
 var battle_manager: BattleManager
+## Set/cleared directly by main.gd exactly when Review Battle History
+## opens/closes (untyped — same brand-new-class_name reason main.gd's own
+## history_viewer field is untyped). While set, the two casualty bars read
+## from THIS viewer's currently-scrubbed snapshot instead of the live,
+## final battle_manager.casualty_stats() — see _refresh's own doc comment.
+var history_viewer = null
 var _player_label: RichTextLabel
 var _player_bar: ColorRect
 var _player_mortar_rows: Array[Dictionary] = []
@@ -156,8 +162,22 @@ func _process(_delta: float) -> void:
 	_refresh()
 
 
+## While Review Battle History is open (history_viewer set), the two
+## casualty bars track wherever the replay is currently scrubbed/playing to
+## instead of the live battle's final, frozen totals — direct user
+## requirement: "the casualties bar should start at zero and show
+## casualties as they happen [during replay]. If the user scrolls forwards
+## or backwards, the casualties should show what they were at wherever the
+## user scrolls to." The mortar/drone rows below are left showing the
+## battle's final state throughout replay (recorded history snapshots
+## never captured ammo/resupply/battery data to scrub those live either —
+## a much bigger feature than what was actually asked for here).
 func _refresh() -> void:
 	if battle_manager == null:
+		return
+	if history_viewer != null:
+		_update_side(history_viewer.casualty_pips_at_current_index(Unit.Team.PLAYER), _player_label, _player_bar, "Player")
+		_update_side(history_viewer.casualty_pips_at_current_index(Unit.Team.ENEMY), _enemy_label, _enemy_bar, "Enemy")
 		return
 	_update_side(battle_manager.casualty_stats(Unit.Team.PLAYER), _player_label, _player_bar, "Player")
 	_update_mortar_rows(battle_manager.player_units, _player_mortar_rows, false)

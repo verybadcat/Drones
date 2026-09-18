@@ -97,6 +97,39 @@ func current_time() -> float:
 	return playback_time
 
 
+## Ground-truth casualty pip counts for `team` at the snapshot CURRENTLY
+## displayed (current_index) — for CasualtyDashboard's own casualties bar
+## while scrubbing/playing this replay, so it reads "what were casualties
+## at this moment" instead of the live battle's final, frozen totals. Mirrors
+## BattleManager._compute_side_stats' own ground-truth math (a DRONE is
+## equipment, not personnel; a RESUPPLY_RUN is a transient logistics
+## element; neither counts. A SURRENDERED unit's still-intact `pips` count
+## as an extra loss on top of whatever it had already taken, since
+## surrendering itself doesn't reduce `pips`) but reads it from this
+## viewer's own recorded snapshot fields rather than live Unit state —
+## ground truth for BOTH sides, same as every other reading in this file,
+## not the fog-of-war-limited "estimated" view the live dashboard's enemy
+## side otherwise shows (see this file's own doc comment on why that's a
+## deliberate, confirmed difference for this feature specifically).
+func casualty_pips_at_current_index(team: Unit.Team) -> Dictionary:
+	var pips_total := 0
+	var pips_lost := 0
+	if not history.is_empty():
+		for u in history[current_index].units:
+			if u.team != team:
+				continue
+			if u.kind == Unit.Kind.DRONE or u.kind == Unit.Kind.RESUPPLY_RUN:
+				continue
+			var max_pips: int = u.get("max_pips", 0)
+			var pips: int = u.get("pips", 0)
+			pips_total += max_pips
+			pips_lost += max_pips - pips
+			if u.state == Unit.State.SURRENDERED:
+				pips_lost += pips
+	var casualty_percent: float = (float(pips_lost) / float(pips_total) * 100.0) if pips_total > 0 else 0.0
+	return {"pips_total": pips_total, "pips_lost": pips_lost, "casualty_percent": casualty_percent, "estimated": false}
+
+
 func _draw() -> void:
 	if history.is_empty():
 		return
