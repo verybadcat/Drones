@@ -5396,10 +5396,37 @@ func _update_enemy_squad_advance() -> void:
 		# internal randomness (the baseline squad path's uniform choice
 		# among candidates) disagreeing with whatever _tick_fire itself
 		# acts on this same tick.
+		# Division of labor, added after a direct live report: ten enemy
+		# squads all converging on the mortar in hot pursuit, running past
+		# friendly squads actively in their path, rather than some of them
+		# peeling off to actually fight what was right in front of them —
+		# "it would be reasonable to have division of labor, with some
+		# enemy squads chasing the mortar and others fighting against the
+		# friendly squads." Real infantry doesn't turn its back on a live
+		# firefight it's already IN to run past the enemy toward a
+		# different objective — that's what the hot-pursuit reordering
+		# above (fixing the OPPOSITE bug, a squad ignoring the mortar for
+		# any stray shot) went too far in the other direction on. The
+		# distinction that actually matters: a real, currently-engageable
+		# PLAYER SQUAD specifically (an armed threat that can shoot back)
+		# is genuine contact worth finishing, not just "something,
+		# anything, technically shootable" the way the previous fix's own
+		# bug treated an incidental spotter/other unit. Checked before hot
+		# pursuit, using the SAME _pick_target call hot pursuit's own
+		# fallback below would otherwise make separately — this is what
+		# produces the actual division of labor: whichever squads happen
+		# to have a real opposing squad in their own range/LOS stay and
+		# fight it, while squads with a clear path (no friendly squad
+		# actually contesting them specifically) press on toward the
+		# mortar — with no need for any new cross-squad coordination.
+		var shootable: Unit = _pick_target(u, player_units)
+		if shootable != null and shootable.kind == Unit.Kind.SQUAD:
+			u.last_order_reason = "Staying to fight %s (in range and line of sight) instead of continuing to close." % shootable.display_name()
+			continue
+
 		if _chasing_mortar_in_hot_pursuit(u):
 			_chase_mortar_directly(u)
 			continue
-		var shootable: Unit = _pick_target(u, player_units)
 		if shootable != null:
 			u.last_order_reason = "Staying to fight %s (in range and line of sight) instead of continuing to close." % shootable.display_name()
 			continue # something to shoot at right now, and not mid-chase on a known mortar — stay and fight
