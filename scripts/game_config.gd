@@ -2073,6 +2073,22 @@ const DRONE_NON_PRIORITY_MORTAR_WATCH_VALUE: float = 6.0
 const TARGET_PRIORITY_UNDISCOVERED_MORTAR_SWEEP: float = 100.0
 const SQUAD_DANGER_RANGE: float = 1200.0 * PIXELS_PER_METER
 
+## How many enemy squads can be actively running down a known friendly
+## mortar (BattleManager._chasing_mortar_in_hot_pursuit/_chase_mortar_
+## directly) at the same time — a direct live correction after ten squads
+## all converged on the mortar simultaneously, running past three friendly
+## squads in the process: "the enemy might send 2-3 to chase the mortar.
+## But the rest would fight the friendly squads." A mortar crew has no
+## real close-defense capability at all (see MORTAR_CREW_OVERRUN_DANGER_
+## RANGE's own doctrine), so a small handful of attackers is already
+## overwhelming — a judgment call, not independently cited, but matching
+## the user's own stated range directly. Squads beyond this cap (see
+## BattleManager._mortar_hunt_assignments, which always assigns the
+## CLOSEST ones first) simply never enter hot pursuit that tick; their
+## combat power goes toward the numerically superior threat actually in
+## front of them instead.
+const MORTAR_HUNT_SQUAD_CAP: int = 3
+
 ## Checking whether an enemy is currently flanking around toward the
 ## mortar's blind side used to be its own outer-tier TARGET_PRIORITY_
 ## FLANK_WATCH constant, competing directly against squad-danger/

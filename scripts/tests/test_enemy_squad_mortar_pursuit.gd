@@ -276,6 +276,54 @@ func test_staying_to_fight_names_the_actual_target() -> void:
 		"A squad holding to fight must name the actual target it's engaging in last_order_reason, not leave it blank or stale — got '%s'" % squad.last_order_reason)
 
 
+## Direct live correction to the division-of-labor fix above: "Ten enemy
+## squads were all chasing the mortar with friendly squads behind them...
+## the enemy might send 2-3 to chase the mortar. But the rest would fight
+## the friendly squads." With no friendly squad anywhere nearby to trigger
+## the SQUAD-kind hold above, five squads all independently qualify for
+## hot pursuit — only the closest MORTAR_HUNT_SQUAD_CAP (3) may actually
+## be assigned to it; the other two must fall through to the ordinary
+## advance-by-bounds logic instead of also converging on the mortar.
+func test_mortar_hunt_caps_how_many_squads_chase_at_once() -> void:
+	var bm = make_battle()
+	var mortar_pos := Vector2(0, 0)
+	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, mortar_pos)
+	bm.player_units.append(mortar)
+	mortar.is_visible = true
+
+	var squads: Array[Unit] = []
+	for i in 5:
+		# Distinct distances, all within SQUAD_DANGER_RANGE (hot-pursuit
+		# range) but beyond SQUAD_ENGAGEMENT_RANGE — none of these five have
+		# actually "arrived" yet (_chase_mortar_directly would otherwise
+		# stop them outright once within engagement range, which would
+		# defeat the point of this test), so ranking by distance to the
+		# mortar is both unambiguous and meaningful.
+		var pos: Vector2 = mortar_pos + Vector2(GameConfig.SQUAD_ENGAGEMENT_RANGE * 1.2 + GameConfig.SQUAD_ENGAGEMENT_RANGE * 0.4 * i, 0)
+		var s: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, pos)
+		s.sought_cover = true
+		bm.enemy_units.append(s)
+		squads.append(s)
+		check(bm._chasing_mortar_in_hot_pursuit(s),
+			"Setup check: squad %d must itself qualify for hot pursuit for this test to mean anything" % i)
+
+	bm._update_enemy_squad_advance()
+
+	var chasing_count := 0
+	for i in squads.size():
+		var s: Unit = squads[i]
+		var is_chasing: bool = s.has_move_target and s.move_target.distance_to(mortar_pos) < 1.0
+		if is_chasing:
+			chasing_count += 1
+		# Squads were built closest-to-farthest, so index order IS distance
+		# order — the closest three (indices 0-2) must be the ones chasing.
+		var should_chase: bool = i < GameConfig.MORTAR_HUNT_SQUAD_CAP
+		check(is_chasing == should_chase,
+			"Squad %d (the %s-closest to the mortar) chasing status was %s, expected %s" % [i, str(i + 1), is_chasing, should_chase])
+	check(chasing_count == GameConfig.MORTAR_HUNT_SQUAD_CAP,
+		"Exactly MORTAR_HUNT_SQUAD_CAP (%d) squads must be chasing the mortar at once, got %d" % [GameConfig.MORTAR_HUNT_SQUAD_CAP, chasing_count])
+
+
 func run() -> void:
 	test_close_squad_chases_mortar_directly()
 	test_distant_squad_still_uses_bent_advance()
@@ -285,5 +333,6 @@ func run() -> void:
 	test_division_of_labor_squad_stays_to_fight_real_threat()
 	test_division_of_labor_unengaged_squad_still_chases()
 	test_staying_to_fight_names_the_actual_target()
+	test_mortar_hunt_caps_how_many_squads_chase_at_once()
 	print("Enemy squad mortar-pursuit tests: %d failures" % failures)
 	quit(1 if failures else 0)

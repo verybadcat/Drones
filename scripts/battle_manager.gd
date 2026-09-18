@@ -5335,7 +5335,42 @@ func _alert_enemy_squads() -> void:
 ## Only applies to squads that have already broken from the initial road
 ## march (sought_cover) — one still on that scripted path is handled by its
 ## own multi-waypoint set_path already.
+##
+## Real, deliberate force allocation for the mortar hunt, not "every
+## eligible squad chases at once" — a direct live report: ten enemy squads
+## all converged on the mortar simultaneously, running past three friendly
+## squads in their path, when "the enemy might send 2-3 to chase the
+## mortar. But the rest would fight the friendly squads." An unarmed-for-
+## close-defense mortar crew doesn't need more than a couple of squads to
+## run it down — piling on more than that is combat power wasted on a
+## soft target instead of the numerically superior threat actually in
+## front of them. `_mortar_hunt_assignments` computes the cap once per
+## tick for the whole side; only the assigned squads actually execute the
+## hunt below, everyone else falls through to the ordinary division-of-
+## labor/advance-by-bounds logic exactly as if they were never in range.
+func _mortar_hunt_assignments() -> Dictionary:
+	var eligible: Array[Unit] = []
+	for u in enemy_units:
+		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or not u.sought_cover:
+			continue
+		if _chasing_mortar_in_hot_pursuit(u):
+			eligible.append(u)
+	var assigned: Dictionary = {}
+	if eligible.size() <= GameConfig.MORTAR_HUNT_SQUAD_CAP:
+		for u in eligible:
+			assigned[u] = true
+		return assigned
+	# More eligible squads than the cap allows — the CLOSEST ones actually
+	# stand a chance of catching it; the rest are better used elsewhere.
+	var mortar_pos: Vector2 = _known_friendly_mortar_position()
+	eligible.sort_custom(func(a, b): return a.global_position.distance_to(mortar_pos) < b.global_position.distance_to(mortar_pos))
+	for i in GameConfig.MORTAR_HUNT_SQUAD_CAP:
+		assigned[eligible[i]] = true
+	return assigned
+
+
 func _update_enemy_squad_advance() -> void:
+	var hunt_assignments := _mortar_hunt_assignments()
 	for u in enemy_units:
 		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE:
 			continue
@@ -5424,7 +5459,7 @@ func _update_enemy_squad_advance() -> void:
 			u.last_order_reason = "Staying to fight %s (in range and line of sight) instead of continuing to close." % shootable.display_name()
 			continue
 
-		if _chasing_mortar_in_hot_pursuit(u):
+		if hunt_assignments.has(u):
 			_chase_mortar_directly(u)
 			continue
 		if shootable != null:
