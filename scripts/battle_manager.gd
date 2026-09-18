@@ -5018,8 +5018,21 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 			# specific walk safety-critical" distinction is real but out of
 			# scope for this fix; see the tactical-rewrite doctrine doc.
 			_clear_mortar_move(unit)
-		_record_shot(unit, target)
-		_launch_mortar_shot(unit, target)
+		# Burst fire: fire _mortar_burst_shot_count's committed number of
+		# rounds at the same target in quick succession (all within this
+		# one tick — at these tactical timescales that's already "quick
+		# succession," and every existing per-shot mechanism, real
+		# ballistic dispersion, counter-battery detection, ammo
+		# consumption, still applies independently to each round; a bigger
+		# burst is a proportionally bigger counter-battery risk, not a free
+		# one). Stops early if ammo runs out mid-burst — the loop's own
+		# guard, not a separate check, since _launch_mortar_shot already
+		# spends a round every call.
+		for _shot_index in _mortar_burst_shot_count(unit, target):
+			if unit.mortar_rounds_remaining <= 0:
+				break
+			_record_shot(unit, target)
+			_launch_mortar_shot(unit, target)
 		unit.fire_timer = unit.reload_time
 		# No post-shot scoot-queueing here anymore — see _mortar_shot_
 		# this_tick and _decide_mortar_action's own "relocate for safety"
@@ -7064,6 +7077,49 @@ func _mortar_resupply_urgency(mortar: Unit) -> float:
 ## known target.
 func _mortar_ammo_scarcity(mortar: Unit) -> float:
 	return clamp(1.0 - float(mortar.mortar_rounds_remaining) / float(GameConfig.MORTAR_STARTING_AMMO), 0.0, 1.0)
+
+
+## How many rounds `mortar` commits to firing at `target` in this burst
+## before its reload/displace cycle — see GameConfig.MORTAR_BURST_MAX_
+## SHOTS/_CLOSE_RANGE for the outer ceiling and its close-range exception.
+## Direct user requirement, four real factors combined:
+## - Range: closer favors a bigger burst, sliding from 0 at max range to 1
+##   at zero range — reversed from every other mortar range check in this
+##   file (those all gate on "too far," this one rewards "close").
+## - Ammo willingness: reuses the EXACT scarcity/resupply-urgency composite
+##   _pick_target's own hold-fire chance already computes (see
+##   GameConfig.MORTAR_RESUPPLY_URGENCY_HORIZON_MINUTES's doc comment) —
+##   "resupply expected soon should read like having more ammo" is already
+##   precisely what that composite means, so this reuses it rather than
+##   inventing a second, parallel notion of the same thing.
+## - Scheduled-retreat willingness: reuses _scheduled_retreat_ammo_discount
+##   the same way _pick_target's own pursuit-hold does — ammo held back for
+##   a "later" a scheduled retreat won't leave time to spend is better
+##   burned now, "especially as the time gets close."
+## Ammo willingness and retreat willingness are combined with max(), not an
+## average: either alone is real grounds for a bigger burst — a mortar
+## about to retreat with poor resupply prospects should still empty its
+## tube, not get held back by ordinary ammo-conservation math, and a
+## mortar with full ammo shouldn't fire small bursts just because no
+## retreat happens to be scheduled.
+## Mapped to an integer via probabilistic rounding (this project's own
+## "no magic thresholds" convention — see MORTAR_RESUPPLY_DELAY's sampled
+## distribution for the same idea) rather than a hard round(), so a score
+## of e.g. 2.4 fires 3 shots 40% of the time instead of 2 shots always.
+func _mortar_burst_shot_count(mortar: Unit, target: Unit) -> int:
+	var range_to_target: float = mortar.global_position.distance_to(target.global_position)
+	var range_score: float = clamp(1.0 - range_to_target / GameConfig.mortar_max_range(mortar.team), 0.0, 1.0)
+	var ammo_willingness: float = 1.0 - _mortar_ammo_scarcity(mortar) * (1.0 - _mortar_resupply_urgency(mortar))
+	var retreat_willingness: float = 1.0 - _scheduled_retreat_ammo_discount(mortar)
+	var willingness: float = max(ammo_willingness, retreat_willingness)
+	var score: float = clamp((range_score + willingness) / 2.0, 0.0, 1.0)
+
+	var max_shots: int = GameConfig.MORTAR_BURST_CLOSE_RANGE_MAX_SHOTS if range_to_target < GameConfig.MORTAR_BURST_CLOSE_RANGE else GameConfig.MORTAR_BURST_MAX_SHOTS
+	var raw: float = 1.0 + score * float(max_shots - 1)
+	var shots: int = int(floor(raw))
+	if randf() < raw - float(shots):
+		shots += 1
+	return clampi(shots, 1, max_shots)
 
 
 ## Public accessor for CasualtyDashboard's live per-mortar readout — never

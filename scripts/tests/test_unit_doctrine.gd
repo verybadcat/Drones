@@ -83,7 +83,12 @@ func test_risk_changes_actions() -> void:
 			check(mortar.move_target == destination, "Mortar decision ladder must not overwrite the safety decision")
 		else:
 			check(not bm._risk_holds.has(mortar), "Mission-first profile must accept the same opportunity")
-			check(mortar.mortar_rounds_remaining == rounds - 1, "Accepted opportunity must actually fire")
+			# Exactly one round used to be a safe assumption before burst
+			# fire (BattleManager._mortar_burst_shot_count): this setup's
+			# very close range and full ammo now commit to a multi-round
+			# burst most of the time, so this only checks that firing
+			# actually happened, not a fixed round count.
+			check(mortar.mortar_rounds_remaining < rounds, "Accepted opportunity must actually fire")
 		clean(bm)
 
 func test_damage_credit() -> void:

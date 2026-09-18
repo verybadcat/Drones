@@ -1703,6 +1703,29 @@ static func mortar_max_range(team: Unit.Team) -> float:
 	return MORTAR_MAX_RANGE_PLAYER if team == Unit.Team.PLAYER else MORTAR_MAX_RANGE_ENEMY
 
 
+## Burst fire: replaces the old "always exactly one round per engagement"
+## model. Real 82mm crews (2B14/2B24, already cited above) can cycle
+## several rounds at close to their max cyclic rate (~20-30rpm — see this
+## project's own shoot-and-scoot research) onto the SAME, un-corrected aim
+## point before packing up and displacing, not just one. See
+## BattleManager._mortar_burst_shot_count for the actual sliding formula;
+## these two constants are only the outer ceiling and the close-range
+## exception to it.
+##
+## MORTAR_BURST_MAX_SHOTS is the most rounds any single burst ever fires,
+## regardless of how favorable ammo/resupply/retreat conditions are.
+const MORTAR_BURST_MAX_SHOTS: int = 4
+
+## Direct user requirement: "cap it at 3 shots if under 1000 meters." At
+## short range the crew is well within the range band where the target
+## (if it's a squad or another mortar) can plausibly spot or return fire
+## on the firing position fastest — a hard ceiling, not a further slide,
+## on top of whatever the continuous range/ammo/resupply/retreat scoring
+## would otherwise pick.
+const MORTAR_BURST_CLOSE_RANGE: float = 1000.0 * PIXELS_PER_METER
+const MORTAR_BURST_CLOSE_RANGE_MAX_SHOTS: int = 3
+
+
 ## Direct user request: "I want to check the size of the mortar teams
 ## against reality for both friendly and enemy mortars." Researched
 ## directly, same "same caliber, different real weapon system" split
