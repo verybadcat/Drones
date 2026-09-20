@@ -3284,8 +3284,10 @@ func _drone_search_target() -> Vector2:
 		# Watching the mortar's blind side is a standing duty, independent
 		# of how confident anyone is that a second mortar exists — see this
 		# function's own doc comment for why these two must NOT be blended
-		# into one confidence-scaled number.
-		routine_score = max(routine_score, GameConfig.DRONE_FLANK_WATCH_STANDING_PRIORITY)
+		# into one confidence-scaled number. Its strength does depend on
+		# whether any known enemy squad is actually near enough to the
+		# mortar to flank it — see _flank_watch_standing_priority.
+		routine_score = max(routine_score, _flank_watch_standing_priority())
 	if routine_score > best_score or is_inf(best_pos.x):
 		var routine_pick: Dictionary = _drone_routine_recon_target(flank_candidates)
 		if not routine_pick.is_empty():
@@ -3608,6 +3610,36 @@ func _flank_watch_candidates() -> Array:
 		var value: float = GameConfig.DRONE_FLANK_WATCH_BASE_VALUE * _flank_watch_plausibility(probe) + _contact_search_bonus(probe)
 		out.append({"key": "flank:%d" % int(bearing_deg), "point": flight_point, "value": value})
 	return out
+
+
+## How strongly the flank-watch standing duty competes with squad tracking
+## right now — GameConfig.DRONE_FLANK_WATCH_STANDING_PRIORITY when a known
+## enemy squad is close enough to the friendly mortar to plausibly flank it
+## (within GameConfig.DRONE_FLANK_WATCH_FADE_START), fading linearly down
+## to GameConfig.DRONE_FLANK_WATCH_FLOOR_PRIORITY once the nearest one is
+## GameConfig.DRONE_FLANK_WATCH_FADE_END or farther. Direct user report,
+## from a live battle: "the drone is too far afield... it seems to do very
+## little squad watching" — with the mortar parked at the map edge and every
+## known enemy squad 2km+ away, the flat 30.0 standing priority (above any
+## squad's tracking ceiling of TARGET_PRIORITY_SQUAD_MAX) kept sending the
+## drone out to probe the mortar's empty flanks while the actual fight was
+## elsewhere. "Known" means sighted at some point (its last-known position
+## counts, same as everything else the player's side reasons from); with no
+## known enemy squad at all the full priority stays, since nothing else is
+## competing for the drone's attention anyway and unknown enemies are
+## exactly what the watch exists to find.
+func _flank_watch_standing_priority() -> float:
+	var mortar := _friendly_active_mortar()
+	if mortar == null:
+		return GameConfig.DRONE_FLANK_WATCH_STANDING_PRIORITY
+	var nearest := INF
+	for u in enemy_units:
+		if u.kind == Unit.Kind.SQUAD and u.state == Unit.State.ACTIVE and u.player_has_been_sighted:
+			nearest = min(nearest, mortar.global_position.distance_to(u.player_known_position))
+	if is_inf(nearest):
+		return GameConfig.DRONE_FLANK_WATCH_STANDING_PRIORITY
+	var t: float = clamp((nearest - GameConfig.DRONE_FLANK_WATCH_FADE_START) / (GameConfig.DRONE_FLANK_WATCH_FADE_END - GameConfig.DRONE_FLANK_WATCH_FADE_START), 0.0, 1.0)
+	return lerp(GameConfig.DRONE_FLANK_WATCH_STANDING_PRIORITY, GameConfig.DRONE_FLANK_WATCH_FLOOR_PRIORITY, t)
 
 
 ## The single currently-visible, still-ACTIVE, in-range enemy mortar worth

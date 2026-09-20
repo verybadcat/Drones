@@ -1878,6 +1878,22 @@ const DRONE_FLANK_WATCH_ARRIVE_RADIUS: float = 150.0 * PIXELS_PER_METER
 ## continuing to watch one already-known contact.
 const DRONE_FLANK_WATCH_STANDING_PRIORITY: float = 30.0
 
+## That standing priority is the FULL value, held only while a known enemy
+## squad is within DRONE_FLANK_WATCH_FADE_START of the friendly mortar (the
+## same MORTAR_FLANK_THREAT_RADIUS that already defines "close enough to be
+## a real flanking threat"); it fades linearly to DRONE_FLANK_WATCH_FLOOR_
+## PRIORITY by DRONE_FLANK_WATCH_FADE_END (1.5x that radius) — see
+## BattleManager._flank_watch_standing_priority for the live-battle report
+## behind this. Direct user agreement to scale it by threat proximity. The
+## floor is deliberately tiny, not zero: with nothing else competing (no
+## squad worth tracking) the mortar's flanks still get checked, but any
+## squad within roughly 1km of a friendly unit now outranks the check
+## (TARGET_PRIORITY_SQUAD_MAX x (1 - dist/SQUAD_DANGER_RANGE) > 1.5). The
+## fade distances and floor are judgment calls, not cited figures.
+const DRONE_FLANK_WATCH_FADE_START: float = MORTAR_FLANK_THREAT_RADIUS
+const DRONE_FLANK_WATCH_FADE_END: float = MORTAR_FLANK_THREAT_RADIUS * 1.5
+const DRONE_FLANK_WATCH_FLOOR_PRIORITY: float = 1.5
+
 ## How far along a retreating unit's OWN remaining route (BattleManager.
 ## _retreat_route_scout_target) the drone screens ahead of it once a
 ## general retreat is ordered — 0.0 would just watch the unit's current

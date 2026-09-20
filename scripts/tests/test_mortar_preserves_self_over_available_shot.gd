@@ -50,6 +50,14 @@ func test_mortar_relocates_despite_a_valid_shot_when_a_threat_is_overrunning() -
 	var bm = make_battle()
 	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2(0, 0))
 	bm.player_units.append(mortar)
+	# _make_unit leaves retreat_target_x at 0.0 — this mortar would sit
+	# exactly ON its own edge, so whenever the (randomized) concealment
+	# search happened to come up empty (~4% of seeds) the last resort
+	# correctly committed to a full retreat, leaving no move order and
+	# no intent: an intermittent failure unrelated to what this test
+	# guards. A real edge makes that same case a fall-back run instead,
+	# which is still a self-preservation displacement.
+	mortar.retreat_target_x = GameConfig.PLAYER_SAFE_X
 	mortar.is_visible = true # spotted
 
 	var squad_pos: Vector2 = Vector2(GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE * 0.3, 0)
