@@ -6311,6 +6311,7 @@ func _issue_mortar_move(m: Unit, dest: Vector2, speed: float, intent: String) ->
 ## functions and now also used by _tick_fire's own interrupt-to-fire path.
 func _clear_mortar_move(m: Unit) -> void:
 	m.has_move_target = false
+	m.move_queue.clear() # a stale queued waypoint (an edge-run's later legs) must not outlive the order it belonged to
 	m.activity = Unit.Activity.STATIONARY
 	_mortar_move_intent.erase(m)
 
@@ -6431,11 +6432,78 @@ func _relocate_mortar(mortar: Unit, intent: String, force_urgent: bool = false) 
 ## _update_mortar_decisions stops processing this crew from the very
 ## next tick on — permanently out of the fight, matching "can no longer
 ## participate" exactly.
+##
+## Direct user clarification: the full off-map commitment is only for a
+## crew already CLOSE to its own edge — "If enemy squads are chasing the
+## mortar, but it is still far from the map edge, it should act to preserve
+## itself. This self preservation may well involve retreating towards the
+## map edge. However, full retreat off of the map is not yet required at
+## that point." Farther than GameConfig.MORTAR_FLEE_COMMIT_DISTANCE from the
+## edge, this instead issues an ordinary, still-ACTIVE fall-back leg toward
+## it (_mortar_edge_run_destination) and returns, so the decision ladder
+## re-evaluates on arrival: a real hiding place may have turned up by then
+## (the ordinary relocation gets first refusal every time), and if the
+## threat is still there and the crew is now close enough, THEN this
+## commits. An edge-run leg that can't be laid out at all (every candidate
+## blocked) falls back to the old immediate commitment rather than leaving
+## the crew with nothing to do.
 func _mortar_flee_as_last_resort(m: Unit) -> void:
+	if absf(m.retreat_target_x - m.global_position.x) > GameConfig.MORTAR_FLEE_COMMIT_DISTANCE:
+		var legs: Array[Vector2] = _mortar_edge_run_legs(m)
+		if not legs.is_empty():
+			var detail := "Nowhere safe to conceal — falling back toward the map edge, not yet committed to leaving."
+			if m.team == Unit.Team.PLAYER and _mortar_reasoning.get(m, {}).get("detail", "") != detail:
+				combat_log.log_mortar_falling_back_toward_edge(m)
+			# At the mortar's own retreat_speed, not the faster relocation
+			# speed: direct user requirement that the movement take the same
+			# time it always has, only without the RETREATING state — and
+			# every leg queued at once (move_queue) so it's one continuous
+			# run, never a stop-and-reconsider between legs while chased.
+			_issue_mortar_move(m, legs[0], m.retreat_speed, "evade")
+			for i in range(1, legs.size()):
+				m.move_queue.append(legs[i])
+			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": detail}
+			return
 	m.order_retreat(_known_enemy_positions_for_retreat(m.team), [])
 	if m.team == Unit.Team.PLAYER:
 		combat_log.log_mortar_fled_off_map(m)
 	_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "No safe relocation option remained nearby — fleeing off the map."}
+
+
+## The whole fall-back run toward `m`'s own edge, as a chain of waypoints
+## (GameConfig.MORTAR_EDGE_RUN_LEG apart) ending once the crew is inside
+## GameConfig.MORTAR_FLEE_COMMIT_DISTANCE of it — the zone where a crew
+## still being chased commits to the off-map retreat instead. Each leg is
+## bent sideways away from the nearest known threat by the same steering
+## _step_retreat's own final dash uses (_retreat_avoidance_offset), so a
+## chaser off to one side pushes the run the other way instead of running
+## parallel to it. A mortar can never enter a building and shouldn't be
+## routed through the river outside its crossing, so for each leg the bent
+## candidate is tried first, then a few plain lateral alternatives, taking
+## the first that's clear. A leg none of them could lay out ends the chain
+## there; an empty result (not even the first leg) makes the caller commit
+## to the off-map retreat instead.
+func _mortar_edge_run_legs(m: Unit) -> Array[Vector2]:
+	var dir_x: float = -1.0 if m.team == Unit.Team.PLAYER else 1.0
+	var steer: float = _retreat_avoidance_offset(m) * GameConfig.RETREAT_THREAT_STEER_FRACTION
+	var legs: Array[Vector2] = []
+	var from: Vector2 = m.global_position
+	while absf(m.retreat_target_x - from.x) > GameConfig.MORTAR_FLEE_COMMIT_DISTANCE and legs.size() < 20:
+		var leg: float = minf(GameConfig.MORTAR_EDGE_RUN_LEG, absf(m.retreat_target_x - from.x))
+		var next: Vector2 = Vector2.INF
+		for y_offset in [steer * leg, 0.0, leg * 0.5, -leg * 0.5, leg, -leg]:
+			var candidate: Vector2 = GameConfig.clamp_to_operating_area(Vector2(from.x + dir_x * leg, from.y + y_offset))
+			if GameConfig.is_building_at(candidate):
+				continue
+			if GameConfig.path_crosses_building(from, candidate) or GameConfig.path_crosses_river(from, candidate):
+				continue
+			next = candidate
+			break
+		if next == Vector2.INF or absf(m.retreat_target_x - next.x) >= absf(m.retreat_target_x - from.x) - 1.0:
+			break # blocked, or the operating-area clamp stopped it actually getting closer
+		legs.append(next)
+		from = next
+	return legs
 
 
 ## Whether the relocation _relocate_mortar just issued (m.move_target,

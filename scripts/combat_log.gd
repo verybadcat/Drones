@@ -72,6 +72,10 @@ func log_mortar_fled_off_map(unit: Unit) -> void:
 	add_entry("%s has no safe ground left nearby and flees off the map — out of the fight, but safe" % unit.display_name())
 
 
+func log_mortar_falling_back_toward_edge(unit: Unit) -> void:
+	add_entry("%s has nowhere safe to conceal itself and falls back toward the map edge, still in the fight" % unit.display_name())
+
+
 func log_squad_surrendered(unit: Unit) -> void:
 	add_entry("%s lays down arms rather than risk the retreat — surrendered" % unit.display_name())
 

@@ -2707,6 +2707,25 @@ const WOUNDED_ABANDON_MAX_CHANCE: float = 0.85
 ## us."
 const MORTAR_CREW_OVERRUN_DANGER_RANGE: float = 750.0 * PIXELS_PER_METER
 
+## Direct user clarification of the flee-off-the-map last resort: "If enemy
+## squads are chasing the mortar, but it is still far from the map edge, it
+## should act to preserve itself. This self preservation may well involve
+## retreating towards the map edge. However, full retreat off of the map is
+## not yet required at that point. If the enemy squads continue chasing,
+## and the mortar gets close to the edge, at that point it would retreat
+## offmap." A mortar with nowhere to hide (see BattleManager._mortar_flee_
+## as_last_resort) now falls back toward its own edge while still ACTIVE —
+## one continuous run of MORTAR_EDGE_RUN_LEG-sized waypoints, at the
+## mortar's own retreat speed, ending inside MORTAR_FLEE_COMMIT_DISTANCE of
+## the edge — and only commits to the one-way off-map retreat once it's
+## there and still cornered. Both are judgment calls, not cited figures:
+## the commit distance is roughly the point past which a crew still being
+## chased has no meaningful ground left to trade for time; the leg length
+## only sets how finely the run bends around buildings/the river and away
+## from a chaser, and doesn't change the trip's duration.
+const MORTAR_FLEE_COMMIT_DISTANCE: float = 500.0 * PIXELS_PER_METER
+const MORTAR_EDGE_RUN_LEG: float = 300.0 * PIXELS_PER_METER
+
 ## How far out a known enemy actually CLOSING on the drone team's ground
 ## position (see BattleManager._update_drone_team_evasion) starts to be
 ## worth considering relocating over — an unarmed rear element with no
