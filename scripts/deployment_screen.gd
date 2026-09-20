@@ -34,7 +34,7 @@ func _ready() -> void:
 	add_child(_spotter_token)
 	var recon_kind: Unit.Kind = Unit.Kind.DRONE_TEAM if recon_mode == GameConfig.ReconMode.DRONE_TEAM else Unit.Kind.SPOTTER
 	var recon_label: String = "Drone Team" if recon_mode == GameConfig.ReconMode.DRONE_TEAM else "Spotter"
-	_spotter_token.setup(recon_kind, recon_label, GameConfig.CURRENT_MAP.player.spotter_default_position, GameConfig.CURRENT_MAP.player.spotter_deployment_zone)
+	_spotter_token.setup(recon_kind, recon_label, GameConfig.CURRENT_MAP.player.spotter_default_position, _recon_deployment_zone())
 	_tokens.append(_spotter_token)
 
 	queue_redraw()
@@ -66,6 +66,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		_dragging.queue_redraw() # cover ring must update live as it crosses terrain
 
 
+## The recon asset's own zone: the ordinary spotter zone, or — for the drone
+## team — that zone extended across the rear area (the west flank); see
+## GameConfig.drone_team_deployment_zone.
+func _recon_deployment_zone() -> Rect2:
+	if recon_mode == GameConfig.ReconMode.DRONE_TEAM:
+		return GameConfig.drone_team_deployment_zone()
+	return GameConfig.CURRENT_MAP.player.spotter_deployment_zone
+
+
 ## Returns {"squad_positions": [Vector2, Vector2, Vector2], "mortar_position":
 ## Vector2, "spotter_position": Vector2} for BattleManager's doctrine dict.
 ## No resupply point any more — a resupply run now spawns at whatever edge
@@ -87,4 +96,4 @@ func _draw() -> void:
 	GameConfig.draw_terrain(self)
 	draw_rect(GameConfig.CURRENT_MAP.player.mortar_deployment_zone, Color(1.0, 0.55, 0.15, 0.5), false, 2.0)
 	draw_rect(GameConfig.CURRENT_MAP.player.deployment_zone, Color(1.0, 1.0, 0.2, 0.7), false, 2.0)
-	draw_rect(GameConfig.CURRENT_MAP.player.spotter_deployment_zone, Color(0.3, 1.0, 1.0, 0.6), false, 2.0)
+	draw_rect(_recon_deployment_zone(), Color(0.3, 1.0, 1.0, 0.6), false, 2.0)

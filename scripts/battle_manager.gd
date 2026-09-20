@@ -930,6 +930,19 @@ func roll_enemy_force_size() -> Dictionary:
 	return {"mortars": mortars, "squads": squads}
 
 
+## The retained terrain layer — see _draw and terrain_layer.gd. Behind the
+## parent's own drawing (fire flashes) and, being the first child, behind
+## every unit.
+var _terrain_layer: Node2D = null
+
+
+func _ready() -> void:
+	_terrain_layer = preload("res://scripts/terrain_layer.gd").new()
+	_terrain_layer.show_behind_parent = true
+	add_child(_terrain_layer)
+	move_child(_terrain_layer, 0)
+
+
 func _spawn_enemy_units() -> void:
 	var road_px: Array[Vector2] = GameConfig.road_waypoints_px()
 	var force_size: Dictionary = roll_enemy_force_size()
@@ -7864,8 +7877,13 @@ func _end_battle() -> void:
 	battle_ended.emit(report_text)
 
 
+## The terrain itself is NOT drawn here — this node redraws every frame
+## (fire tracers and impact fade-outs animate), and rebuilding the whole
+## map's contours, buildings and tree patches each time cost ~10ms a frame
+## on the older maps and ~67ms on a real-data one. It lives in a retained
+## child layer instead (see _ready and terrain_layer.gd), drawn once and
+## shown behind everything this function draws.
 func _draw() -> void:
-	GameConfig.draw_terrain(self)
 	for flash in _fire_flashes:
 		var age: float = elapsed_time - flash.time
 		if age > FLASH_DURATION:

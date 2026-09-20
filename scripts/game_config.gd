@@ -2680,6 +2680,25 @@ static func mortar_max_range(team: Unit.Team) -> float:
 	return MORTAR_MAX_RANGE_PLAYER if team == Unit.Team.PLAYER else MORTAR_MAX_RANGE_ENEMY
 
 
+## Where the DRONE TEAM (the ground crew that launches and recovers the
+## drones — see Unit.Kind.DRONE_TEAM) may deploy: the map's ordinary
+## spotter zone, extended west across the whole rear area (the west flank).
+## Direct user request: "let's allow the drone team to set up in the rear
+## area on all maps" (first phrased about the mortar, then corrected: "not
+## the mortar, the drone team"). A drone team is an unarmed rear-echelon
+## element that stays well back from the fight anyway — see
+## Unit.order_retreat's own handling of a drone team already sitting past
+## its safe line — so this only removes the artificial stop at x=0.
+## Derived from each map's own spotter zone and flank width rather than
+## authored per map, so every map (present and future) gets it. Keeps the
+## spotter zone's own 30m margin from the edge; the spotter itself, and
+## everything else, keeps the unextended zone.
+static func drone_team_deployment_zone() -> Rect2:
+	var spotter_zone: Rect2 = CURRENT_MAP.player.spotter_deployment_zone
+	var west_x: float = -(CURRENT_MAP.west_flank_width_m - 30.0) * PIXELS_PER_METER
+	return Rect2(west_x, spotter_zone.position.y, spotter_zone.end.x - west_x, spotter_zone.size.y)
+
+
 ## Burst fire: replaces the old "always exactly one round per engagement"
 ## model. Real 82mm crews (2B14/2B24, already cited above) can cycle
 ## several rounds at close to their max cyclic rate (~20-30rpm — see this
