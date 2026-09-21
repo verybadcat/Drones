@@ -125,6 +125,38 @@ func log_drone_shot_down(unit: Unit) -> void:
 	add_entry("%s is shot down" % unit.display_name())
 
 
+func log_weather_report(w: Weather) -> void:
+	var text: String = "Conditions: %s, %d °C" % [w.wind_label().to_lower(), roundi(w.temperature_c)]
+	if w.is_precipitating():
+		text += ", %s" % w.precip_label().to_lower()
+	add_entry(text)
+
+
+func log_weather_change(before: String, after: String) -> void:
+	if after == "":
+		add_entry("The precipitation stops")
+	elif before == "":
+		add_entry("%s begins" % after)
+	else:
+		add_entry("%s becomes %s" % [before, after.to_lower()])
+
+
+func log_drone_recalled_by_rain(unit: Unit, label: String) -> void:
+	add_entry("%s can no longer see through the %s — recalled" % [unit.display_name(), label.to_lower()])
+
+
+func log_drones_resume() -> void:
+	add_entry("The precipitation has eased — drones can fly again")
+
+
+func log_drone_weather_abort(unit: Unit, cause: String) -> void:
+	add_entry("%s aborts its sortie because of %s" % [unit.display_name(), cause])
+
+
+func log_drone_weather_loss(unit: Unit, cause: String) -> void:
+	add_entry("%s is lost to %s" % [unit.display_name(), cause])
+
+
 func log_drone_returning(unit: Unit) -> void:
 	add_entry("%s returns to base" % unit.display_name())
 

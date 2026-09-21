@@ -33,3 +33,51 @@ func _draw() -> void:
 	draw_line(compass_center, north_tip, Color(1.0, 0.85, 0.2), 2.0)
 	draw_string(ThemeDB.fallback_font, north_tip + north_dir * 10.0 - Vector2(5, -5), "N",
 		HORIZONTAL_ALIGNMENT_CENTER, -1, 13, Color(1.0, 0.85, 0.2))
+	_draw_weather(compass_center)
+
+
+## Wind and precipitation, in a block just left of the compass: an arrow
+## pointing the way the wind BLOWS (longer = stronger), the speed and gusts,
+## and — only while it is actually happening — a rain/sleet/snow icon and
+## label. A line says when the drones are grounded by it.
+func _draw_weather(compass_center: Vector2) -> void:
+	var w: Weather = Weather.current
+	if w == null:
+		return
+	var font := ThemeDB.fallback_font
+	var white := Color(1, 1, 1, 0.85)
+	var accent := Color(0.55, 0.85, 1.0)
+	var wind_center := compass_center - Vector2(150.0, 0.0)
+	draw_arc(wind_center, 26.0, 0.0, TAU, 32, Color(1, 1, 1, 0.35), 1.0, true)
+	var toward: Vector2 = w.wind_velocity_mps(10.0, false).normalized()
+	var arrow_len: float = clampf(6.0 + 2.6 * w.wind_speed_10m, 8.0, 24.0)
+	var tail: Vector2 = wind_center - toward * arrow_len
+	var head: Vector2 = wind_center + toward * arrow_len
+	draw_line(tail, head, accent, 2.5)
+	var side: Vector2 = toward.orthogonal()
+	draw_line(head, head - toward * 7.0 + side * 4.5, accent, 2.5)
+	draw_line(head, head - toward * 7.0 - side * 4.5, accent, 2.5)
+	draw_string(font, wind_center + Vector2(-44.0, 44.0), "%d m/s from %s" % [roundi(w.wind_speed_10m), Weather.compass_name(w.wind_from_deg)],
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, white)
+	draw_string(font, wind_center + Vector2(-44.0, 58.0), "gusts %d, aloft %d" % [roundi(w.wind_speed_10m * Weather.WIND_GUST_RATIO_PEAK), roundi(w.wind_speed_at(300.0))],
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, white)
+
+	if w.is_precipitating():
+		var label_origin := wind_center + Vector2(-44.0, -36.0)
+		_draw_precip_icon(label_origin + Vector2(-6.0, -4.0), w.precip_type())
+		draw_string(font, label_origin + Vector2(10.0, 0.0), "%s (%.1f mm/h)" % [w.precip_label(), w.precip_mm_h],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 13, accent)
+		if w.drone_vision_blocked():
+			draw_string(font, label_origin + Vector2(0.0, -16.0), "Drones grounded — cannot see", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1.0, 0.6, 0.4))
+
+
+func _draw_precip_icon(at: Vector2, kind: int) -> void:
+	var accent := Color(0.55, 0.85, 1.0)
+	if kind == Weather.Precip.SNOW:
+		for angle in [0.0, PI / 3.0, 2.0 * PI / 3.0]:
+			var d := Vector2.from_angle(angle) * 6.0
+			draw_line(at - d, at + d, Color.WHITE, 1.5)
+	else:
+		for i in 3:
+			var x: float = at.x - 4.0 + 4.0 * i
+			draw_line(Vector2(x + 2.0, at.y - 6.0), Vector2(x - 1.0, at.y + 5.0), accent if kind == Weather.Precip.RAIN else Color(0.75, 0.85, 1.0), 1.5)

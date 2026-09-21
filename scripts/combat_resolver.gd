@@ -84,13 +84,18 @@ static func effective_detection_range(observer: Unit, target: Unit) -> float:
 	# the ground-based one with a bonus bolted on — it replaces the whole
 	# calculation, including the elevation-advantage bonus below (a drone is
 	# always far higher than literally any point on this map already).
+	# Weather (see Weather): a drone's range scales with the altitude it has to
+	# fly at to see through rain, and is ZERO once rain/snow is moderate or
+	# worse; a ground observer's shrinks with any precipitation.
 	if observer.kind == Unit.Kind.DRONE:
-		return GameConfig.DRONE_DETECTION_RANGE
+		return GameConfig.DRONE_DETECTION_RANGE * (Weather.current.drone_detection_scale() if Weather.current != null else 1.0)
 	var detection_range: float = GameConfig.DETECTION_BASE_RANGE
 	if observer.kind == Unit.Kind.SPOTTER:
 		detection_range += GameConfig.SPOTTER_DETECTION_RANGE_BONUS
 	if observer.elevation() > target.elevation() + GameConfig.ELEVATION_ADVANTAGE_THRESHOLD_M:
 		detection_range += GameConfig.DETECTION_ELEVATION_BONUS
+	if Weather.current != null:
+		detection_range *= Weather.current.ground_detection_scale()
 	return detection_range
 
 
@@ -150,7 +155,7 @@ static func roll_spot(observer: Unit, target: Unit, scenario_delta: float) -> bo
 	# less often paying for a sightline that could never have counted.
 	var distance: float = observer.global_position.distance_to(target.global_position)
 	var detection_range: float = effective_detection_range(observer, target)
-	if distance > detection_range:
+	if distance > detection_range or detection_range <= 0.0:
 		return false
 
 	var has_los: bool = GameConfig.has_aerial_los(observer.global_position, target.global_position) if observer_is_drone \
@@ -223,7 +228,9 @@ static func _roll_ground_notices_drone(observer: Unit, target: Unit, scenario_de
 	if not GameConfig.has_aerial_los(observer.global_position, target.global_position):
 		return false
 	var horizontal_distance_m: float = observer.global_position.distance_to(target.global_position) / GameConfig.PIXELS_PER_METER
-	var slant_range_m: float = sqrt(horizontal_distance_m * horizontal_distance_m + GameConfig.DRONE_ALTITUDE_M * GameConfig.DRONE_ALTITUDE_M)
+	# A drone flying lower to see through rain is closer to the ground (see Weather).
+	var altitude_m: float = Weather.current.drone_operating_altitude_m() if Weather.current != null else GameConfig.DRONE_ALTITUDE_M
+	var slant_range_m: float = sqrt(horizontal_distance_m * horizontal_distance_m + altitude_m * altitude_m)
 	if slant_range_m > GameConfig.DRONE_GROUND_NOTICE_MAX_RANGE_M:
 		return false
 	var chance_per_tick: float = 1.0 - pow(1.0 - GameConfig.DRONE_GROUND_NOTICE_CHANCE_PER_MINUTE, scenario_delta / 60.0)
@@ -249,7 +256,8 @@ static func has_live_observer(target: Unit, observers: Array[Unit], ignore_trees
 		if observer.state != Unit.State.ACTIVE:
 			continue
 		var distance: float = observer.global_position.distance_to(target.global_position)
-		if distance > effective_detection_range(observer, target):
+		var live_range: float = effective_detection_range(observer, target)
+		if distance > live_range or live_range <= 0.0:
 			continue
 		var has_los: bool = GameConfig.has_aerial_los(observer.global_position, target.global_position) if observer.kind == Unit.Kind.DRONE \
 			else GameConfig.has_direct_los(observer.global_position, target.global_position)

@@ -633,6 +633,17 @@ var _drones_ready: Array[float] = [] # charge level of each grounded, battery-in
 var _drones_swapping: Array[Dictionary] = [] # [{"time_left": float, "charge": float}] grounded airframes mid battery-swap
 var _battery_pool: Array[float] = [] # charge level of every battery not currently installed in any airframe
 var _drones_destroyed: int = 0 # airframes permanently lost (shot down, battery and all) this battle
+# The current battle's weather is Weather.current (rolled at deployment, or here
+# in start_battle if nothing has been rolled for this battle yet).
+var weather: Weather:
+	get:
+		return Weather.current
+var _drone_grounded_for_weather: bool = false # moderate-or-worse rain/snow: nothing launches until it has eased for a while
+var _drone_weather_clear_s: float = 0.0
+var _drones_lost_to_weather: int = 0 # counted in _drones_destroyed too
+var _drones_aborted_by_weather: int = 0
+var _drones_recalled_by_rain: int = 0
+var _last_precip_label: String = ""
 # The single candidate key (see _sweep_candidates/_flank_watch_candidates)
 # the drone is currently committed to flying toward or sitting at, for the
 # unified routine-recon pool — see _drone_routine_recon_target. Empty
@@ -745,6 +756,16 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drones_swapping.clear()
 	_battery_pool.clear()
 	_drones_destroyed = 0
+	_drones_lost_to_weather = 0
+	_drones_aborted_by_weather = 0
+	_drones_recalled_by_rain = 0
+	_drone_grounded_for_weather = false
+	_drone_weather_clear_s = 0.0
+	if Weather.current == null or Weather.current.battle_started:
+		Weather.current = Weather.roll(battle_seed + 7919 if battle_seed >= 0 else -1)
+	Weather.current.battle_started = true
+	_last_precip_label = Weather.current.precip_label()
+	combat_log.log_weather_report(Weather.current)
 	_drone_destination_last_visited.clear()
 	_drone_current_destination_key = ""
 	_empty_sweep_arrivals = 0
@@ -2557,6 +2578,7 @@ func _update_drone_operations(scenario_delta: float) -> void:
 			_drones_ready.append(_drones_swapping[i].charge)
 			_drones_swapping.remove_at(i)
 
+	_update_drone_weather(scenario_delta)
 	_update_returning_drones()
 
 	if active_drone != null:
@@ -2569,10 +2591,10 @@ func _update_drone_operations(scenario_delta: float) -> void:
 		active_drone = backup_drone
 		backup_drone = null
 
-	if active_drone == null and not _drones_ready.is_empty():
+	if active_drone == null and not _drones_ready.is_empty() and not _drone_grounded_for_weather:
 		_launch_drone()
 
-	if active_drone != null and backup_drone == null and not _drones_ready.is_empty():
+	if active_drone != null and backup_drone == null and not _drones_ready.is_empty() and not _drone_grounded_for_weather:
 		var watched: Unit = _visible_engageable_mortar()
 		if watched != null:
 			var time_until_active_rtb: float = _drone_time_until_rtb(active_drone)
@@ -2733,7 +2755,7 @@ func _on_drone_state_changed(unit: Unit) -> void:
 ## sacrifice is abandoned immediately and it heads home with whatever's left.
 func _update_active_drone(scenario_delta: float) -> void:
 	var d := active_drone
-	d.drone_battery_charge -= scenario_delta / GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME
+	d.drone_battery_charge -= scenario_delta / _drone_full_charge_flight_time()
 
 	if d.drone_battery_charge <= 0.0:
 		_crash_drone(d, _visible_engageable_mortar())
@@ -2787,7 +2809,7 @@ func _update_active_drone(scenario_delta: float) -> void:
 ## landing, checked first and unconditionally.
 func _update_backup_drone(scenario_delta: float) -> void:
 	var d := backup_drone
-	d.drone_battery_charge -= scenario_delta / GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME
+	d.drone_battery_charge -= scenario_delta / _drone_full_charge_flight_time()
 
 	if d.drone_battery_charge <= 0.0:
 		_crash_drone(d, _visible_engageable_mortar())
@@ -2805,6 +2827,106 @@ func _update_backup_drone(scenario_delta: float) -> void:
 	d.move_queue.clear()
 	d.move_speed = GameConfig.DRONE_CRUISE_SPEED
 	d.movement_predictable = false
+
+
+## Advances the weather (see Weather.advance) and logs precipitation starting,
+## stopping, or changing class.
+func _update_weather(scenario_delta: float) -> void:
+	if weather == null:
+		return
+	weather.advance(scenario_delta)
+	var label: String = weather.precip_label()
+	if label != _last_precip_label:
+		combat_log.log_weather_change(_last_precip_label, label)
+		_last_precip_label = label
+
+
+## Flight time a full battery is worth right now — cold cuts it (Weather.
+## drone_cold_flight_time_factor).
+func _drone_full_charge_flight_time() -> float:
+	return GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME * (weather.drone_cold_flight_time_factor() if weather != null else 1.0)
+
+
+## Ground speed (px/s) along `dir` for a drone flying at `airspeed` (px/s):
+## crabs into the wind at its own flight altitude (Weather.ground_speed).
+func _drone_ground_speed(airspeed: float, dir: Vector2) -> float:
+	if weather == null:
+		return airspeed
+	var wind_px: Vector2 = weather.wind_velocity_mps(weather.drone_operating_altitude_m()) * GameConfig.PIXELS_PER_METER
+	return Weather.ground_speed(airspeed, dir, wind_px)
+
+
+func _drone_detection_range() -> float:
+	return GameConfig.DRONE_DETECTION_RANGE * (weather.drone_detection_scale() if weather != null else 1.0)
+
+
+## Moderate-or-worse rain/snow blinds the camera at once: whatever is searching
+## is recalled (a flight home, in the same weather) and nothing launches until
+## the precipitation has stayed below Weather.DRONE_RESUME_BELOW_MM_H for
+## Weather.DRONE_RESUME_AFTER_S. Then, for every airborne drone, the per-minute
+## failure chance (Weather.drone_hazard_per_minute: wind, precipitation, cold).
+func _update_drone_weather(scenario_delta: float) -> void:
+	if weather == null:
+		return
+	if weather.drone_vision_blocked():
+		_drone_grounded_for_weather = true
+		_drone_weather_clear_s = 0.0
+		var recalled: Array[Unit] = []
+		for d in [active_drone, backup_drone]:
+			if d != null:
+				recalled.append(d)
+		active_drone = null
+		backup_drone = null
+		for d in recalled:
+			combat_log.log_drone_recalled_by_rain(d, weather.precip_label())
+			_drones_recalled_by_rain += 1
+			_send_drone_home(d)
+	elif _drone_grounded_for_weather:
+		if weather.precip_mm_h < Weather.DRONE_RESUME_BELOW_MM_H:
+			_drone_weather_clear_s += scenario_delta
+			if _drone_weather_clear_s >= Weather.DRONE_RESUME_AFTER_S:
+				_drone_grounded_for_weather = false
+				combat_log.log_drones_resume()
+		else:
+			_drone_weather_clear_s = 0.0
+
+	var altitude: float = weather.drone_operating_altitude_m()
+	var failure_chance: float = 1.0 - exp(-weather.drone_hazard_per_minute(altitude) * scenario_delta / 60.0)
+	var airborne: Array[Unit] = []
+	for d in [active_drone, backup_drone] + returning_drones:
+		if d != null:
+			airborne.append(d)
+	for d in airborne:
+		if weather.rng.randf() < failure_chance:
+			_weather_fail_drone(d, altitude)
+
+
+## A weather failure: usually the airframe is lost; a search drone (never one
+## in moderate-or-worse rain, which is already flying home) sometimes only
+## aborts and heads home instead (Weather.DRONE_ABORT_SHARE).
+func _weather_fail_drone(d: Unit, altitude: float) -> void:
+	var cause: String = weather.drone_hazard_cause(altitude)
+	var was_search: bool = d == active_drone or d == backup_drone
+	if was_search and not weather.drone_vision_blocked() and weather.rng.randf() < Weather.DRONE_ABORT_SHARE:
+		combat_log.log_drone_weather_abort(d, cause)
+		_drones_aborted_by_weather += 1
+		if d == active_drone:
+			active_drone = null
+		else:
+			backup_drone = null
+		_send_drone_home(d)
+		return
+	combat_log.log_drone_weather_loss(d, cause)
+	if d == active_drone:
+		active_drone = null
+	elif d == backup_drone:
+		backup_drone = null
+	else:
+		returning_drones.erase(d)
+	player_units.erase(d)
+	d.queue_free()
+	_drones_destroyed += 1
+	_drones_lost_to_weather += 1
 
 
 ## True once `d`'s remaining charge is down to just enough to cover the
@@ -2825,16 +2947,18 @@ func _drone_should_rtb(d: Unit) -> bool:
 ## otherwise, re-evaluated fresh every tick regardless.
 func _drone_time_until_rtb(d: Unit) -> float:
 	var distance_home: float = d.global_position.distance_to(drone_team.global_position)
-	var time_needed_home: float = distance_home / GameConfig.DRONE_CRUISE_SPEED
+	var home_dir: Vector2 = (drone_team.global_position - d.global_position).normalized() if distance_home > 1.0 else Vector2.RIGHT
+	var time_needed_home: float = distance_home / _drone_ground_speed(GameConfig.DRONE_CRUISE_SPEED, home_dir)
 	var margin_time: float = GameConfig.DRONE_RTB_SAFETY_MARGIN / GameConfig.DRONE_CRUISE_SPEED
 	# Also reserves enough to cover the letdown cost it'll actually be
 	# charged the moment it lands (see GameConfig.DRONE_LANDING_CHARGE_COST)
 	# — without this, a drone could turn for home with "just enough," fly
 	# the whole way back, and land with less charge than it actually has
 	# left to give.
-	var charge_needed_to_get_home: float = (time_needed_home + margin_time) / GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME + GameConfig.DRONE_LANDING_CHARGE_COST
+	var full_flight_time: float = _drone_full_charge_flight_time()
+	var charge_needed_to_get_home: float = (time_needed_home + margin_time) / full_flight_time + GameConfig.DRONE_LANDING_CHARGE_COST
 	var charge_to_spare: float = d.drone_battery_charge - charge_needed_to_get_home
-	return charge_to_spare * GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME
+	return charge_to_spare * full_flight_time
 
 
 ## Hands off search/shadow duty and turns `d` for a real, simulated flight
@@ -3532,7 +3656,7 @@ func _heatmap_recently_cleared_multiplier(key: Vector2) -> float:
 ## every conceivable hiding spot within some radius is provably clear.
 func _point_currently_observed(point: Vector2) -> bool:
 	if active_drone != null and active_drone.state == Unit.State.ACTIVE:
-		if active_drone.global_position.distance_to(point) <= GameConfig.DRONE_DETECTION_RANGE and GameConfig.has_aerial_los(active_drone.global_position, point):
+		if active_drone.global_position.distance_to(point) <= _drone_detection_range() and GameConfig.has_aerial_los(active_drone.global_position, point):
 			return true
 	for u in player_units:
 		if u.state != Unit.State.ACTIVE:
@@ -4737,6 +4861,17 @@ func _record_mortar_debug_history(m: Unit) -> void:
 ## ground-truth omniscience); if a future on-screen panel is ever built
 ## from this, THAT should stay player-mortars-only, matching _should_
 ## narrate_mortar_logistics's existing fog-of-war boundary.
+func weather_debug_snapshot() -> Dictionary:
+	if weather == null:
+		return {"weather": "none"}
+	var out: Dictionary = weather.debug_snapshot()
+	out["drones_grounded_for_weather"] = _drone_grounded_for_weather
+	out["drones_lost_to_weather"] = _drones_lost_to_weather
+	out["drones_aborted_by_weather"] = _drones_aborted_by_weather
+	out["drones_recalled_by_rain"] = _drones_recalled_by_rain
+	return out
+
+
 func mortar_decision_debug_snapshot() -> Dictionary:
 	var out: Dictionary = {}
 	for m in player_units + enemy_units:
@@ -4815,6 +4950,7 @@ func _process(delta: float) -> void:
 
 	var scenario_delta: float = delta * _current_time_scale()
 	scenario_elapsed_time += scenario_delta
+	_update_weather(scenario_delta)
 
 	# Cleared here, before anything (including _tick_fire, later this same
 	# tick) can populate it — see _mortar_tick_shot's own doc comment.
@@ -4929,6 +5065,8 @@ func _step_toward_target(unit: Unit, scenario_delta: float) -> void:
 	var to_target: Vector2 = unit.move_target - unit.position
 	var dist: float = to_target.length()
 	var step: float = unit.move_speed * scenario_delta
+	if unit.kind == Unit.Kind.DRONE and dist > 0.001:
+		step = _drone_ground_speed(unit.move_speed, to_target / dist) * scenario_delta
 	if step >= dist or dist <= Unit.MOVE_ARRIVE_RADIUS:
 		unit.position = unit.move_target
 		if not unit.move_queue.is_empty():
@@ -5461,7 +5599,12 @@ func _mortar_dispersion_offset(mortar: Unit, target: Unit, aim_point: Vector2) -
 	var effective_floor: float = min(floor_dist, base_cep) # a converged shot is never worse than a fresh unadjusted one
 	var cep: float = effective_floor + (base_cep - effective_floor) * pow(decay, shots_corrected_from)
 	var sigma: float = cep / 1.1774
-	return Vector2(randfn(0.0, sigma), randfn(0.0, sigma))
+	var wind_bias := Vector2.ZERO
+	if weather != null:
+		# What crews' wind corrections leave uncorrected, fading with the same
+		# observed-fire convergence that tightens the scatter above.
+		wind_bias = weather.mortar_wind_bias_px(GameConfig.MORTAR_FLIGHT_TIME) * pow(decay, shots_corrected_from)
+	return Vector2(randfn(0.0, sigma), randfn(0.0, sigma)) + wind_bias
 
 
 ## Resolves any mortar shots whose flight time has elapsed. A target that's
@@ -7975,6 +8118,13 @@ func _end_battle() -> void:
 	lines.append("=== AFTER-ACTION REPORT ===")
 	lines.append("Verdict: %s" % verdict)
 	lines.append("%s held: %s" % [GameConfig.CURRENT_MAP.name, "YES" if held else "NO"])
+	if weather != null:
+		var weather_line: String = "Weather: %s, %d °C" % [weather.wind_label().replace("Wind", "wind"), roundi(weather.temperature_c)]
+		if weather.is_precipitating():
+			weather_line += ", %s" % weather.precip_label().to_lower()
+		lines.append(weather_line)
+		if _drones_recalled_by_rain > 0 or _drones_lost_to_weather > 0 or _drones_aborted_by_weather > 0:
+			lines.append("Drones and weather: %d recalled by rain, %d lost, %d aborted" % [_drones_recalled_by_rain, _drones_lost_to_weather, _drones_aborted_by_weather])
 	var tactical_minutes: int = int(scenario_elapsed_time / 60.0)
 	lines.append("Time elapsed: %dh %02dm (0600 to %s)" % [tactical_minutes / 60, tactical_minutes % 60, clock_string().substr(0, 5)])
 	# Captured is included right in this line, not a separate conditional

@@ -33,6 +33,7 @@ var map_camera: Camera2D
 # node, and specifically AFTER map_container, so it draws on top of the
 # map instead of underneath it.
 var _map_hud_overlay: Node2D
+var _last_weather_signature: String = ""
 
 var deployment_screen: DeploymentScreen
 var doctrine_panel: DoctrinePanel
@@ -133,6 +134,9 @@ const MORTAR_DEBUG_SNAPSHOT_PATH: String = "res://debug_state/mortar_decision_sn
 # distant, unnecessary cover detour) that the other two snapshots had no
 # visibility into at all — this is the general-purpose one.
 const UNIT_DEBUG_SNAPSHOT_PATH: String = "res://debug_state/unit_snapshot.json"
+
+# Conditions, drone hazard and drone weather counters (BattleManager.weather_debug_snapshot).
+const WEATHER_DEBUG_SNAPSHOT_PATH: String = "res://debug_state/weather_snapshot.json"
 
 # Always present, in both the deployment and battle phases — not cleared by
 # _clear_all(). A real 5km map needs a frame of reference: this shows real
@@ -275,6 +279,11 @@ func _process(delta: float) -> void:
 
 	_clock_label.text = battle_manager.clock_string() if battle_manager else "%02d:00:00" % int(GameConfig.SCENARIO_START_HOUR)
 
+	var weather_signature: String = Weather.current.hud_signature() if Weather.current != null else ""
+	if weather_signature != _last_weather_signature:
+		_last_weather_signature = weather_signature
+		_map_hud_overlay.queue_redraw()
+
 	if scheduled_retreat_status_label and cancel_scheduled_retreat_button:
 		var has_schedule: bool = battle_manager != null and not is_inf(battle_manager.scheduled_retreat_time) and not battle_manager.player_general_retreat_ordered
 		scheduled_retreat_status_label.visible = has_schedule
@@ -297,6 +306,7 @@ func _process(delta: float) -> void:
 		_write_debug_snapshot(DRONE_DEBUG_SNAPSHOT_PATH, battle_manager.drone_pilot_debug_snapshot())
 		_write_debug_snapshot(MORTAR_DEBUG_SNAPSHOT_PATH, battle_manager.mortar_decision_debug_snapshot())
 		_write_debug_snapshot(UNIT_DEBUG_SNAPSHOT_PATH, battle_manager.general_unit_debug_snapshot())
+		_write_debug_snapshot(WEATHER_DEBUG_SNAPSHOT_PATH, battle_manager.weather_debug_snapshot())
 
 	# History playback: BattleHistoryViewer owns the actual time-advance
 	# logic (advance_playback); this just drives it every frame and keeps
@@ -432,6 +442,10 @@ func _on_recon_mode_chosen(mode: GameConfig.ReconMode) -> void:
 
 func _show_deployment() -> void:
 	_clear_all()
+	# A fresh March draw for this battle — shown on the map from the moment
+	# deployment starts, and used as-is by BattleManager.start_battle.
+	Weather.current = Weather.roll()
+	_map_hud_overlay.queue_redraw()
 
 	deployment_screen = DeploymentScreen.new()
 	deployment_screen.recon_mode = recon_mode
