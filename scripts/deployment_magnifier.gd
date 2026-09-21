@@ -1,8 +1,9 @@
 extends Control
 class_name DeploymentMagnifier
 ## A "loupe" overlay shown while dragging a deployment token: a fixed,
-## clipped screen-space window (top-left corner of the map, over the
-## sidebar-free left part of the screen) that redraws the real terrain
+## clipped screen-space window (top-right corner of the map, below the
+## clock and scale bar — moved from the top-left once the drone team could
+## deploy across the west rear area) that redraws the real terrain
 ## around the token's CURRENT position at real magnification, with the
 ## token itself drawn small and semi-transparent so the ground underneath
 ## stays legible — the token's own on-map circle (UnitToken.RADIUS = 16,

@@ -438,7 +438,11 @@ func _show_deployment() -> void:
 	map_viewport.add_child(deployment_screen)
 
 	deployment_magnifier = preload("res://scripts/deployment_magnifier.gd").new()
-	deployment_magnifier.position = Vector2(8, 46)
+	# Top RIGHT of the map, just below the clock and the scale bar
+	# (map_hud_overlay.gd draws that at y=34, label to ~y=58): the drone
+	# team can now deploy across the whole west rear area, so the old
+	# top-left spot sat right on top of where it needs to go.
+	deployment_magnifier.position = Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX - deployment_magnifier.WINDOW_SIZE.x - 8.0, 64.0)
 	deployment_magnifier.visible = false
 	add_child(deployment_magnifier)
 
