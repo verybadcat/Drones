@@ -659,6 +659,9 @@ var _drone_destination_last_visited: Dictionary = {}
 # drone looks next, fading out the same way a mortar fire-detection lead
 # does rather than vanishing the instant the unit itself drops out of LOS.
 var _recent_enemy_contacts: Dictionary = {}
+# Unit -> tactical seconds it has continuously been kept in view only by the
+# TREE_SIGHT_LOSS_GRACE_S allowance (see _refresh_visibility).
+var _tree_sight_lost_for: Dictionary = {}
 # Unit -> scenario time it last came into view and has been in view ever since
 # (see GameConfig.DRONE_CONTACT_WATCH_FADE_S).
 var _contact_watch_since: Dictionary = {}
@@ -748,6 +751,8 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_empty_sweep_evidence_stamp = -INF
 	_recent_enemy_contacts.clear()
 	_contact_watch_since.clear()
+	_tree_sight_lost_for.clear()
+	GameConfig.prepare_canopy() # pay the one-off raster build before the fight, not mid-tick
 	_heatmap_last_cleared.clear()
 	_history.clear()
 	_history_last_recorded_time = -INF
@@ -4770,7 +4775,14 @@ func general_unit_debug_snapshot() -> Dictionary:
 			"position": _pos_to_debug_dict(u.global_position),
 			"has_move_target": u.has_move_target,
 			"last_order_reason": u.last_order_reason,
+			"pips": u.pips,
+			"max_pips": u.max_pips,
 		}
+		var combat_row: Dictionary = unit_combat_stats.rows.get(u.get_instance_id(), {})
+		if not combat_row.is_empty():
+			entry["shots_fired"] = combat_row.shots
+			entry["hits_scored"] = combat_row.hits
+			entry["casualties_inflicted"] = combat_row.casualties
 		if u.has_move_target:
 			entry["move_target"] = _pos_to_debug_dict(u.move_target)
 		# A real, previously-reported gap this exact field was added to
@@ -4786,6 +4798,10 @@ func general_unit_debug_snapshot() -> Dictionary:
 			entry["player_has_been_sighted"] = u.player_has_been_sighted
 			if u.player_has_been_sighted:
 				entry["player_known_position"] = _pos_to_debug_dict(u.player_known_position)
+		else:
+			# For a friendly unit is_visible means the ENEMY currently sees
+			# it — what an enemy mortar needs before it can fire at it.
+			entry["visible_to_enemy"] = u.is_visible
 		out[u.display_name()] = entry
 	return out
 
@@ -5069,10 +5085,23 @@ func _refresh_visibility(observers: Array[Unit], targets: Array[Unit], scenario_
 		if target.state == Unit.State.DESTROYED or target.state == Unit.State.SURRENDERED:
 			continue
 		if target.is_visible:
-			if not CombatResolver.has_live_observer(target, observers):
-				target.is_visible = false
-				target.queue_redraw()
-				combat_log.log_lost_contact(target)
+			if CombatResolver.has_live_observer(target, observers):
+				_tree_sight_lost_for.erase(target)
+			else:
+				# Someone would still see it but for the woods in between:
+				# give that TREE_SIGHT_LOSS_GRACE_S of continuous failure
+				# first, so a squad slipping in and out of a tree line
+				# doesn't flash in and out of view. Any other reason to
+				# lose it (building, hill, range) drops it at once.
+				var lost_to_trees: bool = CombatResolver.has_live_observer(target, observers, true)
+				var failing_for: float = _tree_sight_lost_for.get(target, 0.0) + scenario_delta
+				if lost_to_trees and failing_for < GameConfig.TREE_SIGHT_LOSS_GRACE_S:
+					_tree_sight_lost_for[target] = failing_for
+				else:
+					_tree_sight_lost_for.erase(target)
+					target.is_visible = false
+					target.queue_redraw()
+					combat_log.log_lost_contact(target)
 			continue
 		for observer in observers:
 			if observer.state != Unit.State.ACTIVE:
@@ -7236,6 +7265,13 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# rather than a flat timer, and why it's player-only for now.
 		if unit.team == Unit.Team.PLAYER and mortar_candidates.is_empty() and not any_overrun:
 			var unknown_mortar_hold_chance: float = GameConfig.MORTAR_UNKNOWN_ENEMY_HOLD_FIRE_CHANCE * _mortar_existence_confidence()
+			# Ammo held back to stay quiet for a mortar that may not exist is
+			# ammo that never gets used if a scheduled retreat means there is no
+			# "later" — the same reasoning the pursuit hold and the ordinary
+			# conservation hold already apply, which this hold alone skipped.
+			# Direct user report from a live battle: "Conserving for a potential
+			# mortar shot is one thing. But here we have 26 rounds and 4 minutes."
+			unknown_mortar_hold_chance *= _scheduled_retreat_ammo_discount(unit)
 			var unknown_mortar_roll: float = 0.5 if profile_for(unit.team).deterministic else randf()
 			gate_evidence["unknown_enemy_mortar"] = {"hold_probability": unknown_mortar_hold_chance, "roll_or_cutoff": unknown_mortar_roll, "mortar_existence_confidence": _mortar_existence_confidence()}
 			if unknown_mortar_roll < unknown_mortar_hold_chance:

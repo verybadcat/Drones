@@ -1872,6 +1872,8 @@ static func _recompute_map_derived_state() -> void:
 	_contour_col_origin_m = 0.0
 	_terrain_grid_built = false
 	_hill_cache_built = false
+	_canopy_built = false
+	_tree_sight_cache.clear()
 
 
 ## Runs automatically the first time this script is loaded/referenced —
@@ -2418,12 +2420,30 @@ static func enemy_mortar_positions_m(n: int) -> Array[Vector2]:
 	var enemy: Dictionary = CURRENT_MAP.enemy
 	var out: Array[Vector2] = []
 	if n <= 1:
-		out.append(Vector2(enemy.mortar_rear_x_m, (enemy.mortar_spread_min_y_m + enemy.mortar_spread_max_y_m) / 2.0))
+		out.append(_out_of_buildings_m(Vector2(enemy.mortar_rear_x_m, (enemy.mortar_spread_min_y_m + enemy.mortar_spread_max_y_m) / 2.0)))
 		return out
 	var span: float = enemy.mortar_spread_max_y_m - enemy.mortar_spread_min_y_m
 	for i in n:
-		out.append(Vector2(enemy.mortar_rear_x_m, enemy.mortar_spread_min_y_m + i * span / float(n - 1)))
+		out.append(_out_of_buildings_m(Vector2(enemy.mortar_rear_x_m, enemy.mortar_spread_min_y_m + i * span / float(n - 1))))
 	return out
+
+
+## `pos_m` itself if it is clear of every building block, else the nearest
+## clear point straight north or south of it (20 m steps, out to 600 m). A
+## mortar can't fire from inside a building (no overhead clearance — see
+## BattleManager._tick_fire), and the evenly spaced rear positions above know
+## nothing about a map's buildings: a live battle spawned its only enemy
+## mortar in a building block on Svystunivka Heights, where it sat "holding"
+## with a target available and never fired a round.
+static func _out_of_buildings_m(pos_m: Vector2) -> Vector2:
+	if not is_building_at(pos_m * PIXELS_PER_METER):
+		return pos_m
+	for step in range(1, 31):
+		for dir in [1.0, -1.0]:
+			var candidate := Vector2(pos_m.x, clampf(pos_m.y + dir * 20.0 * step, 0.0, MAP_HEIGHT_M))
+			if not is_building_at(candidate * PIXELS_PER_METER):
+				return candidate
+	return pos_m
 
 # The tactical clock runs faster than the actual time you spend watching —
 # without this, a battle at real distances/speeds would take the better
@@ -5898,6 +5918,124 @@ static func has_aerial_los(from: Vector2, to: Vector2) -> bool:
 		if _line_crosses_rect(from, to, rect):
 			return false
 	return true
+
+
+## SEEING THROUGH TREES. Trees never block a sightline outright (has_direct_los
+## ignores them — a squad can still shoot at what it can see), but woods between
+## an observer and a target make the target much harder to notice: real
+## leaf-off deciduous woods (this game is set in late winter / early spring)
+## are porous, not opaque. Modelled as Beer-Lambert-style attenuation over the
+## metres of sightline that actually pass THROUGH canopy:
+## tree_sight_transmission = exp(-depth_m / TREE_SIGHT_ATTENUATION_LENGTH_M).
+## "Through canopy" respects elevation: a sample point counts only where the
+## sightline itself is lower than that ground's height plus TREE_CANOPY_HEIGHT_M,
+## so trees in a hollow between two hilltops never matter, and an observer on
+## high ground looking down at the far edge of a wood sees over its front rows.
+## The constants are judgment calls, not cited figures.
+##
+## Roll_spot multiplies its chance by this transmission (ground observers only:
+## a drone looks down, not through). Keeping an already-seen target is
+## deliberately much easier than first noticing it: it needs only
+## TREE_SIGHT_KEEP_TRANSMISSION (about 200 m of woods at the default length),
+## deterministic, and BattleManager adds TREE_SIGHT_LOSS_GRACE_S of continuous
+## failure before it actually drops — so nothing flickers in and out of view on
+## a random roll.
+const TREE_CANOPY_HEIGHT_M: float = 15.0
+const TREE_SIGHT_ATTENUATION_LENGTH_M: float = 80.0
+const TREE_SIGHT_KEEP_TRANSMISSION: float = 0.08
+const TREE_SIGHT_LOSS_GRACE_S: float = 15.0 # tactical seconds
+const _CANOPY_CELL_M: float = 10.0
+const _CANOPY_MAX_SAMPLES: int = 140
+## A cached pair's transmission is reused until either end has moved this far.
+const _TREE_SIGHT_CACHE_MOVE_TOLERANCE_PX: float = 10.0 * PIXELS_PER_METER
+const _TREE_SIGHT_CACHE_MAX_OBSERVERS: int = 500
+
+static var _canopy_built: bool = false
+static var _canopy_cols: int = 0
+static var _canopy_rows: int = 0
+static var _canopy_x0_m: float = 0.0
+static var _canopy_top: PackedFloat32Array = PackedFloat32Array() # cell -> ground elevation + canopy height, or -1000 with no trees
+static var _tree_sight_cache: Dictionary = {} # observer id -> {target id -> [from_px, to_px, transmission]}
+
+
+## Rasterizes CURRENT_MAP's forest patches once: 10 m cells, each holding the
+## height of the canopy top over it (or -1000 where there are no trees). Only
+## the cells under a patch's bounding box are tested, so building it costs a
+## fraction of scanning the whole map. Called lazily, and from BattleManager.
+## start_battle so the one-off cost lands before the fight, not mid-tick.
+static func prepare_canopy() -> void:
+	_canopy_built = true
+	_tree_sight_cache.clear()
+	_canopy_x0_m = -WEST_FLANK_WIDTH_M
+	_canopy_cols = int((MAP_WIDTH_M - _canopy_x0_m) / _CANOPY_CELL_M) + 1
+	_canopy_rows = int(MAP_HEIGHT_M / _CANOPY_CELL_M) + 1
+	_canopy_top.resize(_canopy_cols * _canopy_rows)
+	_canopy_top.fill(-1000.0)
+	for patch in CURRENT_MAP.forest_patches:
+		var reach_m: float = patch.radius_m * _forest_patch_max_warp(patch)
+		var c0: int = maxi(int(floor((patch.center_m.x - reach_m - _canopy_x0_m) / _CANOPY_CELL_M)), 0)
+		var c1: int = mini(int(floor((patch.center_m.x + reach_m - _canopy_x0_m) / _CANOPY_CELL_M)), _canopy_cols - 1)
+		var r0: int = maxi(int(floor((patch.center_m.y - reach_m) / _CANOPY_CELL_M)), 0)
+		var r1: int = mini(int(floor((patch.center_m.y + reach_m) / _CANOPY_CELL_M)), _canopy_rows - 1)
+		for r in range(r0, r1 + 1):
+			for c in range(c0, c1 + 1):
+				var idx: int = r * _canopy_cols + c
+				if _canopy_top[idx] > -999.0:
+					continue # another patch already covers this cell
+				var p_m := Vector2(_canopy_x0_m + (float(c) + 0.5) * _CANOPY_CELL_M, (float(r) + 0.5) * _CANOPY_CELL_M)
+				if _forest_patch_contains_offset_m(patch, p_m - patch.center_m):
+					_canopy_top[idx] = elevation_m(p_m * PIXELS_PER_METER) + TREE_CANOPY_HEIGHT_M
+
+
+## Metres of the sightline from `from` to `to` (pixels) that pass through
+## canopy — see the block comment above.
+static func tree_sight_depth_m(from: Vector2, to: Vector2) -> float:
+	if not _canopy_built:
+		prepare_canopy()
+	var from_m: Vector2 = from / PIXELS_PER_METER
+	var to_m: Vector2 = to / PIXELS_PER_METER
+	var dist_m: float = from_m.distance_to(to_m)
+	var n: int = clampi(int(dist_m / _CANOPY_CELL_M), 4, _CANOPY_MAX_SAMPLES)
+	var inv: float = 1.0 / float(n)
+	var from_eye: float = -1000.0
+	var to_eye: float = -1000.0
+	var inside := 0
+	var dx: float = to_m.x - from_m.x
+	var dy: float = to_m.y - from_m.y
+	for i in n:
+		var t: float = (float(i) + 0.5) * inv
+		var c: int = int((from_m.x + dx * t - _canopy_x0_m) / _CANOPY_CELL_M)
+		var r: int = int((from_m.y + dy * t) / _CANOPY_CELL_M)
+		if c < 0 or r < 0 or c >= _canopy_cols or r >= _canopy_rows:
+			continue
+		var top: float = _canopy_top[r * _canopy_cols + c]
+		if top < -999.0:
+			continue
+		if from_eye < -999.0: # endpoint elevations only once a tree cell is actually met
+			from_eye = elevation_m(from) + EYE_HEIGHT_M
+			to_eye = elevation_m(to) + EYE_HEIGHT_M
+		if from_eye + (to_eye - from_eye) * t < top:
+			inside += 1
+	return dist_m * float(inside) * inv
+
+
+## 1.0 (clear) down toward 0.0 (dense woods all the way) — see the block
+## comment above. `observer_id`/`target_id` key a small per-pair cache: a pair
+## whose ends haven't moved more than _TREE_SIGHT_CACHE_MOVE_TOLERANCE_PX
+## since it was last computed reuses that answer, so stationary units (most
+## of the defense) cost almost nothing per tick.
+static func tree_sight_transmission(observer_id: int, target_id: int, from: Vector2, to: Vector2) -> float:
+	var by_target: Dictionary = _tree_sight_cache.get(observer_id, {})
+	var entry: Array = by_target.get(target_id, [])
+	if not entry.is_empty() and entry[0].distance_to(from) <= _TREE_SIGHT_CACHE_MOVE_TOLERANCE_PX and entry[1].distance_to(to) <= _TREE_SIGHT_CACHE_MOVE_TOLERANCE_PX:
+		return entry[2]
+	var transmission: float = exp(-tree_sight_depth_m(from, to) / TREE_SIGHT_ATTENUATION_LENGTH_M)
+	if _tree_sight_cache.size() > _TREE_SIGHT_CACHE_MAX_OBSERVERS:
+		_tree_sight_cache.clear()
+		by_target = {}
+	by_target[target_id] = [from, to, transmission]
+	_tree_sight_cache[observer_id] = by_target
+	return transmission
 
 
 static func _line_crosses_rect(from: Vector2, to: Vector2, rect: Rect2) -> bool:

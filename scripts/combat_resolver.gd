@@ -145,17 +145,25 @@ static func roll_spot(observer: Unit, target: Unit, scenario_delta: float) -> bo
 	if target.kind == Unit.Kind.DRONE and not observer_is_drone:
 		return _roll_ground_notices_drone(observer, target, scenario_delta)
 
-	var has_los: bool = GameConfig.has_aerial_los(observer.global_position, target.global_position) if observer_is_drone \
-		else GameConfig.has_direct_los(observer.global_position, target.global_position)
-	if not has_los:
-		return false
-
+	# Range first: it is a single subtraction, while line of sight samples the
+	# terrain — checking it in this order returns the same answers, just far
+	# less often paying for a sightline that could never have counted.
 	var distance: float = observer.global_position.distance_to(target.global_position)
 	var detection_range: float = effective_detection_range(observer, target)
 	if distance > detection_range:
 		return false
 
+	var has_los: bool = GameConfig.has_aerial_los(observer.global_position, target.global_position) if observer_is_drone \
+		else GameConfig.has_direct_los(observer.global_position, target.global_position)
+	if not has_los:
+		return false
+
 	var chance: float = GameConfig.SPOT_CHANCE_PER_TACTICAL_SECOND
+	# Woods between a ground observer and its target make the target much
+	# harder to notice (see GameConfig.tree_sight_transmission). A drone looks
+	# down rather than through them, so it is exempt.
+	if not observer_is_drone:
+		chance *= GameConfig.tree_sight_transmission(observer.get_instance_id(), target.get_instance_id(), observer.global_position, target.global_position)
 	var concealment_table: Dictionary = GameConfig.DRONE_CONCEALMENT_MULTIPLIER if observer_is_drone else CONCEALMENT_MULTIPLIER
 	chance *= concealment_table[target.terrain_type()]
 	var target_hidden_spotter := target.kind == Unit.Kind.SPOTTER and GameConfig.is_in_cover(target.terrain_type())
@@ -229,7 +237,14 @@ static func _roll_ground_notices_drone(observer: Unit, target: Unit, scenario_de
 ## the exact same range rule as roll_spot (effective_detection_range) but
 ## with no concealment-based chance roll — this asks "could someone be
 ## watching it right now," not "did anyone just now notice it."
-static func has_live_observer(target: Unit, observers: Array[Unit]) -> bool:
+##
+## A ground observer's view also has to get through the woods between them
+## (GameConfig.tree_sight_transmission) — but only to TREE_SIGHT_KEEP_TRANSMISSION,
+## far easier than first noticing the target (see roll_spot). `ignore_trees`
+## drops that one test, so BattleManager can tell "lost only because of
+## woods" (which gets a grace period before the target really drops) apart
+## from "lost to a building, a hill or range" (which is immediate).
+static func has_live_observer(target: Unit, observers: Array[Unit], ignore_trees: bool = false) -> bool:
 	for observer in observers:
 		if observer.state != Unit.State.ACTIVE:
 			continue
@@ -238,8 +253,13 @@ static func has_live_observer(target: Unit, observers: Array[Unit]) -> bool:
 			continue
 		var has_los: bool = GameConfig.has_aerial_los(observer.global_position, target.global_position) if observer.kind == Unit.Kind.DRONE \
 			else GameConfig.has_direct_los(observer.global_position, target.global_position)
-		if has_los:
-			return true
+		if not has_los:
+			continue
+		if not ignore_trees and observer.kind != Unit.Kind.DRONE:
+			var transmission: float = GameConfig.tree_sight_transmission(observer.get_instance_id(), target.get_instance_id(), observer.global_position, target.global_position)
+			if transmission < GameConfig.TREE_SIGHT_KEEP_TRANSMISSION:
+				continue
+		return true
 	return false
 
 

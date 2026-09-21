@@ -130,6 +130,14 @@ func check_map(id: String) -> void:
 		check(y >= 0.0 and y <= m.height_m, tag + "an enemy squad spawn at road offset %.0f falls outside the map (y=%.0f)" % [off, y])
 	check(m.enemy.mortar_spread_min_y_m >= 0.0 and m.enemy.mortar_spread_max_y_m <= m.height_m,
 		tag + "enemy mortar spread must stay inside the map's height")
+	# An enemy mortar can never fire from inside a building (see BattleManager.
+	# _tick_fire) - the spawn positions for every possible mortar count must
+	# already be clear of them (a live Svystunivka battle spawned its single
+	# mortar in a building and it never fired a round).
+	for count in range(GameConfig.ENEMY_MORTAR_COUNT_MIN, GameConfig.ENEMY_MORTAR_COUNT_MAX + 1):
+		for pos_m in GameConfig.enemy_mortar_positions_m(count):
+			check(not GameConfig.is_building_at(pos_m * GameConfig.PIXELS_PER_METER), tag + "an enemy mortar spawn (count %d) at %s is inside a building block" % [count, pos_m])
+			check(pos_m.y >= 0.0 and pos_m.y <= m.height_m, tag + "an enemy mortar spawn (count %d) at %s fell outside the map" % [count, pos_m])
 
 	var player: Dictionary = m.player
 	for pos in player.default_squad_positions:
