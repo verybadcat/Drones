@@ -5573,6 +5573,9 @@ func _mortar_dispersion_offset(mortar: Unit, target: Unit, aim_point: Vector2) -
 	var adjustment: Dictionary = _mortar_fire_adjustment.get(mortar, {})
 	if adjustment.get("target") != target:
 		adjustment = {"target": target, "shots": 0}
+		if weather != null:
+			# The crew's wind correction for this whole fire mission (see Weather.crew_wind_estimate_px).
+			adjustment["wind_assumed"] = weather.crew_wind_estimate_px(GameConfig.MORTAR_FLIGHT_TIME)
 	var shots_corrected_from: int = adjustment.get("shots", 0)
 
 	var quality: String = _mortar_fire_observation_quality(mortar, target)
@@ -5601,9 +5604,12 @@ func _mortar_dispersion_offset(mortar: Unit, target: Unit, aim_point: Vector2) -
 	var sigma: float = cep / 1.1774
 	var wind_bias := Vector2.ZERO
 	if weather != null:
-		# What crews' wind corrections leave uncorrected, fading with the same
-		# observed-fire convergence that tightens the scatter above.
-		wind_bias = weather.mortar_wind_bias_px(GameConfig.MORTAR_FLIGHT_TIME) * pow(decay, shots_corrected_from)
+		# What the crew's correction leaves uncorrected — its estimate error, plus
+		# any change in the wind since it was made — fading with the same
+		# observed-fire convergence that tightens the scatter above (fastest under
+		# a drone, never under unobserved fire).
+		var drift_now: Vector2 = weather.mortar_wind_drift_px(GameConfig.MORTAR_FLIGHT_TIME)
+		wind_bias = (drift_now - adjustment.get("wind_assumed", drift_now)) * pow(decay, shots_corrected_from)
 	return Vector2(randfn(0.0, sigma), randfn(0.0, sigma)) + wind_bias
 
 

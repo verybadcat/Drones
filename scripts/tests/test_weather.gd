@@ -281,13 +281,135 @@ func test_failure_cause_names_the_biggest_contributor() -> void:
 
 # ----------------------------------------------------------------------- mortar
 
-func test_mortar_wind_bias() -> void:
+func test_crew_wind_correction_is_unbiased_sometimes_right_and_either_way() -> void:
+	var w := pinned(8.0 / pow(30.0, 0.14), 270.0) # 8 m/s aloft from the west: 80 m of raw drift, eastward
+	var drift_m: float = w.mortar_wind_drift_px(GameConfig.MORTAR_FLIGHT_TIME).x / GameConfig.PIXELS_PER_METER
+	check(absf(drift_m - 80.0) < 4.0, "8 m/s aloft carries a 40 s shell about 80 m uncorrected (got %.1f)" % drift_m)
+	var n := 8000
+	var along_sum := 0.0
+	var abs_sum := 0.0
+	var cross_abs := 0.0
+	var right := 0
+	var under := 0 # the shell still lands downwind of where it was aimed
+	var over := 0 # the crew over-corrected: it lands upwind
+	for i in n:
+		var residual: Vector2 = (w.mortar_wind_drift_px(GameConfig.MORTAR_FLIGHT_TIME) - w.crew_wind_estimate_px(GameConfig.MORTAR_FLIGHT_TIME)) / GameConfig.PIXELS_PER_METER
+		along_sum += residual.x
+		abs_sum += residual.length()
+		cross_abs += absf(residual.y)
+		if absf(residual.x) < 4.0: right += 1
+		if residual.x > 5.0: under += 1
+		if residual.x < -5.0: over += 1
+	check(absf(along_sum / n) < 2.0, "Crews must not have a systematic bias; under- and over-correction average out (mean %.2f m)" % (along_sum / n))
+	check(abs_sum / n > 9.0 and abs_sum / n < 19.0, "Average miss from the correction error at 8 m/s aloft is about 14 m (got %.1f)" % (abs_sum / n))
+	check(float(right) / n > 0.28, "A good share of corrections must turn out essentially right (got %.2f)" % (float(right) / n))
+	check(float(under) / n > 0.22 and float(over) / n > 0.22, "Both under- and over-correction must happen, about equally (under %.2f, over %.2f)" % [float(under) / n, float(over) / n])
+	check(cross_abs / n > 2.0, "Misjudging the direction adds a sideways error (got %.1f m)" % (cross_abs / n))
+	check(pinned(0.0).crew_wind_estimate_px(40.0).length() < 0.001, "No wind, nothing to correct")
+
+
+## The along-wind offset of a fresh fire mission's first round, in metres, over
+## many missions (each one draws its own crew error).
+func first_shot_offsets(bm, mortar: Unit, target: Unit, missions: int) -> Array[float]:
+	var out: Array[float] = []
+	for i in missions:
+		bm._mortar_fire_adjustment.erase(mortar)
+		out.append(bm._mortar_dispersion_offset(mortar, target, target.global_position).x / GameConfig.PIXELS_PER_METER)
+	return out
+
+func mean_of(a: Array[float]) -> float:
+	var s := 0.0
+	for v in a:
+		s += v
+	return s / a.size()
+
+func sd_of(a: Array[float]) -> float:
+	var mu: float = mean_of(a)
+	var s := 0.0
+	for v in a:
+		s += (v - mu) * (v - mu)
+	return sqrt(s / a.size())
+
+
+func test_mortar_rounds_scatter_wider_in_wind_but_do_not_drift_one_way() -> void:
+	Weather.current = pinned(8.0 / pow(30.0, 0.14), 270.0)
+	var bm = make_battle()
+	var mortar: Unit = unit(bm, Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2(m(0), m(1500)))
+	var target: Unit = unit(bm, Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(m(2000), m(1500)))
+	var windy: Array[float] = first_shot_offsets(bm, mortar, target, 1500)
+	Weather.current = pinned(0.0)
+	var calm: Array[float] = first_shot_offsets(bm, mortar, target, 1500)
+	check(absf(mean_of(windy)) < 3.5, "Averaged over missions, wind must not push rounds consistently downwind (mean %.1f m)" % mean_of(windy))
+	var added_variance: float = sd_of(windy) * sd_of(windy) - sd_of(calm) * sd_of(calm)
+	check(added_variance > 150.0 and added_variance < 700.0, "The crew's correction error (sd about 20 m at 8 m/s aloft) must add its variance to the scatter along the wind (added %.0f m^2; sd %.1f vs %.1f m calm)" % [added_variance, sd_of(windy), sd_of(calm)])
+
+
+func test_one_crew_error_persists_through_a_mission() -> void:
+	Weather.current = pinned(8.0 / pow(30.0, 0.14), 270.0)
+	var bm = make_battle()
+	var mortar: Unit = unit(bm, Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2(m(0), m(1500)))
+	var target: Unit = unit(bm, Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(m(2000), m(1500)))
+	var first: Array[float] = []
+	var second: Array[float] = []
+	for i in 1500:
+		bm._mortar_fire_adjustment.erase(mortar)
+		first.append(bm._mortar_dispersion_offset(mortar, target, target.global_position).x)
+		second.append(bm._mortar_dispersion_offset(mortar, target, target.global_position).x)
+	var shared: float = _correlation(first, second)
+	check(shared > 0.07 and shared < 0.3, "Unobserved shots in one mission share the crew's correction error, about 0.14 at this range (correlation %.2f)" % shared)
+
+
+## Spread of the fifth round of a mission, along the wind, in metres.
+func fifth_shot_sd(bm, mortar: Unit, target: Unit, missions: int) -> float:
+	var offsets: Array[float] = []
+	for i in missions:
+		bm._mortar_fire_adjustment.erase(mortar)
+		for shot in 4:
+			bm._mortar_dispersion_offset(mortar, target, target.global_position)
+		offsets.append(bm._mortar_dispersion_offset(mortar, target, target.global_position).x / GameConfig.PIXELS_PER_METER)
+	return sd_of(offsets)
+
+
+func test_observation_improves_the_correction_and_a_drone_most() -> void:
+	var windy := pinned(8.0 / pow(30.0, 0.14), 270.0)
+	var calm := pinned(0.0)
+	var bm = make_battle()
+	var mortar: Unit = unit(bm, Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2(m(0), m(1500)))
+	var target: Unit = unit(bm, Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(m(2000), m(1500)))
+	# The wind's own share of the scatter at the fifth shot = variance with wind
+	# minus variance without, so the ordinary convergence of the scatter itself
+	# cancels out and only the crew's correction error is left.
+	Weather.current = windy
+	var unobserved_windy: float = fifth_shot_sd(bm, mortar, target, 1200)
+	Weather.current = calm
+	var unobserved_calm: float = fifth_shot_sd(bm, mortar, target, 1200)
+	var unobserved_added: float = unobserved_windy * unobserved_windy - unobserved_calm * unobserved_calm
+	var drone: Unit = unit(bm, Unit.Team.PLAYER, Unit.Kind.DRONE, Vector2(m(1900), m(1500)))
+	check(bm._mortar_fire_observation_quality(mortar, target) == "drone", "Setup check: a drone overhead must count as drone observation")
+	Weather.current = windy
+	var drone_windy: float = fifth_shot_sd(bm, mortar, target, 1200)
+	Weather.current = calm
+	var drone_calm: float = fifth_shot_sd(bm, mortar, target, 1200)
+	var drone_added: float = drone_windy * drone_windy - drone_calm * drone_calm
+	check(unobserved_added > 150.0, "Setup check: without observation the crew's error persists to the fifth shot (added variance %.0f m^2)" % unobserved_added)
+	check(drone_added < unobserved_added * 0.25, "Under drone observation the correction must have converged by the fifth shot (added variance %.0f vs %.0f m^2 unobserved)" % [drone_added, unobserved_added])
+
+
+func test_a_wind_that_changes_mid_mission_leaves_the_crew_correcting_for_the_old_one() -> void:
 	var w := pinned(8.0 / pow(30.0, 0.14), 270.0)
-	var bias: Vector2 = w.mortar_wind_bias_px(GameConfig.MORTAR_FLIGHT_TIME)
-	var meters: float = bias.length() / GameConfig.PIXELS_PER_METER
-	check(absf(meters - 16.0) < 2.0, "An 8 m/s wind aloft leaves about 16 m of uncorrected drift (got %.1f)" % meters)
-	check(bias.x > 0.0 and absf(bias.y) < absf(bias.x) * 0.05, "A west wind pushes the shell east")
-	check(pinned(0.0).mortar_wind_bias_px(40.0).length() < 0.001, "No wind, no bias")
+	Weather.current = w
+	var bm = make_battle()
+	var mortar: Unit = unit(bm, Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2(m(0), m(1500)))
+	var target: Unit = unit(bm, Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(m(2000), m(1500)))
+	var after_change: Array[float] = []
+	for i in 1500:
+		w.wind_speed_10m = 8.0 / pow(30.0, 0.14)
+		bm._mortar_fire_adjustment.erase(mortar)
+		bm._mortar_dispersion_offset(mortar, target, target.global_position) # the crew settles on its correction at 8 m/s aloft
+		w.wind_speed_10m = 12.0 / pow(30.0, 0.14) # ...then the wind picks up to 12
+		bm._mortar_fire_adjustment[mortar].shots = 0 # keep the first-shot convergence for a clean comparison
+		after_change.append(bm._mortar_dispersion_offset(mortar, target, target.global_position).x / GameConfig.PIXELS_PER_METER)
+	check(absf(mean_of(after_change) - 40.0) < 5.0, "A wind up from 8 to 12 m/s aloft pushes rounds ~40 m further downwind than the crew allowed for (mean %.1f m)" % mean_of(after_change))
 
 
 # ------------------------------------------------------------------ battle level
@@ -465,26 +587,6 @@ func test_cold_drains_the_battery_faster() -> void:
 	check(absf(cold_time / warm_time - 0.85) < 0.001, "A full battery in -5 C is worth 85%% of the flight time (got %.3f)" % (cold_time / warm_time))
 
 
-func test_mortar_shells_drift_with_the_wind_and_it_fades_with_adjustment() -> void:
-	Weather.current = pinned(8.0 / pow(30.0, 0.14), 270.0)
-	var bm = make_battle()
-	var mortar: Unit = unit(bm, Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2(m(0), m(1500)))
-	var target: Unit = unit(bm, Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(m(2000), m(1500)))
-	var sum := Vector2.ZERO
-	var n := 600
-	for i in n:
-		bm._mortar_fire_adjustment.erase(mortar)
-		sum += bm._mortar_dispersion_offset(mortar, target, target.global_position)
-	var mean_offset_m: Vector2 = sum / n / GameConfig.PIXELS_PER_METER
-	check(mean_offset_m.x > 10.0 and mean_offset_m.x < 22.0, "Fresh, unadjusted rounds drift ~16 m downwind on average (got %.1f)" % mean_offset_m.x)
-	Weather.current = pinned(0.0)
-	var calm := Vector2.ZERO
-	for i in n:
-		bm._mortar_fire_adjustment.erase(mortar)
-		calm += bm._mortar_dispersion_offset(mortar, target, target.global_position)
-	check(absf((calm / n / GameConfig.PIXELS_PER_METER).x) < 6.0, "Without wind the average offset is centered")
-
-
 func test_start_battle_rolls_fresh_weather_each_time_and_keeps_a_deployment_roll() -> void:
 	Weather.current = null
 	var doctrine := {"squads": [], "mortar": {"position": Vector2(m(100), m(1500)), "shoot_and_scoot": false}, "spotter": {"position": Vector2(m(200), m(1500))}, "recon_mode": GameConfig.ReconMode.SPOTTER, "seed": 4242}
@@ -516,14 +618,17 @@ func run() -> void:
 	test_cold_shortens_flight_time()
 	test_failure_rates_are_the_agreed_table()
 	test_failure_cause_names_the_biggest_contributor()
-	test_mortar_wind_bias()
+	test_crew_wind_correction_is_unbiased_sometimes_right_and_either_way()
+	test_mortar_rounds_scatter_wider_in_wind_but_do_not_drift_one_way()
+	test_one_crew_error_persists_through_a_mission()
+	test_observation_improves_the_correction_and_a_drone_most()
+	test_a_wind_that_changes_mid_mission_leaves_the_crew_correcting_for_the_old_one()
 	test_moderate_rain_recalls_and_grounds_the_drones_until_it_eases()
 	test_light_rain_does_not_ground_and_drizzle_lowers_range()
 	test_weather_failures_lose_or_abort_and_the_books_balance()
 	test_hazard_actually_kills_drones_over_time()
 	test_wind_changes_ground_speed_and_the_trip_home()
 	test_cold_drains_the_battery_faster()
-	test_mortar_shells_drift_with_the_wind_and_it_fades_with_adjustment()
 	test_start_battle_rolls_fresh_weather_each_time_and_keeps_a_deployment_roll()
 	Weather.current = null
 	print("Weather tests: %d failures" % failures)

@@ -90,8 +90,17 @@ const DRONE_RESUME_AFTER_S: float = 300.0 # ...for this long
 # --- Other effects (JUDGMENT) ------------------------------------------------
 const GROUND_DETECTION_SCALE: Array[float] = [1.0, 0.9, 0.8, 0.6, 0.4] # by Intensity: none, light, light-moderate, moderate, heavy
 const MORTAR_WIND_COUPLING: float = 0.25 # rough shell drift as a fraction of wind x flight time
-const MORTAR_WIND_UNCORRECTED_SHARE: float = 0.2 # crews correct most of it (met data, observed adjustment)
 const MORTAR_WIND_ALTITUDE_M: float = 300.0
+## The crew estimates that drift and aims off to cancel it, and the estimate is
+## never exact: with MORTAR_CREW_CORRECT_CHANCE it is essentially right, else
+## it is off by a random fraction of the drift — under-corrected or over-
+## corrected with equal odds (so it averages out, unlike a fixed downwind bias).
+## The along-wind error is the main one; a smaller sideways error is a
+## misjudged wind direction. About 14 m of average miss at 8 m/s aloft.
+const MORTAR_CREW_CORRECT_CHANCE: float = 0.3
+const MORTAR_CREW_CORRECT_ERROR_SD: float = 0.05 # of the drift, when the estimate is essentially right
+const MORTAR_CREW_MISJUDGE_ERROR_SD: float = 0.30 # of the drift, when it is not
+const MORTAR_CREW_DIRECTION_ERROR_SD: float = 0.10 # of the drift, sideways, when it is not
 
 var wind_speed_10m: float = 4.0 # m/s
 var wind_from_deg: float = 90.0 # compass bearing the wind blows FROM (0 = north, clockwise)
@@ -355,13 +364,27 @@ func drone_hazard_cause(altitude_m: float) -> String:
 
 # --- Mortar ------------------------------------------------------------------------
 
-## The uncorrected share of wind drift on a round in flight for
-## `flight_time_s` seconds, in SCREEN PIXELS — an added bias on the impact
-## point (crews correct most of the wind, and BattleManager fades what is left
-## as fire is adjusted). Shells drift downwind.
-func mortar_wind_bias_px(flight_time_s: float) -> Vector2:
+## How far the wind would carry a round in flight for `flight_time_s` seconds,
+## in SCREEN PIXELS, if nobody corrected for it. Shells drift downwind.
+func mortar_wind_drift_px(flight_time_s: float) -> Vector2:
 	var wind_m: Vector2 = wind_velocity_mps(MORTAR_WIND_ALTITUDE_M, false)
-	return wind_m * flight_time_s * MORTAR_WIND_COUPLING * MORTAR_WIND_UNCORRECTED_SHARE * GameConfig.PIXELS_PER_METER
+	return wind_m * flight_time_s * MORTAR_WIND_COUPLING * GameConfig.PIXELS_PER_METER
+
+
+## The drift a crew THINKS it has to cancel at the start of a fire mission:
+## the true drift plus a random error (see MORTAR_CREW_* above) — right, under,
+## or over, with sideways error from misjudging the direction. Drawn from the
+## weather's own random stream. BattleManager keeps it for the whole mission,
+## so a wind that later changes leaves the crew correcting for the old one.
+func crew_wind_estimate_px(flight_time_s: float) -> Vector2:
+	var drift: Vector2 = mortar_wind_drift_px(flight_time_s)
+	if drift.length() < 0.001:
+		return drift
+	var right: bool = rng.randf() < MORTAR_CREW_CORRECT_CHANCE
+	var along_sd: float = MORTAR_CREW_CORRECT_ERROR_SD if right else MORTAR_CREW_MISJUDGE_ERROR_SD
+	var cross_sd: float = 0.0 if right else MORTAR_CREW_DIRECTION_ERROR_SD
+	var along: Vector2 = drift.normalized()
+	return drift * (1.0 + rng.randfn(0.0, along_sd)) + along.orthogonal() * drift.length() * rng.randfn(0.0, cross_sd)
 
 
 func debug_snapshot() -> Dictionary:
