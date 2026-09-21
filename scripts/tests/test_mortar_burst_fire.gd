@@ -219,6 +219,60 @@ func test_tick_fire_fires_more_than_one_shot_for_a_generous_burst() -> void:
 	bm.free()
 
 
+## Direct user question: "Enemy mortars should fire salvoes, just as
+## friendly mortars do. Do they?" They do — the burst logic sits in the
+## shared _tick_fire path — and this locks it in for the ENEMY side through
+## the real firing path, not just the scoring function.
+func test_enemy_mortars_fire_bursts_too() -> void:
+	var bm = make_battle()
+	var mortar: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, Vector2.ZERO)
+	mortar.mortar_rounds_remaining = GameConfig.MORTAR_STARTING_AMMO
+	mortar.fire_timer = 0.0
+	bm.enemy_units.append(mortar)
+	var target: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, Vector2(meters(500.0), 0))
+	bm.player_units.append(target)
+	bm._mortar_tick_shot[mortar] = {"resolved": true, "target": target}
+	var pending_before: int = bm._pending_mortar_shots.size()
+	var rounds_before: int = mortar.mortar_rounds_remaining
+	bm._tick_fire(mortar, 1.0, 60.0, bm.player_units)
+	var shots_fired: int = bm._pending_mortar_shots.size() - pending_before
+	check(shots_fired >= 2, "An enemy mortar with full ammo at close range must fire a multi-round burst, not a single shot (got %d)" % shots_fired)
+	check(rounds_before - mortar.mortar_rounds_remaining == shots_fired, "Ammo consumed must match the rounds launched")
+	bm.combat_log.free()
+	bm.free()
+
+
+## The player's scheduled retreat is the PLAYER's plan — an enemy mortar
+## must neither know about it nor change its behavior because of it. It
+## used to: _scheduled_retreat_ammo_discount never checked whose mortar was
+## asking, so an imminent player retreat made enemy mortars stop
+## conserving ammo (and, once bursts existed, fire bigger ones).
+func test_enemy_mortars_ignore_the_players_scheduled_retreat() -> void:
+	var bm = make_battle()
+	var player_mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2.ZERO)
+	var enemy_mortar: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, Vector2.ZERO)
+	player_mortar.mortar_rounds_remaining = 10
+	enemy_mortar.mortar_rounds_remaining = 10
+	bm.player_units.append(player_mortar)
+	bm.enemy_units.append(enemy_mortar)
+	bm.scheduled_retreat_time = bm.scenario_elapsed_time # the player's retreat is due right now
+	check(bm._scheduled_retreat_ammo_discount(player_mortar) < 0.01,
+		"Setup check: the player's own mortar must see its own imminent retreat (discount near 0)")
+	check(bm._scheduled_retreat_ammo_discount(enemy_mortar) == 1.0,
+		"An enemy mortar must read NO retreat discount — the scheduled retreat isn't its side's plan (got %.3f)" % bm._scheduled_retreat_ammo_discount(enemy_mortar))
+
+	# And through the burst count: same far range, low ammo, retreat imminent.
+	var enemy_target: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, Vector2(meters(5800.0), 0)) # far for the enemy's 6000m reach
+	enemy_mortar.mortar_rounds_remaining = 1
+	var with_schedule := _average_burst(bm, enemy_mortar, enemy_target, 300)
+	bm.scheduled_retreat_time = INF
+	var without_schedule := _average_burst(bm, enemy_mortar, enemy_target, 300)
+	check(is_equal_approx(with_schedule.avg, without_schedule.avg),
+		"The player's scheduled retreat must not change an enemy mortar's burst size (with %.2f, without %.2f)" % [with_schedule.avg, without_schedule.avg])
+	bm.combat_log.free()
+	bm.free()
+
+
 func run() -> void:
 	test_closer_range_favors_a_bigger_burst()
 	test_close_range_is_hard_capped_at_three()
@@ -227,6 +281,8 @@ func run() -> void:
 	test_burst_size_never_exceeds_the_global_maximum()
 	test_tick_fire_stops_early_when_ammo_runs_out_mid_burst()
 	test_tick_fire_fires_more_than_one_shot_for_a_generous_burst()
+	test_enemy_mortars_fire_bursts_too()
+	test_enemy_mortars_ignore_the_players_scheduled_retreat()
 	if failures == 0:
 		print("Mortar burst fire tests: 0 failures")
 	else:

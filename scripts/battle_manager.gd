@@ -1190,7 +1190,11 @@ func _scheduled_retreat_urgency() -> float:
 ## point (or with no scheduled retreat at all), reads as 1.0: no change
 ## to ordinary ammo-conservation behavior.
 func _scheduled_retreat_ammo_discount(mortar: Unit) -> float:
-	if is_inf(scheduled_retreat_time):
+	# scheduled_retreat_time is the PLAYER's plan (order_scheduled_retreat);
+	# the enemy has no such schedule, so an enemy mortar must not read it —
+	# it used to, which made enemy mortars stop conserving ammo (and, once
+	# bursts existed, fire bigger ones) as the player's own retreat neared.
+	if mortar.team != Unit.Team.PLAYER or is_inf(scheduled_retreat_time):
 		return 1.0
 	var time_remaining: float = max(scheduled_retreat_time - scenario_elapsed_time, 0.0)
 	var time_needed_to_expend: float = float(mortar.mortar_rounds_remaining) * mortar.reload_time
