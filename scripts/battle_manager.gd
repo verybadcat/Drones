@@ -659,6 +659,9 @@ var _drone_destination_last_visited: Dictionary = {}
 # drone looks next, fading out the same way a mortar fire-detection lead
 # does rather than vanishing the instant the unit itself drops out of LOS.
 var _recent_enemy_contacts: Dictionary = {}
+# Unit -> scenario time it last came into view and has been in view ever since
+# (see GameConfig.DRONE_CONTACT_WATCH_FADE_S).
+var _contact_watch_since: Dictionary = {}
 # Recorded live, in place, by _drone_search_target itself as it decides —
 # NOT a separate re-derivation of that decision, which would risk drifting
 # out of sync with the real logic. {"tier": String, "detail": String,
@@ -744,6 +747,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_empty_sweep_arrivals = 0
 	_empty_sweep_evidence_stamp = -INF
 	_recent_enemy_contacts.clear()
+	_contact_watch_since.clear()
 	_heatmap_last_cleared.clear()
 	_history.clear()
 	_history_last_recorded_time = -INF
@@ -2982,7 +2986,11 @@ func _update_recent_enemy_contacts() -> void:
 	for u in enemy_units:
 		if u.state == Unit.State.ACTIVE and u.is_visible:
 			_recent_enemy_contacts[u] = {"position": u.global_position, "time": scenario_elapsed_time}
-		elif u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE:
+			if not _contact_watch_since.has(u):
+				_contact_watch_since[u] = scenario_elapsed_time
+			continue
+		_contact_watch_since.erase(u)
+		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE:
 			var info: Dictionary = _last_detected_mortar_fire.get(u, {})
 			if not info.is_empty():
 				_recent_enemy_contacts[u] = info
@@ -3017,6 +3025,9 @@ func _contact_search_bonus(point: Vector2) -> float:
 		if dist >= GameConfig.DRONE_CONTACT_BONUS_RADIUS:
 			continue
 		var age_factor: float = 1.0 - age / GameConfig.DRONE_CONTACT_BONUS_EXPIRY
+		if _contact_watch_since.has(u):
+			var watched_s: float = scenario_elapsed_time - _contact_watch_since[u]
+			age_factor *= lerp(1.0, GameConfig.DRONE_CONTACT_WATCH_FLOOR, clamp(watched_s / GameConfig.DRONE_CONTACT_WATCH_FADE_S, 0.0, 1.0))
 		var dist_factor: float = 1.0 - dist / GameConfig.DRONE_CONTACT_BONUS_RADIUS
 		bonus = max(bonus, GameConfig.DRONE_CONTACT_BONUS_VALUE * age_factor * dist_factor)
 	return bonus
@@ -3304,6 +3315,7 @@ func _drone_search_target() -> Vector2:
 		# actually left to weigh the sweep against here is real, already-
 		# broken kills in progress (tier 4) — those should win.
 		routine_score *= GameConfig.SWEEP_DISCOUNT_DURING_ENEMY_RETREAT
+	var sweep_only_score: float = routine_score
 	if not flank_candidates.is_empty():
 		# Watching the mortar's blind side is a standing duty, independent
 		# of how confident anyone is that a second mortar exists — see this
@@ -3314,7 +3326,16 @@ func _drone_search_target() -> Vector2:
 		routine_score = max(routine_score, _flank_watch_standing_priority())
 	if routine_score > best_score or is_inf(best_pos.x):
 		var routine_pick: Dictionary = _drone_routine_recon_target(flank_candidates)
-		if not routine_pick.is_empty():
+		# The standing flank-watch priority is earned only by an actual flank
+		# check. When the pool's best pick is a far general-area sweep cell,
+		# the tier is worth only the speculative sweep's own score — else a
+		# known squad close to our mortar or forces (score up to 10) lost to
+		# a long flight across the map, the live-reported "flying to a faraway
+		# squad past close and dangerous ones".
+		var pick_score: float = routine_score
+		if not routine_pick.is_empty() and not routine_pick.key.begins_with("flank:"):
+			pick_score = sweep_only_score
+		if not routine_pick.is_empty() and (pick_score > best_score or is_inf(best_pos.x)):
 			best_pos = routine_pick.point
 			var kind: String = "an unwatched gap toward our mortar's flank" if routine_pick.key.begins_with("flank:") else "a general-area sweep cell"
 			_drone_pilot_reasoning = {"tier": "Routine background recon", "detail": "No urgent lead — checking %s (candidate value %.2f, mortar-existence confidence %.2f)." % [kind, routine_pick.value, _mortar_existence_confidence()], "target": best_pos}
@@ -3971,6 +3992,32 @@ func _drone_destination_arrival_radius(key: String) -> float:
 	return GameConfig.DRONE_FLANK_WATCH_ARRIVE_RADIUS if key.begins_with("flank:") else DRONE_SWEEP_WAYPOINT_RADIUS
 
 
+## Whether the destination the drone is still flying to has lost most of its
+## reason for being: its score (value x recency - distance cost, exactly
+## _pick_best_drone_destination's own) has fallen below
+## GameConfig.DRONE_COMMITMENT_ABANDON_FRACTION of the best alternative's.
+## Sticky-until-arrival exists to stop dithering between comparable options,
+## not to hold a drone to a target whose value collapsed after it set out —
+## live report: a sweep cell picked while an enemy mortar was still alive kept
+## pulling the drone across the map, past close dangerous squads, long after
+## that mortar was destroyed and the cell was worth almost nothing. The wide
+## margin (and the abandoned cell staying excluded from the next pick) keeps
+## an ordinary fluctuation in values from flipping the choice back and forth.
+func _drone_commitment_has_collapsed(current: Dictionary, candidates: Array) -> bool:
+	var alternative := _pick_best_drone_destination(candidates)
+	if alternative.is_empty():
+		return false
+	var alt_score: float = _drone_candidate_score(alternative)
+	if alt_score <= 0.0:
+		return false
+	return _drone_candidate_score(current) < GameConfig.DRONE_COMMITMENT_ABANDON_FRACTION * alt_score
+
+
+func _drone_candidate_score(c: Dictionary) -> float:
+	var distance_cost: float = active_drone.global_position.distance_to(c.point) * GameConfig.DRONE_DESTINATION_DISTANCE_COST_PER_PX
+	return c.value * _drone_destination_recency_multiplier(c.key) - distance_cost
+
+
 ## The genuine argmax over whatever routine-recon candidates are currently
 ## on offer — value discounted by recency, discounted further by distance
 ## (GameConfig.DRONE_DESTINATION_DISTANCE_COST_PER_PX), so a nearby, modest
@@ -4102,11 +4149,15 @@ func _drone_routine_recon_target(flank_candidates: Array) -> Dictionary:
 	if not current.is_empty():
 		var arrived: bool = active_drone.global_position.distance_to(current.point) <= _drone_destination_arrival_radius(current.key)
 		if not arrived:
-			return current # still en route — keep heading there
-		_drone_destination_last_visited[current.key] = scenario_elapsed_time
-		if current.key.begins_with("sweep:"):
-			_empty_sweep_arrivals = _effective_empty_sweeps() + 1
-			_empty_sweep_evidence_stamp = _latest_mortar_evidence_time()
+			if not _drone_commitment_has_collapsed(current, candidates):
+				return current # still en route — keep heading there
+			# Dropped mid-flight: not a visit, so no recency stamp and no
+			# empty-sweep count — the drone never looked there.
+		else:
+			_drone_destination_last_visited[current.key] = scenario_elapsed_time
+			if current.key.begins_with("sweep:"):
+				_empty_sweep_arrivals = _effective_empty_sweeps() + 1
+				_empty_sweep_evidence_stamp = _latest_mortar_evidence_time()
 
 	var pick := _pick_best_drone_destination(candidates)
 	if pick.is_empty():

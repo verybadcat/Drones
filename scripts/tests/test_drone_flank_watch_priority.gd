@@ -99,10 +99,16 @@ func test_drone_tracks_a_squad_when_the_mortar_is_not_threatened() -> void:
 
 
 ## The counterpart that must keep working: a known squad actually closing
-## on the mortar must still bring the drone back to the flank watch.
+## on the mortar must still bring the drone back to the flank watch. The
+## standing priority is earned by an actual flank check: when the routine
+## pool's best pick is instead a far sweep cell, the tier is scored as that
+## sweep and squad tracking wins (see test_drone_routine_recon_discipline) —
+## so here the sweep cells are marked just-visited to make a flank gap the pick.
 func test_drone_still_watches_the_flank_when_a_squad_is_near_the_mortar() -> void:
 	var bm = make_battle()
 	_setup(bm, Vector2(GameConfig.DRONE_FLANK_WATCH_FADE_START * 0.5, 0))
+	for c in bm._sweep_candidates():
+		bm._drone_destination_last_visited[c.key] = bm.scenario_elapsed_time
 	bm._drone_search_target()
 	check(bm._drone_pilot_reasoning.tier == "Routine background recon",
 		"A known squad near the mortar must keep the flank-watch duty above squad tracking (tier was: %s)" % bm._drone_pilot_reasoning.tier)

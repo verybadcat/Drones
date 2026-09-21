@@ -2823,6 +2823,23 @@ const DRONE_CONTACT_BONUS_RADIUS: float = 900.0 * PIXELS_PER_METER # a bit more 
 const DRONE_CONTACT_BONUS_EXPIRY: float = 600.0 # tactical seconds — matches DRONE_MORTAR_FIRE_LEAD_EXPIRY's own "how long is a lead still worth acting on" reasoning
 const DRONE_CONTACT_BONUS_VALUE: float = 0.5 # comparable to the sweep grid's own top row weight (0.6) and DRONE_FLANK_WATCH_BASE_VALUE — a real, recent contact is roughly as compelling as the single most likely area to check anyway, not an automatic trump card
 
+## A contact the drone (or anything else) has kept in view continuously is
+## no longer NEW information, so its pull on nearby search cells fades the
+## longer it has been watched without a break: full strength on first sight,
+## down to DRONE_CONTACT_WATCH_FLOOR of it after DRONE_CONTACT_WATCH_FADE_S
+## tactical seconds, restarting the moment sight is lost. Without this a
+## visible squad refreshed its own contact every tick, so the cells around it
+## stayed at full bonus for as long as the drone kept looking and the drone
+## hopped between them indefinitely (live report: "the previous drone hung
+## over the bottom right way too long"). Judgment calls, not cited figures.
+const DRONE_CONTACT_WATCH_FADE_S: float = 180.0
+const DRONE_CONTACT_WATCH_FLOOR: float = 0.3
+
+## A routine-recon destination the drone is still flying to is dropped
+## mid-flight only once its score falls below this fraction of the best
+## alternative's (see BattleManager._drone_commitment_has_collapsed).
+const DRONE_COMMITMENT_ABANDON_FRACTION: float = 0.25
+
 ## The enemy heat-map overlay's own "just confirmed clear" discount (see
 ## BattleManager._heatmap_recently_cleared_multiplier/estimated_enemy_
 ## likelihood) — a genuinely separate concept from DRONE_DESTINATION_
