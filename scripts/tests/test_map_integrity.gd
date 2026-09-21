@@ -45,6 +45,48 @@ func _slow_elevation(pos_px: Vector2) -> float:
 	return total
 
 
+## The original, exhaustive building checks (every zone, no bounding-box
+## reject) — what has_direct_los/has_aerial_los/path_crosses_building must
+## still agree with exactly.
+func _slow_path_crosses_building(from: Vector2, to: Vector2) -> bool:
+	for zone in GameConfig.CURRENT_MAP.terrain_zones:
+		if zone.type != GameConfig.TerrainType.BUILDING:
+			continue
+		if GameConfig._line_crosses_rect(from, to, zone.rect):
+			return true
+	return false
+
+
+func _slow_direct_los(from: Vector2, to: Vector2) -> bool:
+	for zone in GameConfig.CURRENT_MAP.terrain_zones:
+		if zone.type != GameConfig.TerrainType.BUILDING:
+			continue
+		if zone.rect.has_point(from) or zone.rect.has_point(to):
+			continue
+		if GameConfig._line_crosses_rect(from, to, zone.rect):
+			return false
+	if GameConfig.path_crosses_river(from, to):
+		return false
+	var from_eye: float = GameConfig.elevation_m(from) + GameConfig.EYE_HEIGHT_M
+	var to_eye: float = GameConfig.elevation_m(to) + GameConfig.EYE_HEIGHT_M
+	for i in range(1, GameConfig.LOS_SAMPLE_COUNT):
+		var t: float = float(i) / float(GameConfig.LOS_SAMPLE_COUNT)
+		if GameConfig.elevation_m(from.lerp(to, t)) > lerp(from_eye, to_eye, t) + GameConfig.LOS_TERRAIN_TOLERANCE_M:
+			return false
+	return true
+
+
+func _slow_aerial_los(from: Vector2, to: Vector2) -> bool:
+	for zone in GameConfig.CURRENT_MAP.terrain_zones:
+		if zone.type != GameConfig.TerrainType.BUILDING:
+			continue
+		if zone.rect.has_point(from) or zone.rect.has_point(to):
+			continue
+		if GameConfig._line_crosses_rect(from, to, zone.rect):
+			return false
+	return true
+
+
 func _in_map(p: Vector2) -> bool:
 	return p.x >= -GameConfig.WEST_FLANK_WIDTH_PX and p.x <= GameConfig.MAP_WIDTH_PX and p.y >= 0.0 and p.y <= GameConfig.MAP_HEIGHT_PX
 
@@ -115,6 +157,29 @@ func check_map(id: String) -> void:
 		for c in [zone.rect.position, zone.rect.end, zone.rect.get_center()]:
 			if GameConfig.get_terrain_type_at(c) != _slow_terrain(c):
 				terrain_mismatches += 1
+	# Line checks: random segments plus ones aimed straight at building
+	# blocks (where a crossing test can actually matter).
+	var line_mismatches := 0
+	var crossings_seen := 0
+	for i in 1500:
+		var a := Vector2(randf_range(-GameConfig.WEST_FLANK_WIDTH_PX, GameConfig.MAP_WIDTH_PX), randf_range(0.0, GameConfig.MAP_HEIGHT_PX))
+		var b: Vector2 = a + Vector2.from_angle(randf() * TAU) * randf_range(5.0, 700.0)
+		if i % 2 == 0 and not m.terrain_zones.is_empty():
+			var zone: Dictionary = m.terrain_zones[randi() % m.terrain_zones.size()]
+			var r: Rect2 = zone.rect
+			a = r.get_center() + Vector2.from_angle(randf() * TAU) * randf_range(0.0, 250.0)
+			b = r.get_center() + Vector2.from_angle(randf() * TAU) * randf_range(0.0, 250.0)
+		var slow_cross: bool = _slow_path_crosses_building(a, b)
+		crossings_seen += 1 if slow_cross else 0
+		if GameConfig.path_crosses_building(a, b) != slow_cross:
+			line_mismatches += 1
+		if GameConfig.has_direct_los(a, b) != _slow_direct_los(a, b):
+			line_mismatches += 1
+		if GameConfig.has_aerial_los(a, b) != _slow_aerial_los(a, b):
+			line_mismatches += 1
+	check(line_mismatches == 0, tag + "path_crosses_building/has_direct_los/has_aerial_los disagreed with the exhaustive check at %d points" % line_mismatches)
+	if not m.terrain_zones.is_empty():
+		check(crossings_seen > 20, tag + "setup check: the aimed segments must actually cross building blocks sometimes (only %d did)" % crossings_seen)
 	check(terrain_mismatches == 0, tag + "get_terrain_type_at's spatial grid disagreed with a full scan at %d points" % terrain_mismatches)
 	check(worst_elev < 0.001, tag + "elevation_m's cached tables differ from the exact formula by up to %.6f m" % worst_elev)
 
