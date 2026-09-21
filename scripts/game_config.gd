@@ -622,7 +622,7 @@ const MAPS: Dictionary = {
 ## misrepresent it. It does mean the attackers' crossing of that wet belt
 ## costs them nothing here, which real ground would.
 "svystunivka": {
-	"name": "Svystunivka",
+	"name": "Svystunivka Heights",
 	"location_subtitle": "Svatove Raion, Luhansk Oblast",
 	# The real coordinates the defence is centered on (the plateau rim, about
 	# 2km west of the village) — shown on the map's location readout.
