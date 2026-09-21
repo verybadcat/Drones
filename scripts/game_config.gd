@@ -3231,6 +3231,47 @@ const SWEEP_DISCOUNT_DURING_ENEMY_RETREAT: float = 0.2
 const MORTAR_CONFIDENCE_DECAY_TAU: float = 900.0 # tactical seconds (15 tactical minutes)
 const MORTAR_CONFIDENCE_FLOOR: float = 0.05
 
+## How the drone's search for a possible enemy mortar is weighed against
+## everything else it could be doing — see BattleManager._drone_mortar_
+## search_weight. Direct user direction, from a live battle where the drone
+## kept flying far-afield mortar sweeps while known dangerous squads were
+## nearby: "in real life one wouldn't know for certain a mortar
+## reinforcement is not coming. So it could be. But that has to be weighed
+## against the known dangerous enemy squads," and the repeated searches
+## coming up empty matter too. Gentle, sliding adjustments — none changes
+## anything early in a battle (no known squad danger, no empty sweeps yet),
+## all only ever shrink the weight:
+##
+## - DRONE_UNKNOWN_MORTAR_RESIDUAL_CONFIDENCE: with every KNOWN enemy
+##   mortar out of action, _mortar_existence_confidence returns a hard 0.0
+##   — which reads real ground truth (the crews actually withdrawn), a
+##   certainty no real recon element has: an unseen mortar or a
+##   reinforcement can't be ruled out. The drone's weighing now never drops
+##   below this small residual (deliberately below a squad even modestly
+##   close to a friendly unit — TARGET_PRIORITY_SQUAD_MAX x 0.2 = 2 — so it
+##   can never outrank tracking a squad that is actually near anyone).
+##   _mortar_existence_confidence itself is untouched: the friendly
+##   mortar's own hold-fire logic reads it too.
+## - DRONE_MORTAR_SEARCH_DANGER_DISCOUNT: at full known-squad danger
+##   pressure the mortar-search weight drops by this fraction (0.8 -> to a
+##   fifth); proportionally less at lower pressure.
+## - DRONE_EMPTY_SWEEP_CONFIDENCE_FACTOR: each sweep cell the drone has
+##   reached without any new mortar evidence (a fire detection or a
+##   sighting) multiplies the confidence by this — 10 empty cells is about
+##   half. Resets the moment fresh evidence appears.
+## - DRONE_REAR_ASSET_THREAT_WEIGHT: a known squad near the friendly
+##   MORTAR or DRONE TEAM (unarmed, exposed, and what the drone flies
+##   from) counts extra — direct user direction: a briefly seen squad in
+##   the rear "should be a major concern for the drone team as it threatens
+##   both the mortar and the drone team." Danger to them is judged on the
+##   same MORTAR_FLANK_THREAT_RADIUS that already defines a real flanking
+##   threat, scaled by this weight (capped at 1.0), so a squad within
+##   about a third of that radius is already full pressure.
+const DRONE_UNKNOWN_MORTAR_RESIDUAL_CONFIDENCE: float = 0.02
+const DRONE_MORTAR_SEARCH_DANGER_DISCOUNT: float = 0.8
+const DRONE_EMPTY_SWEEP_CONFIDENCE_FACTOR: float = 0.93
+const DRONE_REAR_ASSET_THREAT_WEIGHT: float = 1.5
+
 ## The player's own mortar's reluctance to open up on a mere squad target
 ## before ANY enemy mortar has actually been found — a real, previously-
 ## reported failure mode: firing reveals this position, and if an enemy

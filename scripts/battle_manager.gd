@@ -638,6 +638,11 @@ var _drones_destroyed: int = 0 # airframes permanently lost (shot down, battery 
 # unified routine-recon pool — see _drone_routine_recon_target. Empty
 # string means no commitment yet (battle start).
 var _drone_current_destination_key: String = ""
+# How many sweep cells the drone has reached since the last new mortar
+# evidence, and the newest evidence time already accounted for — see
+# _drone_mortar_search_weight/_effective_empty_sweeps.
+var _empty_sweep_arrivals: int = 0
+var _empty_sweep_evidence_stamp: float = -INF
 # Candidate key -> scenario_elapsed_time it was last actually arrived at
 # (not just picked) — see _drone_routine_recon_target/_drone_destination_
 # recency_multiplier. A candidate the drone was just at and saw nothing in
@@ -736,6 +741,8 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drones_destroyed = 0
 	_drone_destination_last_visited.clear()
 	_drone_current_destination_key = ""
+	_empty_sweep_arrivals = 0
+	_empty_sweep_evidence_stamp = -INF
 	_recent_enemy_contacts.clear()
 	_heatmap_last_cleared.clear()
 	_history.clear()
@@ -3281,7 +3288,7 @@ func _drone_search_target() -> Vector2:
 
 	var flank_candidates: Array = _flank_watch_candidates()
 
-	var routine_score: float = GameConfig.TARGET_PRIORITY_UNDISCOVERED_MORTAR_SWEEP * _mortar_existence_confidence()
+	var routine_score: float = GameConfig.TARGET_PRIORITY_UNDISCOVERED_MORTAR_SWEEP * _drone_mortar_search_weight()
 	if enemy_general_retreat_ordered:
 		# The enemy commander has already called off the attack — the whole
 		# reason to blindly sweep wide (a fresh SQUAD might be arriving) is
@@ -3916,13 +3923,16 @@ func _sweep_candidates() -> Array:
 	var row_count: int = GameConfig.DRONE_SEARCH_GRID_ROWS_M.size()
 	var columns_per_row: int = GameConfig.DRONE_SEARCH_GRID_COLUMNS_M.size()
 	var waypoints: Array[Vector2] = GameConfig.drone_search_waypoints_px()
+	# The mortar-hunt half of each cell's value shrinks with the same weighing
+	# as the tier-level sweep score (see _drone_mortar_search_weight).
+	var mortar_hunt_scale: float = _drone_mortar_search_weight()
 	var out: Array = []
 	for row_i in row_count:
 		for col_i in columns_per_row:
 			var idx: int = row_i * columns_per_row + col_i
 			var point: Vector2 = waypoints[idx]
 			var approach: float = _enemy_approach_likelihood(point)
-			var value: float = (GameConfig.DRONE_SWEEP_ROW_WEIGHTS[row_i] + GameConfig.DRONE_MORTAR_HUNT_ROW_WEIGHTS[row_i]) * approach
+			var value: float = (GameConfig.DRONE_SWEEP_ROW_WEIGHTS[row_i] + GameConfig.DRONE_MORTAR_HUNT_ROW_WEIGHTS[row_i] * mortar_hunt_scale) * approach
 			if _area_confirmed_clear(point) or _point_currently_observed(point):
 				value *= GameConfig.DRONE_SWEEP_CLEARED_WEIGHT_MULTIPLIER
 			value += _contact_search_bonus(point)
@@ -3988,6 +3998,75 @@ func _pick_best_drone_destination(candidates: Array) -> Dictionary:
 	return best
 
 
+## The newest moment the friendly side got any real evidence an enemy
+## mortar exists: a muzzle-flash/trajectory fire detection, or actually
+## sighting one (Unit.player_known_position_time). -INF if none ever.
+func _latest_mortar_evidence_time() -> float:
+	var latest := -INF
+	for info in _last_detected_mortar_fire.values():
+		latest = max(latest, info.time)
+	for u in enemy_units:
+		if u.kind == Unit.Kind.MORTAR and u.player_has_been_sighted:
+			latest = max(latest, u.player_known_position_time)
+	return latest
+
+
+## Empty sweep visits since the last new mortar evidence — zero the moment
+## fresh evidence appears, even before the next arrival is counted.
+func _effective_empty_sweeps() -> int:
+	return 0 if _latest_mortar_evidence_time() > _empty_sweep_evidence_stamp else _empty_sweep_arrivals
+
+
+## 0.0 to 1.0 — how much the friendly side's KNOWN enemy squads currently
+## threaten it, for weighing speculative mortar searching against them (see
+## _drone_mortar_search_weight). The worse of two measures per squad: how
+## close it is to ANY active friendly unit (the same scale as
+## _squad_danger_priority), and how close it is to the friendly MORTAR or
+## DRONE TEAM, weighted up by GameConfig.DRONE_REAR_ASSET_THREAT_WEIGHT —
+## unarmed or exposed rear assets are exactly what a squad slipping around
+## the flank goes after. A squad we can't currently see still counts, at its
+## LAST-KNOWN position, fading linearly to nothing over GameConfig.DRONE_
+## CONTACT_BONUS_EXPIRY (the same window a contact stays worth searching
+## around): the player knows it's out there, just not where it is now.
+func _known_squad_danger_pressure() -> float:
+	var rear_assets: Array[Unit] = []
+	for u in player_units:
+		if u.state == Unit.State.ACTIVE and (u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM):
+			rear_assets.append(u)
+	var pressure := 0.0
+	for e in enemy_units:
+		if e.kind != Unit.Kind.SQUAD or e.state != Unit.State.ACTIVE or not e.player_has_been_sighted:
+			continue
+		var pos: Vector2 = e.global_position
+		var fade := 1.0
+		if not e.is_visible:
+			pos = e.player_known_position
+			fade = clamp(1.0 - (scenario_elapsed_time - e.player_known_position_time) / GameConfig.DRONE_CONTACT_BONUS_EXPIRY, 0.0, 1.0)
+			if fade <= 0.0:
+				continue
+		var threat: float = clamp(1.0 - _nearest_active_friendly_distance(pos) / GameConfig.SQUAD_DANGER_RANGE, 0.0, 1.0)
+		for asset in rear_assets:
+			threat = max(threat, clamp(GameConfig.DRONE_REAR_ASSET_THREAT_WEIGHT * (1.0 - pos.distance_to(asset.global_position) / GameConfig.MORTAR_FLANK_THREAT_RADIUS), 0.0, 1.0))
+		pressure = max(pressure, threat * fade)
+	return pressure
+
+
+## How much the drone's speculative search for an enemy mortar should count
+## right now, 0.0 to 1.0: the estimated odds one is still out there
+## (_mortar_existence_confidence, never treated as a certain zero — see
+## GameConfig.DRONE_UNKNOWN_MORTAR_RESIDUAL_CONFIDENCE), worn down by every
+## sweep cell already checked without finding anything new
+## (DRONE_EMPTY_SWEEP_CONFIDENCE_FACTOR), and discounted by how dangerous
+## the known enemy squads currently are (_known_squad_danger_pressure).
+## Exactly the existing confidence, unchanged, early in a battle with no
+## known squad danger and no empty sweeps yet.
+func _drone_mortar_search_weight() -> float:
+	var residual: float = GameConfig.DRONE_UNKNOWN_MORTAR_RESIDUAL_CONFIDENCE
+	var confidence: float = max(_mortar_existence_confidence(), residual)
+	confidence = max(confidence * pow(GameConfig.DRONE_EMPTY_SWEEP_CONFIDENCE_FACTOR, _effective_empty_sweeps()), residual)
+	return confidence * (1.0 - GameConfig.DRONE_MORTAR_SEARCH_DANGER_DISCOUNT * _known_squad_danger_pressure())
+
+
 ## Where the drone flies for ROUTINE background recon — the merged sweep
 ## grid + flank-watch candidate pool, unified because both are really the
 ## same underlying activity (idle patrol with no specific live lead to
@@ -4021,6 +4100,9 @@ func _drone_routine_recon_target(flank_candidates: Array) -> Dictionary:
 		if not arrived:
 			return current # still en route — keep heading there
 		_drone_destination_last_visited[current.key] = scenario_elapsed_time
+		if current.key.begins_with("sweep:"):
+			_empty_sweep_arrivals = _effective_empty_sweeps() + 1
+			_empty_sweep_evidence_stamp = _latest_mortar_evidence_time()
 
 	var pick := _pick_best_drone_destination(candidates)
 	if pick.is_empty():
