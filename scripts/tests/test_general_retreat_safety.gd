@@ -122,41 +122,91 @@ func test_currently_visible_seeks_cover() -> void:
 ## A known enemy within actual direct-fire/overrun range AND with real
 ## line of sight is a real, immediate threat even without a formal
 ## "spotted" roll landing yet — must still seek cover, PROVIDED a real,
-## LOS-breaking cover point actually exists to seek. Uses `is_visible`
-## as the trigger (rather than the close-range+LOS path — engineering a
-## position where a threat is BOTH within SQUAD_ENGAGEMENT_RANGE and has
-## a real hidden point behind the same nearby building proved far more
-## fragile against actual map geometry) — verified directly that a real,
-## genuinely hidden point exists ~15-20 units away here, reliably across
-## many seeds (nearest_cover_point's own weighted-random pick among its
-## top candidates), since a real building sits just south of this squad.
+## LOS-breaking cover point actually exists to seek.
+##
+## Both of the position-sensitive tests below used to hardcode pixel
+## coordinates against whichever map happened to be CURRENT_MAP (the
+## default, Pishchane) — fragile by construction: rebuilding that map from
+## real data (denser real tree cover, a relocated building layout) silently
+## broke both, since "a real building sits just south of this squad" and "no
+## real cover anywhere nearby" were never actually guaranteed by anything,
+## just true by coincidence of the old hand-authored layout. Both now
+## install their own tiny synthetic map with the ONE property each test
+## actually needs guaranteed, so they hold regardless of what any real map
+## looks like. Restores CURRENT_MAP afterward either way.
+##
+## A plain nearby BUILDING turned out to be a poor choice for the positive
+## case: has_direct_los deliberately never lets a zone's own rect block a
+## point INSIDE that same rect ("firing from/into this building doesn't
+## block itself" — a real, separate rule from the cover/concealment bonus a
+## defender gets for actually standing inside one), so a single isolated
+## building can never itself be the thing that hides a point inside it from
+## an outside threat — confirmed directly: no squad/threat pair anywhere
+## around an isolated 40x40 building ever produced a genuinely hidden
+## candidate. A HILL has no such exemption (elevation masking is a plain,
+## continuous comparison along the whole sightline), so this uses one hill
+## between the squad and the threat, tall enough to mask a straight
+## 1000m line by a comfortable ~15m margin (verified directly), with a
+## small forest patch at the squad's own position for nearest_cover_point
+## to actually have a zone to return there.
+func _with_synthetic_map(overrides: Dictionary, body: Callable) -> void:
+	var saved_id := ""
+	for id in GameConfig.MAPS:
+		if GameConfig.CURRENT_MAP == GameConfig.MAPS[id]:
+			saved_id = id
+	var synthetic: Dictionary = GameConfig.MAPS["pervomaiske"].duplicate(true)
+	synthetic.merge(overrides, true)
+	GameConfig.CURRENT_MAP = synthetic
+	GameConfig._recompute_map_derived_state()
+	body.call()
+	if saved_id != "":
+		GameConfig.set_active_map(saved_id)
+
+
 func test_spotted_squad_with_real_nearby_cover_uses_it() -> void:
-	var bm = make_battle()
-	var squad: Unit = _make_retreating_squad(bm, Vector2(290, 250))
-	squad.is_visible = true
-	var known: Array[Vector2] = [Vector2(290, 50)] # far enough that is_visible, not close-range LOS, is what's actually triggering this
-	squad.order_retreat(known, [])
-	check(squad.has_move_target,
-		"A currently-visible unit must still seek cover when real, LOS-breaking cover actually exists nearby")
-	check(not GameConfig.has_direct_los(known[0], squad.move_target),
-		"The cover point actually chosen must genuinely break LOS from the known threat, not just exist")
+	# Squad on OPEN ground (meters (500,700)) in a hill's own shadow from a
+	# threat on the hill's far side (meters (500,1500), 800m south) — the
+	# hill sits at (500,1000), tall enough to mask this line by a
+	# comfortable margin (verified directly) — with a small forest patch
+	# further back (meters (500,500)) for nearest_cover_point to actually
+	# find and return: LOS is already blocked at the squad's own start
+	# position, and stays blocked for every point the patch-interior random
+	# pick lands at.
+	_with_synthetic_map({
+		"hills": [{"center_m": Vector2(500.0, 1000.0), "radius_m": 400.0, "height_m": 30.0, "warp_harmonics": []}],
+		"forest_patches": [{"center_m": Vector2(500.0, 500.0), "radius_m": 60.0, "warp_harmonics": []}],
+		"terrain_zones": [],
+	}, func():
+		var bm = make_battle()
+		var squad: Unit = _make_retreating_squad(bm, Vector2(100, 140)) # meters (500,700) -- open ground, hill-masked
+		squad.is_visible = true
+		var known: Array[Vector2] = [Vector2(100, 300)] # meters (500,1500) -- on the far side of the hill
+		squad.order_retreat(known, [])
+		check(squad.has_move_target,
+			"A currently-visible unit must still seek cover when real, LOS-breaking cover actually exists nearby")
+		check(not GameConfig.has_direct_los(known[0], squad.move_target),
+			"The cover point actually chosen must genuinely break LOS from the known threat, not just exist")
+	)
 
 
 ## Direct, live-caught correction: a close, LOS-having threat with NO
-## real cover anywhere nearby (open ground, confirmed directly: the
-## search's own best candidate here lands over 500 units away and STILL
-## doesn't break LOS from this threat) must not send the unit on a
-## pointless detour anyway — skip straight to the ordinary retreat.
+## real cover anywhere nearby must not send the unit on a pointless detour
+## anyway — skip straight to the ordinary retreat. A synthetic, completely
+## featureless map (no hills, no buildings, no trees) guarantees this by
+## construction: has_direct_los is true everywhere on it, so nothing
+## nearest_cover_point could ever return can genuinely hide the squad.
 func test_close_enemy_with_no_real_cover_nearby_skips_the_detour() -> void:
-	var bm = make_battle()
-	var squad: Unit = _make_retreating_squad(bm, Vector2(0, 0))
-	squad.is_visible = false
-	var known: Array[Vector2] = [Vector2(GameConfig.SQUAD_ENGAGEMENT_RANGE * 0.5, 0)] # close, open ground -- real LOS, no real cover anywhere nearby
-	check(GameConfig.has_direct_los(known[0], squad.global_position),
-		"Setup check: the threat must actually have LOS to the squad's starting position for this test to mean anything")
-	squad.order_retreat(known, [])
-	check(not squad.has_move_target,
-		"With no genuine LOS-breaking cover anywhere nearby, the unit must skip the pointless detour entirely and rely on the straight retreat instead of walking toward a 'cover' point that doesn't actually help")
+	_with_synthetic_map({"hills": [], "forest_patches": [], "terrain_zones": []}, func():
+		var bm = make_battle()
+		var squad: Unit = _make_retreating_squad(bm, Vector2(0, 0))
+		squad.is_visible = false
+		var known: Array[Vector2] = [Vector2(GameConfig.SQUAD_ENGAGEMENT_RANGE * 0.5, 0)] # close -- real LOS, and a featureless map has no real cover anywhere
+		check(GameConfig.has_direct_los(known[0], squad.global_position),
+			"Setup check: the threat must actually have LOS to the squad's starting position for this test to mean anything")
+		squad.order_retreat(known, [])
+		check(not squad.has_move_target,
+			"With no genuine LOS-breaking cover anywhere nearby, the unit must skip the pointless detour entirely and rely on the straight retreat instead of walking toward a 'cover' point that doesn't actually help")
+	)
 
 
 ## A second, independent live-observed failure found in the same

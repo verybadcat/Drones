@@ -52,254 +52,1164 @@ enum ReconMode { SPOTTER, DRONE_TEAM }
 const DEFAULT_MAP_ID: String = "pishchane"
 
 ## This map depicts Pervomaiske, a small hamlet in Kupiansk Raion, Kharkiv
-## Oblast — a handful of buildings at a rural crossroads along the road
-## between the larger village of Myrne (to the west, in the defender's own
-## rear — NOT what's being defended here) and the wider Kupiansk axis to
-## the east. The area has been fought over repeatedly since the 2022
-## Kharkiv counteroffensive, unlike Moshchun's single dated battle, so no
-## specific date is claimed here — just the real place and its real
-## orientation. Modeled from a real satellite/map screenshot: a paved road
-## running roughly east-west with tree lines on both sides, a drainage
-## canal running parallel to it (not perpendicular, unlike Moshchun's
-## river — it doesn't block the attacker's own line of advance, only a
-## flanking move to the north), and open farmland on both sides rather
-## than forest — this map is deliberately much sparser on trees than
-## Moshchun's Pushcha-Vodytsia-influenced one. No detailed topographic
-## data for this exact spot was found beyond the wider raion's own
-## regional elevation range (roughly 80-170m) — hills below are a modest,
-## gently-rolling approximation from that and the visibly flat-to-gently-
-## undulating farmland in the source imagery, not a survey.
+## Oblast, at a rural crossroads on the H-26 highway. The area has been
+## fought over repeatedly since the 2022 Kharkiv counteroffensive, unlike
+## Moshchun's single dated battle, so no specific date is claimed here —
+## just the real place and its real orientation.
 ##
-## The screenshot fixed the defended position, the attack's axis (due
-## east along the main road), and one specific real detail — the canal
-## running parallel to the road rather than perpendicular to it — but was
-## never meant to fix the map's own overall scale: it picked a REGION, not
-## a bounding box for the whole battle. So this map uses the same 5000m x
-## 3500m core (1500m west flank) every prior map here has used, rather
-## than a smaller footprint sized to just what the screenshot itself
-## showed — the extra ground beyond the screenshot's own frame is authored
-## as more of the same open, gently-rolling Kupiansk Raion farmland the
-## sourced imagery already established, not a new kind of terrain, and the
-## hamlet itself sits at the same 30%-across/50%-down position within the
-## frame that it always has.
+## REBUILT from real data (2026-09), the same pipeline as Svystunivka
+## Heights: this entry used to be modeled from a single satellite/map
+## screenshot centered on 49.657741, 37.270141, which showed only a
+## handful of buildings — the map's own doc comment already named the
+## larger real village of "Myrne (to the west, in the defender's own
+## rear)" as the settlement actually worth defending, but the terrain was
+## never built from Myrne's real footprint. It now is: the anchor moved
+## about 1.45km to Myrne's own building-cluster centroid
+## (49.666645, 37.255434) — a real, compact linear village strung along the
+## H-26 — and every layer is now built from real data over that ground:
+## SRTM 30m elevation (OpenTopoData, 16 hills fit to it, ~3.2m RMS overall,
+## ~1.7m near the village); BUILDINGS from OpenStreetMap (ODbL, © OpenStreetMap
+## contributors, 21 blocks aggregated from real footprints); the ROAD is the
+## real H-26/village-street route (Dijkstra over OSM highways from the map's
+## east edge to the village, not an invented "due east" line); TREE COVER
+## from an automatic colour+texture classification of satellite imagery
+## (240 patches — real cover here runs noticeably denser than the original
+## screenshot-based version suggested, about 12-13% of the frame). The
+## original entry's "drainage canal parallel to the road" was inferred from
+## the screenshot; real OSM water data shows nothing running near the real
+## route, so CURRENT_MAP no longer carries a "river" key for this map — the
+## same honest omission Pishchane's pond and Svystunivka's stream already use.
 ##
-## The real attack direction here is simply due EAST — no rotation needed
-## at all (screen-right already means real east, matching every other
-## piece of this game's own east-attacker/west-defender convention), so
-## unlike Moshchun's compass, true north on this map points straight up.
+## The real attack direction is EAST along the H-26 — no rotation needed
+## (screen-right already means real east, matching this game's standing
+## east-attacker/west-defender convention).
 const MAPS: Dictionary = {
 "pervomaiske": {
 	"name": "Pervomaiske",
 	"location_subtitle": "Kupiansk Raion, Kharkiv Oblast",
-	# The real coordinates the source screenshot itself was centered on —
-	# shown on the map's own location readout (see main.gd's
-	# _location_label) so a curious player can look the actual place up.
-	"coordinates": "49.657741, 37.270141",
+	# The real coordinates this map was built around — shown on the map's
+	# own location readout (see main.gd's _location_label) so a curious
+	# player can look the actual place up.
+	"coordinates": "49.666645, 37.255434",
 	"compass_north_screen_direction": Vector2(0.0, -1.0),
 
-	# Matches this game's standard battlefield footprint — same as
-	# Moshchun and the original fictional map before it — rather than a
-	# size derived from the screenshot itself; see this dictionary's own
-	# doc comment above.
 	"width_m": 5000.0,
 	"height_m": 3500.0,
 	"west_flank_width_m": 1500.0,
 
-	"village_center": Vector2(1500.0, 1750.0) * PIXELS_PER_METER,
+	"village_center": Vector2(1534.0, 1731.0) * PIXELS_PER_METER,
 
-	# Midpoint of the regional elevation range this dictionary's own doc
-	# comment already cites (roughly 80-170m ASL) — elevation_m() adds
-	# this to every hill's local contribution, so "flat ground" here reads
-	# as a real sea-level figure instead of 0m.
-	"elevation_baseline_m": 125.0,
+	# The fitted model's own constant term — see this dictionary's own doc
+	# comment for the real elevation sourcing.
+	"elevation_baseline_m": 159.5,
 
-	## Gently rolling farmland, not Moshchun's real ridgelines — see this
-	## dictionary's own doc comment for the regional elevation sourcing.
-	## The first five sit near the hamlet/road, exactly where the source
-	## imagery placed them; the rest fill the wider frame the screenshot
-	## itself didn't show (see the doc comment above).
+	## Least-squares fit to real SRTM data — see this dictionary's own doc
+	## comment. Ordered nearest the village first.
 	"hills": [
-		{"center_m": Vector2(1350.0, 1900.0), "radius_m": 480.0, "height_m": 12.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.15, "phase": 0.5}, {"frequency": 3, "amplitude": 0.1, "phase": 2.0},
-		]}, # gentle rise around the hamlet
-		{"center_m": Vector2(2700.0, 1400.0), "radius_m": 420.0, "height_m": 10.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.14, "phase": 1.6}, {"frequency": 2, "amplitude": 0.12, "phase": 2.8},
-		]}, # rise on the attacker's approach, north side
-		{"center_m": Vector2(2900.0, 2200.0), "radius_m": 380.0, "height_m": 9.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.16, "phase": 2.3}, {"frequency": 4, "amplitude": 0.08, "phase": 0.6},
-		]}, # rise south of the road, attacker side
-		{"center_m": Vector2(950.0, 2250.0), "radius_m": 380.0, "height_m": 11.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.15, "phase": 0.9}, {"frequency": 2, "amplitude": 0.11, "phase": 3.0},
-		]}, # rear rise, defender side
-		{"center_m": Vector2(250.0, 1750.0), "radius_m": 320.0, "height_m": 10.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.14, "phase": 1.2}, {"frequency": 3, "amplitude": 0.1, "phase": 2.5},
-		]}, # well west of the hamlet, gentle rise
-		{"center_m": Vector2(4200.0, 1500.0), "radius_m": 450.0, "height_m": 13.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.13, "phase": 0.8}, {"frequency": 3, "amplitude": 0.11, "phase": 1.9},
-		]}, # distant rise on the attacker's approach, far east — newly visible ground
-		{"center_m": Vector2(2600.0, 3100.0), "radius_m": 400.0, "height_m": 10.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.15, "phase": 2.6}, {"frequency": 2, "amplitude": 0.1, "phase": 1.0},
-		]}, # southern farmland rise — newly visible ground
-		{"center_m": Vector2(2000.0, 300.0), "radius_m": 380.0, "height_m": 9.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.14, "phase": 1.4}, {"frequency": 3, "amplitude": 0.12, "phase": 3.0},
-		]}, # northern farmland rise — newly visible ground
-		{"center_m": Vector2(-1100.0, 2300.0), "radius_m": 340.0, "height_m": 9.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.15, "phase": 2.1}, {"frequency": 3, "amplitude": 0.09, "phase": 0.5},
-		]}, # deeper west-flank rise, rear area
+		{"center_m": Vector2(1300.0, 1950.0), "radius_m": 260.0, "height_m": 5.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 5.5},
+			{"frequency": 3, "amplitude": 0.07, "phase": 2.7},
+		]},
+		{"center_m": Vector2(1100.0, 1250.0), "radius_m": 550.0, "height_m": 11.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.10, "phase": 2.1},
+			{"frequency": 3, "amplitude": 0.09, "phase": 6.1},
+		]},
+		{"center_m": Vector2(2300.0, 1750.0), "radius_m": 380.0, "height_m": 9.8, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 2.5},
+			{"frequency": 4, "amplitude": 0.08, "phase": 3.8},
+		]},
+		{"center_m": Vector2(500.0, 1850.0), "radius_m": 260.0, "height_m": 9.1, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 5.9},
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.4},
+		]},
+		{"center_m": Vector2(2100.0, 850.0), "radius_m": 260.0, "height_m": 9.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 4.0},
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.1},
+		]},
+		{"center_m": Vector2(1100.0, 2850.0), "radius_m": 260.0, "height_m": 11.4, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 3.6},
+			{"frequency": 4, "amplitude": 0.09, "phase": 2.1},
+		]},
+		{"center_m": Vector2(600.0, 2950.0), "radius_m": 180.0, "height_m": 7.4, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 6.1},
+			{"frequency": 2, "amplitude": 0.10, "phase": 6.1},
+		]},
+		{"center_m": Vector2(2900.0, 1150.0), "radius_m": 260.0, "height_m": 5.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 2.7},
+			{"frequency": 2, "amplitude": 0.07, "phase": 0.3},
+		]},
+		{"center_m": Vector2(300.0, 750.0), "radius_m": 260.0, "height_m": 7.6, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 5.4},
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.7},
+		]},
+		{"center_m": Vector2(1500.0, -50.0), "radius_m": 380.0, "height_m": 12.8, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 2.7},
+			{"frequency": 3, "amplitude": 0.09, "phase": 1.9},
+		]},
+		{"center_m": Vector2(-600.0, 1750.0), "radius_m": 380.0, "height_m": 10.7, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 2.2},
+			{"frequency": 4, "amplitude": 0.07, "phase": 2.0},
+		]},
+		{"center_m": Vector2(3300.0, 3650.0), "radius_m": 1200.0, "height_m": 26.4, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 5.1},
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.7},
+		]},
+		{"center_m": Vector2(-600.0, -50.0), "radius_m": 800.0, "height_m": 17.1, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 4.2},
+			{"frequency": 4, "amplitude": 0.09, "phase": 2.3},
+		]},
+		{"center_m": Vector2(-1400.0, 2050.0), "radius_m": 260.0, "height_m": 8.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 4.7},
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.7},
+		]},
+		{"center_m": Vector2(5000.0, 250.0), "radius_m": 260.0, "height_m": 15.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 5.8},
+			{"frequency": 4, "amplitude": 0.09, "phase": 6.0},
+		]},
+		{"center_m": Vector2(5200.0, 3350.0), "radius_m": 550.0, "height_m": 13.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 5.0},
+			{"frequency": 4, "amplitude": 0.07, "phase": 4.3},
+		]},
 	],
 
-	# The hamlet itself: a genuinely small, compact cluster (not Moshchun's
-	# elongated riverside ribbon — this is a rural crossroads settlement,
-	# not a river-side one), plus one small outlying farmstead further
-	# along the road, matching the handful of separate structures visible
-	# in the source imagery. Sizes match the source imagery exactly —
-	# widening the map's own frame doesn't make the real buildings bigger.
+	## Building blocks aggregated from real footprints (OpenStreetMap, plus
+	## imagery detection where noted in the doc comment above).
 	"terrain_zones": [
-		{"rect": Rect2(1440.0 * PIXELS_PER_METER, 1700.0 * PIXELS_PER_METER, 120.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # Pervomaiske
-		{"rect": Rect2(1935.0 * PIXELS_PER_METER, 1765.0 * PIXELS_PER_METER, 35.0 * PIXELS_PER_METER, 30.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # outlying farmstead
+		{"rect": Rect2(695.0 * PIXELS_PER_METER, 1290.0 * PIXELS_PER_METER, 180.0 * PIXELS_PER_METER, 180.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(815.0 * PIXELS_PER_METER, 1190.0 * PIXELS_PER_METER, 175.0 * PIXELS_PER_METER, 155.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1925.0 * PIXELS_PER_METER, 1855.0 * PIXELS_PER_METER, 155.0 * PIXELS_PER_METER, 225.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2425.0 * PIXELS_PER_METER, 2625.0 * PIXELS_PER_METER, 170.0 * PIXELS_PER_METER, 195.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-1510.0 * PIXELS_PER_METER, 1695.0 * PIXELS_PER_METER, 70.0 * PIXELS_PER_METER, 65.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-1510.0 * PIXELS_PER_METER, 775.0 * PIXELS_PER_METER, 235.0 * PIXELS_PER_METER, 80.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-1270.0 * PIXELS_PER_METER, 830.0 * PIXELS_PER_METER, 220.0 * PIXELS_PER_METER, 70.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1520.0 * PIXELS_PER_METER, 1695.0 * PIXELS_PER_METER, 385.0 * PIXELS_PER_METER, 320.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1700.0 * PIXELS_PER_METER, 2185.0 * PIXELS_PER_METER, 230.0 * PIXELS_PER_METER, 125.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1900.0 * PIXELS_PER_METER, 2275.0 * PIXELS_PER_METER, 215.0 * PIXELS_PER_METER, 155.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1320.0 * PIXELS_PER_METER, 1665.0 * PIXELS_PER_METER, 145.0 * PIXELS_PER_METER, 170.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1430.0 * PIXELS_PER_METER, 1545.0 * PIXELS_PER_METER, 155.0 * PIXELS_PER_METER, 125.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1095.0 * PIXELS_PER_METER, 1555.0 * PIXELS_PER_METER, 195.0 * PIXELS_PER_METER, 140.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1225.0 * PIXELS_PER_METER, 1350.0 * PIXELS_PER_METER, 170.0 * PIXELS_PER_METER, 230.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(920.0 * PIXELS_PER_METER, 1415.0 * PIXELS_PER_METER, 140.0 * PIXELS_PER_METER, 200.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1020.0 * PIXELS_PER_METER, 1315.0 * PIXELS_PER_METER, 175.0 * PIXELS_PER_METER, 170.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2685.0 * PIXELS_PER_METER, -10.0 * PIXELS_PER_METER, 165.0 * PIXELS_PER_METER, 90.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2895.0 * PIXELS_PER_METER, 180.0 * PIXELS_PER_METER, 175.0 * PIXELS_PER_METER, 140.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3070.0 * PIXELS_PER_METER, 265.0 * PIXELS_PER_METER, 195.0 * PIXELS_PER_METER, 130.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3250.0 * PIXELS_PER_METER, 340.0 * PIXELS_PER_METER, 205.0 * PIXELS_PER_METER, 125.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3350.0 * PIXELS_PER_METER, -10.0 * PIXELS_PER_METER, 140.0 * PIXELS_PER_METER, 70.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
 	],
 
-	## Sparse, small patches — thin tree-lines along the road and canal
-	## (the dark fringes visible flanking both in the source imagery),
-	## plus a few scattered field-edge copses, NOT Moshchun's big rounded
-	## forest blocks. This is open farmland, not woodland — deliberately
-	## much less tree cover overall than Moshchun's map. The first thirteen
-	## sit exactly where the source imagery placed them relative to the
-	## hamlet; the last four fill the wider frame the screenshot itself
-	## didn't show, in the same sparse style.
+	## Patches traced from satellite imagery — see the doc comment: wooded
+	## blocks/thickets first, tree rows/shelterbelts after.
 	"forest_patches": [
-		{"center_m": Vector2(3300.0, 1630.0), "radius_m": 80.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.18, "phase": 0.4}, {"frequency": 3, "amplitude": 0.1, "phase": 2.1},
-		]}, # tree line, road/canal corridor
-		{"center_m": Vector2(2900.0, 1655.0), "radius_m": 75.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.16, "phase": 1.3}, {"frequency": 2, "amplitude": 0.12, "phase": 2.9},
-		]}, # tree line, road/canal corridor
-		{"center_m": Vector2(2500.0, 1705.0), "radius_m": 85.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.17, "phase": 2.2}, {"frequency": 4, "amplitude": 0.09, "phase": 0.5},
-		]}, # tree line, road/canal corridor
-		{"center_m": Vector2(2100.0, 1730.0), "radius_m": 70.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.15, "phase": 0.8}, {"frequency": 2, "amplitude": 0.13, "phase": 2.6},
-		]}, # tree line, road/canal corridor
-		{"center_m": Vector2(1700.0, 1745.0), "radius_m": 80.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.16, "phase": 1.9}, {"frequency": 3, "amplitude": 0.11, "phase": 0.3},
-		]}, # tree line, road/canal corridor, near the hamlet
-		{"center_m": Vector2(1300.0, 1715.0), "radius_m": 75.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.14, "phase": 2.7}, {"frequency": 2, "amplitude": 0.12, "phase": 0.6},
-		]}, # tree line, road/canal corridor, near the hamlet
-		{"center_m": Vector2(900.0, 1675.0), "radius_m": 70.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.15, "phase": 0.2}, {"frequency": 4, "amplitude": 0.08, "phase": 2.4},
-		]}, # tree line, road/canal corridor, toward the rear
-		{"center_m": Vector2(2400.0, 2150.0), "radius_m": 90.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.16, "phase": 1.1}, {"frequency": 2, "amplitude": 0.1, "phase": 3.0},
-		]}, # field-edge copse, attacker side
-		{"center_m": Vector2(1600.0, 2250.0), "radius_m": 85.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.14, "phase": 2.5}, {"frequency": 3, "amplitude": 0.12, "phase": 0.7},
-		]}, # field-edge copse, south of the hamlet
-		{"center_m": Vector2(2600.0, 1250.0), "radius_m": 80.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.15, "phase": 0.3}, {"frequency": 2, "amplitude": 0.11, "phase": 2.2},
-		]}, # field-edge copse, attacker approach north
-		{"center_m": Vector2(1200.0, 1350.0), "radius_m": 75.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.17, "phase": 1.7}, {"frequency": 4, "amplitude": 0.08, "phase": 3.1},
-		]}, # field-edge copse, rear north
-		{"center_m": Vector2(300.0, 1650.0), "radius_m": 90.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.14, "phase": 0.6}, {"frequency": 2, "amplitude": 0.13, "phase": 2.8},
-		]}, # field copse west of the hamlet
-		{"center_m": Vector2(0.0, 2150.0), "radius_m": 80.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.16, "phase": 2.0}, {"frequency": 3, "amplitude": 0.1, "phase": 0.4},
-		]}, # field copse southwest of the hamlet, near the flank boundary
-		{"center_m": Vector2(3900.0, 1450.0), "radius_m": 80.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.13, "phase": 1.5}, {"frequency": 3, "amplitude": 0.09, "phase": 0.2},
-		]}, # tree line, far east approach — newly visible ground
-		{"center_m": Vector2(2300.0, 2950.0), "radius_m": 85.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.14, "phase": 2.9}, {"frequency": 2, "amplitude": 0.1, "phase": 1.1},
-		]}, # field-edge copse, newly visible southern farmland
-		{"center_m": Vector2(2700.0, 400.0), "radius_m": 80.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.15, "phase": 0.6}, {"frequency": 3, "amplitude": 0.11, "phase": 2.3},
-		]}, # field-edge copse, newly visible northern farmland
-		{"center_m": Vector2(-1200.0, 2000.0), "radius_m": 75.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.16, "phase": 1.8}, {"frequency": 2, "amplitude": 0.12, "phase": 0.3},
-		]}, # west flank copse, deeper rear
+		{"center_m": Vector2(1750.0, 1670.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 1.7},
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2070.0, 1870.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 5.4},
+			{"frequency": 2, "amplitude": 0.10, "phase": 0.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2530.0, 2050.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 3.6},
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2610.0, 2110.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 1.7},
+			{"frequency": 2, "amplitude": 0.11, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2470.0, 2490.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 0.1},
+			{"frequency": 4, "amplitude": 0.11, "phase": 3.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2670.0, 2150.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 6.2},
+			{"frequency": 4, "amplitude": 0.11, "phase": 0.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(510.0, 910.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 0.6},
+			{"frequency": 4, "amplitude": 0.11, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2730.0, 2190.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 4.0},
+			{"frequency": 2, "amplitude": 0.11, "phase": 0.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2430.0, 2710.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 5.6},
+			{"frequency": 4, "amplitude": 0.09, "phase": 1.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2410.0, 2770.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 5.4},
+			{"frequency": 3, "amplitude": 0.11, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(470.0, 850.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 4.9},
+			{"frequency": 2, "amplitude": 0.10, "phase": 2.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2830.0, 2250.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 3.2},
+			{"frequency": 3, "amplitude": 0.11, "phase": 4.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(370.0, 790.0), "radius_m": 54.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 2.5},
+			{"frequency": 4, "amplitude": 0.09, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2870.0, 2350.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 1.7},
+			{"frequency": 2, "amplitude": 0.10, "phase": 5.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2630.0, 2730.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 0.2},
+			{"frequency": 3, "amplitude": 0.09, "phase": 0.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2910.0, 2310.0), "radius_m": 54.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 6.0},
+			{"frequency": 2, "amplitude": 0.11, "phase": 1.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(310.0, 750.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 0.3},
+			{"frequency": 4, "amplitude": 0.11, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2710.0, 2750.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 3.7},
+			{"frequency": 4, "amplitude": 0.09, "phase": 4.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2990.0, 2350.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 5.5},
+			{"frequency": 4, "amplitude": 0.09, "phase": 4.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(250.0, 730.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 4.0},
+			{"frequency": 4, "amplitude": 0.10, "phase": 5.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2790.0, 2810.0), "radius_m": 54.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 0.4},
+			{"frequency": 4, "amplitude": 0.11, "phase": 4.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(190.0, 690.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 5.8},
+			{"frequency": 2, "amplitude": 0.11, "phase": 4.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3070.0, 2410.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 0.8},
+			{"frequency": 4, "amplitude": 0.10, "phase": 3.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(110.0, 650.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 0.1},
+			{"frequency": 3, "amplitude": 0.09, "phase": 0.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3130.0, 2450.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 0.1},
+			{"frequency": 4, "amplitude": 0.10, "phase": 4.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3150.0, 2510.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 2.5},
+			{"frequency": 3, "amplitude": 0.11, "phase": 4.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(50.0, 610.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 4.7},
+			{"frequency": 4, "amplitude": 0.10, "phase": 4.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-10.0, 590.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 5.6},
+			{"frequency": 4, "amplitude": 0.12, "phase": 4.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-70.0, 550.0), "radius_m": 54.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 3.0},
+			{"frequency": 3, "amplitude": 0.09, "phase": 4.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-30.0, 450.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 3.4},
+			{"frequency": 4, "amplitude": 0.09, "phase": 1.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3370.0, 1010.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 4.0},
+			{"frequency": 2, "amplitude": 0.08, "phase": 1.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3350.0, 2590.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 4.7},
+			{"frequency": 2, "amplitude": 0.09, "phase": 4.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-470.0, 1250.0), "radius_m": 73.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 6.0},
+			{"frequency": 2, "amplitude": 0.08, "phase": 4.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-190.0, 490.0), "radius_m": 54.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 0.5},
+			{"frequency": 4, "amplitude": 0.11, "phase": 2.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2990.0, 250.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 3.6},
+			{"frequency": 4, "amplitude": 0.11, "phase": 0.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-550.0, 1230.0), "radius_m": 54.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 4.2},
+			{"frequency": 4, "amplitude": 0.09, "phase": 3.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-270.0, 410.0), "radius_m": 84.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 0.8},
+			{"frequency": 4, "amplitude": 0.09, "phase": 0.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-770.0, 1890.0), "radius_m": 65.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 4.4},
+			{"frequency": 2, "amplitude": 0.09, "phase": 1.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-810.0, 1410.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 2.8},
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-810.0, 2150.0), "radius_m": 65.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 0.8},
+			{"frequency": 2, "amplitude": 0.11, "phase": 4.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-850.0, 1750.0), "radius_m": 133.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 6.1},
+			{"frequency": 2, "amplitude": 0.11, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-850.0, 1890.0), "radius_m": 54.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 1.6},
+			{"frequency": 2, "amplitude": 0.09, "phase": 4.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-930.0, 1870.0), "radius_m": 54.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 4.2},
+			{"frequency": 2, "amplitude": 0.09, "phase": 4.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-950.0, 1550.0), "radius_m": 187.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 3.9},
+			{"frequency": 2, "amplitude": 0.12, "phase": 6.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3470.0, 170.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 2.8},
+			{"frequency": 2, "amplitude": 0.10, "phase": 2.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1070.0, 1250.0), "radius_m": 95.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 4.9},
+			{"frequency": 2, "amplitude": 0.10, "phase": 3.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3850.0, 2910.0), "radius_m": 65.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 3.2},
+			{"frequency": 4, "amplitude": 0.08, "phase": 5.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1130.0, 1650.0), "radius_m": 73.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 2.1},
+			{"frequency": 3, "amplitude": 0.08, "phase": 1.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1170.0, 1310.0), "radius_m": 73.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 5.3},
+			{"frequency": 2, "amplitude": 0.09, "phase": 3.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-750.0, 190.0), "radius_m": 65.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 4.9},
+			{"frequency": 4, "amplitude": 0.10, "phase": 1.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-710.0, 130.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 3.5},
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1270.0, 1690.0), "radius_m": 65.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 5.6},
+			{"frequency": 2, "amplitude": 0.09, "phase": 1.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1290.0, 1770.0), "radius_m": 54.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 4.4},
+			{"frequency": 2, "amplitude": 0.10, "phase": 4.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1310.0, 1370.0), "radius_m": 114.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 5.6},
+			{"frequency": 3, "amplitude": 0.10, "phase": 1.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-850.0, 130.0), "radius_m": 73.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 3.7},
+			{"frequency": 3, "amplitude": 0.11, "phase": 6.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1330.0, 2170.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 2.3},
+			{"frequency": 2, "amplitude": 0.10, "phase": 3.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1350.0, 1250.0), "radius_m": 73.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 3.5},
+			{"frequency": 3, "amplitude": 0.10, "phase": 2.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1230.0, 2770.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 5.5},
+			{"frequency": 3, "amplitude": 0.08, "phase": 1.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-950.0, 10.0), "radius_m": 133.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 4.4},
+			{"frequency": 2, "amplitude": 0.10, "phase": 5.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1090.0, 10.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 2.7},
+			{"frequency": 4, "amplitude": 0.08, "phase": 0.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1470.0, 1710.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.2},
+			{"frequency": 4, "amplitude": 0.05, "phase": 2.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1530.0, 1630.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 4.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 4.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1510.0, 1590.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.2},
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1310.0, 1790.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.6},
+			{"frequency": 2, "amplitude": 0.04, "phase": 5.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1610.0, 1570.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 1.1},
+			{"frequency": 4, "amplitude": 0.04, "phase": 4.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1570.0, 1550.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.1},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1710.0, 1630.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 5.2},
+			{"frequency": 3, "amplitude": 0.04, "phase": 2.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1490.0, 1490.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.4},
+			{"frequency": 3, "amplitude": 0.06, "phase": 6.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1450.0, 1470.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.1},
+			{"frequency": 4, "amplitude": 0.05, "phase": 1.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1630.0, 1490.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 4.3},
+			{"frequency": 2, "amplitude": 0.05, "phase": 2.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1690.0, 1530.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 5.0},
+			{"frequency": 4, "amplitude": 0.06, "phase": 3.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1590.0, 1470.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.6},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1290.0, 1530.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.7},
+			{"frequency": 3, "amplitude": 0.06, "phase": 0.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1410.0, 1450.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.9},
+			{"frequency": 2, "amplitude": 0.05, "phase": 4.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1810.0, 1690.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.06, "phase": 1.3},
+			{"frequency": 2, "amplitude": 0.06, "phase": 1.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1770.0, 1570.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.9},
+			{"frequency": 3, "amplitude": 0.05, "phase": 2.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1850.0, 1710.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.5},
+			{"frequency": 2, "amplitude": 0.04, "phase": 1.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1870.0, 1750.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 0.9},
+			{"frequency": 4, "amplitude": 0.05, "phase": 5.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1850.0, 1630.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 0.5},
+			{"frequency": 4, "amplitude": 0.05, "phase": 1.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1350.0, 1410.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.1},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1430.0, 1350.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 4.3},
+			{"frequency": 4, "amplitude": 0.06, "phase": 5.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1910.0, 1650.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.3},
+			{"frequency": 4, "amplitude": 0.05, "phase": 2.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1930.0, 1770.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.8},
+			{"frequency": 2, "amplitude": 0.06, "phase": 3.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1970.0, 1790.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.6},
+			{"frequency": 3, "amplitude": 0.06, "phase": 1.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1030.0, 1650.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.5},
+			{"frequency": 3, "amplitude": 0.05, "phase": 4.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1990.0, 1710.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 1.6},
+			{"frequency": 2, "amplitude": 0.04, "phase": 0.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1230.0, 1330.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 6.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1850.0, 2130.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 2.6},
+			{"frequency": 3, "amplitude": 0.06, "phase": 0.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1090.0, 1430.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 3.0},
+			{"frequency": 3, "amplitude": 0.04, "phase": 2.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(990.0, 1630.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 2.0},
+			{"frequency": 4, "amplitude": 0.06, "phase": 1.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2030.0, 1730.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 5.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 2.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2030.0, 1830.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.1},
+			{"frequency": 2, "amplitude": 0.05, "phase": 3.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1010.0, 1510.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.9},
+			{"frequency": 4, "amplitude": 0.05, "phase": 5.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(970.0, 1570.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 0.6},
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1250.0, 1230.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 1.4},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1150.0, 1270.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 2.9},
+			{"frequency": 2, "amplitude": 0.05, "phase": 6.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2050.0, 2010.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 2.0},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2090.0, 1990.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 0.4},
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1190.0, 1190.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 6.2},
+			{"frequency": 4, "amplitude": 0.04, "phase": 1.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(870.0, 1550.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 4.7},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2150.0, 1910.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 3.8},
+			{"frequency": 4, "amplitude": 0.04, "phase": 1.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(830.0, 1530.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 4.4},
+			{"frequency": 4, "amplitude": 0.06, "phase": 5.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2190.0, 1930.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 2.2},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1950.0, 2310.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 1.9},
+			{"frequency": 4, "amplitude": 0.05, "phase": 0.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2090.0, 2190.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 2.3},
+			{"frequency": 3, "amplitude": 0.05, "phase": 0.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(970.0, 1170.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.2},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2270.0, 1990.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.2},
+			{"frequency": 2, "amplitude": 0.05, "phase": 3.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2090.0, 2310.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.1},
+			{"frequency": 3, "amplitude": 0.06, "phase": 2.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2290.0, 2110.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.4},
+			{"frequency": 3, "amplitude": 0.05, "phase": 3.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2350.0, 1930.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 0.1},
+			{"frequency": 2, "amplitude": 0.05, "phase": 5.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2250.0, 2190.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 4.7},
+			{"frequency": 3, "amplitude": 0.06, "phase": 1.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2370.0, 1830.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 5.4},
+			{"frequency": 4, "amplitude": 0.06, "phase": 3.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2250.0, 2250.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 6.2},
+			{"frequency": 3, "amplitude": 0.05, "phase": 0.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(610.0, 1570.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.06, "phase": 3.3},
+			{"frequency": 4, "amplitude": 0.05, "phase": 3.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2230.0, 2290.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 2.3},
+			{"frequency": 4, "amplitude": 0.04, "phase": 4.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2410.0, 1690.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 2.4},
+			{"frequency": 4, "amplitude": 0.05, "phase": 6.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2390.0, 1950.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 0.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 5.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(650.0, 1410.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 0.6},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2310.0, 2190.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.8},
+			{"frequency": 2, "amplitude": 0.05, "phase": 3.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2290.0, 2230.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 3.3},
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2210.0, 2350.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 4.6},
+			{"frequency": 2, "amplitude": 0.04, "phase": 0.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2350.0, 2150.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.8},
+			{"frequency": 3, "amplitude": 0.06, "phase": 5.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2370.0, 2130.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 1.3},
+			{"frequency": 4, "amplitude": 0.04, "phase": 6.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2390.0, 2110.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.8},
+			{"frequency": 3, "amplitude": 0.06, "phase": 0.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2450.0, 1550.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.0},
+			{"frequency": 2, "amplitude": 0.06, "phase": 3.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2250.0, 2370.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 4.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 2.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2450.0, 1990.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 3.9},
+			{"frequency": 4, "amplitude": 0.05, "phase": 3.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2470.0, 2030.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 4.3},
+			{"frequency": 4, "amplitude": 0.06, "phase": 4.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2470.0, 1470.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 6.0},
+			{"frequency": 3, "amplitude": 0.04, "phase": 0.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2290.0, 2410.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 4.2},
+			{"frequency": 3, "amplitude": 0.06, "phase": 3.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2330.0, 2430.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 1.9},
+			{"frequency": 3, "amplitude": 0.06, "phase": 0.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2370.0, 2450.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.7},
+			{"frequency": 2, "amplitude": 0.06, "phase": 0.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(370.0, 1770.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.5},
+			{"frequency": 4, "amplitude": 0.05, "phase": 0.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(370.0, 1710.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.3},
+			{"frequency": 2, "amplitude": 0.06, "phase": 0.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2530.0, 1270.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 1.9},
+			{"frequency": 3, "amplitude": 0.06, "phase": 0.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2410.0, 2470.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.5},
+			{"frequency": 4, "amplitude": 0.04, "phase": 3.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(350.0, 1590.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.7},
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(330.0, 1450.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 4.8},
+			{"frequency": 2, "amplitude": 0.05, "phase": 5.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2630.0, 2210.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.8},
+			{"frequency": 2, "amplitude": 0.06, "phase": 4.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(590.0, 930.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.7},
+			{"frequency": 2, "amplitude": 0.06, "phase": 1.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2570.0, 1130.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.9},
+			{"frequency": 3, "amplitude": 0.05, "phase": 3.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(650.0, 850.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 3.7},
+			{"frequency": 4, "amplitude": 0.05, "phase": 2.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2430.0, 2570.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 2.9},
+			{"frequency": 3, "amplitude": 0.06, "phase": 5.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(510.0, 970.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 5.6},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2670.0, 2250.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 1.2},
+			{"frequency": 4, "amplitude": 0.06, "phase": 3.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2510.0, 2530.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.4},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2470.0, 2590.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 3.0},
+			{"frequency": 4, "amplitude": 0.06, "phase": 1.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2590.0, 1050.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.4},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2710.0, 2270.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 0.5},
+			{"frequency": 3, "amplitude": 0.04, "phase": 4.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2550.0, 2550.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.5},
+			{"frequency": 2, "amplitude": 0.05, "phase": 1.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(590.0, 790.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.7},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2510.0, 2610.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.06, "phase": 6.1},
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2790.0, 2210.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.0},
+			{"frequency": 4, "amplitude": 0.05, "phase": 3.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(530.0, 770.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.3},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2770.0, 2310.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.4},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2490.0, 2730.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 0.4},
+			{"frequency": 2, "amplitude": 0.06, "phase": 1.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2530.0, 2690.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 1.4},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(490.0, 750.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 6.0},
+			{"frequency": 3, "amplitude": 0.06, "phase": 5.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(430.0, 810.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.4},
+			{"frequency": 2, "amplitude": 0.05, "phase": 5.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2810.0, 2330.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 5.3},
+			{"frequency": 2, "amplitude": 0.06, "phase": 0.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(450.0, 710.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.7},
+			{"frequency": 2, "amplitude": 0.05, "phase": 3.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2910.0, 2250.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 4.1},
+			{"frequency": 2, "amplitude": 0.06, "phase": 4.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(390.0, 690.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.4},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2930.0, 2410.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 0.9},
+			{"frequency": 4, "amplitude": 0.06, "phase": 1.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(350.0, 670.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 3.6},
+			{"frequency": 2, "amplitude": 0.06, "phase": 0.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2990.0, 2430.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.2},
+			{"frequency": 4, "amplitude": 0.05, "phase": 2.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(290.0, 630.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 2.5},
+			{"frequency": 2, "amplitude": 0.05, "phase": 2.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(250.0, 610.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 3.5},
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3050.0, 2470.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 2.4},
+			{"frequency": 2, "amplitude": 0.05, "phase": 5.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3090.0, 2510.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.9},
+			{"frequency": 2, "amplitude": 0.06, "phase": 3.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(150.0, 550.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 4.8},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3190.0, 2470.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 3.7},
+			{"frequency": 3, "amplitude": 0.05, "phase": 3.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3170.0, 2570.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 2.1},
+			{"frequency": 2, "amplitude": 0.05, "phase": 1.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3150.0, 2610.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.4},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3230.0, 2510.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 0.1},
+			{"frequency": 3, "amplitude": 0.05, "phase": 4.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3230.0, 2590.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 0.5},
+			{"frequency": 4, "amplitude": 0.05, "phase": 2.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3290.0, 2530.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 4.3},
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3310.0, 2650.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.06, "phase": 3.7},
+			{"frequency": 4, "amplitude": 0.05, "phase": 3.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3350.0, 2670.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.4},
+			{"frequency": 2, "amplitude": 0.06, "phase": 6.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3370.0, 2710.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.6},
+			{"frequency": 4, "amplitude": 0.04, "phase": 5.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3430.0, 2630.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 0.2},
+			{"frequency": 4, "amplitude": 0.06, "phase": 5.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3410.0, 2710.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 1.1},
+			{"frequency": 4, "amplitude": 0.06, "phase": 4.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3490.0, 2670.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.1},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3470.0, 2750.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 0.5},
+			{"frequency": 4, "amplitude": 0.04, "phase": 2.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3550.0, 2710.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 0.7},
+			{"frequency": 3, "amplitude": 0.06, "phase": 3.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3530.0, 2790.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 2.4},
+			{"frequency": 4, "amplitude": 0.05, "phase": 1.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3590.0, 2730.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.0},
+			{"frequency": 4, "amplitude": 0.06, "phase": 1.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3570.0, 2810.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 0.8},
+			{"frequency": 3, "amplitude": 0.06, "phase": 4.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3630.0, 2770.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.5},
+			{"frequency": 3, "amplitude": 0.05, "phase": 3.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3690.0, 2790.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.6},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3490.0, 3170.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.8},
+			{"frequency": 4, "amplitude": 0.05, "phase": 2.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3730.0, 2810.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 1.1},
+			{"frequency": 2, "amplitude": 0.05, "phase": 2.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3750.0, 2850.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 3.6},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3790.0, 2830.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 5.9},
+			{"frequency": 3, "amplitude": 0.06, "phase": 0.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3770.0, 2930.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 0.6},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3870.0, 2830.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 2.9},
+			{"frequency": 3, "amplitude": 0.05, "phase": 3.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3930.0, 2870.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 3.3},
+			{"frequency": 3, "amplitude": 0.06, "phase": 1.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3950.0, 2930.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 1.7},
+			{"frequency": 3, "amplitude": 0.04, "phase": 6.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3970.0, 2890.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 1.5},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3950.0, 2970.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.5},
+			{"frequency": 2, "amplitude": 0.05, "phase": 5.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4010.0, 2930.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 5.5},
+			{"frequency": 3, "amplitude": 0.06, "phase": 0.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4030.0, 2890.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 0.3},
+			{"frequency": 2, "amplitude": 0.06, "phase": 4.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4010.0, 2970.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 1.1},
+			{"frequency": 4, "amplitude": 0.05, "phase": 1.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4250.0, 2430.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 5.8},
+			{"frequency": 3, "amplitude": 0.06, "phase": 3.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4050.0, 2990.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 3.7},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4070.0, 2950.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 2.5},
+			{"frequency": 4, "amplitude": 0.05, "phase": 2.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4110.0, 2910.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.06, "phase": 0.9},
+			{"frequency": 4, "amplitude": 0.05, "phase": 0.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4130.0, 2990.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 2.0},
+			{"frequency": 3, "amplitude": 0.05, "phase": 2.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4150.0, 2950.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 5.4},
+			{"frequency": 2, "amplitude": 0.05, "phase": 4.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4170.0, 2910.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.1},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4170.0, 3010.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.4},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4250.0, 2870.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.0},
+			{"frequency": 4, "amplitude": 0.05, "phase": 3.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4230.0, 2930.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 5.7},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4270.0, 2910.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 2.2},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4230.0, 3010.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 2.6},
+			{"frequency": 4, "amplitude": 0.06, "phase": 0.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4290.0, 2950.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 4.9},
+			{"frequency": 4, "amplitude": 0.05, "phase": 0.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4330.0, 2930.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 5.0},
+			{"frequency": 3, "amplitude": 0.05, "phase": 3.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4310.0, 3030.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.4},
+			{"frequency": 2, "amplitude": 0.05, "phase": 1.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4370.0, 2950.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 2.4},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4410.0, 2930.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.06, "phase": 6.2},
+			{"frequency": 2, "amplitude": 0.06, "phase": 6.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4370.0, 3030.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.7},
+			{"frequency": 4, "amplitude": 0.04, "phase": 5.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4410.0, 2990.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.4},
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4450.0, 2950.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.5},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4430.0, 3030.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 5.1},
+			{"frequency": 4, "amplitude": 0.05, "phase": 1.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4510.0, 2950.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 2.6},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4490.0, 3050.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 2.1},
+			{"frequency": 2, "amplitude": 0.04, "phase": 1.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4570.0, 2970.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 1.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 2.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4550.0, 3050.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 5.9},
+			{"frequency": 2, "amplitude": 0.04, "phase": 5.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4630.0, 2970.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.4},
+			{"frequency": 4, "amplitude": 0.06, "phase": 4.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4650.0, 3050.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 4.6},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4690.0, 2990.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 2.7},
+			{"frequency": 3, "amplitude": 0.05, "phase": 4.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4690.0, 3070.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.3},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4770.0, 2990.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 4.1},
+			{"frequency": 2, "amplitude": 0.04, "phase": 2.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4750.0, 3070.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 4.0},
+			{"frequency": 4, "amplitude": 0.05, "phase": 5.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4830.0, 2990.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 5.1},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4830.0, 3090.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 3.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 5.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4890.0, 3090.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 5.8},
+			{"frequency": 3, "amplitude": 0.05, "phase": 4.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4930.0, 3010.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.6},
+			{"frequency": 4, "amplitude": 0.05, "phase": 5.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4990.0, 3010.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.06, "phase": 4.3},
+			{"frequency": 3, "amplitude": 0.05, "phase": 0.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4970.0, 3110.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.6},
+			{"frequency": 3, "amplitude": 0.06, "phase": 2.8},
+		]}, # tree row / shelterbelt
 	],
 
 	"road_width_m": 6.0,
 	"road_waypoints_m": [
-		Vector2(4900.0, 1580.0), # newly visible ground — extends the attacker's approach to the wider frame
-		Vector2(4200.0, 1615.0), # newly visible ground
-		Vector2(3550.0, 1650.0),
-		Vector2(3100.0, 1680.0),
-		Vector2(2700.0, 1700.0),
-		Vector2(2300.0, 1720.0),
-		Vector2(1900.0, 1735.0),
-		Vector2(1500.0, 1750.0), # the hamlet
-		Vector2(1100.0, 1720.0),
-		Vector2(750.0, 1680.0),
+		Vector2(4900.0, 2975.0),
+		Vector2(3805.0, 2809.0),
+		Vector2(2494.0, 1997.0),
+		Vector2(2164.0, 2365.0),
+		Vector2(802.0, 1522.0),
 	],
-
-	## The drainage canal visible in the source imagery, running roughly
-	## PARALLEL to the road (not perpendicular, unlike Moshchun's river) —
-	## it doesn't block the attacker's own east-west line of advance at
-	## all, only a flanking move to the north, but is still a real,
-	## impassable obstacle where it does run (steep-banked drainage
-	## channels are a genuine infantry/vehicle obstacle) except at the one
-	## crossing near the hamlet, where a real culvert/crossing point is
-	## plausible. Narrower than Moshchun's river — this is a canal, not a
-	## real river. A constant 120m south of the road throughout (matching
-	## the source imagery), including along the two new far-east legs.
-	"river": {
-		"width_m": 15.0,
-		"crossing_point_m": Vector2(1500.0, 1630.0), # sits exactly on path_m below, at the hamlet's own longitude
-		"crossing_gap_m": 50.0,
-		"path_m": [
-			Vector2(4900.0, 1460.0), # newly visible ground
-			Vector2(4200.0, 1495.0), # newly visible ground
-			Vector2(3550.0, 1530.0),
-			Vector2(3100.0, 1560.0),
-			Vector2(2700.0, 1580.0),
-			Vector2(2300.0, 1600.0),
-			Vector2(1900.0, 1615.0),
-			Vector2(1500.0, 1630.0), # the crossing
-			Vector2(1100.0, 1600.0),
-			Vector2(750.0, 1560.0),
-		],
-	},
 
 	"player": {
 		"deployment_zone": Rect2(150.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 2200.0 * PIXELS_PER_METER, 3300.0 * PIXELS_PER_METER),
 		"mortar_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 1950.0 * PIXELS_PER_METER, 3400.0 * PIXELS_PER_METER),
 		"spotter_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 30.0 * PIXELS_PER_METER, 4940.0 * PIXELS_PER_METER, 3440.0 * PIXELS_PER_METER),
+		# Chosen by scanning the deployment area with the game's own
+		# has_direct_los/elevation model (siting.js): each squad the point
+		# within ~350m of the village that sees the most of the real road,
+		# clear of the road bed itself and of any building.
 		"default_squad_positions": [
-			Vector2(1390.0, 1700.0) * PIXELS_PER_METER,
-			Vector2(1510.0, 1750.0) * PIXELS_PER_METER,
-			Vector2(1410.0, 1830.0) * PIXELS_PER_METER,
+			Vector2(1502.0, 2030.0) * PIXELS_PER_METER,
+			Vector2(1412.0, 2005.0) * PIXELS_PER_METER,
+			Vector2(1313.0, 1976.0) * PIXELS_PER_METER,
 		],
-		# South of the hamlet's own building footprint and clear of the
-		# canal — a mortar can never be set up inside a building or
-		# dragged into one.
-		"mortar_default_position": Vector2(1500.0, 1920.0) * PIXELS_PER_METER,
-		"spotter_default_position": Vector2(1250.0, 1770.0) * PIXELS_PER_METER,
+		# The least-exposed point found within reach of the village — real
+		# flat-to-gently-rolling farmland has no spot hidden from a 5km
+		# road end to end, so this is the best available cover, not a
+		# guaranteed mask (same standard the mortar's own relocation logic
+		# already uses live). Clear of every building block.
+		"mortar_default_position": Vector2(1448.0, 1496.0) * PIXELS_PER_METER,
+		# Inside a real tree patch, picked for the clearest sightline to
+		# the road among every patch within reach of the village.
+		"spotter_default_position": Vector2(2309.0, 2190.0) * PIXELS_PER_METER,
 	},
 
 	"enemy": {
-		"spawn_x": 4900.0 * PIXELS_PER_METER, # matches the new easternmost road/river waypoint, same as before
+		"spawn_x": 4900.0 * PIXELS_PER_METER, # matches the road's own easternmost waypoint
 		"squad_spread_min_offset_m": -260.0,
 		"squad_spread_max_offset_m": 260.0,
-		"mortar_rear_x_m": 4700.0, # 200m behind spawn_x, same offset as before
-		# Span widened from an original 500m to 1200m (same 1700m center),
-		# then to 1600m — direct user correction after live bunching
-		# recurred: an EXACT 1200m/4-gap layout placed mortars at
-		# ENEMY_MORTAR_COUNT_MAX precisely AT FM 7-90 Ch.6's own cited
-		# separate-firing-position figure (300m, "greatly decreases the
-		# enemy's chance of neutralizing them with countermortar fire"),
-		# with zero margin — any single subsequent relocation for an
-		# unrelated reason could immediately violate it. 1600m/4 gaps =
-		# 400m, a real margin above the cited floor rather than sitting
-		# exactly on it. See MORTAR_BUNCHING_AVOIDANCE_RADIUS's own doc
-		# comment for the full citation and the earlier, since-reversed
-		# "wrong scale" call.
-		"mortar_spread_min_y_m": 900.0,
-		"mortar_spread_max_y_m": 2500.0,
-		# Deep enough into the (now 1500m) west flank to be a real flank,
-		# same 2/3-in proportion as before and as Moshchun.
+		"mortar_rear_x_m": 4700.0, # 200m behind spawn_x, same offset as every other map
+		# 1600m span (or as much of it as fits the map's own height) centered
+		# on the road's own first waypoint — see the other maps' identical
+		# comment for the real citation (FM 7-90 Ch.6, up to 300m between
+		# separate firing positions) and why an exact 4-gaps-of-300m layout
+		# left no margin at ENEMY_MORTAR_COUNT_MAX.
+		"mortar_spread_min_y_m": 2175.0,
+		"mortar_spread_max_y_m": 3500.0,
+		# Deep enough into the 1500m west flank to be a real flank, same
+		# 2/3-in proportion as every other map.
 		"flank_waypoint_x": -1000.0 * PIXELS_PER_METER,
 		"flank_waypoint_arrival_radius": 350.0 * PIXELS_PER_METER, # must stay > ENEMY_SURROUND_STANDOFF_RADIUS (300m) — see that constant's own doc comment
 	},
@@ -307,63 +1217,39 @@ const MAPS: Dictionary = {
 
 ## This map depicts Pishchane, a small settlement in Kalmiuskyi Raion,
 ## Donetsk Oblast, built from real satellite imagery around the coordinates
-## 47.768118, 37.878843 — a real farm/livestock complex at the settlement's
-## southern edge (the coordinates land almost exactly on it), a residential
-## strip just north of it, and, immediately northeast, a real wooded ravine
-## (a "balka" — a natural gully cut by drainage, not a planted feature)
-## that narrows as it runs down toward a small pond right next to the
-## complex. Unlike Moshchun and Pervomaiske, no specific documented
+## 47.768118, 37.878843 — a real farm/livestock complex, a residential strip
+## just north of it, and a stream running through open farmland to the
+## south-west. Unlike Moshchun and Pervomaiske, no specific documented
 ## engagement is claimed for this exact spot — this part of Donetsk Oblast
 ## has been outside Ukrainian government control since 2014, not a place
 ## that changed hands in 2022, so there is no real battle to depict here.
 ## The terrain is real; the engagement fought over it is a hypothetical
 ## one, same fictional-tactical premise (a Russian assault probing from
-## the east) as every other map in this game, not a re-creation of an
-## actual fight — stated plainly rather than implied, the way this file
-## already states plainly when a map's elevation or building layout is an
-## approximation rather than a survey.
+## the east) as every other map in this game.
 ##
-## The ravine's own tree cover is modeled as a CHAIN of small, closely-
-## spaced patches following the real tapering shape traced from the source
-## imagery — a wide wedge at the head, narrowing leg by leg down to the
-## pond — rather than one or two large circles standing in for the whole
-## area. A single big blob would have been faster to author but would
-## have covered ground that's actually open, and left the real taper
-## invisible; keeping each patch small enough that the chain's own outline
-## does the work is what makes the shape on screen the real one instead of
-## an idealized stand-in. The same technique models two real steppe
-## shelterbelts (windbreak tree lines — "lisosmuha," extremely common
-## across this open farmland, planted in long straight or gently curved
-## rows between fields) as chains of small overlapping patches forming a
-## thin line, rather than as an oval that would misrepresent them as a
-## rounded stand of trees. Regional elevation for this part of the Donets
-## uplands runs higher and more varied than Pervomaiske's flat steppe
-## (roughly 150-220m ASL, with real ravines like this one cut into it) —
-## hills below are a modest approximation from that and the real ravine's
-## own rim, not a survey.
+## REBUILT from real data (2026-09), the same pipeline as Svystunivka
+## Heights (the anchor coordinates are unchanged — this spot was already
+## real): SRTM 30m elevation (OpenTopoData, 16 hills fit to it); BUILDINGS
+## from OpenStreetMap (ODbL, © OpenStreetMap contributors) PLUS a colour/
+## texture detector for the built-up ground OSM had no footprints for
+## (only 16 buildings were tagged here at all) — 23 blocks total, covering
+## the residential streets and the farm compound; the ROAD is the real
+## route (Dijkstra over OSM highways from the map's east edge to the
+## village — genuinely EAST TO WEST now, so the long-standing exception
+## test_map_integrity.gd carried for this map's road being listed the
+## other way is gone); TREE COVER from the same imagery classification
+## (240 patches, about 12-13% of the frame — denser than the original
+## hand-placed ravine chain). No watercourse runs close enough to the real
+## route to matter (checked directly against OSM water data), so this map
+## still omits the "river" key, same as before.
 ##
-## The real road/tree-line axis here runs diagonally (perceptibly NW-SE)
-## rather than due east-west like Pervomaiske's — reproduced directly as a
-## steady y-drift as x increases along road_waypoints_m/the forest chain,
-## the same technique Pervomaiske and Moshchun already used for local
-## geometry that isn't axis-aligned, rather than rotating the compass over
-## it. The real village center-line actually runs north from the complex,
-## off this east-west axis entirely; it's modeled as real, present terrain
-## (the residential terrain_zones entry) rather than forced onto the
-## attacker/defender axis just to have somewhere to put it. Compass north
-## points straight up: the real attack axis modeled here (from the open
+## Compass north points straight up: the real attack axis (from the open
 ## farmland to the real east) already matches this game's standing east-
-## attacker/west-defender convention, same as Pervomaiske, so no rotation
-## is needed. This map has no river/canal — the real watercourse near here
-## is the small pond by the complex, fed by the ravine's own drainage, too
-## local to model as a map-spanning obstacle the way Moshchun's river or
-## Pervomaiske's canal are; CURRENT_MAP simply omits the "river" key, and
-## every river-aware function treats that as "no river on this map" rather
-## than assuming every map must have one.
+## attacker/west-defender convention, so no rotation is needed.
 "pishchane": {
 	"name": "Pishchane",
 	"location_subtitle": "Kalmiuskyi Raion, Donetsk Oblast",
-	# The real coordinates this map was built from — shown on the map's
+	# The real coordinates this map was built around — shown on the map's
 	# own location readout (see main.gd's _location_label) so a curious
 	# player can look the actual place up.
 	"coordinates": "47.768118, 37.878843",
@@ -373,175 +1259,1107 @@ const MAPS: Dictionary = {
 	"height_m": 3500.0,
 	"west_flank_width_m": 1500.0,
 
-	"village_center": Vector2(1500.0, 1750.0) * PIXELS_PER_METER,
+	"village_center": Vector2(1425.0, 1728.0) * PIXELS_PER_METER,
 
-	# Midpoint of the regional elevation range this dictionary's own doc
-	# comment already cites (roughly 150-220m ASL) — elevation_m() adds
-	# this to every hill's local contribution, so "flat ground" here reads
-	# as a real sea-level figure instead of 0m.
-	"elevation_baseline_m": 185.0,
+	# The fitted model's own constant term — see this dictionary's own doc
+	# comment for the real elevation sourcing.
+	"elevation_baseline_m": 154.7,
 
-	## The first four sit near real features (the ravine's own rim, the
-	## village, the complex's south side, the rear); the rest fill the
-	## standard frame's wider margins, in the same modestly-rolling style.
+	## Least-squares fit to real SRTM data — see this dictionary's own doc
+	## comment. Ordered nearest the village first.
 	"hills": [
-		{"center_m": Vector2(1800.0, 1250.0), "radius_m": 400.0, "height_m": 11.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.15, "phase": 0.9}, {"frequency": 3, "amplitude": 0.1, "phase": 2.4},
-		]}, # high ground flanking the ravine's own northern rim
-		# Sits astride the road roughly 700m out — real, unnamed high
-		# ground is plausible here (no precise survey data exists for
-		# this exact spot, same honesty caveat as every hill on this
-		# map), and without SOME rise between the complex and the open
-		# farmland, the position has an unbroken sightline for kilometers
-		# in every direction: real ground-level LOS in this engine is
-		# masked by elevation, not by TREES (which only affect detection
-		# odds/cover, not raw visibility — see has_direct_los's own doc
-		# comment), so completely flat terrain here would leave the
-		# spotter, mortar, and squads all visible to (and equally able to
-		# see) the entire approach from minute one — confirmed directly:
-		# before this hill existed, the defended position could see, and
-		# be seen from, the road nearly 2.5km out, and lost the spotter
-		# almost every trial as a direct result.
-		{"center_m": Vector2(2000.0, 1520.0), "radius_m": 340.0, "height_m": 20.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.14, "phase": 1.7}, {"frequency": 3, "amplitude": 0.11, "phase": 0.2},
-		]}, # rise astride the road, masks the complex from the open approach
-		{"center_m": Vector2(1300.0, 2100.0), "radius_m": 380.0, "height_m": 9.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.14, "phase": 1.1}, {"frequency": 2, "amplitude": 0.12, "phase": 2.7},
-		]}, # gentle rise south of the complex, defender's side
-		{"center_m": Vector2(1400.0, 1050.0), "radius_m": 350.0, "height_m": 10.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.16, "phase": 0.3}, {"frequency": 4, "amplitude": 0.08, "phase": 2.9},
-		]}, # rise near the village proper, north of the complex
-		{"center_m": Vector2(400.0, 1900.0), "radius_m": 320.0, "height_m": 9.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.15, "phase": 1.8}, {"frequency": 2, "amplitude": 0.11, "phase": 0.6},
-		]}, # rear rise, defender's side
-		{"center_m": Vector2(4300.0, 1000.0), "radius_m": 450.0, "height_m": 12.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.13, "phase": 2.2}, {"frequency": 3, "amplitude": 0.1, "phase": 0.4},
-		]}, # distant rise on the attacker's approach, far east
-		{"center_m": Vector2(2600.0, 3100.0), "radius_m": 400.0, "height_m": 10.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.14, "phase": 0.7}, {"frequency": 2, "amplitude": 0.12, "phase": 2.1},
-		]}, # southern farmland rise
-		{"center_m": Vector2(2200.0, 300.0), "radius_m": 380.0, "height_m": 9.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.15, "phase": 1.5}, {"frequency": 3, "amplitude": 0.09, "phase": 3.0},
-		]}, # northern farmland rise
-		{"center_m": Vector2(-1100.0, 2300.0), "radius_m": 340.0, "height_m": 9.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.14, "phase": 2.6}, {"frequency": 3, "amplitude": 0.11, "phase": 0.8},
-		]}, # deeper west-flank rise, rear area
+		{"center_m": Vector2(1600.0, 1850.0), "radius_m": 380.0, "height_m": 7.6, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 5.5},
+			{"frequency": 3, "amplitude": 0.07, "phase": 2.7},
+		]},
+		{"center_m": Vector2(900.0, 1350.0), "radius_m": 260.0, "height_m": 12.8, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.10, "phase": 2.1},
+			{"frequency": 3, "amplitude": 0.09, "phase": 6.1},
+		]},
+		{"center_m": Vector2(1000.0, 2750.0), "radius_m": 180.0, "height_m": 16.3, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 2.5},
+			{"frequency": 4, "amplitude": 0.08, "phase": 3.8},
+		]},
+		{"center_m": Vector2(2100.0, 750.0), "radius_m": 550.0, "height_m": 14.7, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 5.9},
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.4},
+		]},
+		{"center_m": Vector2(1900.0, 2850.0), "radius_m": 380.0, "height_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 4.0},
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.1},
+		]},
+		{"center_m": Vector2(3100.0, 2450.0), "radius_m": 800.0, "height_m": 23.6, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 3.6},
+			{"frequency": 4, "amplitude": 0.09, "phase": 2.1},
+		]},
+		{"center_m": Vector2(-300.0, 1350.0), "radius_m": 380.0, "height_m": 22.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 6.1},
+			{"frequency": 2, "amplitude": 0.10, "phase": 6.1},
+		]},
+		{"center_m": Vector2(900.0, -150.0), "radius_m": 800.0, "height_m": 51.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 2.7},
+			{"frequency": 2, "amplitude": 0.07, "phase": 0.3},
+		]},
+		{"center_m": Vector2(2400.0, -150.0), "radius_m": 380.0, "height_m": 15.7, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 5.4},
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.7},
+		]},
+		{"center_m": Vector2(3900.0, 1550.0), "radius_m": 380.0, "height_m": 12.4, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 2.7},
+			{"frequency": 3, "amplitude": 0.09, "phase": 1.9},
+		]},
+		{"center_m": Vector2(-1200.0, 1550.0), "radius_m": 380.0, "height_m": 11.8, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 2.2},
+			{"frequency": 4, "amplitude": 0.07, "phase": 2.0},
+		]},
+		{"center_m": Vector2(-900.0, 350.0), "radius_m": 550.0, "height_m": 37.7, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 5.1},
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.7},
+		]},
+		{"center_m": Vector2(3900.0, -150.0), "radius_m": 1200.0, "height_m": 59.7, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 4.2},
+			{"frequency": 4, "amplitude": 0.09, "phase": 2.3},
+		]},
+		{"center_m": Vector2(4900.0, 850.0), "radius_m": 260.0, "height_m": 20.1, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 4.7},
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.7},
+		]},
+		{"center_m": Vector2(5200.0, 1850.0), "radius_m": 550.0, "height_m": 42.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 5.8},
+			{"frequency": 4, "amplitude": 0.09, "phase": 6.0},
+		]},
+		{"center_m": Vector2(5000.0, 3150.0), "radius_m": 380.0, "height_m": 20.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 5.0},
+			{"frequency": 4, "amplitude": 0.07, "phase": 4.3},
+		]},
 	],
 
-	# The real complex the coordinates land on, a smaller outbuilding just
-	# south of it, and the residential streets north of both — three
-	# separate, axis-aligned footprints rather than one shape standing in
-	# for the whole settlement, matching how the source imagery actually
-	# shows three distinct built-up clusters, not one continuous one.
+	## Building blocks aggregated from real footprints (OpenStreetMap, plus
+	## imagery detection where noted in the doc comment above).
 	"terrain_zones": [
-		{"rect": Rect2(1410.0 * PIXELS_PER_METER, 1685.0 * PIXELS_PER_METER, 180.0 * PIXELS_PER_METER, 130.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # the defended complex
-		{"rect": Rect2(1515.0 * PIXELS_PER_METER, 1840.0 * PIXELS_PER_METER, 50.0 * PIXELS_PER_METER, 40.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # smaller outbuilding, south of the complex
-		{"rect": Rect2(1295.0 * PIXELS_PER_METER, 1300.0 * PIXELS_PER_METER, 350.0 * PIXELS_PER_METER, 140.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING}, # Pishchane's residential streets, north of the complex
+		{"rect": Rect2(820.0 * PIXELS_PER_METER, 860.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(580.0 * PIXELS_PER_METER, 920.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 120.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(520.0 * PIXELS_PER_METER, 1040.0 * PIXELS_PER_METER, 120.0 * PIXELS_PER_METER, 120.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(640.0 * PIXELS_PER_METER, 920.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 120.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(640.0 * PIXELS_PER_METER, 1040.0 * PIXELS_PER_METER, 120.0 * PIXELS_PER_METER, 140.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(660.0 * PIXELS_PER_METER, 1180.0 * PIXELS_PER_METER, 120.0 * PIXELS_PER_METER, 40.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(780.0 * PIXELS_PER_METER, 1180.0 * PIXELS_PER_METER, 140.0 * PIXELS_PER_METER, 140.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(900.0 * PIXELS_PER_METER, 1000.0 * PIXELS_PER_METER, 80.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(760.0 * PIXELS_PER_METER, 1060.0 * PIXELS_PER_METER, 160.0 * PIXELS_PER_METER, 120.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(920.0 * PIXELS_PER_METER, 1180.0 * PIXELS_PER_METER, 160.0 * PIXELS_PER_METER, 140.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1160.0 * PIXELS_PER_METER, 1120.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 80.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(600.0 * PIXELS_PER_METER, 1420.0 * PIXELS_PER_METER, 40.0 * PIXELS_PER_METER, 80.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(860.0 * PIXELS_PER_METER, 1440.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 120.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1260.0 * PIXELS_PER_METER, 1700.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 160.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1360.0 * PIXELS_PER_METER, 1540.0 * PIXELS_PER_METER, 120.0 * PIXELS_PER_METER, 160.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1360.0 * PIXELS_PER_METER, 1700.0 * PIXELS_PER_METER, 120.0 * PIXELS_PER_METER, 120.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1480.0 * PIXELS_PER_METER, 1640.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1480.0 * PIXELS_PER_METER, 1700.0 * PIXELS_PER_METER, 120.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1000.0 * PIXELS_PER_METER, 1840.0 * PIXELS_PER_METER, 80.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1420.0 * PIXELS_PER_METER, 1840.0 * PIXELS_PER_METER, 80.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1660.0 * PIXELS_PER_METER, 2060.0 * PIXELS_PER_METER, 80.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1390.0 * PIXELS_PER_METER, 1320.0 * PIXELS_PER_METER, 105.0 * PIXELS_PER_METER, 110.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(925.0 * PIXELS_PER_METER, 1760.0 * PIXELS_PER_METER, 45.0 * PIXELS_PER_METER, 90.0 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
 	],
 
-	## See this dictionary's own doc comment above for why these are
-	## chains of small patches, not a few big ones: patches 1-6 trace the
-	## real ravine's tapering shape; 7-12 and 13-16 are two real steppe
-	## shelterbelt lines; 17-19 are village garden trees; 20-22 are single
-	## isolated copses filling the standard frame's wider margins.
+	## Patches traced from satellite imagery — see the doc comment: wooded
+	## blocks/thickets first, tree rows/shelterbelts after.
 	"forest_patches": [
-		{"center_m": Vector2(1750.0, 1330.0), "radius_m": 110.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.16, "phase": 0.5}, {"frequency": 3, "amplitude": 0.1, "phase": 2.2},
-		]}, # ravine head, widest point
-		{"center_m": Vector2(1780.0, 1410.0), "radius_m": 95.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.15, "phase": 1.4}, {"frequency": 2, "amplitude": 0.12, "phase": 2.8},
-		]}, # ravine, narrowing
-		{"center_m": Vector2(1760.0, 1490.0), "radius_m": 80.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.17, "phase": 2.5}, {"frequency": 4, "amplitude": 0.09, "phase": 0.6},
-		]}, # ravine, narrowing
-		{"center_m": Vector2(1700.0, 1560.0), "radius_m": 65.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.14, "phase": 0.8}, {"frequency": 2, "amplitude": 0.13, "phase": 2.3},
-		]}, # ravine, narrowing
-		{"center_m": Vector2(1630.0, 1620.0), "radius_m": 50.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.16, "phase": 1.9}, {"frequency": 3, "amplitude": 0.1, "phase": 0.3},
-		]}, # ravine tail, near the pond
-		{"center_m": Vector2(1560.0, 1670.0), "radius_m": 40.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.15, "phase": 2.7}, {"frequency": 2, "amplitude": 0.11, "phase": 0.9},
-		]}, # ravine tail, right at the pond by the complex
-		{"center_m": Vector2(3200.0, 900.0), "radius_m": 45.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.15, "phase": 0.4}, {"frequency": 3, "amplitude": 0.1, "phase": 2.1},
-		]}, # steppe shelterbelt, attacker's farmland
-		{"center_m": Vector2(3200.0, 990.0), "radius_m": 45.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.14, "phase": 1.2}, {"frequency": 2, "amplitude": 0.12, "phase": 2.6},
-		]}, # steppe shelterbelt, attacker's farmland
-		{"center_m": Vector2(3200.0, 1080.0), "radius_m": 45.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.16, "phase": 2.4}, {"frequency": 4, "amplitude": 0.08, "phase": 0.5},
-		]}, # steppe shelterbelt, attacker's farmland
-		{"center_m": Vector2(3200.0, 1170.0), "radius_m": 45.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.15, "phase": 0.7}, {"frequency": 2, "amplitude": 0.13, "phase": 2.9},
-		]}, # steppe shelterbelt, attacker's farmland
-		{"center_m": Vector2(3200.0, 1260.0), "radius_m": 45.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.17, "phase": 1.6}, {"frequency": 3, "amplitude": 0.09, "phase": 0.2},
-		]}, # steppe shelterbelt, attacker's farmland
-		{"center_m": Vector2(3200.0, 1350.0), "radius_m": 45.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.14, "phase": 2.3}, {"frequency": 2, "amplitude": 0.1, "phase": 0.7},
-		]}, # steppe shelterbelt, attacker's farmland
-		{"center_m": Vector2(4400.0, 1600.0), "radius_m": 40.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.15, "phase": 0.9}, {"frequency": 3, "amplitude": 0.1, "phase": 2.5},
-		]}, # second shelterbelt, near the attacker's spawn
-		{"center_m": Vector2(4400.0, 1690.0), "radius_m": 40.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.16, "phase": 1.7}, {"frequency": 2, "amplitude": 0.12, "phase": 0.3},
-		]}, # second shelterbelt, near the attacker's spawn
-		{"center_m": Vector2(4400.0, 1780.0), "radius_m": 40.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.14, "phase": 2.8}, {"frequency": 4, "amplitude": 0.09, "phase": 1.0},
-		]}, # second shelterbelt, near the attacker's spawn
-		{"center_m": Vector2(4400.0, 1870.0), "radius_m": 40.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.15, "phase": 0.4}, {"frequency": 2, "amplitude": 0.11, "phase": 2.0},
-		]}, # second shelterbelt, near the attacker's spawn
-		{"center_m": Vector2(1400.0, 1320.0), "radius_m": 25.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.18, "phase": 0.6}, {"frequency": 3, "amplitude": 0.1, "phase": 2.4},
-		]}, # household garden trees, village
-		{"center_m": Vector2(1550.0, 1300.0), "radius_m": 22.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.17, "phase": 1.3}, {"frequency": 2, "amplitude": 0.13, "phase": 2.9},
-		]}, # household garden trees, village
-		{"center_m": Vector2(1480.0, 1420.0), "radius_m": 28.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.16, "phase": 2.1}, {"frequency": 4, "amplitude": 0.08, "phase": 0.5},
-		]}, # household garden trees, village
-		{"center_m": Vector2(2600.0, 3100.0), "radius_m": 90.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.15, "phase": 2.6}, {"frequency": 2, "amplitude": 0.1, "phase": 1.0},
-		]}, # isolated copse, southern farmland
-		{"center_m": Vector2(2200.0, 300.0), "radius_m": 85.0, "warp_harmonics": [
-			{"frequency": 2, "amplitude": 0.14, "phase": 1.4}, {"frequency": 3, "amplitude": 0.12, "phase": 3.0},
-		]}, # isolated copse, northern farmland
-		{"center_m": Vector2(-1100.0, 2300.0), "radius_m": 70.0, "warp_harmonics": [
-			{"frequency": 3, "amplitude": 0.16, "phase": 1.8}, {"frequency": 2, "amplitude": 0.12, "phase": 0.3},
-		]}, # west flank copse, deeper rear
+		{"center_m": Vector2(1230.0, 1350.0), "radius_m": 65.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 1.7},
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1330.0, 1190.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 5.4},
+			{"frequency": 2, "amplitude": 0.10, "phase": 0.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1310.0, 1110.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 3.6},
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1110.0, 1090.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 1.7},
+			{"frequency": 2, "amplitude": 0.11, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(990.0, 2450.0), "radius_m": 65.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 0.1},
+			{"frequency": 4, "amplitude": 0.11, "phase": 3.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1050.0, 2490.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 6.2},
+			{"frequency": 4, "amplitude": 0.11, "phase": 0.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(650.0, 2070.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 0.6},
+			{"frequency": 4, "amplitude": 0.11, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(590.0, 1930.0), "radius_m": 73.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 4.0},
+			{"frequency": 2, "amplitude": 0.11, "phase": 0.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(570.0, 1850.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 5.6},
+			{"frequency": 4, "amplitude": 0.09, "phase": 1.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(670.0, 1310.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 5.4},
+			{"frequency": 3, "amplitude": 0.11, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(610.0, 2130.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 4.9},
+			{"frequency": 2, "amplitude": 0.10, "phase": 2.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(530.0, 1750.0), "radius_m": 65.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 3.2},
+			{"frequency": 3, "amplitude": 0.11, "phase": 4.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(570.0, 1470.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 2.5},
+			{"frequency": 4, "amplitude": 0.09, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(690.0, 2330.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 1.7},
+			{"frequency": 2, "amplitude": 0.10, "phase": 5.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(770.0, 1070.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 0.2},
+			{"frequency": 3, "amplitude": 0.09, "phase": 0.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(610.0, 2210.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 6.0},
+			{"frequency": 2, "amplitude": 0.11, "phase": 1.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(510.0, 1930.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 0.3},
+			{"frequency": 4, "amplitude": 0.11, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(490.0, 1690.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 3.7},
+			{"frequency": 4, "amplitude": 0.09, "phase": 4.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(510.0, 1490.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 5.5},
+			{"frequency": 4, "amplitude": 0.09, "phase": 4.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(850.0, 2550.0), "radius_m": 65.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 4.0},
+			{"frequency": 4, "amplitude": 0.10, "phase": 5.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(630.0, 2330.0), "radius_m": 54.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 0.4},
+			{"frequency": 4, "amplitude": 0.11, "phase": 4.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(450.0, 1530.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 5.8},
+			{"frequency": 2, "amplitude": 0.11, "phase": 4.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(410.0, 1830.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 0.8},
+			{"frequency": 4, "amplitude": 0.10, "phase": 3.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(670.0, 970.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 0.1},
+			{"frequency": 3, "amplitude": 0.09, "phase": 0.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(510.0, 2370.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 0.1},
+			{"frequency": 4, "amplitude": 0.10, "phase": 4.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(570.0, 1030.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 2.5},
+			{"frequency": 3, "amplitude": 0.11, "phase": 4.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(330.0, 1930.0), "radius_m": 111.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 4.7},
+			{"frequency": 4, "amplitude": 0.10, "phase": 4.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(430.0, 2410.0), "radius_m": 65.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 5.6},
+			{"frequency": 4, "amplitude": 0.12, "phase": 4.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(970.0, 2910.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 3.0},
+			{"frequency": 3, "amplitude": 0.09, "phase": 4.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(210.0, 1970.0), "radius_m": 107.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 3.4},
+			{"frequency": 4, "amplitude": 0.09, "phase": 1.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(350.0, 2410.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 4.0},
+			{"frequency": 2, "amplitude": 0.08, "phase": 1.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1930.0, 470.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 4.7},
+			{"frequency": 2, "amplitude": 0.09, "phase": 4.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(130.0, 1890.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 6.0},
+			{"frequency": 2, "amplitude": 0.08, "phase": 4.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(310.0, 2450.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 0.5},
+			{"frequency": 4, "amplitude": 0.11, "phase": 2.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(210.0, 2510.0), "radius_m": 65.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 3.6},
+			{"frequency": 4, "amplitude": 0.11, "phase": 0.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(130.0, 2530.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 4.2},
+			{"frequency": 4, "amplitude": 0.09, "phase": 3.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(70.0, 2550.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 0.8},
+			{"frequency": 4, "amplitude": 0.09, "phase": 0.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2110.0, 170.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 4.4},
+			{"frequency": 2, "amplitude": 0.09, "phase": 1.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2210.0, 170.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 2.8},
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1630.0, 10.0), "radius_m": 54.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 0.8},
+			{"frequency": 2, "amplitude": 0.11, "phase": 4.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-50.0, 2630.0), "radius_m": 73.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 6.1},
+			{"frequency": 2, "amplitude": 0.11, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-10.0, 2710.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 1.6},
+			{"frequency": 2, "amplitude": 0.09, "phase": 4.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-130.0, 2670.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 4.2},
+			{"frequency": 2, "amplitude": 0.09, "phase": 4.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2850.0, 330.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 3.9},
+			{"frequency": 2, "amplitude": 0.12, "phase": 6.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-630.0, 1870.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 2.8},
+			{"frequency": 2, "amplitude": 0.10, "phase": 2.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3430.0, 3030.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 4.9},
+			{"frequency": 2, "amplitude": 0.10, "phase": 3.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3470.0, 3070.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 3.2},
+			{"frequency": 4, "amplitude": 0.08, "phase": 5.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3610.0, 530.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 2.1},
+			{"frequency": 3, "amplitude": 0.08, "phase": 1.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3550.0, 3090.0), "radius_m": 65.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 5.3},
+			{"frequency": 2, "amplitude": 0.09, "phase": 3.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3550.0, 3170.0), "radius_m": 54.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 4.9},
+			{"frequency": 4, "amplitude": 0.10, "phase": 1.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3730.0, 530.0), "radius_m": 65.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 3.5},
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3710.0, 410.0), "radius_m": 46.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 5.6},
+			{"frequency": 2, "amplitude": 0.09, "phase": 1.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4130.0, 2090.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 4.4},
+			{"frequency": 2, "amplitude": 0.10, "phase": 4.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4170.0, 2210.0), "radius_m": 73.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 5.6},
+			{"frequency": 3, "amplitude": 0.10, "phase": 1.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4190.0, 2310.0), "radius_m": 73.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 3.7},
+			{"frequency": 3, "amplitude": 0.11, "phase": 6.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1350.0, 1450.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 2.3},
+			{"frequency": 2, "amplitude": 0.10, "phase": 3.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4290.0, 2490.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 3.5},
+			{"frequency": 3, "amplitude": 0.10, "phase": 2.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1370.0, 1390.0), "radius_m": 54.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 5.5},
+			{"frequency": 3, "amplitude": 0.08, "phase": 1.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1490.0, 2670.0), "radius_m": 54.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 4.4},
+			{"frequency": 2, "amplitude": 0.10, "phase": 5.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4670.0, 2910.0), "radius_m": 54.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 2.7},
+			{"frequency": 4, "amplitude": 0.08, "phase": 0.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1770.0, 1750.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.2},
+			{"frequency": 4, "amplitude": 0.05, "phase": 2.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1290.0, 1390.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 4.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 4.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1190.0, 1410.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.2},
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1150.0, 1430.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.6},
+			{"frequency": 2, "amplitude": 0.04, "phase": 5.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1530.0, 1270.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 1.1},
+			{"frequency": 4, "amplitude": 0.04, "phase": 4.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1510.0, 1230.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.1},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1110.0, 1370.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 5.2},
+			{"frequency": 3, "amplitude": 0.04, "phase": 2.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1470.0, 1170.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.4},
+			{"frequency": 3, "amplitude": 0.06, "phase": 6.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1270.0, 1190.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.1},
+			{"frequency": 4, "amplitude": 0.05, "phase": 1.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1450.0, 1130.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 4.3},
+			{"frequency": 2, "amplitude": 0.05, "phase": 2.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1410.0, 1130.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 5.0},
+			{"frequency": 4, "amplitude": 0.06, "phase": 3.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1090.0, 1270.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.6},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1050.0, 1250.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.7},
+			{"frequency": 3, "amplitude": 0.06, "phase": 0.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1470.0, 1070.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.9},
+			{"frequency": 2, "amplitude": 0.05, "phase": 4.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1190.0, 1130.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.06, "phase": 1.3},
+			{"frequency": 2, "amplitude": 0.06, "phase": 1.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1490.0, 1030.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.9},
+			{"frequency": 3, "amplitude": 0.05, "phase": 2.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(930.0, 1310.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.5},
+			{"frequency": 2, "amplitude": 0.04, "phase": 1.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1430.0, 1030.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 0.9},
+			{"frequency": 4, "amplitude": 0.05, "phase": 5.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(890.0, 1330.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 0.5},
+			{"frequency": 4, "amplitude": 0.05, "phase": 1.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(950.0, 1250.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.1},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1510.0, 990.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 4.3},
+			{"frequency": 4, "amplitude": 0.06, "phase": 5.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(770.0, 2010.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.3},
+			{"frequency": 4, "amplitude": 0.05, "phase": 2.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1150.0, 2470.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.8},
+			{"frequency": 2, "amplitude": 0.06, "phase": 3.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1550.0, 950.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.6},
+			{"frequency": 3, "amplitude": 0.06, "phase": 1.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(710.0, 1950.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.5},
+			{"frequency": 3, "amplitude": 0.05, "phase": 4.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1030.0, 1070.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 1.6},
+			{"frequency": 2, "amplitude": 0.04, "phase": 0.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(670.0, 1810.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 6.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(710.0, 2030.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 2.6},
+			{"frequency": 3, "amplitude": 0.06, "phase": 0.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1070.0, 1030.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 3.0},
+			{"frequency": 3, "amplitude": 0.04, "phase": 2.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1590.0, 910.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 2.0},
+			{"frequency": 4, "amplitude": 0.06, "phase": 1.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(670.0, 1930.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 5.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 2.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(730.0, 1390.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.1},
+			{"frequency": 2, "amplitude": 0.05, "phase": 3.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(650.0, 1770.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.9},
+			{"frequency": 4, "amplitude": 0.05, "phase": 5.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(750.0, 1310.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 0.6},
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(770.0, 1270.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 1.4},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(630.0, 1830.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 2.9},
+			{"frequency": 2, "amplitude": 0.05, "phase": 6.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(650.0, 1990.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 2.0},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(690.0, 1370.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 0.4},
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(610.0, 1610.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 6.2},
+			{"frequency": 4, "amplitude": 0.04, "phase": 1.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1010.0, 990.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 4.7},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1630.0, 850.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 3.8},
+			{"frequency": 4, "amplitude": 0.04, "phase": 1.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(670.0, 2130.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 4.4},
+			{"frequency": 4, "amplitude": 0.06, "phase": 5.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(590.0, 1670.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 2.2},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(910.0, 2450.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 1.9},
+			{"frequency": 4, "amplitude": 0.05, "phase": 0.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(630.0, 1450.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 2.3},
+			{"frequency": 3, "amplitude": 0.05, "phase": 0.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(970.0, 970.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.2},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(590.0, 2010.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.2},
+			{"frequency": 2, "amplitude": 0.05, "phase": 3.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1650.0, 810.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.1},
+			{"frequency": 3, "amplitude": 0.06, "phase": 2.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(550.0, 1590.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.4},
+			{"frequency": 3, "amplitude": 0.05, "phase": 3.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(570.0, 2050.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 0.1},
+			{"frequency": 2, "amplitude": 0.05, "phase": 5.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(830.0, 2470.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 4.7},
+			{"frequency": 3, "amplitude": 0.06, "phase": 1.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(510.0, 1830.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 5.4},
+			{"frequency": 4, "amplitude": 0.06, "phase": 3.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(610.0, 1290.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 6.2},
+			{"frequency": 3, "amplitude": 0.05, "phase": 0.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(490.0, 1630.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.06, "phase": 3.3},
+			{"frequency": 4, "amplitude": 0.05, "phase": 3.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1730.0, 750.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 2.3},
+			{"frequency": 4, "amplitude": 0.04, "phase": 4.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(470.0, 1790.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 2.4},
+			{"frequency": 4, "amplitude": 0.05, "phase": 6.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(650.0, 1150.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 0.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 5.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(470.0, 1590.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 0.6},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(550.0, 2230.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.8},
+			{"frequency": 2, "amplitude": 0.05, "phase": 3.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1270.0, 710.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 3.3},
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1750.0, 710.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 4.6},
+			{"frequency": 2, "amplitude": 0.04, "phase": 0.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(570.0, 2350.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.8},
+			{"frequency": 3, "amplitude": 0.06, "phase": 5.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(550.0, 1170.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 1.3},
+			{"frequency": 4, "amplitude": 0.04, "phase": 6.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(510.0, 1210.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.8},
+			{"frequency": 3, "amplitude": 0.06, "phase": 0.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1230.0, 650.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.0},
+			{"frequency": 2, "amplitude": 0.06, "phase": 3.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1770.0, 650.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 4.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 2.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(430.0, 1190.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 3.9},
+			{"frequency": 4, "amplitude": 0.05, "phase": 3.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1850.0, 590.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 4.3},
+			{"frequency": 4, "amplitude": 0.06, "phase": 4.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1870.0, 550.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 6.0},
+			{"frequency": 3, "amplitude": 0.04, "phase": 0.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1010.0, 2950.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 4.2},
+			{"frequency": 3, "amplitude": 0.06, "phase": 3.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1890.0, 510.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 1.9},
+			{"frequency": 3, "amplitude": 0.06, "phase": 0.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(830.0, 630.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.7},
+			{"frequency": 2, "amplitude": 0.06, "phase": 0.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1970.0, 430.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.5},
+			{"frequency": 4, "amplitude": 0.05, "phase": 0.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(230.0, 2370.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.3},
+			{"frequency": 2, "amplitude": 0.06, "phase": 0.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(250.0, 2450.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 1.9},
+			{"frequency": 3, "amplitude": 0.06, "phase": 0.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(90.0, 2050.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.5},
+			{"frequency": 4, "amplitude": 0.04, "phase": 3.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1990.0, 390.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.7},
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2670.0, 850.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 4.8},
+			{"frequency": 2, "amplitude": 0.05, "phase": 5.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(50.0, 2070.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.8},
+			{"frequency": 2, "amplitude": 0.06, "phase": 4.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2010.0, 350.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.7},
+			{"frequency": 2, "amplitude": 0.06, "phase": 1.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2690.0, 810.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.9},
+			{"frequency": 3, "amplitude": 0.05, "phase": 3.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2050.0, 330.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 3.7},
+			{"frequency": 4, "amplitude": 0.05, "phase": 2.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(-10.0, 2090.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 2.9},
+			{"frequency": 3, "amplitude": 0.06, "phase": 5.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2090.0, 290.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 5.6},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(30.0, 2390.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 1.2},
+			{"frequency": 4, "amplitude": 0.06, "phase": 3.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2750.0, 730.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.4},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2110.0, 250.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 3.0},
+			{"frequency": 4, "amplitude": 0.06, "phase": 1.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(-90.0, 2110.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.4},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(-10.0, 2410.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 0.5},
+			{"frequency": 3, "amplitude": 0.04, "phase": 4.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2150.0, 230.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.5},
+			{"frequency": 2, "amplitude": 0.05, "phase": 1.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1890.0, 110.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.7},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2050.0, 150.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.06, "phase": 6.1},
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2010.0, 130.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.0},
+			{"frequency": 4, "amplitude": 0.05, "phase": 3.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1750.0, 70.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.3},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1950.0, 110.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.4},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1810.0, 70.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 0.4},
+			{"frequency": 2, "amplitude": 0.06, "phase": 1.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2810.0, 650.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 1.4},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(-170.0, 2130.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 6.0},
+			{"frequency": 3, "amplitude": 0.06, "phase": 5.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1710.0, 50.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.4},
+			{"frequency": 2, "amplitude": 0.05, "phase": 5.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2330.0, 250.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 5.3},
+			{"frequency": 2, "amplitude": 0.06, "phase": 0.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2290.0, 210.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.7},
+			{"frequency": 2, "amplitude": 0.05, "phase": 3.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(1570.0, 10.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 4.1},
+			{"frequency": 2, "amplitude": 0.06, "phase": 4.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2350.0, 210.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.4},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2430.0, 230.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 0.9},
+			{"frequency": 4, "amplitude": 0.06, "phase": 1.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2550.0, 310.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 3.6},
+			{"frequency": 2, "amplitude": 0.06, "phase": 0.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2530.0, 290.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.2},
+			{"frequency": 4, "amplitude": 0.05, "phase": 2.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2230.0, 110.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 2.5},
+			{"frequency": 2, "amplitude": 0.05, "phase": 2.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2870.0, 570.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 3.5},
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2510.0, 250.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 2.4},
+			{"frequency": 2, "amplitude": 0.05, "phase": 5.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(990.0, 10.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.9},
+			{"frequency": 2, "amplitude": 0.06, "phase": 3.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2690.0, 350.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 4.8},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2590.0, 270.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 3.7},
+			{"frequency": 3, "amplitude": 0.05, "phase": 3.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2250.0, 70.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 2.1},
+			{"frequency": 2, "amplitude": 0.05, "phase": 1.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2650.0, 290.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.4},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2910.0, 530.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 0.1},
+			{"frequency": 3, "amplitude": 0.05, "phase": 4.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2710.0, 310.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 0.5},
+			{"frequency": 4, "amplitude": 0.05, "phase": 2.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2290.0, 30.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 4.3},
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2770.0, 330.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.06, "phase": 3.7},
+			{"frequency": 4, "amplitude": 0.05, "phase": 3.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2930.0, 490.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.4},
+			{"frequency": 2, "amplitude": 0.06, "phase": 6.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2910.0, 390.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.6},
+			{"frequency": 4, "amplitude": 0.04, "phase": 5.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2910.0, 350.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 0.2},
+			{"frequency": 4, "amplitude": 0.06, "phase": 5.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2970.0, 370.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 1.1},
+			{"frequency": 4, "amplitude": 0.06, "phase": 4.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2870.0, 270.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.1},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3010.0, 390.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 0.5},
+			{"frequency": 4, "amplitude": 0.04, "phase": 2.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2910.0, 230.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 0.7},
+			{"frequency": 3, "amplitude": 0.06, "phase": 3.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3070.0, 390.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 2.4},
+			{"frequency": 4, "amplitude": 0.05, "phase": 1.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3130.0, 410.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.0},
+			{"frequency": 4, "amplitude": 0.06, "phase": 1.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3190.0, 430.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 0.8},
+			{"frequency": 3, "amplitude": 0.06, "phase": 4.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(2970.0, 150.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.5},
+			{"frequency": 3, "amplitude": 0.05, "phase": 3.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3270.0, 450.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.6},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3010.0, 110.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.8},
+			{"frequency": 4, "amplitude": 0.05, "phase": 2.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3330.0, 470.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 1.1},
+			{"frequency": 2, "amplitude": 0.05, "phase": 2.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3030.0, 70.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 3.6},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3390.0, 470.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 5.9},
+			{"frequency": 3, "amplitude": 0.06, "phase": 0.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3430.0, 490.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 0.6},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3070.0, 30.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 2.9},
+			{"frequency": 3, "amplitude": 0.05, "phase": 3.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3510.0, 510.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 3.3},
+			{"frequency": 3, "amplitude": 0.06, "phase": 1.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3550.0, 530.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 1.7},
+			{"frequency": 3, "amplitude": 0.04, "phase": 6.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3830.0, 990.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 1.5},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3690.0, 590.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.5},
+			{"frequency": 2, "amplitude": 0.05, "phase": 5.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3630.0, 470.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 5.5},
+			{"frequency": 3, "amplitude": 0.06, "phase": 0.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3810.0, 630.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 0.3},
+			{"frequency": 2, "amplitude": 0.06, "phase": 4.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3790.0, 570.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 1.1},
+			{"frequency": 4, "amplitude": 0.05, "phase": 1.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3830.0, 590.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 5.8},
+			{"frequency": 3, "amplitude": 0.06, "phase": 3.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3810.0, 530.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 3.7},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3810.0, 490.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 2.5},
+			{"frequency": 4, "amplitude": 0.05, "phase": 2.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3730.0, 350.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.06, "phase": 0.9},
+			{"frequency": 4, "amplitude": 0.05, "phase": 0.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3770.0, 410.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 2.0},
+			{"frequency": 3, "amplitude": 0.05, "phase": 2.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3810.0, 430.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 5.4},
+			{"frequency": 2, "amplitude": 0.05, "phase": 4.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3750.0, 310.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.1},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3930.0, 610.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.4},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4210.0, 1790.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.0},
+			{"frequency": 4, "amplitude": 0.05, "phase": 3.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3990.0, 670.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 5.7},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.3},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3790.0, 270.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 2.2},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4010.0, 630.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 2.6},
+			{"frequency": 4, "amplitude": 0.06, "phase": 0.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3810.0, 230.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 4.9},
+			{"frequency": 4, "amplitude": 0.05, "phase": 0.1},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4270.0, 1730.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 5.0},
+			{"frequency": 3, "amplitude": 0.05, "phase": 3.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4070.0, 650.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.4},
+			{"frequency": 2, "amplitude": 0.05, "phase": 1.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3850.0, 190.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 2.4},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4150.0, 670.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.06, "phase": 6.2},
+			{"frequency": 2, "amplitude": 0.06, "phase": 6.2},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3890.0, 130.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.7},
+			{"frequency": 4, "amplitude": 0.04, "phase": 5.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3930.0, 70.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.4},
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4270.0, 690.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.5},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(3950.0, 30.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 5.1},
+			{"frequency": 4, "amplitude": 0.05, "phase": 1.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4310.0, 710.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 2.6},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4390.0, 730.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 2.1},
+			{"frequency": 2, "amplitude": 0.04, "phase": 1.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4470.0, 790.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 1.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 2.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4490.0, 750.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 5.9},
+			{"frequency": 2, "amplitude": 0.04, "phase": 5.5},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4550.0, 770.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.4},
+			{"frequency": 4, "amplitude": 0.06, "phase": 4.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4630.0, 790.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.07, "phase": 4.6},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4750.0, 1150.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 2.7},
+			{"frequency": 3, "amplitude": 0.05, "phase": 4.6},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4770.0, 1110.0), "radius_m": 40.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.3},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4710.0, 810.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 4.1},
+			{"frequency": 2, "amplitude": 0.04, "phase": 2.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4730.0, 870.0), "radius_m": 24.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 4.0},
+			{"frequency": 4, "amplitude": 0.05, "phase": 5.0},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4810.0, 1050.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 5.1},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.9},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4790.0, 830.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 3.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 5.7},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4870.0, 990.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 5.8},
+			{"frequency": 3, "amplitude": 0.05, "phase": 4.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4890.0, 950.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.6},
+			{"frequency": 4, "amplitude": 0.05, "phase": 5.4},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4870.0, 850.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.06, "phase": 4.3},
+			{"frequency": 3, "amplitude": 0.05, "phase": 0.8},
+		]}, # tree row / shelterbelt
+		{"center_m": Vector2(4950.0, 870.0), "radius_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.6},
+			{"frequency": 3, "amplitude": 0.06, "phase": 2.8},
+		]}, # tree row / shelterbelt
 	],
 
 	"road_width_m": 6.0,
-	# Runs diagonally (NW-SE) through the complex, not due east-west — see
-	# this dictionary's own doc comment for why that's reproduced as a
-	# y-drift instead of a compass rotation.
 	"road_waypoints_m": [
-		Vector2(750.0, 1900.0),
-		Vector2(1500.0, 1750.0), # the complex
-		Vector2(2200.0, 1610.0),
-		Vector2(2900.0, 1470.0),
-		Vector2(3600.0, 1330.0),
-		Vector2(4300.0, 1190.0),
-		Vector2(4900.0, 1070.0),
+		Vector2(4900.0, 904.0),
+		Vector2(2162.0, 204.0),
+		Vector2(1456.0, 1085.0),
+		Vector2(1564.0, 1362.0),
+		Vector2(1275.0, 1722.0),
+		Vector2(1031.0, 1775.0),
+		Vector2(952.0, 1732.0),
 	],
 
 	"player": {
 		"deployment_zone": Rect2(150.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 2200.0 * PIXELS_PER_METER, 3300.0 * PIXELS_PER_METER),
 		"mortar_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 1950.0 * PIXELS_PER_METER, 3400.0 * PIXELS_PER_METER),
 		"spotter_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 30.0 * PIXELS_PER_METER, 4940.0 * PIXELS_PER_METER, 3440.0 * PIXELS_PER_METER),
+		# Chosen by scanning the deployment area with the game's own
+		# has_direct_los/elevation model (siting.js): each squad the point
+		# within ~350m of the village that sees the most of the real road,
+		# clear of the road bed itself and of any building.
 		"default_squad_positions": [
-			Vector2(1320.0, 1780.0) * PIXELS_PER_METER,
-			Vector2(1460.0, 1870.0) * PIXELS_PER_METER,
-			Vector2(1610.0, 1690.0) * PIXELS_PER_METER,
+			Vector2(1589.0, 1655.0) * PIXELS_PER_METER,
+			Vector2(1548.0, 1558.0) * PIXELS_PER_METER,
+			Vector2(1689.0, 1672.0) * PIXELS_PER_METER,
 		],
-		# South of both the complex and its outbuilding, clear of either.
-		"mortar_default_position": Vector2(1300.0, 1950.0) * PIXELS_PER_METER,
-		# Actually inside the ravine's own tree cover (not just nearby —
-		# checked directly against forest_patches, not eyeballed), with a
-		# clear ~250m sightline down to the road.
-		"spotter_default_position": Vector2(1780.0, 1440.0) * PIXELS_PER_METER,
+		# The least-exposed point found within reach of the village — real
+		# flat-to-gently-rolling farmland has no spot hidden from a 5km
+		# road end to end, so this is the best available cover, not a
+		# guaranteed mask (same standard the mortar's own relocation logic
+		# already uses live). Clear of every building block.
+		"mortar_default_position": Vector2(992.0, 1885.0) * PIXELS_PER_METER,
+		# Inside a real tree patch, picked for the clearest sightline to
+		# the road among every patch within reach of the village.
+		"spotter_default_position": Vector2(1209.0, 1329.0) * PIXELS_PER_METER,
 	},
 
 	"enemy": {
@@ -549,13 +2367,13 @@ const MAPS: Dictionary = {
 		"squad_spread_min_offset_m": -260.0,
 		"squad_spread_max_offset_m": 260.0,
 		"mortar_rear_x_m": 4700.0, # 200m behind spawn_x, same offset as every other map
-		# Span widened from an original 500m to 1200m, then to 1600m (same
-		# 1100m center) — see the other map's own identical comment for
-		# the real citation (FM 7-90 Ch.6, up to 300m between separate
-		# firing positions) and why an exact 4-gaps-of-300m layout left no
-		# margin at ENEMY_MORTAR_COUNT_MAX.
-		"mortar_spread_min_y_m": 300.0,
-		"mortar_spread_max_y_m": 1900.0,
+		# 1600m span (or as much of it as fits the map's own height) centered
+		# on the road's own first waypoint — see the other maps' identical
+		# comment for the real citation (FM 7-90 Ch.6, up to 300m between
+		# separate firing positions) and why an exact 4-gaps-of-300m layout
+		# left no margin at ENEMY_MORTAR_COUNT_MAX.
+		"mortar_spread_min_y_m": 104.0,
+		"mortar_spread_max_y_m": 1704.0,
 		# Deep enough into the 1500m west flank to be a real flank, same
 		# 2/3-in proportion as every other map.
 		"flank_waypoint_x": -1000.0 * PIXELS_PER_METER,

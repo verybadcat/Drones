@@ -184,6 +184,7 @@ func test_mortar_with_persistent_target_still_relocates_and_keeps_fighting() -> 
 	# from the FIRST shot's own position is a direct, unconfoundable
 	# signature of genuine relocation actually happening BETWEEN
 	# engagements — the core claim under test.
+	var target_start_pos: Vector2 = enemy_mortar.global_position
 	var shot_positions: Array[Vector2] = []
 	var last_rounds: int = mortar.mortar_rounds_remaining
 	var ticks := 0
@@ -194,6 +195,23 @@ func test_mortar_with_persistent_target_still_relocates_and_keeps_fighting() -> 
 			if mortar.mortar_rounds_remaining < last_rounds:
 				shot_positions.append(mortar.global_position)
 				last_rounds = mortar.mortar_rounds_remaining
+		# crew_size=1000 above only rules out the target being DESTROYED
+		# (personnel never run out) — a real, separate crew-morale roll on
+		# being hit (_mortar_crew_holds_position, independent of remaining
+		# crew count) can still make it abandon the gun and walk off to
+		# WITHDRAWN. A fixed test seed makes this depend on exactly how many
+		# prior randf() draws happen elsewhere in the whole codebase before
+		# this roll — genuinely unrelated code changes have been observed to
+        # shift that count and flip this roll. Restoring the fixture the
+        # instant it stops being a stable, repeatable target keeps this
+        # test's own stated premise ("stays a live, repeatable target
+        # throughout") true by construction instead of by seed luck.
+		if is_instance_valid(enemy_mortar) and enemy_mortar.state != Unit.State.ACTIVE:
+			enemy_mortar.state = Unit.State.ACTIVE
+			enemy_mortar.global_position = target_start_pos
+			enemy_mortar.has_move_target = false
+			enemy_mortar.mortar_gun_abandoned = false
+			enemy_mortar.is_visible = true
 		ticks += 1
 
 	check(shot_positions.size() >= 2,

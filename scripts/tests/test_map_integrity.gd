@@ -117,14 +117,13 @@ func check_map(id: String) -> void:
 		check(_in_map(wp * GameConfig.PIXELS_PER_METER), tag + "road waypoint %s lies outside the map" % wp)
 	# BattleManager._spawn_enemy_units starts every squad at spawn_x, at the
 	# FIRST waypoint's y, and marches the list in order — so the list must
-	# run east to west. KNOWN EXCEPTION: pishchane's is listed west to east
-	# (found while adding svystunivka; its squads spawn at the road's west
-	# end's height instead of on the road) — left as-is here rather than
-	# silently changing the default map's behavior; drop this exception when
-	# that map's road is reversed.
-	if id != "pishchane":
-		check(is_equal_approx(road[0].x * GameConfig.PIXELS_PER_METER, m.enemy.spawn_x),
-			tag + "enemy spawn_x must equal the road's first waypoint x (the list must run east to west)")
+	# run east to west. Pishchane's used to be the one exception (listed west
+	# to east, found while adding Svystunivka; its squads spawned at the
+	# road's west end's height instead of on the road) — gone now that its
+	# road is the real one (rebuilt from real OSM data, genuinely east to
+	# west, 2026-09), so this check applies to every map without exception.
+	check(is_equal_approx(road[0].x * GameConfig.PIXELS_PER_METER, m.enemy.spawn_x),
+		tag + "enemy spawn_x must equal the road's first waypoint x (the list must run east to west)")
 	for off in [m.enemy.squad_spread_min_offset_m, m.enemy.squad_spread_max_offset_m]:
 		var y: float = road[0].y + off
 		check(y >= 0.0 and y <= m.height_m, tag + "an enemy squad spawn at road offset %.0f falls outside the map (y=%.0f)" % [off, y])
