@@ -418,6 +418,11 @@ func _clear_all() -> void:
 
 func _show_level_select() -> void:
 	_clear_all()
+	# No wind/precipitation readout while a scenario is being picked: this
+	# battle's weather is only rolled when deployment starts (_show_deployment),
+	# and the previous battle's must not linger here.
+	Weather.current = null
+	_map_hud_overlay.queue_redraw()
 
 	level_select_screen = LevelSelectScreen.new()
 	level_select_screen.mode_chosen.connect(_on_recon_mode_chosen)
