@@ -29,6 +29,37 @@ const DecisionRecorder = preload("res://scripts/decision_recorder.gd")
 const UnitDoctrine = preload("res://scripts/unit_doctrine.gd")
 const RiskForecast = preload("res://scripts/risk_forecast.gd")
 const UnitCombatStats = preload("res://scripts/unit_combat_stats.gd")
+
+## One of six real recordings plays at random for every mortar round fired
+## (see _play_mortar_fire_sound) — a single fixed sound would make a burst
+## of 3-4 rounds sound like the exact same shot copy-pasted. Not positional
+## (every AudioStreamPlayer here is plain, non-2D) and the same set plays
+## for both sides — direct user request: distance/side-awareness is a later
+## step, not part of this pass. Already well below the quietest of the six
+## original source recordings — see assets/audio/mortar_fire's own sourcing
+## note — so nothing here needs its own extra attenuation.
+const MORTAR_FIRE_SOUNDS: Array[AudioStream] = [
+	preload("res://assets/audio/mortar_fire/mortar_shot_1.wav"),
+	preload("res://assets/audio/mortar_fire/mortar_shot_2.wav"),
+	preload("res://assets/audio/mortar_fire/mortar_shot_3.wav"),
+	preload("res://assets/audio/mortar_fire/mortar_shot_4.wav"),
+	preload("res://assets/audio/mortar_fire/mortar_shot_5.wav"),
+	preload("res://assets/audio/mortar_fire/mortar_shot_6.wav"),
+]
+## A real burst fires every one of its rounds within the same tick (see
+## _tick_fire's own doc comment — "quick succession" at this timescale means
+## literally the same frame), and up to ENEMY_MORTAR_COUNT_MAX separate
+## mortars can each be mid-burst at once — a single AudioStreamPlayer would
+## cut its own previous shot off every time a second one landed in the same
+## tick. A small round-robin pool plays overlapping shots as overlapping
+## sounds instead, the ordinary fix for exactly this (a burst of gunfire,
+## not one shot at a time). Sized comfortably above the realistic worst case
+## (MORTAR_BURST_MAX_SHOTS rounds x a few mortars firing the same tick), not
+## the theoretical maximum every mortar on the map bursting at once.
+const MORTAR_FIRE_SOUND_POOL_SIZE: int = 12
+var _mortar_fire_sound_players: Array[AudioStreamPlayer] = []
+var _mortar_fire_sound_pool_index: int = 0
+
 var unit_type_doctrines := {Unit.Team.PLAYER: UnitDoctrine.sanitize({}), Unit.Team.ENEMY: UnitDoctrine.sanitize({})}
 var unit_combat_stats = UnitCombatStats.new()
 var _risk_holds: Dictionary = {}
@@ -978,6 +1009,22 @@ func _ready() -> void:
 	_terrain_layer.show_behind_parent = true
 	add_child(_terrain_layer)
 	move_child(_terrain_layer, 0)
+	for i in MORTAR_FIRE_SOUND_POOL_SIZE:
+		var player := AudioStreamPlayer.new()
+		add_child(player)
+		_mortar_fire_sound_players.append(player)
+
+
+## One round-robin player from the pool takes this shot's sound — cycling
+## through the whole pool (rather than always reusing whichever player is
+## currently free) means a shot fired well after the last one still varies
+## which player handles it, so a stuck/misbehaving player node can never
+## silently claim every shot.
+func _play_mortar_fire_sound() -> void:
+	var player: AudioStreamPlayer = _mortar_fire_sound_players[_mortar_fire_sound_pool_index]
+	_mortar_fire_sound_pool_index = (_mortar_fire_sound_pool_index + 1) % _mortar_fire_sound_players.size()
+	player.stream = MORTAR_FIRE_SOUNDS[randi() % MORTAR_FIRE_SOUNDS.size()]
+	player.play()
 
 
 func _spawn_enemy_units() -> void:
@@ -5466,6 +5513,7 @@ func _launch_mortar_shot(mortar: Unit, target: Unit) -> void:
 	_history_fire_events.append({
 		"from": mortar.global_position, "to": aim_point, "team": mortar.team, "time": scenario_elapsed_time, "is_mortar": true,
 	})
+	_play_mortar_fire_sound()
 	_seconds_since_last_shot = 0.0
 	# Firing is detectable (muzzle blast/trajectory) independent of whether
 	# the mortar is otherwise visually spotted — see
