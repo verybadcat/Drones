@@ -373,6 +373,12 @@ var elapsed_time: float = 0.0
 # 0600 (see clock_string()).
 var scenario_elapsed_time: float = 0.0
 var battle_over: bool = false
+## Set the instant _check_battle_end's stalemate branch is the one that
+## actually ended the battle (as opposed to one side being wiped out, or the
+## hard time limit) — see _end_battle's own use of this. Read directly by
+## characterize_doctrine.gd too, which recomputes the verdict independently
+## from the same public accessors rather than parsing the AAR text.
+var _ended_by_stalemate: bool = false
 # User-requested pause (see toggle_pause) — freezes the entire simulation
 # exactly where it stands: _process returns immediately, before either
 # clock advances or any tick logic runs, so nothing (movement, fire,
@@ -766,6 +772,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	elapsed_time = 0.0
 	scenario_elapsed_time = 0.0
 	battle_over = false
+	_ended_by_stalemate = false
 	is_paused = false
 	_fire_flashes.clear()
 	_mortar_impacts.clear()
@@ -7814,6 +7821,7 @@ func _check_battle_end() -> void:
 		_end_battle()
 	elif _seconds_since_last_shot >= STAGNATION_TIMEOUT and not _anyone_moving() and not _any_armed_mortar_remains():
 		combat_log.add_entry("--- Battle stalemated: no movement or fire for %ds ---" % int(STAGNATION_TIMEOUT))
+		_ended_by_stalemate = true
 		_end_battle()
 
 
@@ -8163,8 +8171,21 @@ func _end_battle() -> void:
 	var held: bool = _has_active_units(player_units)
 	var exchange_ratio: float = float(true_enemy_stats.pips_lost) / float(max(player_stats.pips_lost, 1))
 
+	# Direct user correction, from a real battle that ended via the stalemate
+	# timeout (_ended_by_stalemate): "I'm thinking that when that happens,
+	# the verdict should be 'STALEMATE'. It can then talk about losses...
+	# Don't say that the position was held, or that it was lost. Neither is
+	# true." A stalemate is neither side's forces being wiped out or driven
+	# off — held/exchange_ratio still describe the actual casualty picture
+	# correctly (a real, possibly favorable exchange, still worth reporting
+	# below), but "held"/"lost" as a RESULT is a claim about how the fight
+	# was decided, and a stalemate was never decided at all — checked first,
+	# ahead of the ordinary held/exchange_ratio branching, so it can never be
+	# read back as a defense or a defeat.
 	var verdict: String
-	if held and exchange_ratio >= 1.5:
+	if _ended_by_stalemate:
+		verdict = "STALEMATE"
+	elif held and exchange_ratio >= 1.5:
 		verdict = "SUCCESSFUL DEFENSE"
 	elif held:
 		verdict = "PYRRHIC DEFENSE"
@@ -8195,7 +8216,10 @@ func _end_battle() -> void:
 	var lines: PackedStringArray = []
 	lines.append("=== AFTER-ACTION REPORT ===")
 	lines.append("Verdict: %s" % verdict)
-	lines.append("%s held: %s" % [GameConfig.CURRENT_MAP.name, "YES" if held else "NO"])
+	if _ended_by_stalemate:
+		lines.append("%s: stalemate — neither side broke contact before the fight was called" % GameConfig.CURRENT_MAP.name)
+	else:
+		lines.append("%s held: %s" % [GameConfig.CURRENT_MAP.name, "YES" if held else "NO"])
 	if weather != null:
 		var weather_line: String = "Weather: %s, %d °C" % [weather.wind_label().replace("Wind", "wind"), roundi(weather.temperature_c)]
 		if weather.is_precipitating():

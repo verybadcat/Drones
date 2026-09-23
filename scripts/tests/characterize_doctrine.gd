@@ -133,8 +133,14 @@ func _run_one_trial(mode: GameConfig.ReconMode) -> Dictionary:
 	var true_enemy_stats: Dictionary = bm._compute_side_stats(bm.enemy_units)
 	var held: bool = bm._has_active_units(bm.player_units)
 	var exchange_ratio: float = float(true_enemy_stats.pips_lost) / float(max(player_stats.pips_lost, 1))
+	# Mirrors _end_battle's own _ended_by_stalemate check first, same reason:
+	# a stalemate was never decided one way or the other, so it must never
+	# fall into the held/exchange_ratio branching below (see BattleManager's
+	# own doc comment on this exact point).
 	var verdict: String
-	if held and exchange_ratio >= 1.5:
+	if bm._ended_by_stalemate:
+		verdict = "STALEMATE"
+	elif held and exchange_ratio >= 1.5:
 		verdict = "SUCCESSFUL DEFENSE"
 	elif held:
 		verdict = "PYRRHIC DEFENSE"
