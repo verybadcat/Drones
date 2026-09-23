@@ -114,6 +114,7 @@ func current_time() -> float:
 func casualty_pips_at_current_index(team: Unit.Team) -> Dictionary:
 	var pips_total := 0
 	var pips_lost := 0
+	var captured := 0
 	if not history.is_empty():
 		for u in history[current_index].units:
 			if u.team != team:
@@ -126,8 +127,9 @@ func casualty_pips_at_current_index(team: Unit.Team) -> Dictionary:
 			pips_lost += max_pips - pips
 			if u.state == Unit.State.SURRENDERED:
 				pips_lost += pips
+				captured += pips # same "captured is captured" fold-in as BattleManager._compute_side_stats
 	var casualty_percent: float = (float(pips_lost) / float(pips_total) * 100.0) if pips_total > 0 else 0.0
-	return {"pips_total": pips_total, "pips_lost": pips_lost, "casualty_percent": casualty_percent, "estimated": false}
+	return {"pips_total": pips_total, "pips_lost": pips_lost, "casualty_percent": casualty_percent, "estimated": false, "captured": captured}
 
 
 func _draw() -> void:

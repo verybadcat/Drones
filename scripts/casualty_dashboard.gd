@@ -191,10 +191,20 @@ func _refresh() -> void:
 ## qualifier so it never reads as an authoritative figure the way the
 ## player's own, always-fully-known casualty line does.
 func _update_side(stats: Dictionary, label: RichTextLabel, bar: ColorRect, side_name: String) -> void:
+	# `pips_lost` folds captured personnel in with real combat casualties
+	# (see _compute_side_stats's own doc comment on why: a surrendered
+	# unit's `pips` are never reduced by fire, so its whole remaining
+	# strength has to be added in explicitly, or it would look like it
+	# suffered nothing) — a direct, reported point of confusion, since
+	# nothing on this line said so ("How can we have taken 16 casualties
+	# when the damage by unit shows [7]?" — the other 9 were a surrendered
+	# squad). Only mentioned when it's actually nonzero — no "0 captured"
+	# noise on the ordinary battle that never has any.
+	var captured_suffix: String = ", %d captured" % stats.captured if stats.captured > 0 else ""
 	if stats.get("estimated", false):
-		label.text = "%s: ~%d/%d personnel lost (~%.0f%%)" % [side_name, stats.pips_lost, stats.pips_total, stats.casualty_percent]
+		label.text = "%s: ~%d/%d personnel lost (~%.0f%%%s)" % [side_name, stats.pips_lost, stats.pips_total, stats.casualty_percent, captured_suffix]
 	else:
-		label.text = "%s: %d/%d personnel lost (%.0f%%)" % [side_name, stats.pips_lost, stats.pips_total, stats.casualty_percent]
+		label.text = "%s: %d/%d personnel lost (%.0f%%%s)" % [side_name, stats.pips_lost, stats.pips_total, stats.casualty_percent, captured_suffix]
 	var frac: float = clamp(stats.casualty_percent / 100.0, 0.0, 1.0)
 	bar.size = Vector2(BAR_SIZE.x * frac, BAR_SIZE.y)
 
