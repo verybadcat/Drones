@@ -7757,9 +7757,26 @@ func _check_battle_end() -> void:
 	if _all_done_fighting(player_units) or _all_done_fighting(enemy_units) \
 			or scenario_elapsed_time >= GameConfig.BATTLE_TIME_LIMIT:
 		_end_battle()
-	elif _seconds_since_last_shot >= STAGNATION_TIMEOUT and not _anyone_moving():
+	elif _seconds_since_last_shot >= STAGNATION_TIMEOUT and not _anyone_moving() and not _any_armed_mortar_remains():
 		combat_log.add_entry("--- Battle stalemated: no movement or fire for %ds ---" % int(STAGNATION_TIMEOUT))
 		_end_battle()
+
+
+## Direct user correction, from a real battle: "the stalemate code must have
+## triggered... does the enemy still have a mortar? If the enemy has a
+## mortar, the stalemate should not trigger." STAGNATION_TIMEOUT's own doc
+## comment already assumed this ("e.g. both mortars gone") without the code
+## actually checking it — an ACTIVE mortar with rounds left can sit
+## perfectly still, holding fire (no target, conserving ammo, waiting out an
+## unknown-enemy-mortar hold), for far longer than 15 real seconds without
+## anything about the battle actually being decided: it can still fire the
+## instant a target or the hold-fire roll changes. True for either side, not
+## just the enemy — a player mortar with ammo left has the same standing.
+func _any_armed_mortar_remains() -> bool:
+	for u in player_units + enemy_units:
+		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE and u.mortar_rounds_remaining > 0:
+			return true
+	return false
 
 
 ## True if any unit on either side is currently trying to move — mid-retreat
