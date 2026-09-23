@@ -35,9 +35,15 @@ const UnitCombatStats = preload("res://scripts/unit_combat_stats.gd")
 ## of 3-4 rounds sound like the exact same shot copy-pasted. Not positional
 ## (every AudioStreamPlayer here is plain, non-2D) and the same set plays
 ## for both sides — direct user request: distance/side-awareness is a later
-## step, not part of this pass. Already well below the quietest of the six
-## original source recordings — see assets/audio/mortar_fire's own sourcing
-## note — so nothing here needs its own extra attenuation.
+## step, not part of this pass. The six files on disk are already well below
+## the quietest of the six original source recordings (see assets/audio/
+## mortar_fire's own sourcing note) — MORTAR_FIRE_SOUND_VOLUME_DB below is a
+## SEPARATE, further mix-level cut on top of that, applied at playback
+## rather than re-baked into the files, specifically so it's a one-constant
+## retune (direct user feedback: "I do hear it. But please make it
+## quieter.") rather than a whole re-export every time the in-game mix
+## needs adjusting.
+const MORTAR_FIRE_SOUND_VOLUME_DB: float = -10.0
 const MORTAR_FIRE_SOUNDS: Array[AudioStream] = [
 	preload("res://assets/audio/mortar_fire/mortar_shot_1.wav"),
 	preload("res://assets/audio/mortar_fire/mortar_shot_2.wav"),
@@ -1024,6 +1030,7 @@ func _play_mortar_fire_sound() -> void:
 	var player: AudioStreamPlayer = _mortar_fire_sound_players[_mortar_fire_sound_pool_index]
 	_mortar_fire_sound_pool_index = (_mortar_fire_sound_pool_index + 1) % _mortar_fire_sound_players.size()
 	player.stream = MORTAR_FIRE_SOUNDS[randi() % MORTAR_FIRE_SOUNDS.size()]
+	player.volume_db = MORTAR_FIRE_SOUND_VOLUME_DB
 	player.play()
 
 

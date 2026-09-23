@@ -3288,3 +3288,7 @@ Polled the just-ended battle's own debug snapshot directly: in that specific cas
 **Verified**: a direct smoke check confirms `.play()` genuinely engages under the headless dummy audio driver (all 12 pool players report `playing=true` after cycling through 20 shots) and the round-robin index wraps correctly. All 42 permanent regression suites pass — every one that builds a `BattleManager` now also builds the 12-player pool and preloads the six clips, so this is a real, exercised path, not vestigial. A full battle simulation with real burst fire shows no measurable per-tick cost change (4.8 ms/tick, in line with existing baselines).
 
 **Not done, by direct instruction**: positional/distance-based volume (a far-off mortar sounds the same as a near one for now) — left as a clearly scoped-out follow-up, not an oversight.
+
+### 2026-09-23 — Mortar fire sound turned down further
+
+*"I do hear it. But please make it quieter."* Added a second, separate cut on top of what's baked into the files: `BattleManager.MORTAR_FIRE_SOUND_VOLUME_DB` (−10 dB), applied via `AudioStreamPlayer.volume_db` at playback rather than by re-exporting the six clips again — a one-constant retune for whenever the in-game mix needs adjusting further, not a round trip through the audio pipeline each time. All 42 permanent regression suites still pass.
