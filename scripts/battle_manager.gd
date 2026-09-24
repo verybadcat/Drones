@@ -71,6 +71,30 @@ const MORTAR_FIRE_SOUND_POOL_SIZE: int = 12
 var _mortar_fire_sound_players: Array[AudioStreamPlayer] = []
 var _mortar_fire_sound_pool_index: int = 0
 
+## A bounded, JSON-native trace of every _play_mortar_fire_sound call — direct
+## user request after a real, inconsistent report ("sometimes I hear the
+## enemy mortar and sometimes I don't... it may have been because I increased
+## the speed during the retreat" — then, once told fast-forward and firing
+## are mutually exclusive by construction: "it was not just fast forward.
+## Try to give yourself any relevant visibility"). Nothing in the code read
+## so far explains an actual missed shot, so this exists to catch whatever
+## static reading can't: the exact real-world (Time.get_ticks_msec, not
+## scenario time) spacing between calls, whether a pool player was already
+## mid-clip when reused (a real, possible cause of an inaudible cut-off —
+## see MORTAR_FIRE_SOUND_POOL_SIZE's own doc comment on why bursts need the
+## pool at all), the tactical clock's pace and contact status at that exact
+## moment (to verify, not just assume, the fast-forward/firing exclusion
+## argued from _pick_target/is_targetable — an assumption is not the same as
+## a verified fact), and whether playback was skipped outright (the
+## _play_mortar_fire_sound's own is_inside_tree() guard, added for the
+## synchronous characterize_doctrine.gd harness — worth ruling in or out
+## directly rather than assumed impossible in live play). See mortar_audio_
+## debug_snapshot(). Capped generously above a realistic single battle's
+## total shot count (see MORTAR_DEBUG_HISTORY_LIMIT's own doc comment on why
+## a fixed entry count, not tactical time, is the right cap here too).
+var _mortar_audio_log: Array = []
+const MORTAR_AUDIO_LOG_LIMIT: int = 300
+
 var unit_type_doctrines := {Unit.Team.PLAYER: UnitDoctrine.sanitize({}), Unit.Team.ENEMY: UnitDoctrine.sanitize({})}
 var unit_combat_stats = UnitCombatStats.new()
 var _risk_holds: Dictionary = {}
@@ -1065,18 +1089,54 @@ func _build_mortar_fire_sound_pool() -> void:
 ## than the player's — `ENEMY_MORTAR_FIRE_SOUND_EXTRA_ATTENUATION_DB` on top
 ## of the shared base level, not a separate volume entirely, so a further
 ## overall retune still moves both sides together.
-func _play_mortar_fire_sound(team: Unit.Team) -> void:
+##
+## Takes the firing `mortar` itself, not just its team — see
+## _mortar_audio_log's own doc comment for why: every field logged here
+## (real-world timing, whether the pool player was already mid-clip, the
+## tactical clock's pace, contact status) needs the FULL calling context,
+## and a bare team enum couldn't carry any of it.
+func _play_mortar_fire_sound(mortar: Unit) -> void:
 	if _mortar_fire_sound_players.is_empty():
 		_build_mortar_fire_sound_pool()
 	var player: AudioStreamPlayer = _mortar_fire_sound_players[_mortar_fire_sound_pool_index]
 	_mortar_fire_sound_pool_index = (_mortar_fire_sound_pool_index + 1) % _mortar_fire_sound_players.size()
-	if not player.is_inside_tree():
+	var already_playing: bool = player.playing
+	var skipped: bool = not player.is_inside_tree()
+	var volume_db: float = MORTAR_FIRE_SOUND_VOLUME_DB
+	if mortar.team == Unit.Team.ENEMY:
+		volume_db += ENEMY_MORTAR_FIRE_SOUND_EXTRA_ATTENUATION_DB
+	_mortar_audio_log.append({
+		"mortar": mortar.display_name(),
+		"team": "player" if mortar.team == Unit.Team.PLAYER else "enemy",
+		"scenario_time": scenario_elapsed_time,
+		"real_msec": Time.get_ticks_msec(),
+		"volume_db": volume_db,
+		"pool_index": _mortar_fire_sound_pool_index,
+		"player_was_already_playing": already_playing,
+		"skipped_not_in_tree": skipped,
+		"time_scale": _current_time_scale(),
+		"any_contact": _any_contact(),
+	})
+	while _mortar_audio_log.size() > MORTAR_AUDIO_LOG_LIMIT:
+		_mortar_audio_log.pop_front()
+	if skipped:
 		return
 	player.stream = MORTAR_FIRE_SOUNDS[randi() % MORTAR_FIRE_SOUNDS.size()]
-	player.volume_db = MORTAR_FIRE_SOUND_VOLUME_DB
-	if team == Unit.Team.ENEMY:
-		player.volume_db += ENEMY_MORTAR_FIRE_SOUND_EXTRA_ATTENUATION_DB
+	player.volume_db = volume_db
 	player.play()
+
+
+## Public accessor for mortar-fire audio diagnostics — see _mortar_audio_
+## log's own doc comment for why this exists and what each field answers.
+## Same conventions as the other debug snapshots: both sides, unconditional,
+## written every frame regardless of any on-screen toggle (main.gd's own
+## _write_debug_snapshot).
+func mortar_audio_debug_snapshot() -> Dictionary:
+	return {
+		"pool_size": _mortar_fire_sound_players.size(),
+		"pool_index": _mortar_fire_sound_pool_index,
+		"log": _mortar_audio_log,
+	}
 
 
 func _spawn_enemy_units() -> void:
@@ -5572,7 +5632,7 @@ func _launch_mortar_shot(mortar: Unit, target: Unit) -> void:
 	_history_fire_events.append({
 		"from": mortar.global_position, "to": aim_point, "team": mortar.team, "time": scenario_elapsed_time, "is_mortar": true,
 	})
-	_play_mortar_fire_sound(mortar.team)
+	_play_mortar_fire_sound(mortar)
 	_seconds_since_last_shot = 0.0
 	# Firing is detectable (muzzle blast/trajectory) independent of whether
 	# the mortar is otherwise visually spotted — see

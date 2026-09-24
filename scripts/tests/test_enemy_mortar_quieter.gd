@@ -26,9 +26,12 @@ func run() -> void:
 	root.add_child(bm)
 	bm.set_process(false)
 
-	bm._play_mortar_fire_sound(Unit.Team.PLAYER)
+	var player_mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2.ZERO)
+	var enemy_mortar: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, Vector2.ZERO)
+
+	bm._play_mortar_fire_sound(player_mortar)
 	var player_vol: float = _last_played_volume(bm)
-	bm._play_mortar_fire_sound(Unit.Team.ENEMY)
+	bm._play_mortar_fire_sound(enemy_mortar)
 	var enemy_vol: float = _last_played_volume(bm)
 
 	check(is_equal_approx(player_vol, BattleManager.MORTAR_FIRE_SOUND_VOLUME_DB),

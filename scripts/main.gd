@@ -138,6 +138,14 @@ const UNIT_DEBUG_SNAPSHOT_PATH: String = "res://debug_state/unit_snapshot.json"
 # Conditions, drone hazard and drone weather counters (BattleManager.weather_debug_snapshot).
 const WEATHER_DEBUG_SNAPSHOT_PATH: String = "res://debug_state/weather_snapshot.json"
 
+# Every mortar-fire sound event, both sides (BattleManager.mortar_audio_
+# debug_snapshot) — a real, previously-reported gap: "sometimes I hear the
+# enemy mortar and sometimes I don't," where static reading of the firing/
+# fast-forward code couldn't fully account for what was seen. Real-world
+# timing (Time.get_ticks_msec, not scenario time) and pool-reuse state can
+# only be caught by watching it actually happen, not by reasoning about it.
+const MORTAR_AUDIO_DEBUG_SNAPSHOT_PATH: String = "res://debug_state/mortar_audio_snapshot.json"
+
 # Always present, in both the deployment and battle phases — not cleared by
 # _clear_all(). A real 5km map needs a frame of reference: this shows real
 # ground elevation under the cursor, and a fixed-length scale bar gives a
@@ -307,6 +315,7 @@ func _process(delta: float) -> void:
 		_write_debug_snapshot(MORTAR_DEBUG_SNAPSHOT_PATH, battle_manager.mortar_decision_debug_snapshot())
 		_write_debug_snapshot(UNIT_DEBUG_SNAPSHOT_PATH, battle_manager.general_unit_debug_snapshot())
 		_write_debug_snapshot(WEATHER_DEBUG_SNAPSHOT_PATH, battle_manager.weather_debug_snapshot())
+		_write_debug_snapshot(MORTAR_AUDIO_DEBUG_SNAPSHOT_PATH, battle_manager.mortar_audio_debug_snapshot())
 
 	# History playback: BattleHistoryViewer owns the actual time-advance
 	# logic (advance_playback); this just drives it every frame and keeps
