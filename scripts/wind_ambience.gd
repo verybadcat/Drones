@@ -22,11 +22,14 @@ extends Node
 ## less" are simply how far below the blowing file's native loudness the targets
 ## sit (about 7-13 dB, then about 1-3 dB).
 ##
-## Loops: each recording simply loops. The blowing one fades out to silence over
-## its last second and in over its first quarter-second, so it lulls briefly
-## every 42 s — deliberately left that way (user: "it's ok to have some silence
-## interspersed with the wind sound. Wind is not constant"). The recordings
-## themselves are used exactly as downloaded (see assets/audio/wind/SOURCES.md).
+## Loops: each recording simply loops (AmbientMixer, shared with RainAmbience). The
+## blowing one fades out to silence over its last second and in over its first
+## quarter-second, so it lulls briefly every 42 s — deliberately left that way
+## (user: "it's ok to have some silence interspersed with the wind sound. Wind is
+## not constant"). The recordings themselves are used exactly as downloaded (see
+## assets/audio/wind/SOURCES.md).
+
+const AmbientMixer = preload("res://scripts/ambient_mixer.gd")
 
 const SOFT_STREAM: AudioStreamMP3 = preload("res://assets/audio/wind/storegraphic-soft-wind-318856.mp3")
 const BLOWING_STREAM: AudioStreamMP3 = preload("res://assets/audio/wind/soundreality-wind-blowing-457954.mp3")
@@ -41,10 +44,7 @@ const BLOWING_FILE_LUFS: float = -30.2
 ## an enemy one — wind is a bed under the fight, not over it. JUDGMENT.
 const MASTER_TRIM_DB: float = -4.0
 
-const SILENT_DB: float = -60.0
-## How fast a level may move (dB per real second): fades in on the way into a
-## battle and follows the wind as it drifts, without ever jumping.
-const MAX_DB_PER_SECOND: float = 15.0
+const SILENT_DB: float = AmbientMixer.SILENT_DB
 
 const SOFT_MIN_MPS: int = 5
 const BLOWING_MIN_MPS: int = 8
@@ -60,10 +60,7 @@ const LOUDNESS_LUFS: Dictionary = {
 }
 const LOUDNESS_LUFS_CEILING_MPS: int = 15
 
-var _soft: AudioStreamPlayer
-var _blowing: AudioStreamPlayer
-var _soft_db: float = SILENT_DB
-var _blowing_db: float = SILENT_DB
+var _mixer: AmbientMixer
 var _target: Dictionary = {"soft_db": SILENT_DB, "blowing_db": SILENT_DB}
 
 
@@ -95,19 +92,10 @@ static func heard_loudness(wind_mps: float) -> float:
 
 
 func _ready() -> void:
-	_soft = _make_player(SOFT_STREAM)
-	_blowing = _make_player(BLOWING_STREAM)
-
-
-## A player for `stream` set to loop (on a copy: the preloaded resource is shared).
-func _make_player(stream: AudioStreamMP3) -> AudioStreamPlayer:
-	var looping: AudioStreamMP3 = stream.duplicate()
-	looping.loop = true
-	var player := AudioStreamPlayer.new()
-	player.stream = looping
-	player.volume_db = SILENT_DB
-	add_child(player)
-	return player
+	_mixer = AmbientMixer.new()
+	add_child(_mixer)
+	_mixer.add_layer("soft", SOFT_STREAM)
+	_mixer.add_layer("blowing", BLOWING_STREAM)
 
 
 ## Sets the wind to sound like (m/s at ground level; negative = none).
@@ -115,23 +103,6 @@ func set_wind(wind_mps: float) -> void:
 	_target = plan(wind_mps)
 
 
-func _process(delta: float) -> void:
-	var step: float = MAX_DB_PER_SECOND * delta
-	_soft_db = move_toward(_soft_db, _target.soft_db, step)
-	_blowing_db = move_toward(_blowing_db, _target.blowing_db, step)
-	if _soft != null:
-		_apply(_soft, _soft_db)
-		_apply(_blowing, _blowing_db)
-
-
-## Sets one player's level; stopped entirely while silent, and started at a
-## random point in the recording (a different stretch of wind each time) when it
-## becomes audible.
-func _apply(player: AudioStreamPlayer, level_db: float) -> void:
-	if level_db <= SILENT_DB + 0.5:
-		if player.playing:
-			player.stop()
-		return
-	if not player.playing:
-		player.play(randf() * player.stream.get_length())
-	player.volume_db = level_db
+func _process(_delta: float) -> void:
+	if _mixer != null:
+		_mixer.set_targets({"soft": _target.soft_db, "blowing": _target.blowing_db})

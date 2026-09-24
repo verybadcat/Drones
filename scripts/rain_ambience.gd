@@ -1,0 +1,103 @@
+class_name RainAmbience
+extends Node
+
+## The sound of rain, chosen by the weather's own rain class (Weather.
+## intensity_class, the same classes the map's weather block labels). Direct user
+## spec:
+##   below light rain (< 0.1 mm/h)   no sound
+##   light, light-moderate           the "gentle rain" recording, quieter than its
+##                                   own level in both cases, light-moderate louder
+##                                   than light
+##   moderate                        the "drizzle" recording
+##   heavy (above moderate)          the "rain sound" recording — but even that
+##                                   played quieter than the file as supplied
+## and "we want the total volume perceived by the user to increase the heavier the
+## rain is". Plays during deployment as well as the battle, like the wind (main.gd
+## drives it), and is silent on the level-select screen and once the battle is over.
+##
+## Only RAIN sounds like rain: sleet and snow (Weather.precip_type) make none.
+##
+## Same approach as WindAmbience, for the same reason: the recordings differ hugely
+## in native loudness (the "rain sound" is 15 LU louder than the other two), so each
+## class has a TARGET loudness (LOUDNESS_LUFS, rising with the class) and a layer's
+## gain is that target minus the recording's own measured loudness — the heard level
+## rises at every class boundary, and "quieter than supplied" is simply a target
+## below the recording's own level. The recordings are the first 30 seconds of the
+## files as downloaded (nothing else committed) and simply loop; see
+## assets/audio/rain/SOURCES.md.
+
+const AmbientMixer = preload("res://scripts/ambient_mixer.gd")
+
+const GENTLE_STREAM: AudioStreamMP3 = preload("res://assets/audio/rain/eryliaa-gentle-rain-for-relaxation-and-sleep-337279-first30s.mp3")
+const DRIZZLE_STREAM: AudioStreamMP3 = preload("res://assets/audio/rain/freesound_community-drizzle-4perspectives-23254-first30s.mp3")
+const HEAVY_STREAM: AudioStreamMP3 = preload("res://assets/audio/rain/boons_freak-rain-sound-188158-first30s.mp3")
+
+## Measured with ffmpeg's ebur128 filter (integrated loudness) on the 30-second
+## clips as committed.
+const GENTLE_FILE_LUFS: float = -36.7
+const DRIZZLE_FILE_LUFS: float = -37.3
+const HEAVY_FILE_LUFS: float = -21.4
+
+const SILENT_DB: float = AmbientMixer.SILENT_DB
+
+## Target heard loudness (LUFS) per rain class. Each is louder than the last; the
+## two gentle-rain classes sit 9 and 5 dB under that recording's own level, and the
+## heavy class 13 dB under the "rain sound"'s. JUDGMENT throughout (the ordering and
+## the "quieter" are the user's; the numbers are mine, set with the wind in mind — the
+## strongest wind is about -36 LUFS, a player mortar shot about -32 — so even heavy
+## rain is a bed under the fight, not over it).
+const LOUDNESS_LUFS: Dictionary = {
+	Weather.Intensity.LIGHT: -48.0,
+	Weather.Intensity.LIGHT_MODERATE: -44.0,
+	Weather.Intensity.MODERATE: -40.0,
+	Weather.Intensity.HEAVY: -34.0,
+}
+
+var _mixer: AmbientMixer
+var _target: Dictionary = {}
+
+
+## The gain (dB) each recording should have for this rain, SILENT_DB where it
+## should not be heard: {"gentle", "drizzle", "heavy"}. `intensity` is a Weather.
+## Intensity, `precip_type` a Weather.Precip.
+static func plan(intensity: int, precip_type: int) -> Dictionary:
+	var off := {"gentle": SILENT_DB, "drizzle": SILENT_DB, "heavy": SILENT_DB}
+	if precip_type != Weather.Precip.RAIN or not LOUDNESS_LUFS.has(intensity):
+		return off
+	var loudness: float = LOUDNESS_LUFS[intensity]
+	match intensity:
+		Weather.Intensity.LIGHT, Weather.Intensity.LIGHT_MODERATE:
+			return {"gentle": loudness - GENTLE_FILE_LUFS, "drizzle": SILENT_DB, "heavy": SILENT_DB}
+		Weather.Intensity.MODERATE:
+			return {"gentle": SILENT_DB, "drizzle": loudness - DRIZZLE_FILE_LUFS, "heavy": SILENT_DB}
+	return {"gentle": SILENT_DB, "drizzle": SILENT_DB, "heavy": loudness - HEAVY_FILE_LUFS}
+
+
+## The loudness actually heard for this rain (LUFS), or -INF for silence.
+static func heard_loudness(intensity: int, precip_type: int) -> float:
+	var p: Dictionary = plan(intensity, precip_type)
+	if p.gentle > SILENT_DB:
+		return p.gentle + GENTLE_FILE_LUFS
+	if p.drizzle > SILENT_DB:
+		return p.drizzle + DRIZZLE_FILE_LUFS
+	if p.heavy > SILENT_DB:
+		return p.heavy + HEAVY_FILE_LUFS
+	return -INF
+
+
+func _ready() -> void:
+	_mixer = AmbientMixer.new()
+	add_child(_mixer)
+	_mixer.add_layer("gentle", GENTLE_STREAM)
+	_mixer.add_layer("drizzle", DRIZZLE_STREAM)
+	_mixer.add_layer("heavy", HEAVY_STREAM)
+
+
+## Sets the rain to sound like: a Weather.Intensity and Weather.Precip.
+func set_rain(intensity: int, precip_type: int) -> void:
+	_target = plan(intensity, precip_type)
+
+
+func _process(_delta: float) -> void:
+	if _mixer != null:
+		_mixer.set_targets(_target)

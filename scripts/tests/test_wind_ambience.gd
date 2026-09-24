@@ -25,6 +25,11 @@ func heard(p: Dictionary) -> Array:
 		out.append("blowing")
 	return out
 
+## One frame of the node and its mixer, as the engine would run them.
+func step(wind, dt: float) -> void:
+	wind._process(dt)
+	wind._mixer._process(dt)
+
 func run() -> void:
 	test_the_bands()
 	test_the_level_only_rises_with_the_wind()
@@ -77,27 +82,28 @@ func test_rounding_and_gusts() -> void:
 	check(WindAmbience.plan(4.6) == WindAmbience.plan(5.0), "4.6 m/s reads as 5: soft wind")
 	check(WindAmbience.plan(7.4) == WindAmbience.plan(7.0) and WindAmbience.plan(7.6) == WindAmbience.plan(8.0), "The soft/blowing switch is at 7.5, like the HUD's rounding")
 	var main_src := FileAccess.get_file_as_string("res://scripts/main.gd")
-	check("wind_ambience.set_wind(Weather.current.wind_speed_10m" in main_src, "main.gd feeds it the ground-level wind_speed_10m")
+	check("wind_ambience.set_wind(Weather.current.wind_speed_10m if weather_audible" in main_src, "main.gd feeds it the ground-level wind_speed_10m")
 	check(not ("WIND_GUST_RATIO_PEAK" in FileAccess.get_file_as_string("res://scripts/wind_ambience.gd")), "Gusts appear nowhere in the wind sound")
-	check("Weather.current != null and not (battle_manager != null and battle_manager.battle_over)" in main_src, "It sounds from deployment (weather rolled) until the battle is over, and not on the level-select screen")
+	check("var weather_audible: bool = Weather.current != null and not (battle_manager != null and battle_manager.battle_over)" in main_src, "It sounds from deployment (weather rolled) until the battle is over, and not on the level-select screen")
 
 
 func test_the_node_fades_in_and_out() -> void:
 	var wind := WindAmbience.new()
 	root.add_child(wind)
+	var mixer = wind._mixer
 	wind.set_wind(10.0)
-	wind._process(0.1)
-	check(wind._blowing_db < WindAmbience.plan(10.0).blowing_db, "It fades in, it doesn't jump (%.1f dB after 0.1 s)" % wind._blowing_db)
-	wind._process(30.0)
-	check(is_equal_approx(wind._blowing_db, WindAmbience.plan(10.0).blowing_db) and wind._blowing.playing, "10 m/s: the blowing recording is playing at its level")
-	check(not wind._soft.playing and wind._soft_db <= WindAmbience.SILENT_DB + 0.5, "...and the soft one is not")
+	step(wind, 0.1)
+	check(mixer.level_db("blowing") < WindAmbience.plan(10.0).blowing_db, "It fades in, it doesn't jump (%.1f dB after 0.1 s)" % mixer.level_db("blowing"))
+	step(wind, 30.0)
+	check(is_equal_approx(mixer.level_db("blowing"), WindAmbience.plan(10.0).blowing_db) and mixer.is_playing("blowing"), "10 m/s: the blowing recording is playing at its level")
+	check(not mixer.is_playing("soft") and mixer.level_db("soft") <= WindAmbience.SILENT_DB + 0.5, "...and the soft one is not")
 	wind.set_wind(6.0)
-	wind._process(30.0)
-	check(wind._soft.playing and not wind._blowing.playing, "Dropping to 6 m/s switches to the soft recording")
+	step(wind, 30.0)
+	check(mixer.is_playing("soft") and not mixer.is_playing("blowing"), "Dropping to 6 m/s switches to the soft recording")
 	wind.set_wind(2.0)
-	wind._process(30.0)
-	check(not wind._soft.playing and not wind._blowing.playing, "Dropping to 2 m/s: silence, both stopped")
-	check(wind._soft.stream.loop and wind._blowing.stream.loop, "Both recordings loop")
+	step(wind, 30.0)
+	check(not mixer.is_playing("soft") and not mixer.is_playing("blowing"), "Dropping to 2 m/s: silence, both stopped")
+	check(mixer.loops("soft") and mixer.loops("blowing"), "Both recordings loop")
 	wind.free()
 
 
