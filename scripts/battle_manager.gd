@@ -21,6 +21,9 @@ signal battle_ended(report_text: String)
 ## opens the mortar orders panel for it.
 signal mortar_selected(mortar: Unit)
 
+## Printed at the top of every after-action report.
+const AFTER_ACTION_REPORT_DISCLAIMER := "This report details higher command's assessment of enemy casualties. It may or may not match reality."
+
 const FLASH_DURATION: float = 0.3
 ## How long a mortar-impact burst stays on screen — real elapsed seconds,
 ## same convention as FLASH_DURATION but deliberately longer: a shell
@@ -8704,6 +8707,11 @@ func _end_battle() -> void:
 
 	var lines: PackedStringArray = []
 	lines.append("=== AFTER-ACTION REPORT ===")
+	# Direct user request: say up top that the enemy casualty figures below are
+	# higher command's assessment, not ground truth (the score, by contrast, is
+	# computed from the true results).
+	lines.append(AFTER_ACTION_REPORT_DISCLAIMER)
+	lines.append("")
 	lines.append("Verdict: %s" % verdict)
 	if _ended_by_stalemate:
 		lines.append("%s: stalemate — neither side broke contact before the fight was called" % GameConfig.CURRENT_MAP.name)

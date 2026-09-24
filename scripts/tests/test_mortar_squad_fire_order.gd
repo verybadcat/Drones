@@ -314,7 +314,16 @@ func test_panel_reflects_and_sets_the_order() -> void:
 	panel._reposition()
 	check(area.encloses(Rect2(panel.position, panel.size)), "The card stays inside the map near the top edge")
 
-	# Nothing but the order in it: no status text, no close button.
+	# The little x closes it too, and leaves the order standing.
+	panel._close_button.pressed.emit()
+	check(not panel.visible, "The x dismisses the card")
+	check(bm.mortar_squad_fire_ordered(mortar), "Closing with the x must not change the order")
+	bm.handle_click(mortar.global_position)
+	check(panel.visible, "The card reopens after being closed with the x")
+	mortar.global_position = Vector2(300, 300)
+	panel._reposition()
+
+	# Nothing but the order in it (and the x): no status text, no note.
 	var buttons := 0
 	var labels := []
 	var stack: Array = [panel]
@@ -326,7 +335,7 @@ func test_panel_reflects_and_sets_the_order() -> void:
 			buttons += 1
 		elif n is Label:
 			labels.append(n.text)
-	check(buttons == 1, "The card holds just the one order switch (found %d buttons)" % buttons)
+	check(buttons == 2, "The card holds just the order switch and the x (found %d buttons)" % buttons)
 	check(labels.size() == 2, "Only a heading and the order's name (found %s)" % str(labels))
 
 	bm.battle_over = true

@@ -223,6 +223,10 @@ func test_report_has_three_tabs_in_order() -> void:
 	var report_text: String = report_body(main)
 	check("=== AFTER-ACTION REPORT ===" in report_text and "Verdict:" in report_text, "The After Action Report tab is the report it always was")
 	check(("Battle score: %s" % BattleScore.format(score)) in report_text, "...still carrying its own score line, unchanged")
+	var report_lines: PackedStringArray = report_text.split("
+")
+	check(report_lines[1] == "This report details higher command's assessment of enemy casualties. It may or may not match reality.", "The report opens with the note that its enemy casualty figures are higher command's assessment (got %s)" % report_lines[1])
+	check(report_text.count("may or may not match reality") == 1, "...stated once")
 	score_tab.pressed.emit()
 	check(report_body(main) == body, "Switching back to Score restores it")
 

@@ -3,7 +3,7 @@ extends PanelContainer
 
 ## The commander's orders card for a friendly mortar. Clicking the mortar on
 ## the map pops it up beside the mortar (BattleManager.mortar_selected);
-## clicking the mortar again dismisses it. It follows the mortar if the crew
+## clicking the mortar again (or its small x) dismisses it. It follows the mortar if the crew
 ## moves, and holds only the orders that can be given: today, the standing
 ## "expend ammo on enemy squads" order (BattleManager.set_mortar_squad_fire_order).
 ## The switch always mirrors the battle manager's own state, so an order changed
@@ -24,6 +24,7 @@ var mortar: Unit
 var _map_viewport: SubViewport
 var _map_rect: Rect2
 var _order_switch: CheckButton
+var _close_button: Button
 var _order_label: Label
 var _syncing := false
 var _card_on_right := true
@@ -45,8 +46,8 @@ func setup(bm: BattleManager, map_viewport: SubViewport, map_rect: Rect2) -> voi
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(8)
 	style.content_margin_left = 14
-	style.content_margin_right = 10
-	style.content_margin_top = 9
+	style.content_margin_right = 8
+	style.content_margin_top = 6
 	style.content_margin_bottom = 10
 	style.shadow_color = Color(0, 0, 0, 0.45)
 	style.shadow_size = 6
@@ -57,11 +58,34 @@ func setup(bm: BattleManager, map_viewport: SubViewport, map_rect: Rect2) -> voi
 	box.add_theme_constant_override("separation", 4)
 	add_child(box)
 
+	var header := HBoxContainer.new()
+	box.add_child(header)
 	var heading := Label.new()
 	heading.text = "ORDERS"
 	heading.add_theme_font_size_override("font_size", 11)
 	heading.add_theme_color_override("font_color", HEADING_COLOR)
-	box.add_child(heading)
+	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	heading.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	header.add_child(heading)
+
+	# A small flat "x" in the corner, alongside clicking the mortar again.
+	_close_button = Button.new()
+	_close_button.text = "×"
+	_close_button.flat = true
+	_close_button.focus_mode = Control.FOCUS_NONE
+	_close_button.custom_minimum_size = Vector2(22, 20)
+	_close_button.tooltip_text = "Close"
+	_close_button.add_theme_font_size_override("font_size", 16)
+	_close_button.add_theme_color_override("font_color", HEADING_COLOR)
+	_close_button.add_theme_color_override("font_hover_color", TEXT_COLOR)
+	_close_button.add_theme_color_override("font_pressed_color", TEXT_COLOR)
+	var hover := StyleBoxFlat.new()
+	hover.bg_color = Color(1, 1, 1, 0.10)
+	hover.set_corner_radius_all(4)
+	_close_button.add_theme_stylebox_override("hover", hover)
+	_close_button.add_theme_stylebox_override("pressed", hover)
+	_close_button.pressed.connect(hide_panel)
+	header.add_child(_close_button)
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
