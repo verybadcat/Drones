@@ -6731,6 +6731,12 @@ func _resolve_pending_counter_battery() -> void:
 			if not is_instance_valid(responder) or responder.state != Unit.State.ACTIVE:
 				continue # the responding crew was knocked out before it could actually fire — mission aborted, nothing lands
 			strike.fired = true
+			# A counter-battery reply is a real mortar round leaving a real
+			# tube, not a silent one: this is a SECOND firing path that
+			# bypasses _launch_mortar_shot, so it has to ask for the shot's
+			# sound itself. Found via the mortar audio log (no enemy entries
+			# at all while the enemy's replies were visibly landing).
+			_play_mortar_fire_sound(responder)
 			_fire_flashes.append({
 				"from": responder.global_position, "to": strike.impact_position, "team": responder.team, "time": elapsed_time, "is_mortar": true,
 			})
