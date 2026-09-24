@@ -9,6 +9,7 @@ extends Node2D
 const BattleScore = preload("res://scripts/battle_score.gd")
 const BattleScoreLog = preload("res://scripts/battle_score_log.gd")
 const MortarOrdersPanel = preload("res://scripts/mortar_orders_panel.gd")
+const WindAmbience = preload("res://scripts/wind_ambience.gd")
 
 var level_select_screen: LevelSelectScreen
 var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
@@ -86,6 +87,9 @@ var report_background: Control
 var restart_button: Button
 var review_history_button: Button
 var hide_report_button: Button
+# The sound of the wind — follows Weather.current from deployment through the end
+# of the battle (see _process); silent on the level-select screen.
+var wind_ambience: WindAmbience
 # Opened by clicking a friendly mortar on the map (BattleManager.mortar_selected).
 var mortar_orders_panel: MortarOrdersPanel
 
@@ -176,6 +180,9 @@ func _ready() -> void:
 	map_container.position = Vector2(0, 0)
 	map_container.stretch = true
 	add_child(map_container)
+
+	wind_ambience = WindAmbience.new()
+	add_child(wind_ambience)
 
 	# Added AFTER map_container specifically — see MapHudOverlay's own doc
 	# comment for why draw order here isn't cosmetic, it's the whole fix.
@@ -297,6 +304,12 @@ func _process(delta: float) -> void:
 			deployment_magnifier.queue_redraw()
 
 	_clock_label.text = battle_manager.clock_string() if battle_manager else "%02d:00:00" % int(GameConfig.SCENARIO_START_HOUR)
+
+	# Wind sound: from the moment this battle's weather is rolled (deployment)
+	# until the battle ends; none on the level-select screen (no weather yet) or
+	# on the report screen. Ground-level wind, gusts ignored.
+	var wind_audible: bool = Weather.current != null and not (battle_manager != null and battle_manager.battle_over)
+	wind_ambience.set_wind(Weather.current.wind_speed_10m if wind_audible else -1.0)
 
 	var weather_signature: String = Weather.current.hud_signature() if Weather.current != null else ""
 	if weather_signature != _last_weather_signature:
