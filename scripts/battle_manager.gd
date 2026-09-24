@@ -3772,6 +3772,17 @@ func _drone_search_target() -> Vector2:
 		var own_fix: Dictionary = _mortar_hunt_fix_for(fm)
 		if own_fix.is_empty() or GameConfig.TARGET_PRIORITY_MORTAR <= best_score:
 			continue
+		# Direct user report from a live battle: "drone is now chasing fleeing
+		# mortar. It should not do that when there are squads." A mortar that is
+		# already RETREATING is a mop-up, not the threat this tier exists to back
+		# up — the drone's own "a fleeing enemy mortar is a lower priority target
+		# than enemy squads" ruling (see the retreating-contact tier below) has to
+		# hold here too, or the friendly mortar's own chase of a fleeing gun drags
+		# the drone off squads that are still fighting. With no squad left in the
+		# fight the chase is all there is to support, as before.
+		var hunted: Unit = own_fix.get("unit", null)
+		if hunted != null and hunted.state != Unit.State.ACTIVE and _enemy_squads_still_in_the_fight():
+			continue
 		best_score = GameConfig.TARGET_PRIORITY_MORTAR
 		best_pos = own_fix.position
 		_drone_pilot_reasoning = {"tier": "Supporting important friendly action", "detail": "The friendly mortar has committed to closing on a known enemy mortar (own lead, not yet a team-wide commitment) — staying on the same target.", "target": best_pos}
@@ -3931,6 +3942,23 @@ func _squad_order_permits_mortar_watch(pos: Vector2) -> bool:
 			return true
 		var soon_reach: float = GameConfig.mortar_max_range(m.team) + GameConfig.MORTAR_RELOCATE_SPEED * GameConfig.DRONE_SQUAD_FIRE_ORDER_MORTAR_SOON_S
 		if m.global_position.distance_to(pos) <= soon_reach:
+			return true
+	return false
+
+
+## Whether any enemy squad is still in the fight as far as the drone team
+## knows: ACTIVE, and either in view now or seen within
+## GameConfig.DRONE_CONTACT_BONUS_EXPIRY (the same "still worth acting on"
+## horizon _update_recent_enemy_contacts already uses). A retreating, withdrawn,
+## destroyed or never-seen squad does not count.
+func _enemy_squads_still_in_the_fight() -> bool:
+	for u in enemy_units:
+		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE:
+			continue
+		if u.is_visible:
+			return true
+		var info: Dictionary = _recent_enemy_contacts.get(u, {})
+		if not info.is_empty() and scenario_elapsed_time - info.time <= GameConfig.DRONE_CONTACT_BONUS_EXPIRY:
 			return true
 	return false
 
@@ -4960,6 +4988,20 @@ func _decide_mortar_action(m: Unit) -> void:
 	if _risk_holds.has(m):
 		_mortar_reasoning[m] = {"tier": "Self-risk policy", "detail": m.last_order_reason}
 		return
+	# Direct user report from a live battle: "why is the mortar falling back? It
+	# looks like it has a good shot at the enemy mortar" and, once it did fire,
+	# "it took way too long." A dry crew walks either to meet an inbound resupply
+	# run ("linkup") or to a better spot ("out_of_ammo"); when the run delivers,
+	# the reason for that walk is gone — but it stayed sticky (step 0b below) and
+	# carried on to its stale destination, and a mortar under way never has a shot
+	# (a crew must sit stationary MORTAR_SETUP_TEARDOWN_TIME before it can fire,
+	# see _mortar_shot_this_tick), so with 20 fresh rounds and a visible enemy
+	# mortar in range it kept walking away until it arrived and set up. Once
+	# ammunition is back the no-ammunition walks end and the ladder decides afresh
+	# (a shot, or — if the crew is still in danger — the ordinary tier-1
+	# evade/conceal). Survival walks (evade, conceal) are not affected.
+	if m.has_move_target and m.mortar_rounds_remaining > 0 and _mortar_move_intent.get(m, "") in ["out_of_ammo", "linkup"]:
+		_clear_mortar_move(m)
 	var has_shot: bool = target != null and m.mortar_rounds_remaining > 0
 
 	# Computed here, before has_shot gets a say, so an available shot can
