@@ -3,7 +3,8 @@ extends PanelContainer
 
 ## The commander's orders card for a friendly mortar. Clicking the mortar on
 ## the map pops it up beside the mortar (BattleManager.mortar_selected);
-## clicking the mortar again (or its small x) dismisses it. It follows the mortar if the crew
+## any click outside the card dismisses it (see _input) — including a click on
+## the mortar itself. It follows the mortar if the crew
 ## moves, and holds only the orders that can be given: today, the standing
 ## "expend ammo on enemy squads" order (BattleManager.set_mortar_squad_fire_order).
 ## The switch always mirrors the battle manager's own state, so an order changed
@@ -24,10 +25,13 @@ var mortar: Unit
 var _map_viewport: SubViewport
 var _map_rect: Rect2
 var _order_switch: CheckButton
-var _close_button: Button
 var _order_label: Label
 var _syncing := false
 var _card_on_right := true
+# The process frame in which a click outside just dismissed the card — a click
+# on the mortar itself is both "outside the card" and "select the mortar", and
+# must dismiss, not dismiss-then-reopen (show_for ignores the same frame).
+var _dismissed_frame := -1
 
 
 ## `map_viewport` is the SubViewport the mortar's world position lives in (its
@@ -46,8 +50,8 @@ func setup(bm: BattleManager, map_viewport: SubViewport, map_rect: Rect2) -> voi
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(8)
 	style.content_margin_left = 14
-	style.content_margin_right = 8
-	style.content_margin_top = 6
+	style.content_margin_right = 14
+	style.content_margin_top = 9
 	style.content_margin_bottom = 10
 	style.shadow_color = Color(0, 0, 0, 0.45)
 	style.shadow_size = 6
@@ -58,34 +62,11 @@ func setup(bm: BattleManager, map_viewport: SubViewport, map_rect: Rect2) -> voi
 	box.add_theme_constant_override("separation", 4)
 	add_child(box)
 
-	var header := HBoxContainer.new()
-	box.add_child(header)
 	var heading := Label.new()
 	heading.text = "ORDERS"
 	heading.add_theme_font_size_override("font_size", 11)
 	heading.add_theme_color_override("font_color", HEADING_COLOR)
-	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	heading.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	header.add_child(heading)
-
-	# A small flat "x" in the corner, alongside clicking the mortar again.
-	_close_button = Button.new()
-	_close_button.text = "×"
-	_close_button.flat = true
-	_close_button.focus_mode = Control.FOCUS_NONE
-	_close_button.custom_minimum_size = Vector2(22, 20)
-	_close_button.tooltip_text = "Close"
-	_close_button.add_theme_font_size_override("font_size", 16)
-	_close_button.add_theme_color_override("font_color", HEADING_COLOR)
-	_close_button.add_theme_color_override("font_hover_color", TEXT_COLOR)
-	_close_button.add_theme_color_override("font_pressed_color", TEXT_COLOR)
-	var hover := StyleBoxFlat.new()
-	hover.bg_color = Color(1, 1, 1, 0.10)
-	hover.set_corner_radius_all(4)
-	_close_button.add_theme_stylebox_override("hover", hover)
-	_close_button.add_theme_stylebox_override("pressed", hover)
-	_close_button.pressed.connect(hide_panel)
-	header.add_child(_close_button)
+	box.add_child(heading)
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -109,17 +90,29 @@ func setup(bm: BattleManager, map_viewport: SubViewport, map_rect: Rect2) -> voi
 	reset_size.call_deferred()
 
 
-## A click on the mortar: open the card, or close it if it is already showing
-## this mortar.
+## A click on the mortar: open the card (unless that very click has just
+## dismissed it — see _input).
 func show_for(m: Unit) -> void:
-	if visible and mortar == m:
-		hide_panel()
+	if Engine.get_process_frames() == _dismissed_frame:
 		return
 	mortar = m
 	visible = true
 	_refresh()
 	reset_size()
 	_reposition()
+
+
+## Any mouse click outside the card dismisses it; a click inside (the switch, the
+## card's own background) leaves it alone. Runs before the map sees the click,
+## so a click on the mortar closes the card first and show_for then ignores the
+## same click.
+func _input(event: InputEvent) -> void:
+	if not visible or not (event is InputEventMouseButton and event.pressed):
+		return
+	if get_global_rect().has_point(event.position):
+		return
+	_dismissed_frame = Engine.get_process_frames()
+	hide_panel()
 
 
 func hide_panel() -> void:

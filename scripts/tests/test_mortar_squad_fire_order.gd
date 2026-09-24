@@ -52,6 +52,13 @@ func hold_fraction(bm, mortar: Unit, trials: int) -> float:
 			holds += 1
 	return float(holds) / float(trials)
 
+func click_at(pos: Vector2) -> InputEventMouseButton:
+	var e := InputEventMouseButton.new()
+	e.button_index = MOUSE_BUTTON_LEFT
+	e.pressed = true
+	e.position = pos
+	return e
+
 func cleanup(bm) -> void:
 	bm.combat_log.free()
 	bm.free()
@@ -66,7 +73,7 @@ func run() -> void:
 	test_clicking_selects_only_a_friendly_active_mortar()
 	test_drone_supports_the_order()
 	test_drone_default_is_untouched()
-	test_panel_reflects_and_sets_the_order()
+	await test_panel_reflects_and_sets_the_order()
 	test_drone_ignores_unreachable_mortars_under_the_order()
 	print("Mortar squad-fire order tests: %d failures" % failures)
 	quit(1 if failures else 0)
@@ -265,8 +272,9 @@ func test_drone_default_is_untouched() -> void:
 
 
 ## The orders card is the player's only way to reach the order. Direct user
-## request: it pops up next to the mortar when clicked, clicking the mortar
-## again removes it, and it holds only the orders that can be given.
+## request: it pops up next to the mortar when clicked, ANY click outside it
+## dismisses it (no x, no second mortar click needed), and it holds only the
+## orders that can be given.
 func test_panel_reflects_and_sets_the_order() -> void:
 	var bm = make_battle(10, false)
 	var mortar: Unit = bm.player_units[0]
@@ -294,12 +302,38 @@ func test_panel_reflects_and_sets_the_order() -> void:
 	check(panel._order_switch.button_pressed, "An order set elsewhere shows as on")
 	check(bm.mortar_squad_fire_ordered(mortar), "Refreshing the card must not disturb the order")
 
-	# Clicking the mortar again removes the card, and the order stands.
+	# Any click outside the card dismisses it, and the order stands.
+	panel.hide_panel()
 	bm.handle_click(mortar.global_position)
-	check(not panel.visible, "Clicking the mortar again dismisses the card")
+	check(panel.visible and panel._order_switch.button_pressed, "Reopening shows the standing order")
+	panel._input(click_at(panel.position + panel.size / 2.0))
+	check(panel.visible, "A click inside the card leaves it open")
+	panel._input(click_at(Vector2(900, 650)))
+	check(not panel.visible, "A click elsewhere on the map dismisses the card")
 	check(bm.mortar_squad_fire_ordered(mortar), "Dismissing the card must not change the order")
+	# A click on the mortar itself is outside the card too: it dismisses, and the
+	# same click must not reopen it.
+	await process_frame # a later, separate click (the frame counter only advances between frames)
+	await process_frame
 	bm.handle_click(mortar.global_position)
-	check(panel.visible and panel._order_switch.button_pressed, "A third click reopens it, showing the standing order")
+	check(panel.visible, "Setup: the card is open again")
+	panel._input(click_at(mortar.global_position))
+	bm.handle_click(mortar.global_position)
+	check(not panel.visible, "Clicking the mortar while the card is open closes it (and does not reopen it)")
+	await process_frame
+	await process_frame
+	bm.handle_click(mortar.global_position)
+	check(panel.visible, "A later click on the mortar opens it again")
+	# Only mouse clicks dismiss it — not, say, mouse motion.
+	var motion := InputEventMouseMotion.new()
+	motion.position = Vector2(900, 650)
+	panel._input(motion)
+	check(panel.visible, "Moving the mouse outside must not dismiss the card")
+	# ...and a button RELEASE outside isn't a click.
+	var release := click_at(Vector2(900, 650))
+	release.pressed = false
+	panel._input(release)
+	check(panel.visible, "Only the press counts, not the release")
 
 	# It follows the mortar...
 	mortar.global_position = Vector2(500, 400)
@@ -314,16 +348,7 @@ func test_panel_reflects_and_sets_the_order() -> void:
 	panel._reposition()
 	check(area.encloses(Rect2(panel.position, panel.size)), "The card stays inside the map near the top edge")
 
-	# The little x closes it too, and leaves the order standing.
-	panel._close_button.pressed.emit()
-	check(not panel.visible, "The x dismisses the card")
-	check(bm.mortar_squad_fire_ordered(mortar), "Closing with the x must not change the order")
-	bm.handle_click(mortar.global_position)
-	check(panel.visible, "The card reopens after being closed with the x")
-	mortar.global_position = Vector2(300, 300)
-	panel._reposition()
-
-	# Nothing but the order in it (and the x): no status text, no note.
+	# Nothing but the order in it: no status text, no note, no close button.
 	var buttons := 0
 	var labels := []
 	var stack: Array = [panel]
@@ -335,7 +360,7 @@ func test_panel_reflects_and_sets_the_order() -> void:
 			buttons += 1
 		elif n is Label:
 			labels.append(n.text)
-	check(buttons == 2, "The card holds just the order switch and the x (found %d buttons)" % buttons)
+	check(buttons == 1, "The card holds just the one order switch (found %d buttons)" % buttons)
 	check(labels.size() == 2, "Only a heading and the order's name (found %s)" % str(labels))
 
 	bm.battle_over = true
