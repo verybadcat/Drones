@@ -5495,6 +5495,37 @@ const DRONE_REAR_ASSET_THREAT_WEIGHT: float = 1.5
 ## number covering for the same gap.
 const MORTAR_UNKNOWN_ENEMY_HOLD_FIRE_CHANCE: float = 0.9
 
+# The commander's optional "expend ammo on enemy squads" order for a friendly
+# mortar (BattleManager.set_mortar_squad_fire_order). Multiplies every
+# hold-fire probability in _pick_target that would otherwise leave the
+# mortar doing nothing when its only candidates are squads — so the order
+# makes firing MORE likely, never certain, and never changes which target is
+# preferred (enemy mortars stay first; squad ranking is untouched). 0.1
+# means a hold that would have happened 90% of the time now happens 9%.
+# JUDGMENT: no real-world figure exists for this — it is a "much more willing"
+# dial; 1.0 would make the order a no-op, 0.0 would make the mortar never hold.
+const MORTAR_SQUAD_FIRE_ORDER_HOLD_FACTOR: float = 0.1
+
+# Drone support for that same order (BattleManager._drone_search_target): a
+# visible enemy squad inside the ordered mortar's range is worth at least
+# this much attention. Level with the CEILING of the speculative sweep for
+# undiscovered mortars (which wins only when strictly greater, so this wins
+# ties): the commander has said the mortar's job is squads, so watching the
+# ones it can shell beats a blind sweep however likely another mortar is. Still
+# below every live mortar tier (a real contact, a fresh fire lead, a hunt,
+# 120+), so an enemy mortar it can act on still comes first. JUDGMENT.
+const DRONE_SQUAD_FIRE_ORDER_WATCH_PRIORITY: float = TARGET_PRIORITY_UNDISCOVERED_MORTAR_SWEEP
+# A squad the drone can't see right now but was seen recently is worth this
+# fraction of the above — enough to go look for it, less than a live one.
+const DRONE_SQUAD_FIRE_ORDER_UNSEEN_FACTOR: float = 0.75
+# Under that order the drone stops watching enemy mortars the ordered mortar
+# can't reach - unless the crew could walk into range of one within this many
+# tactical seconds at its relocation pace (BattleManager.
+# _squad_order_permits_mortar_watch), or is already closing on it. JUDGMENT:
+# "likely to come in range soon" has no real-world figure; 5 minutes is about
+# one reload-and-scoot cycle horizon and ~660 m of walking.
+const DRONE_SQUAD_FIRE_ORDER_MORTAR_SOON_S: float = 300.0
+
 # A mortar shell doesn't land the instant it's fired — 40 tactical seconds
 # of real flight time (see BattleManager._launch_mortar_shot /
 # _resolve_pending_mortar_shots). It's aimed at the target's ANTICIPATED

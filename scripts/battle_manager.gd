@@ -17,6 +17,9 @@ class_name BattleManager
 ## separate visual is needed at the real moment of impact.
 
 signal battle_ended(report_text: String)
+## Emitted by handle_click when the player clicks a friendly mortar - main.gd
+## opens the mortar orders panel for it.
+signal mortar_selected(mortar: Unit)
 
 const FLASH_DURATION: float = 0.3
 ## How long a mortar-impact burst stays on screen — real elapsed seconds,
@@ -608,6 +611,10 @@ var _mortar_tick_shot: Dictionary = {}
 # bug in the old, per-function architecture this replaces, where hunting
 # could silently steal a shoot-and-scoot displacement out from under a
 # mortar that had just fired.
+## Unit -> true for each friendly mortar the commander has ordered to expend
+## ammo on enemy squads (set_mortar_squad_fire_order). Absent = default
+## behavior, exactly as before the order existed.
+var _mortar_squad_fire_orders: Dictionary = {}
 var _mortar_move_intent: Dictionary = {}
 
 # Unit (a mortar) -> {"tier": String, "detail": String} — the mortar
@@ -828,6 +835,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	enemy_general_retreat_ordered = false
 	enemy_mortar_isolated_retreat_ordered = false
 	_last_detected_mortar_fire.clear()
+	_mortar_squad_fire_orders.clear()
 	_mortar_tick_shot.clear()
 	_mortar_move_intent.clear()
 	_mortar_reasoning.clear()
@@ -1401,6 +1409,75 @@ func _scheduled_retreat_ammo_discount(mortar: Unit) -> float:
 	if time_needed_to_expend <= 0.0:
 		return 1.0
 	return clamp(time_remaining / time_needed_to_expend, 0.0, 1.0)
+
+
+## The commander's "expend ammo on enemy squads" order for one friendly
+## mortar. It changes ONE thing: when the mortar's only candidates are
+## squads, every hold-fire probability that would leave it doing nothing is
+## scaled down by GameConfig.MORTAR_SQUAD_FIRE_ORDER_HOLD_FACTOR (see
+## _mortar_squad_order_hold_factor). Which target is preferred is untouched
+## - enemy mortars keep first priority, and squads keep their existing
+## ranking - and with no order the mortar behaves exactly as it always did.
+## Countermanded by calling this again with enabled=false. Player mortars
+## only; also read by the drone pilot (_squad_fire_order_watch_target).
+func set_mortar_squad_fire_order(mortar: Unit, enabled: bool) -> void:
+	if battle_over or mortar == null or mortar.kind != Unit.Kind.MORTAR or mortar.team != Unit.Team.PLAYER:
+		return
+	if enabled == _mortar_squad_fire_orders.has(mortar):
+		return
+	if enabled:
+		_mortar_squad_fire_orders[mortar] = true
+		combat_log.add_entry("--- %s ordered to expend ammunition on enemy squads ---" % mortar.display_name())
+	else:
+		_mortar_squad_fire_orders.erase(mortar)
+		combat_log.add_entry("--- %s: order to expend ammunition on enemy squads cancelled ---" % mortar.display_name())
+
+
+func mortar_squad_fire_ordered(mortar: Unit) -> bool:
+	return _mortar_squad_fire_orders.has(mortar)
+
+
+## Multiplier on a hold-fire probability: 1.0 (no change) unless `mortar`
+## holds the squad-fire order AND `squads_only` (no enemy mortar among its
+## candidates - an enemy mortar shot is never ammo-gated by this order; it
+## is only about "a squad or nothing").
+func _mortar_squad_order_hold_factor(mortar: Unit, squads_only: bool = true) -> float:
+	if squads_only and _mortar_squad_fire_orders.has(mortar) and mortar.state == Unit.State.ACTIVE:
+		return GameConfig.MORTAR_SQUAD_FIRE_ORDER_HOLD_FACTOR
+	return 1.0
+
+
+const MORTAR_CLICK_RADIUS: float = 18.0
+
+
+## The friendly mortar (ACTIVE, player) within a small click radius of
+## `world_pos`, or null.
+func mortar_at(world_pos: Vector2) -> Unit:
+	var best: Unit = null
+	var best_d := MORTAR_CLICK_RADIUS
+	for m in player_units:
+		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
+			continue
+		var d: float = m.global_position.distance_to(world_pos)
+		if d <= best_d:
+			best_d = d
+			best = m
+	return best
+
+
+## A left click on a friendly mortar opens its orders panel.
+func handle_click(world_pos: Vector2) -> Unit:
+	if battle_over:
+		return null
+	var m: Unit = mortar_at(world_pos)
+	if m != null:
+		mortar_selected.emit(m)
+	return m
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		handle_click(get_global_mouse_position())
 
 
 func order_general_retreat() -> void:
@@ -3609,7 +3686,7 @@ func _drone_search_target() -> Vector2:
 			continue
 		if scenario_elapsed_time - info.time > GameConfig.DRONE_MORTAR_FIRE_LEAD_EXPIRY:
 			continue
-		if not _in_friendly_mortar_range(info.position):
+		if not _in_friendly_mortar_range(info.position) or not _squad_order_permits_mortar_watch(info.position):
 			continue
 		if info.time > best_fire_time:
 			best_fire_time = info.time
@@ -3632,7 +3709,7 @@ func _drone_search_target() -> Vector2:
 	# a target that isn't in range YET, was the actual bug.
 	if _joint_mortar_hunt_target != null:
 		var joint_pos: Vector2 = _joint_mortar_hunt_known_position()
-		if not is_inf(joint_pos.x) and GameConfig.TARGET_PRIORITY_MORTAR > best_score:
+		if not is_inf(joint_pos.x) and GameConfig.TARGET_PRIORITY_MORTAR > best_score and _squad_order_permits_mortar_watch(joint_pos):
 			best_score = GameConfig.TARGET_PRIORITY_MORTAR
 			best_pos = joint_pos
 			_drone_pilot_reasoning = {"tier": "Joint mortar hunt", "detail": "Staying on-station over a target the friendly mortar is still closing on but hasn't reached range of yet.", "target": best_pos}
@@ -3696,6 +3773,17 @@ func _drone_search_target() -> Vector2:
 		best_score = best_squad_score
 		best_pos = best_squad.global_position
 		_drone_pilot_reasoning = {"tier": "Tracking dangerous squad", "detail": "The most dangerous currently-visible enemy squad, danger score %.1f/%.1f (closer to a friendly unit = higher)." % [best_squad_score, GameConfig.TARGET_PRIORITY_SQUAD_MAX], "target": best_pos}
+
+	# The commander's "expend ammo on enemy squads" order for the mortar
+	# (set_mortar_squad_fire_order): the drone backs it up by watching the
+	# squads the mortar could actually shell. Only present when an order is
+	# in force, so without one this changes nothing. Beats the sweep and the
+	# ordinary dangerous-squad tier, but stays below every mortar tier.
+	var ordered_watch: Dictionary = _squad_fire_order_watch_target()
+	if not ordered_watch.is_empty() and ordered_watch.score > best_score:
+		best_score = ordered_watch.score
+		best_pos = ordered_watch.position
+		_drone_pilot_reasoning = {"tier": "Supporting the mortar's order to fire on squads", "detail": ordered_watch.detail, "target": best_pos}
 
 	var best_retreating: Unit = null
 	var best_retreating_dist := INF
@@ -3792,6 +3880,73 @@ func _drone_search_target() -> Vector2:
 	# keeps the drone from following it into ground that belongs to another
 	# unit's sector entirely, regardless of the reason.
 	return _clamp_to_drone_operating_area(best_pos)
+
+
+## Whether the drone team may spend attention on an enemy mortar last known
+## at `pos`. Always true unless a friendly mortar holds the "expend ammo on
+## enemy squads" order (set_mortar_squad_fire_order): the commander has then
+## said the mortar's job is squads, so a mortar it can't reach is not worth
+## the drone's time - unless it seems likely to come into range soon. That
+## means either within reach already, or within reach after the crew walks for
+## GameConfig.DRONE_SQUAD_FIRE_ORDER_MORTAR_SOON_S at its relocation pace, or
+## the crew has already committed to closing on it (intent "hunt" - it IS on
+## its way into range).
+func _squad_order_permits_mortar_watch(pos: Vector2) -> bool:
+	if _mortar_squad_fire_orders.is_empty():
+		return true
+	for m in _mortar_squad_fire_orders:
+		if m.state != Unit.State.ACTIVE:
+			continue
+		if _mortar_move_intent.get(m, "") == "hunt":
+			return true
+		var soon_reach: float = GameConfig.mortar_max_range(m.team) + GameConfig.MORTAR_RELOCATE_SPEED * GameConfig.DRONE_SQUAD_FIRE_ORDER_MORTAR_SOON_S
+		if m.global_position.distance_to(pos) <= soon_reach:
+			return true
+	return false
+
+
+## The drone's contribution to a "fire on squads" mortar order: the best
+## enemy squad to watch so the ordered mortar has targets. {} when no
+## friendly mortar holds the order (the default) or no squad qualifies.
+## Considers only squads inside the ordered mortar's range - watching one it
+## cannot reach helps nobody. A squad visible right now scores at least
+## DRONE_SQUAD_FIRE_ORDER_WATCH_PRIORITY (more if its own danger score is
+## higher, though that scale tops out far below); one not visible now but
+## seen within DRONE_CONTACT_BONUS_EXPIRY scores that times
+## DRONE_SQUAD_FIRE_ORDER_UNSEEN_FACTOR, so the drone goes back to look
+## for it when nothing is in view but never prefers it to a live one.
+## Kept below TARGET_PRIORITY_MORTAR: hunting mortars still comes first,
+## as it does for the mortar itself.
+func _squad_fire_order_watch_target() -> Dictionary:
+	var best: Dictionary = {}
+	for m in _mortar_squad_fire_orders:
+		if m.state != Unit.State.ACTIVE:
+			continue
+		var reach: float = GameConfig.mortar_max_range(m.team)
+		for u in enemy_units:
+			if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE:
+				continue
+			var score := -1.0
+			var pos := Vector2.INF
+			var detail := ""
+			if u.is_visible:
+				if m.global_position.distance_to(u.global_position) > reach:
+					continue
+				score = max(_squad_danger_priority(u), GameConfig.DRONE_SQUAD_FIRE_ORDER_WATCH_PRIORITY)
+				pos = u.global_position
+				detail = "%s is ordered to expend ammunition on enemy squads - watching %s, inside its range." % [m.display_name(), u.display_name()]
+			else:
+				var info: Dictionary = _recent_enemy_contacts.get(u, {})
+				if info.is_empty() or scenario_elapsed_time - info.time > GameConfig.DRONE_CONTACT_BONUS_EXPIRY:
+					continue
+				if m.global_position.distance_to(info.position) > reach:
+					continue
+				score = GameConfig.DRONE_SQUAD_FIRE_ORDER_WATCH_PRIORITY * GameConfig.DRONE_SQUAD_FIRE_ORDER_UNSEEN_FACTOR
+				pos = info.position
+				detail = "%s is ordered to expend ammunition on enemy squads - going back to look for %s, last seen inside its range." % [m.display_name(), u.display_name()]
+			if best.is_empty() or score > best.score:
+				best = {"score": score, "position": pos, "detail": detail}
+	return best
 
 
 ## The retreating (or still-catching-up-to-its-own-retreat-order) player
@@ -4200,6 +4355,8 @@ func _priority_visible_enemy_mortar() -> Dictionary:
 	for u in enemy_units:
 		if u.kind != Unit.Kind.MORTAR or u.state != Unit.State.ACTIVE or not u.is_visible:
 			continue
+		if not _squad_order_permits_mortar_watch(u.global_position):
+			continue # squad-fire order in force and this mortar is out of reach, and not coming into it
 		if _is_priority_hunt_target(u):
 			return {"unit": u, "priority": true}
 		fallback_candidates.append(u)
@@ -5210,6 +5367,7 @@ func mortar_decision_debug_snapshot() -> Dictionary:
 			"rounds_remaining": m.mortar_rounds_remaining,
 			"state": Unit.State.keys()[m.state],
 			"move_intent": _mortar_move_intent.get(m, "none"),
+			"orders": {"fire_on_squads": _mortar_squad_fire_orders.has(m)},
 			"reasoning": reasoning,
 			"recent_history": _mortar_debug_history.get(m, []),
 		}
@@ -7725,7 +7883,7 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 			# opportunity that likely won't arrive before the crew pulls
 			# out. Reads as 1.0 (no change) with no scheduled retreat, or
 			# comfortably ahead of one.
-			hold_for_pursuit_chance *= _scheduled_retreat_ammo_discount(unit)
+			hold_for_pursuit_chance *= _scheduled_retreat_ammo_discount(unit) * _mortar_squad_order_hold_factor(unit)
 			var pursuit_roll: float = 0.5 if profile_for(unit.team).deterministic else randf()
 			gate_evidence["pursuit"] = {"hold_probability": hold_for_pursuit_chance, "roll_or_cutoff": pursuit_roll}
 			if pursuit_roll < hold_for_pursuit_chance:
@@ -7754,7 +7912,7 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 			# conservation hold already apply, which this hold alone skipped.
 			# Direct user report from a live battle: "Conserving for a potential
 			# mortar shot is one thing. But here we have 26 rounds and 4 minutes."
-			unknown_mortar_hold_chance *= _scheduled_retreat_ammo_discount(unit)
+			unknown_mortar_hold_chance *= _scheduled_retreat_ammo_discount(unit) * _mortar_squad_order_hold_factor(unit)
 			var unknown_mortar_roll: float = 0.5 if profile_for(unit.team).deterministic else randf()
 			gate_evidence["unknown_enemy_mortar"] = {"hold_probability": unknown_mortar_hold_chance, "roll_or_cutoff": unknown_mortar_roll, "mortar_existence_confidence": _mortar_existence_confidence()}
 			if unknown_mortar_roll < unknown_mortar_hold_chance:
@@ -7803,6 +7961,10 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# reasoning as the pursuit-hold discount above, applied to
 		# ordinary ammo conservation too.
 		hold_fire_chance *= _scheduled_retreat_ammo_discount(unit)
+		# The commander's squad-fire order (set_mortar_squad_fire_order) - only
+		# when this shot would be at squads; an enemy mortar candidate is never
+		# ammo-gated by the order.
+		hold_fire_chance *= _mortar_squad_order_hold_factor(unit, mortar_candidates.is_empty())
 		hold_fire_chance = clampf(hold_fire_chance * _profile_weight(unit.team, "conservation"), 0.0, 1.0)
 		var ammo_roll: float = 0.5 if profile_for(unit.team).deterministic else randf()
 		if ammo_roll < hold_fire_chance:

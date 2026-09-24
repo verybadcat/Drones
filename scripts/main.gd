@@ -8,6 +8,7 @@ extends Node2D
 
 const BattleScore = preload("res://scripts/battle_score.gd")
 const BattleScoreLog = preload("res://scripts/battle_score_log.gd")
+const MortarOrdersPanel = preload("res://scripts/mortar_orders_panel.gd")
 
 var level_select_screen: LevelSelectScreen
 var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
@@ -85,6 +86,8 @@ var report_background: Control
 var restart_button: Button
 var review_history_button: Button
 var hide_report_button: Button
+# Opened by clicking a friendly mortar on the map (BattleManager.mortar_selected).
+var mortar_orders_panel: MortarOrdersPanel
 
 # Post-battle "drag through time" replay — see battle_history_viewer.gd.
 # history_viewer is untyped for the same brand-new-class_name reason as
@@ -396,7 +399,7 @@ func _map_mouse_world_position() -> Vector2:
 func _clear_all() -> void:
 	for node in [level_select_screen, deployment_screen, doctrine_panel, start_button, deployment_magnifier, battle_manager,
 			combat_log, casualty_dashboard, retreat_button, pause_button, drone_debug_panel, decision_inspector, inspect_button,
-			enemy_heatmap_overlay, report_background, restart_button, review_history_button, hide_report_button,
+			enemy_heatmap_overlay, report_background, restart_button, review_history_button, hide_report_button, mortar_orders_panel,
 			history_viewer, history_slider, history_time_label, history_back_button, history_play_button,
 			schedule_retreat_label, scheduled_retreat_slider, scheduled_retreat_value_label, schedule_retreat_button,
 			scheduled_retreat_status_label, cancel_scheduled_retreat_button]:
@@ -427,6 +430,7 @@ func _clear_all() -> void:
 	restart_button = null
 	review_history_button = null
 	hide_report_button = null
+	mortar_orders_panel = null
 	history_viewer = null
 	history_slider = null
 	history_time_label = null
@@ -571,6 +575,14 @@ func _on_start_pressed() -> void:
 	map_viewport.add_child(enemy_heatmap_overlay)
 
 	battle_manager.start_battle(doctrine, combat_log)
+
+	# Over the right edge of the map, clear of the sidebar and the top
+	# strip; hides itself when the mortar is lost or the battle ends.
+	mortar_orders_panel = MortarOrdersPanel.new()
+	mortar_orders_panel.position = Vector2(GameConfig.SIDEBAR_X - 340, 64)
+	mortar_orders_panel.setup(battle_manager)
+	add_child(mortar_orders_panel)
+	battle_manager.mortar_selected.connect(mortar_orders_panel.show_for)
 	decision_inspector = preload("res://scripts/decision_inspector.gd").new()
 	decision_inspector.setup(battle_manager)
 	decision_inspector.position = Vector2(12, 50)
