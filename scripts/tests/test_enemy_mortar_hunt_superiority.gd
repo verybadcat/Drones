@@ -62,6 +62,7 @@ func cleanup(bm) -> void:
 
 func run() -> void:
 	test_the_cap_follows_the_superiority()
+	test_the_change_never_lowers_the_number_of_hunters()
 	test_assignments_use_the_cap_and_the_closest_first()
 	test_only_squads_in_action_count()
 	test_with_no_friendly_squads_the_enemy_looks_for_the_mortar()
@@ -77,6 +78,22 @@ func test_the_cap_follows_the_superiority() -> void:
 		var bm = make_battle(c[0], c[1])
 		check(bm._mortar_hunt_cap() == c[2], "%d enemy squads vs %d friendly: cap %d, got %d" % [c[0], c[1], c[2], bm._mortar_hunt_cap()])
 		cleanup(bm)
+
+
+## Direct user constraint: "don't need any change that lowers the number of
+## squads that hunt the mortar." The new cap only ever ADDS hunters: it is never
+## below the old fixed cap, and never more than the eligible squads there are.
+func test_the_change_never_lowers_the_number_of_hunters() -> void:
+	var base: int = GameConfig.MORTAR_HUNT_SQUAD_CAP
+	for enemy in range(0, 21):
+		for friendly in range(0, 9):
+			var bm = make_battle(enemy, friendly)
+			var cap: int = bm._mortar_hunt_cap()
+			check(cap >= base, "%d enemy vs %d friendly: cap %d must never be below the old cap of %d" % [enemy, friendly, cap, base])
+			var hunters: int = bm._mortar_hunt_assignments().size()
+			check(hunters == mini(enemy, cap), "%d enemy vs %d friendly: %d hunt, expected min(enemy, cap) = %d" % [enemy, friendly, hunters, mini(enemy, cap)])
+			check(hunters >= mini(enemy, base), "%d enemy vs %d friendly: %d hunt, never fewer than the old cap would send (%d)" % [enemy, friendly, hunters, mini(enemy, base)])
+			cleanup(bm)
 
 
 func test_assignments_use_the_cap_and_the_closest_first() -> void:
