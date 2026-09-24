@@ -4112,6 +4112,14 @@ func _heatmap_recently_cleared_multiplier(key: Vector2) -> float:
 	return lerp(GameConfig.HEATMAP_RECENTLY_CLEARED_MIN_MULTIPLIER, 1.0, t)
 
 
+## Whether the active drone's own camera covers `point` right now — within
+## its (weather- and altitude-scaled) detection range with a clear aerial line.
+func _drone_currently_sees(point: Vector2) -> bool:
+	if active_drone == null or active_drone.state != Unit.State.ACTIVE:
+		return false
+	return active_drone.global_position.distance_to(point) <= _drone_detection_range() and GameConfig.has_aerial_los(active_drone.global_position, point)
+
+
 ## Whether any currently-ACTIVE friendly asset — a ground unit's ordinary
 ## detection range and line of sight, or the airborne drone's own wider
 ## aerial sensor — could plausibly see `point` right now. Used only to
@@ -4123,10 +4131,9 @@ func _heatmap_recently_cleared_multiplier(key: Vector2) -> float:
 ## against a target hidden in cover) — this is "would we likely have
 ## noticed an enemy here by now," a debug approximation, not a claim that
 ## every conceivable hiding spot within some radius is provably clear.
-func _point_currently_observed(point: Vector2) -> bool:
-	if active_drone != null and active_drone.state == Unit.State.ACTIVE:
-		if active_drone.global_position.distance_to(point) <= _drone_detection_range() and GameConfig.has_aerial_los(active_drone.global_position, point):
-			return true
+func _point_currently_observed(point: Vector2, count_drone_camera: bool = true) -> bool:
+	if count_drone_camera and _drone_currently_sees(point):
+		return true
 	for u in player_units:
 		if u.state != Unit.State.ACTIVE:
 			continue
@@ -4545,7 +4552,7 @@ func _flank_watch_plausibility(point: Vector2) -> float:
 ## separate constant — both represent the same thing (real evidence this
 ## spot isn't worth the trip), just from a permanent-kill source versus a
 ## live-observation source.
-func _sweep_candidates() -> Array:
+func _sweep_candidates(committed_key: String = "") -> Array:
 	var row_count: int = GameConfig.DRONE_SEARCH_GRID_ROWS_M.size()
 	var columns_per_row: int = GameConfig.DRONE_SEARCH_GRID_COLUMNS_M.size()
 	var waypoints: Array[Vector2] = GameConfig.drone_search_waypoints_px()
@@ -4559,7 +4566,15 @@ func _sweep_candidates() -> Array:
 			var point: Vector2 = waypoints[idx]
 			var approach: float = _enemy_approach_likelihood(point)
 			var value: float = (GameConfig.DRONE_SWEEP_ROW_WEIGHTS[row_i] + GameConfig.DRONE_MORTAR_HUNT_ROW_WEIGHTS[row_i] * mortar_hunt_scale) * approach
-			if _area_confirmed_clear(point) or _point_currently_observed(point):
+			# The drone's OWN camera doesn't count against the cell it is
+			# currently flying to (committed_key): approaching a destination
+			# brings it into view long before the drone arrives, and reading
+			# that as "already looked, not worth it" collapsed the commitment
+			# mid-flight — the drone then turned for the next-best cell, which
+			# recovered full value the moment it was out of view, and the
+			# pair dithered back and forth (live report: "going back and forth
+			# for no good reason"). Ground units' views still count.
+			if _area_confirmed_clear(point) or _point_currently_observed(point, "sweep:%d" % idx != committed_key):
 				value *= GameConfig.DRONE_SWEEP_CLEARED_WEIGHT_MULTIPLIER
 			value += _contact_search_bonus(point)
 			out.append({"key": "sweep:%d" % idx, "point": point, "value": value})
@@ -4738,7 +4753,7 @@ func _drone_mortar_search_weight() -> float:
 ## tier is worth entering in the first place) rather than recomputing them.
 func _drone_routine_recon_target(flank_candidates: Array) -> Dictionary:
 	_drone_routine_pool_unaffordable = false
-	var candidates: Array = _sweep_candidates() + flank_candidates
+	var candidates: Array = _sweep_candidates(_drone_current_destination_key) + flank_candidates
 	if candidates.is_empty():
 		return {}
 	# Only places the drone can actually reach AND get home from, on the
