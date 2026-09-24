@@ -2853,6 +2853,7 @@ func _launch_drone() -> void:
 	var d := _make_unit(Unit.Team.PLAYER, Unit.Kind.DRONE, drone_team.global_position)
 	d.drone_battery_charge = max(charge - GameConfig.DRONE_LAUNCH_CHARGE_COST, 0.0) # climb-out to DRONE_ALTITUDE_M isn't free — see GameConfig's own comment
 	d.state_changed.connect(_on_drone_state_changed)
+	d.move_speed = GameConfig.DRONE_CRUISE_SPEED
 	player_units.append(d)
 	active_drone = d
 	combat_log.log_drone_launched(d)
@@ -2872,6 +2873,7 @@ func _launch_backup_drone(watched: Unit) -> void:
 	var d := _make_unit(Unit.Team.PLAYER, Unit.Kind.DRONE, drone_team.global_position)
 	d.drone_battery_charge = max(charge - GameConfig.DRONE_LAUNCH_CHARGE_COST, 0.0) # climb-out to DRONE_ALTITUDE_M isn't free — see GameConfig's own comment
 	d.state_changed.connect(_on_drone_state_changed)
+	d.move_speed = GameConfig.DRONE_CRUISE_SPEED
 	player_units.append(d)
 	backup_drone = d
 	combat_log.log_drone_backup_launched(d, watched)
@@ -2932,7 +2934,7 @@ func _on_drone_state_changed(unit: Unit) -> void:
 ## sacrifice is abandoned immediately and it heads home with whatever's left.
 func _update_active_drone(scenario_delta: float) -> void:
 	var d := active_drone
-	d.drone_battery_charge -= scenario_delta / _drone_full_charge_flight_time()
+	d.drone_battery_charge -= scenario_delta * _drone_drain_per_second(d)
 
 	if d.drone_battery_charge <= 0.0:
 		_crash_drone(d, _visible_engageable_mortar())
@@ -2942,7 +2944,7 @@ func _update_active_drone(scenario_delta: float) -> void:
 	var planned_destination := Vector2.INF
 	if unit_doctrine_for(d).risk != "inherit":
 		planned_destination = _drone_search_target()
-		if not _drone_risk_accepts(d, planned_destination):
+		if _drone_search_exhausted or not _drone_risk_accepts(d, planned_destination):
 			_send_drone_home(d)
 			active_drone = null
 			return
@@ -2956,18 +2958,49 @@ func _update_active_drone(scenario_delta: float) -> void:
 				d.move_target = _drone_search_target() if is_inf(planned_destination.x) else planned_destination
 				d.has_move_target = true
 				d.move_queue.clear()
-				d.move_speed = GameConfig.DRONE_CRUISE_SPEED
+				d.move_speed = _drone_airspeed_toward(d.global_position, d.move_target)
 				d.movement_predictable = false
 				return
 		_send_drone_home(d)
 		active_drone = null
 		return
 
-	d.move_target = _drone_search_target() if is_inf(planned_destination.x) else planned_destination
+	var destination: Vector2 = _drone_search_target() if is_inf(planned_destination.x) else planned_destination
+	if _drone_search_exhausted:
+		# Nothing left worth flying to that the battery can reach AND come
+		# back from — the sortie is over; bring the airframe (and what's left
+		# of its charge) home rather than crawl toward a cell it can't afford.
+		_send_drone_home(d)
+		active_drone = null
+		return
+	d.move_target = destination
 	d.has_move_target = true
 	d.move_queue.clear()
-	d.move_speed = GameConfig.DRONE_CRUISE_SPEED
+	d.move_speed = _drone_airspeed_toward(d.global_position, d.move_target)
 	d.movement_predictable = false
+
+
+## The battery a drone drains per second at the airspeed it is actually
+## flying: the plain rate (1 / full-charge flight time) scaled by that speed's
+## power factor (GameConfig.drone_power_factor — faster costs more). A drone
+## with no real speed yet (just launched) counts as cruise.
+func _drone_drain_per_second(d: Unit) -> float:
+	# Clamped to the real range of airspeeds (cruise..max): a drone that has
+	# not been given a speed yet carries the generic unit default, which is not
+	# an airspeed at all and must never be read as one.
+	var airspeed: float = clampf(d.move_speed, GameConfig.DRONE_CRUISE_SPEED, GameConfig.DRONE_MAX_AIRSPEED)
+	return GameConfig.drone_power_factor(airspeed) / _drone_full_charge_flight_time()
+
+
+## True for the tick _drone_search_target found routine targets to visit but
+## none the drone can afford (see _drone_can_afford_target), with nothing
+## more urgent to do — _update_active_drone then sends it home.
+var _drone_search_exhausted: bool = false
+
+
+## Set by _drone_routine_recon_target when it had candidates but the filter
+## left none (see _drone_search_target's "Nothing reachable" outcome).
+var _drone_routine_pool_unaffordable: bool = false
 
 
 ## The backup never makes its own search decisions or sacrifices itself —
@@ -2986,7 +3019,7 @@ func _update_active_drone(scenario_delta: float) -> void:
 ## landing, checked first and unconditionally.
 func _update_backup_drone(scenario_delta: float) -> void:
 	var d := backup_drone
-	d.drone_battery_charge -= scenario_delta / _drone_full_charge_flight_time()
+	d.drone_battery_charge -= scenario_delta * _drone_drain_per_second(d)
 
 	if d.drone_battery_charge <= 0.0:
 		_crash_drone(d, _visible_engageable_mortar())
@@ -3002,7 +3035,7 @@ func _update_backup_drone(scenario_delta: float) -> void:
 	d.move_target = watched.global_position
 	d.has_move_target = true
 	d.move_queue.clear()
-	d.move_speed = GameConfig.DRONE_CRUISE_SPEED
+	d.move_speed = _drone_airspeed_toward(d.global_position, d.move_target)
 	d.movement_predictable = false
 
 
@@ -3037,20 +3070,22 @@ func _drone_ground_speed(airspeed: float, dir: Vector2, with_gusts: bool = true)
 	return Weather.ground_speed(airspeed, dir, wind_px)
 
 
-## The airspeed a drone flies home at from `from_pos`: DRONE_CRUISE_SPEED in
-## still air, and up to DRONE_MAX_AIRSPEED (Sport mode) into a headwind,
-## picked as the SLOWEST speed whose battery-per-distance is within
-## DRONE_RETURN_ENERGY_TOLERANCE of the best available (see GameConfig.
-## drone_power_factor for the drain each speed costs). Planned on the mean
-## wind, never the instantaneous gust — see _drone_ground_speed.
-func _drone_return_airspeed(from_pos: Vector2) -> float:
+## The airspeed a drone should fly along `dir` (a unit vector): the one that
+## spends the LEAST BATTERY PER GROUND METER — drain rate at that airspeed
+## (GameConfig.drone_power_factor) divided by the ground speed it makes good
+## in the current wind (crab and all — see _drone_ground_speed). That is the
+## user's stated metric ("battery expended per ground meter traveled"), and
+## it applies to EVERY leg — outbound, search, and home — not just the
+## return: DRONE_CRUISE_SPEED in still air (and in a tailwind, where slower
+## isn't considered), rising toward DRONE_MAX_AIRSPEED (Sport mode) as a
+## headwind makes the cruise-speed crawl expensive per meter. Picks the
+## SLOWEST speed within DRONE_RETURN_ENERGY_TOLERANCE of the best, so a
+## windless leg stays at exactly cruise (the true still-air optimum is only
+## ~0.15% better). Planned on the MEAN wind, never the instantaneous gust.
+func _drone_best_airspeed(dir: Vector2) -> float:
 	var cruise: float = GameConfig.DRONE_CRUISE_SPEED
-	if weather == null or drone_team == null:
+	if weather == null or dir == Vector2.ZERO:
 		return cruise
-	var to_home: Vector2 = drone_team.global_position - from_pos
-	if to_home.length() <= 1.0:
-		return cruise
-	var dir: Vector2 = to_home.normalized()
 	var candidates: Array[float] = []
 	var costs: Array[float] = []
 	var best_cost: float = INF
@@ -3066,6 +3101,52 @@ func _drone_return_airspeed(from_pos: Vector2) -> float:
 		if costs[i] <= best_cost * (1.0 + GameConfig.DRONE_RETURN_ENERGY_TOLERANCE):
 			return candidates[i]
 	return cruise
+
+
+## The best airspeed for a drone at `from_pos` heading for `to_pos` (cruise if
+## it's already there).
+func _drone_airspeed_toward(from_pos: Vector2, to_pos: Vector2) -> float:
+	var offset: Vector2 = to_pos - from_pos
+	if offset.length() <= 1.0:
+		return GameConfig.DRONE_CRUISE_SPEED
+	return _drone_best_airspeed(offset.normalized())
+
+
+## The flight home: the best airspeed from `from_pos` back to the ground crew.
+func _drone_return_airspeed(from_pos: Vector2) -> float:
+	if drone_team == null:
+		return GameConfig.DRONE_CRUISE_SPEED
+	return _drone_airspeed_toward(from_pos, drone_team.global_position)
+
+
+## The battery (as a fraction of a full charge) a drone spends flying the
+## straight leg from `from_pos` to `to_pos` at its best airspeed on the mean
+## wind — distance x (battery per ground meter). Direction matters: the same
+## distance costs far more into a headwind than with a tailwind.
+func _drone_leg_charge(from_pos: Vector2, to_pos: Vector2) -> float:
+	var distance: float = from_pos.distance_to(to_pos)
+	if distance <= 1.0:
+		return 0.0
+	var dir: Vector2 = (to_pos - from_pos) / distance
+	var airspeed: float = _drone_best_airspeed(dir)
+	return distance / _drone_ground_speed(airspeed, dir, false) * GameConfig.drone_power_factor(airspeed) / _drone_full_charge_flight_time()
+
+
+## The charge a drone must keep back once it has finished its business at some
+## point and is coming home: the turn-home safety margin plus the letdown cost.
+func _drone_arrival_reserve_charge() -> float:
+	return GameConfig.DRONE_RTB_SAFETY_MARGIN / GameConfig.DRONE_CRUISE_SPEED / _drone_full_charge_flight_time() + GameConfig.DRONE_LANDING_CHARGE_COST
+
+
+## Can `d` fly to `point`, and still get home from there with the safety
+## reserve intact? The full round trip from where it is now, in the wind as
+## it is — a sweep cell a long way upwind that the battery can reach but
+## never come back from is not a place to go.
+func _drone_can_afford_target(d: Unit, point: Vector2) -> bool:
+	if drone_team == null:
+		return true
+	var needed: float = _drone_leg_charge(d.global_position, point) + _drone_leg_charge(point, drone_team.global_position) + _drone_arrival_reserve_charge()
+	return d.drone_battery_charge >= needed
 
 
 func _drone_detection_range() -> float:
@@ -3158,24 +3239,17 @@ func _drone_should_rtb(d: Unit) -> bool:
 ## target (the case this actually matters for) and a reasonable estimate
 ## otherwise, re-evaluated fresh every tick regardless.
 func _drone_time_until_rtb(d: Unit) -> float:
-	var distance_home: float = d.global_position.distance_to(drone_team.global_position)
-	var home_dir: Vector2 = (drone_team.global_position - d.global_position).normalized() if distance_home > 1.0 else Vector2.RIGHT
 	# Planned the way a pilot would: on the MEAN wind (not this instant's
 	# gust), at the airspeed the flight home will actually use (faster into a
-	# headwind — see _drone_return_airspeed), paying that speed's higher
-	# battery drain (GameConfig.drone_power_factor) for the whole trip.
-	var return_airspeed: float = _drone_return_airspeed(d.global_position)
-	var time_needed_home: float = distance_home / _drone_ground_speed(return_airspeed, home_dir, false) * GameConfig.drone_power_factor(return_airspeed)
-	var margin_time: float = GameConfig.DRONE_RTB_SAFETY_MARGIN / GameConfig.DRONE_CRUISE_SPEED
-	# Also reserves enough to cover the letdown cost it'll actually be
-	# charged the moment it lands (see GameConfig.DRONE_LANDING_CHARGE_COST)
-	# — without this, a drone could turn for home with "just enough," fly
-	# the whole way back, and land with less charge than it actually has
-	# left to give.
-	var full_flight_time: float = _drone_full_charge_flight_time()
-	var charge_needed_to_get_home: float = (time_needed_home + margin_time) / full_flight_time + GameConfig.DRONE_LANDING_CHARGE_COST
+	# headwind — see _drone_best_airspeed), paying that speed's higher battery
+	# drain for the whole trip. Also reserves the turn-home safety margin and
+	# the letdown cost it'll actually be charged the moment it lands (see
+	# GameConfig.DRONE_LANDING_CHARGE_COST) — without this, a drone could turn
+	# for home with "just enough," fly the whole way back, and land with less
+	# charge than it actually has left to give.
+	var charge_needed_to_get_home: float = _drone_leg_charge(d.global_position, drone_team.global_position) + _drone_arrival_reserve_charge()
 	var charge_to_spare: float = d.drone_battery_charge - charge_needed_to_get_home
-	return charge_to_spare * full_flight_time
+	return charge_to_spare * _drone_full_charge_flight_time()
 
 
 ## Hands off search/shadow duty and turns `d` for a real, simulated flight
@@ -3502,6 +3576,7 @@ func _contact_search_bonus(point: Vector2) -> float:
 ## unscreened gap toward the mortar is exactly as worth checking whether or
 ## not the enemy has called a general retreat.
 func _drone_search_target() -> Vector2:
+	_drone_search_exhausted = false
 	_update_recent_enemy_contacts()
 	if active_drone != null and unit_doctrine_for(active_drone).targeting != "inherit":
 		var chosen := _forecast_target(active_drone)
@@ -3699,6 +3774,14 @@ func _drone_search_target() -> Vector2:
 			best_pos = routine_pick.point
 			var kind: String = "an unwatched gap toward our mortar's flank" if routine_pick.key.begins_with("flank:") else "a general-area sweep cell"
 			_drone_pilot_reasoning = {"tier": "Routine background recon", "detail": "No urgent lead — checking %s (candidate value %.2f, mortar-existence confidence %.2f)." % [kind, routine_pick.value, _mortar_existence_confidence()], "target": best_pos}
+
+	# Routine recon had places to go but the battery can't afford any of them
+	# (each too far, or too far upwind, to reach AND get home from), and
+	# nothing more urgent claimed the drone: nothing reachable is worth flying to.
+	if is_inf(best_pos.x) and _drone_routine_pool_unaffordable:
+		_drone_search_exhausted = true
+		_drone_pilot_reasoning = {"tier": "Nothing reachable", "detail": "Every routine target is too far — or too far upwind — for the battery to reach and still get home from. Heading home.", "target": active_drone.global_position}
+		return active_drone.global_position
 
 	# A last, universal guard: every tier above is supposed to only ever
 	# offer a real, in-area position (an actual enemy unit's position, a
@@ -3945,6 +4028,7 @@ func drone_pilot_debug_snapshot() -> Dictionary:
 		"active": true,
 		"drone_position": _pos_to_debug_dict(active_drone.global_position),
 		"drone_battery_charge": snappedf(active_drone.drone_battery_charge, 0.01),
+		"drone_airspeed_mps": snappedf(active_drone.move_speed / GameConfig.PIXELS_PER_METER, 0.1),
 		"mortar_existence_confidence": snappedf(_mortar_existence_confidence(), 0.01),
 		"current_reasoning": reasoning,
 		"recent_enemy_contacts": contacts,
@@ -4496,9 +4580,20 @@ func _drone_mortar_search_weight() -> float:
 ## (_drone_search_target needs them anyway, to judge whether this whole
 ## tier is worth entering in the first place) rather than recomputing them.
 func _drone_routine_recon_target(flank_candidates: Array) -> Dictionary:
+	_drone_routine_pool_unaffordable = false
 	var candidates: Array = _sweep_candidates() + flank_candidates
 	if candidates.is_empty():
 		return {}
+	# Only places the drone can actually reach AND get home from, on the
+	# battery it has, in the wind as it is (user: skip sweep targets that are
+	# "too far upwind for the battery it has" — the key metric being battery
+	# per ground meter, see _drone_leg_charge). A committed destination that
+	# has become unaffordable drops out like any other.
+	var affordable: Array = candidates.filter(func(c): return _drone_can_afford_target(active_drone, c.point))
+	if affordable.is_empty():
+		_drone_routine_pool_unaffordable = true
+		return {}
+	candidates = affordable
 
 	var current: Dictionary = {}
 	for c in candidates:
