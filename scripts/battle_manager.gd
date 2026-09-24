@@ -2738,7 +2738,7 @@ func _update_drone_operations(scenario_delta: float) -> void:
 			_drones_swapping.remove_at(i)
 
 	_update_drone_weather(scenario_delta)
-	_update_returning_drones()
+	_update_returning_drones(scenario_delta)
 
 	if active_drone != null:
 		_update_active_drone(scenario_delta) # may send itself home, or (rarely) crash outright — see the sacrifice branch inside
@@ -3015,11 +3015,46 @@ func _drone_full_charge_flight_time() -> float:
 
 ## Ground speed (px/s) along `dir` for a drone flying at `airspeed` (px/s):
 ## crabs into the wind at its own flight altitude (Weather.ground_speed).
-func _drone_ground_speed(airspeed: float, dir: Vector2) -> float:
+##
+## `with_gusts` false uses the MEAN wind — what a pilot PLANS with (the turn-
+## home decision, the return airspeed), as opposed to what the drone actually
+## experiences moment to moment while moving.
+func _drone_ground_speed(airspeed: float, dir: Vector2, with_gusts: bool = true) -> float:
 	if weather == null:
 		return airspeed
-	var wind_px: Vector2 = weather.wind_velocity_mps(weather.drone_operating_altitude_m()) * GameConfig.PIXELS_PER_METER
+	var wind_px: Vector2 = weather.wind_velocity_mps(weather.drone_operating_altitude_m(), with_gusts) * GameConfig.PIXELS_PER_METER
 	return Weather.ground_speed(airspeed, dir, wind_px)
+
+
+## The airspeed a drone flies home at from `from_pos`: DRONE_CRUISE_SPEED in
+## still air, and up to DRONE_MAX_AIRSPEED (Sport mode) into a headwind,
+## picked as the SLOWEST speed whose battery-per-distance is within
+## DRONE_RETURN_ENERGY_TOLERANCE of the best available (see GameConfig.
+## drone_power_factor for the drain each speed costs). Planned on the mean
+## wind, never the instantaneous gust — see _drone_ground_speed.
+func _drone_return_airspeed(from_pos: Vector2) -> float:
+	var cruise: float = GameConfig.DRONE_CRUISE_SPEED
+	if weather == null or drone_team == null:
+		return cruise
+	var to_home: Vector2 = drone_team.global_position - from_pos
+	if to_home.length() <= 1.0:
+		return cruise
+	var dir: Vector2 = to_home.normalized()
+	var candidates: Array[float] = []
+	var costs: Array[float] = []
+	var best_cost: float = INF
+	var speed: float = cruise
+	var step: float = GameConfig.DRONE_RETURN_SPEED_STEP_MPS * GameConfig.PIXELS_PER_METER
+	while speed <= GameConfig.DRONE_MAX_AIRSPEED + 0.0001:
+		var cost: float = GameConfig.drone_power_factor(speed) / _drone_ground_speed(speed, dir, false)
+		candidates.append(speed)
+		costs.append(cost)
+		best_cost = minf(best_cost, cost)
+		speed += step
+	for i in candidates.size():
+		if costs[i] <= best_cost * (1.0 + GameConfig.DRONE_RETURN_ENERGY_TOLERANCE):
+			return candidates[i]
+	return cruise
 
 
 func _drone_detection_range() -> float:
@@ -3114,7 +3149,12 @@ func _drone_should_rtb(d: Unit) -> bool:
 func _drone_time_until_rtb(d: Unit) -> float:
 	var distance_home: float = d.global_position.distance_to(drone_team.global_position)
 	var home_dir: Vector2 = (drone_team.global_position - d.global_position).normalized() if distance_home > 1.0 else Vector2.RIGHT
-	var time_needed_home: float = distance_home / _drone_ground_speed(GameConfig.DRONE_CRUISE_SPEED, home_dir)
+	# Planned the way a pilot would: on the MEAN wind (not this instant's
+	# gust), at the airspeed the flight home will actually use (faster into a
+	# headwind — see _drone_return_airspeed), paying that speed's higher
+	# battery drain (GameConfig.drone_power_factor) for the whole trip.
+	var return_airspeed: float = _drone_return_airspeed(d.global_position)
+	var time_needed_home: float = distance_home / _drone_ground_speed(return_airspeed, home_dir, false) * GameConfig.drone_power_factor(return_airspeed)
 	var margin_time: float = GameConfig.DRONE_RTB_SAFETY_MARGIN / GameConfig.DRONE_CRUISE_SPEED
 	# Also reserves enough to cover the letdown cost it'll actually be
 	# charged the moment it lands (see GameConfig.DRONE_LANDING_CHARGE_COST)
@@ -3172,7 +3212,7 @@ func _crash_drone(d: Unit, watched: Unit = null) -> void:
 ## never means the full ~100-minute recharge for the AIRFRAME; only running
 ## the whole pool down does that, and even then only to whichever battery
 ## it draws next.
-func _update_returning_drones() -> void:
+func _update_returning_drones(scenario_delta: float) -> void:
 	for i in range(returning_drones.size() - 1, -1, -1):
 		var d: Unit = returning_drones[i]
 		if d.has_move_target:
@@ -3182,6 +3222,20 @@ func _update_returning_drones() -> void:
 			# Mirrors the mortar resupply run's own "always chase the
 			# mortar's current position" tracking for the same reason.
 			d.move_target = drone_team.global_position
+			# Flies home at whatever airspeed the wind calls for (Sport mode
+			# into a headwind — see _drone_return_airspeed) and pays for it:
+			# the flight home DRAINS the battery, faster the faster it flies
+			# (GameConfig.drone_power_factor), and a battery that runs dry
+			# on the way is a lost airframe, exactly like any other flight
+			# (direct user requirement). This used to be free — a returning
+			# drone never drained at all, so it could never fail to arrive
+			# for lack of charge and always banked its whole turn-home
+			# reserve back into the pool.
+			d.move_speed = _drone_return_airspeed(d.global_position)
+			d.drone_battery_charge -= scenario_delta * GameConfig.drone_power_factor(d.move_speed) / _drone_full_charge_flight_time()
+			if d.drone_battery_charge <= 0.0:
+				_crash_drone(d)
+				returning_drones.remove_at(i)
 			continue # still en route
 		returning_drones.remove_at(i)
 		player_units.erase(d)

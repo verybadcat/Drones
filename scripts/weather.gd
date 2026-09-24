@@ -298,11 +298,30 @@ func drone_vision_blocked() -> bool:
 	return is_precipitating() and precip_mm_h >= LIGHT_MODERATE_BELOW_MM_H
 
 
-## Below that, the drone flies lower to see through the rain.
-func drone_operating_altitude_m() -> float:
-	if not is_precipitating():
+## The highest altitude at which the MEAN wind is still within the airframe's
+## rating (DRONE_WIND_RATING_MPS) — what a pilot does in a strong wind: fly
+## lower, where the wind is weaker (the same power-law shear wind_speed_at
+## uses), giving up some sensor coverage (detection range scales with
+## altitude, see drone_detection_scale) rather than fighting the full wind
+## aloft. Uses the MEAN wind, not the instantaneous gust: a pilot doesn't
+## chase every gust up and down. Never above the normal altitude (a calm day
+## isn't a reason to climb) or below DRONE_MIN_ALTITUDE_M.
+func drone_wind_limited_altitude_m() -> float:
+	if wind_speed_at(DRONE_NORMAL_ALTITUDE_M) <= DRONE_WIND_RATING_MPS:
 		return DRONE_NORMAL_ALTITUDE_M
-	return clampf(DRONE_NORMAL_ALTITUDE_M * exp(-DRONE_ALTITUDE_DECAY_PER_MM_H * precip_mm_h), DRONE_MIN_ALTITUDE_M, DRONE_NORMAL_ALTITUDE_M)
+	# wind_speed_10m * (z / 10)^k = rating, solved for z.
+	return clampf(10.0 * pow(DRONE_WIND_RATING_MPS / wind_speed_10m, 1.0 / WIND_SHEAR_EXPONENT), DRONE_MIN_ALTITUDE_M, DRONE_NORMAL_ALTITUDE_M)
+
+
+## Where the drone actually flies: the lower of the rain altitude (below
+## moderate precipitation it flies lower to see through it) and the wind
+## altitude above (JUDGMENT: no cited pilot practice for the exact rule —
+## the rating is the one sourced number, DJI's own).
+func drone_operating_altitude_m() -> float:
+	var altitude: float = DRONE_NORMAL_ALTITUDE_M
+	if is_precipitating():
+		altitude = clampf(DRONE_NORMAL_ALTITUDE_M * exp(-DRONE_ALTITUDE_DECAY_PER_MM_H * precip_mm_h), DRONE_MIN_ALTITUDE_M, DRONE_NORMAL_ALTITUDE_M)
+	return minf(altitude, drone_wind_limited_altitude_m())
 
 
 ## Multiplies the drone's detection range: it scales with altitude (a lower

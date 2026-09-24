@@ -4559,6 +4559,42 @@ const DRONE_ROUND_TRIP_RANGE: float = 30000.0 * PIXELS_PER_METER # DJI's rated M
 const DRONE_FULL_CHARGE_FLIGHT_TIME: float = DRONE_ROUND_TRIP_RANGE / DRONE_CRUISE_SPEED # ~35.7 minutes
 const DRONE_RTB_SAFETY_MARGIN: float = 300.0 * PIXELS_PER_METER # turn for home this much charge-equivalent before the battery is actually flat
 
+# A homebound drone may fly FASTER than DRONE_CRUISE_SPEED — a real pilot
+# fighting a headwind switches to Sport mode rather than crawling home at
+# walking pace (a real, reported failure: drones "unable to reach the
+# station" in a wind near their fixed cruise speed). DJI's own Mavic 3
+# figures: 15 m/s in Normal mode, 21 m/s in Sport (19 m/s in the EU only,
+# which this map isn't in) — spec sheet, still air.
+const DRONE_MAX_AIRSPEED: float = 21.0 * PIXELS_PER_METER
+# The speed DJI's own 46-minute figure was measured at (32.4 km/h, spec
+# footnote) — one of the two real points the power model below is fitted to
+# (the other is DRONE_CRUISE_SPEED's 30 km range figure).
+const DRONE_ENDURANCE_TEST_SPEED_MPS: float = 9.0
+const DRONE_RETURN_SPEED_STEP_MPS: float = 0.5
+# JUDGMENT: a pilot doesn't change speed for a marginal gain — the homebound
+# airspeed is the SLOWEST candidate within this fraction of the best
+# battery-per-distance, which keeps a windless return at exactly cruise
+# (the true still-air optimum is ~14.6 m/s, only ~0.15% better than 14; a
+# 5% gain doesn't appear until roughly a 4 m/s headwind).
+const DRONE_RETURN_ENERGY_TOLERANCE: float = 0.05
+
+## Battery drain rate at `airspeed` (px/s), relative to the drain rate at
+## DRONE_CRUISE_SPEED (1.0 there). Power = a + b*v^3 (a fixed hover/avionics
+## term plus a drag term), fitted EXACTLY to DJI's two published forward-
+## flight points: full battery lasts 46 min at 9 m/s and covers 30 km at
+## 14 m/s (35.7 min). Everything at or below 14 m/s is interpolation;
+## above it (up to DRONE_MAX_AIRSPEED, ~1.7x at 21 m/s) is an extrapolation
+## of the cubic drag law — JUDGMENT, DJI publishes no power figure there.
+static func drone_power_factor(airspeed: float) -> float:
+	var v: float = airspeed / PIXELS_PER_METER
+	var v_cruise: float = DRONE_CRUISE_SPEED / PIXELS_PER_METER
+	var v_endurance: float = DRONE_ENDURANCE_TEST_SPEED_MPS
+	var p_endurance: float = 1.0 / DRONE_MAX_FLIGHT_TIME
+	var p_cruise: float = 1.0 / DRONE_FULL_CHARGE_FLIGHT_TIME
+	var b: float = (p_cruise - p_endurance) / (pow(v_cruise, 3.0) - pow(v_endurance, 3.0))
+	var a: float = p_endurance - b * pow(v_endurance, 3.0)
+	return (a + b * pow(v, 3.0)) / p_cruise
+
 # Getting to DRONE_ALTITUDE_M (or back down from it) isn't free — DJI's own
 # rated Normal-mode ascent/descent speeds, applied as a real time-and-charge
 # cost the cruise-only model above would otherwise skip entirely. Not
