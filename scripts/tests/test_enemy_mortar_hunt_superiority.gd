@@ -171,38 +171,58 @@ func test_with_no_friendly_squads_the_enemy_looks_for_the_mortar() -> void:
 ## The reported situation: enemy squads sitting on the village, every friendly
 ## squad withdrawn, the mortar far to the west and silent. They must set off for
 ## it instead of holding.
+##
+## The advance-by-bounds step (_next_advance_point) picks among bent candidate
+## directions with a weighted random roll ("usually isn't always": about 3-4% of
+## rolls step away from the objective for cover), so "every squad heads toward it"
+## cannot be asserted for one roll. What the feature promises is (a) every squad is
+## given an advance order and (b) the overwhelming majority of those orders close on
+## the mortar's last known position — checked over many trials.
 func test_the_current_battle_shape() -> void:
+	seed(11)
 	var village: Vector2 = GameConfig.CURRENT_MAP.village_center
-	var bm = make_battle(0, 0, 3)
-	var mortar: Unit = bm.player_units[0]
-	mortar.is_visible = false
-	mortar.global_position = Vector2(-m(1457), m(1940))
-	bm._last_detected_mortar_fire[mortar] = {"position": Vector2(-m(1300), m(1900)), "time": 0.0}
-	bm.scenario_elapsed_time = 5000.0
-	var squads: Array[Unit] = []
-	for off in [Vector2(-370, 54), Vector2(-218, 79), Vector2(-222, 65), Vector2(59, 140)]:
-		var s: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, village + Vector2(m(off.x), m(off.y)))
-		s.sought_cover = true
-		bm.enemy_units.append(s)
-		squads.append(s)
-	bm._update_enemy_squad_advance()
-	var heading_west := 0
-	for s in squads:
-		if s.has_move_target and s.move_target.x < s.global_position.x - 1.0:
-			heading_west += 1
-	check(heading_west == squads.size(), "All %d enemy squads set off toward the mortar's last known position (%d did)" % [squads.size(), heading_west])
-	# Control: with a friendly squad still in action, they stay on the village objective
-	# (already there, so no advance order).
-	var f: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, Vector2(-m(900), m(1900)))
-	bm.player_units.append(f)
-	for s in squads:
-		s.global_position = village
-		s.has_move_target = false
-		s.move_queue.clear()
-	bm._update_enemy_squad_advance()
-	var moving := 0
-	for s in squads:
-		if s.has_move_target:
-			moving += 1
-	check(moving == 0, "Control: with a friendly squad in action they hold the village, as before (%d moved)" % moving)
-	cleanup(bm)
+	var ordered := 0
+	var closing := 0
+	var total := 0
+	var offsets := [Vector2(-370, 54), Vector2(-218, 79), Vector2(-222, 65), Vector2(59, 140)]
+	for trial in 40:
+		var bm = make_battle(0, 0, 3)
+		var mortar: Unit = bm.player_units[0]
+		mortar.is_visible = false
+		mortar.global_position = Vector2(-m(1457), m(1940))
+		bm._last_detected_mortar_fire[mortar] = {"position": Vector2(-m(1300), m(1900)), "time": 0.0}
+		bm.scenario_elapsed_time = 5000.0
+		var objective: Vector2 = bm._enemy_advance_objective()
+		if trial == 0:
+			check(objective.distance_to(Vector2(-m(1300), m(1900))) < 1.0, "Setup: their objective is where the mortar was last heard")
+		var squads: Array[Unit] = []
+		for off in offsets:
+			var s: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, village + Vector2(m(off.x), m(off.y)))
+			s.sought_cover = true
+			bm.enemy_units.append(s)
+			squads.append(s)
+		bm._update_enemy_squad_advance()
+		for s in squads:
+			total += 1
+			if s.has_move_target:
+				ordered += 1
+				if s.move_target.distance_to(objective) < s.global_position.distance_to(objective):
+					closing += 1
+		if trial == 0:
+			# Control (once): with a friendly squad still in action they hold the
+			# village — squads already standing on it have nothing to advance to.
+			var f: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, Vector2(-m(900), m(1900)))
+			bm.player_units.append(f)
+			for s in squads:
+				s.global_position = village
+				s.has_move_target = false
+				s.move_queue.clear()
+			bm._update_enemy_squad_advance()
+			var moving := 0
+			for s in squads:
+				if s.has_move_target:
+					moving += 1
+			check(moving == 0, "Control: with a friendly squad in action they hold the village, as before (%d moved)" % moving)
+		cleanup(bm)
+	check(ordered == total, "Every enemy squad is given an advance order (%d of %d)" % [ordered, total])
+	check(float(closing) / float(total) >= 0.85, "The great majority of the orders close on the mortar's last known position (%d of %d)" % [closing, total])
