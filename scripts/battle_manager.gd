@@ -203,8 +203,14 @@ func _relocate_for_risk(unit: Unit) -> void:
 	_risk_holds[unit] = true
 	unit.last_order_reason = "Self-risk policy rejected the current exposure; moving to safer cover or withholding fire."
 	var known := _known_enemy_positions(unit.team)
+	# See nearest_hidden_point's own doc comment on danger_range — a mortar
+	# crew's own 750m overrun standoff is far tighter than any other unit
+	# kind's relevant "don't walk toward a known threat" scale, so anything
+	# else here uses SQUAD_DANGER_RANGE (1200m) instead, same mortar-vs-
+	# everyone-else split _retreat_avoidance_offset's own range_m already uses.
+	var danger_range: float = GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE if unit.kind == Unit.Kind.MORTAR else GameConfig.SQUAD_DANGER_RANGE
 	var choices: Array[Vector2] = [unit.global_position,
-		GameConfig.nearest_hidden_point(unit.global_position, known, unit.kind == Unit.Kind.MORTAR),
+		GameConfig.nearest_hidden_point(unit.global_position, known, unit.kind == Unit.Kind.MORTAR, false, [], Vector2.INF, INF, 0.0, [], [], Vector2.ZERO, Vector2.INF, danger_range),
 		GameConfig.nearest_cover_point(unit.global_position, 0.0, unit.kind == Unit.Kind.MORTAR, _ally_positions_for(unit), known)]
 	var best: Vector2 = unit.global_position
 	var best_risk := INF
@@ -2726,7 +2732,14 @@ func _update_drone_team_evasion() -> void:
 	if risk <= 0.0 or randf() >= risk * risk:
 		return
 	var threats := _known_enemy_positions(Unit.Team.PLAYER)
-	var destination: Vector2 = GameConfig.nearest_hidden_point(drone_team.global_position, threats, false)
+	# The trailing explicit defaults here (avoid_buildings through firing_point)
+	# exist only so danger_range can be reached positionally (GDScript has no
+	# keyword args) — see nearest_hidden_point's own doc comment on why this
+	# must be DRONE_TEAM_EVASION_RANGE, not the mortar-scaled default: a real,
+	# reported bug ("mortar team seems to be fleeing towards enemy squads")
+	# traced to this exact call using the mortar's own much tighter 750m
+	# standoff instead of the 1200m scale this team's own trigger above uses.
+	var destination: Vector2 = GameConfig.nearest_hidden_point(drone_team.global_position, threats, false, false, [], Vector2.INF, INF, 0.0, [], [], Vector2.ZERO, Vector2.INF, GameConfig.DRONE_TEAM_EVASION_RANGE)
 	if destination == drone_team.global_position:
 		return # nowhere better to go this tick — try again next tick if the threat's still closing
 	drone_team.move_target = destination

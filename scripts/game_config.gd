@@ -7274,12 +7274,12 @@ const CONCEALMENT_HILL_MAX_EXTRA_M: float = 300.0
 ## preserves every existing caller's behavior exactly; only a relocation
 ## reacting to a crew's own still-live firing signature passes a real
 ## value.
-static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO, firing_point: Vector2 = Vector2.INF) -> Vector2:
+static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO, firing_point: Vector2 = Vector2.INF, danger_range: float = MORTAR_CREW_OVERRUN_DANGER_RANGE) -> Vector2:
 	if threat_positions.is_empty():
 		return from
 
 	var hill_spot := _reverse_slope_candidate(from, threat_positions, avoid_buildings, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions, no_reversal_positions, firing_point)
-	var ring_spot := _ring_search_hidden_point(from, threat_positions, avoid_buildings, urgent, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions, no_reversal_positions, travel_direction, firing_point)
+	var ring_spot := _ring_search_hidden_point(from, threat_positions, avoid_buildings, urgent, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions, no_reversal_positions, travel_direction, firing_point, danger_range)
 
 	if hill_spot == from:
 		return ring_spot
@@ -7320,7 +7320,7 @@ static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2]
 ## — a crew that reliably ran to the single most-hidden location every
 ## time would itself be a predictable pattern, exactly the thing shoot-
 ## and-scoot doctrine exists to avoid.
-static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO, firing_point: Vector2 = Vector2.INF) -> Vector2:
+static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO, firing_point: Vector2 = Vector2.INF, danger_range: float = MORTAR_CREW_OVERRUN_DANGER_RANGE) -> Vector2:
 	var rings: Array[float] = CONCEALMENT_SEARCH_RINGS_URGENT_M if urgent else CONCEALMENT_SEARCH_RINGS_M
 	# See CONCEALMENT_SEARCH_RINGS_BUNCHING_EXTRA_M's own doc comment —
 	# only sampled when there's an actual sibling to create real
@@ -7460,17 +7460,32 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 			# one scores at most 1.5x). Promoted to the same two-stage hard
 			# preference already used for floor_ok/critically_close/
 			# is_reversal/reverses_direction: prefer a candidate that clears
-			# MORTAR_CREW_OVERRUN_DANGER_RANGE exclusively whenever at least
-			# one exists, only falling back to a closer one when every
-			# single candidate this pass found is that close. Checked right
-			# after firing_point (the one thing allowed to outrank it — a
-			# live counter-battery threat at the exact firing coordinate)
-			# and ahead of every other preference below: standing off from a
-			# known threat's engagement envelope matters more than home-
-			# leash progress, sibling bunching, or reversal avoidance. The
-			# plain score penalty stays too, as a tie-breaker within
-			# whichever group (clear or not) actually gets used.
-			var too_close_to_known_threat: bool = min_threat_dist < MORTAR_CREW_OVERRUN_DANGER_RANGE
+			# `danger_range` exclusively whenever at least one exists, only
+			# falling back to a closer one when every single candidate this
+			# pass found is that close. Checked right after firing_point (the
+			# one thing allowed to outrank it — a live counter-battery threat
+			# at the exact firing coordinate) and ahead of every other
+			# preference below: standing off from a known threat's own
+			# engagement envelope matters more than home-leash progress,
+			# sibling bunching, or reversal avoidance. The plain score
+			# penalty stays too, as a tie-breaker within whichever group
+			# (clear or not) actually gets used.
+			#
+			# `danger_range` is a caller-supplied parameter, not hardcoded to
+			# MORTAR_CREW_OVERRUN_DANGER_RANGE, because this search is shared
+			# by callers with genuinely different danger scales — a real,
+			# second bug found the same day this fix first landed: the drone
+			# team's own evasion search (_update_drone_team_evasion) routes
+			# through this exact function, and 750m (right for "close enough
+			# to physically overrun a mortar crew") is far tighter than the
+			# 1200m the drone team's own trigger (DRONE_TEAM_EVASION_RANGE)
+			# already uses — a destination well outside 750m of a known
+			# enemy squad could still read as "walking toward it" at the
+			# drone team's own relevant scale, exactly the user's report
+			# ("seeing enemy squads in front of it should cause it to
+			# reconsider"). Each caller now passes its own scale; the default
+			# preserves the mortar's own existing behavior unchanged.
+			var too_close_to_known_threat: bool = min_threat_dist < danger_range
 			if too_close_to_known_threat:
 				score *= 0.5 # still a valid move, just a weaker one this close to a known threat
 			# Facing away from the threat picture is worth up to 1.5x;
