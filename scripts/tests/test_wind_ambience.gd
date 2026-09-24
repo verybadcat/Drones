@@ -111,4 +111,16 @@ func test_the_recordings_and_their_source_are_documented() -> void:
 	check(WindAmbience.SOFT_STREAM.get_length() > 10.0 and WindAmbience.BLOWING_STREAM.get_length() > 30.0, "Both recordings load")
 	var note := FileAccess.get_file_as_string("res://assets/audio/wind/SOURCES.md")
 	check("https://pixabay.com/sound-effects/search/wind/" in note, "The sourcing note gives the Pixabay page the recordings came from")
-	check("storegraphic-soft-wind-318856.mp3" in note and "soundreality-wind-blowing-457954.mp3" in note, "...and names both files")
+	check("storegraphic-soft-wind-318856.mp3" in note and "soundreality-wind-blowing-457954-minus-last-second.mp3" in note, "...and names both files")
+	# Direct user request: the blowing recording's fade-out was annoying at 9 m/s —
+	# "Let's try shortening the file by removing the last second." The original was
+	# 42.74 s; the committed file is that minus a second (and the note says so).
+	var blowing_length: float = WindAmbience.BLOWING_STREAM.get_length()
+	check(blowing_length > 41.4 and blowing_length < 42.0, "The blowing recording has had its last second removed (%.2f s; the download was 42.74 s)" % blowing_length)
+	check("last second" in note and "42.7 s -> 41.7 s" in note, "The note records the trim")
+	var dir := DirAccess.open("res://assets/audio/wind")
+	var mp3s: Array = []
+	for f in dir.get_files():
+		if f.ends_with(".mp3"):
+			mp3s.append(f)
+	check(mp3s.size() == 2 and not mp3s.has("soundreality-wind-blowing-457954.mp3"), "The untrimmed download is not in the project (found %s)" % str(mp3s))

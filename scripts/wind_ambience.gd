@@ -23,18 +23,21 @@ extends Node
 ## sit (about 7-13 dB, then about 1-3 dB).
 ##
 ## Loops: each recording simply loops (AmbientMixer, shared with RainAmbience). The
-## blowing one fades out to silence over its last second and in over its first
-## quarter-second, so it lulls briefly every 42 s — deliberately left that way
-## (user: "it's ok to have some silence interspersed with the wind sound. Wind is
-## not constant"). The recordings themselves are used exactly as downloaded (see
-## assets/audio/wind/SOURCES.md).
+## soft one is used exactly as downloaded. The blowing one had a fade-out to
+## silence over its last ~1.3 s, which the user found annoying at 9 m/s ("Let's try
+## shortening the file by removing the last second"), so the committed file is the
+## download with its last second cut (see assets/audio/wind/SOURCES.md); it still
+## fades in over its first quarter-second and dips slightly over its final quarter-
+## second, a lull every 42 s the user has said is fine ("it's ok to have some
+## silence interspersed with the wind sound. Wind is not constant").
 
 const AmbientMixer = preload("res://scripts/ambient_mixer.gd")
 
 const SOFT_STREAM: AudioStreamMP3 = preload("res://assets/audio/wind/storegraphic-soft-wind-318856.mp3")
-const BLOWING_STREAM: AudioStreamMP3 = preload("res://assets/audio/wind/soundreality-wind-blowing-457954.mp3")
+const BLOWING_STREAM: AudioStreamMP3 = preload("res://assets/audio/wind/soundreality-wind-blowing-457954-minus-last-second.mp3")
 
-## Measured with ffmpeg's ebur128 filter (integrated loudness) on the files as downloaded.
+## Measured with ffmpeg's ebur128 filter (integrated loudness) on the committed files
+## (the blowing one's figure is the same before and after its last second was cut).
 const SOFT_FILE_LUFS: float = -40.4
 const BLOWING_FILE_LUFS: float = -30.2
 
