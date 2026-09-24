@@ -132,6 +132,30 @@ func casualty_pips_at_current_index(team: Unit.Team) -> Dictionary:
 	return {"pips_total": pips_total, "pips_lost": pips_lost, "casualty_percent": casualty_percent, "estimated": false, "captured": captured}
 
 
+## The recorded status views (BattleManager.mortar_status_view) of `team`'s
+## mortars at the snapshot currently displayed — for CasualtyDashboard's mortar
+## rows during replay, so ammunition, crew and resupply read as they were at
+## this moment rather than as the battle ended. Ground truth, like everything
+## else in this viewer.
+func mortar_views_at_current_index(team: Unit.Team) -> Array[Dictionary]:
+	var views: Array[Dictionary] = []
+	if history.is_empty():
+		return views
+	for u in history[current_index].units:
+		if u.team == team and u.kind == Unit.Kind.MORTAR and u.has("mortar"):
+			views.append(u.mortar)
+	return views
+
+
+## The drone fleet status (BattleManager.drone_fleet_status) recorded at the
+## snapshot currently displayed; {} if none was recorded (not the drone-team
+## recon mode).
+func drone_fleet_at_current_index() -> Dictionary:
+	if history.is_empty():
+		return {}
+	return history[current_index].get("drone_fleet", {})
+
+
 func _draw() -> void:
 	if history.is_empty():
 		return

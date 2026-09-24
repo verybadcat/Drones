@@ -921,9 +921,36 @@ func _record_history_snapshot() -> void:
 		# deliberately NOT snapshotted here: it never changes over the
 		# course of a battle, so the viewer can just look it up fresh from
 		# the recorded x/y instead of storing it redundantly every snapshot.
-		units.append({"team": u.team, "kind": u.kind, "x": u.global_position.x, "y": u.global_position.y, "state": u.state,
-			"unit_label": u.unit_label, "pips": u.pips, "max_pips": u.max_pips})
-	_history.append({"time": scenario_elapsed_time, "units": units})
+		var entry: Dictionary = {"team": u.team, "kind": u.kind, "x": u.global_position.x, "y": u.global_position.y, "state": u.state,
+			"unit_label": u.unit_label, "pips": u.pips, "max_pips": u.max_pips}
+		# What the dashboard's mortar row reads (rounds left, crew, resupply) —
+		# recorded so replaying the history can show it as it was at each
+		# moment, not as it ended.
+		if u.kind == Unit.Kind.MORTAR:
+			entry["mortar"] = mortar_status_view(u)
+		units.append(entry)
+	# Likewise the drone fleet row (empty outside the drone-team recon mode,
+	# where the row isn't shown at all).
+	var snapshot: Dictionary = {"time": scenario_elapsed_time, "units": units}
+	snapshot["drone_fleet"] = drone_fleet_status() if recon_mode == GameConfig.ReconMode.DRONE_TEAM else {}
+	_history.append(snapshot)
+
+
+## Everything a mortar's status row needs, as plain data: its state, rounds
+## remaining, crew casualties and whether the gun was abandoned, and the
+## resupply status. The ONE place that gathers it — CasualtyDashboard reads
+## it for the live board, and _record_history_snapshot stores it per moment,
+## so the live board and the history replay can never disagree about what a
+## mortar's row is made of.
+func mortar_status_view(u: Unit) -> Dictionary:
+	return {
+		"state": u.state,
+		"rounds": u.mortar_rounds_remaining,
+		"crew_casualties": u.crew_casualties,
+		"crew_size": u.crew_size,
+		"gun_abandoned": u.mortar_gun_abandoned,
+		"resupply": mortar_resupply_status(u),
+	}
 
 
 ## Public accessor for main.gd's BattleHistoryViewer — read-only, recorded

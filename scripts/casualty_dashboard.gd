@@ -168,22 +168,50 @@ func _process(_delta: float) -> void:
 ## requirement: "the casualties bar should start at zero and show
 ## casualties as they happen [during replay]. If the user scrolls forwards
 ## or backwards, the casualties should show what they were at wherever the
-## user scrolls to." The mortar/drone rows below are left showing the
-## battle's final state throughout replay (recorded history snapshots
-## never captured ammo/resupply/battery data to scrub those live either —
-## a much bigger feature than what was actually asked for here).
+## user scrolls to." The mortar and drone rows follow the replay too (user
+## report: "When replaying the battle history, it is not updating mortar
+## status ... Rounds of ammo available"; and "Consider whether the whole
+## board should be in a single code path"): each snapshot records
+## BattleManager.mortar_status_view / drone_fleet_status, and the board is
+## built from either source into the same data (_live_board/_replay_board)
+## and drawn by one _render, with one text function per row.
 func _refresh() -> void:
 	if battle_manager == null:
 		return
-	if history_viewer != null:
-		_update_side(history_viewer.casualty_pips_at_current_index(Unit.Team.PLAYER), _player_label, _player_bar, "Player")
-		_update_side(history_viewer.casualty_pips_at_current_index(Unit.Team.ENEMY), _enemy_label, _enemy_bar, "Enemy")
-		return
-	_update_side(battle_manager.casualty_stats(Unit.Team.PLAYER), _player_label, _player_bar, "Player")
-	_update_mortar_rows(battle_manager.player_units, _player_mortar_rows, false)
-	_update_drone_row()
-	_update_side(battle_manager.casualty_stats(Unit.Team.ENEMY), _enemy_label, _enemy_bar, "Enemy")
-	_update_mortar_rows(battle_manager.enemy_units, _enemy_mortar_rows, true)
+	_render(_replay_board() if history_viewer != null else _live_board())
+
+
+## THE board, as plain data — the one shape both providers below produce and
+## _render draws: {"player"/"enemy": {"stats", "mortars": [{text, color}]},
+## "drone": {"visible", "text", "color"}}. Live and replay differ only in
+## where the data comes from (and, deliberately, in the enemy side's
+## fog-of-war), never in how it's laid out or worded.
+func _live_board() -> Dictionary:
+	return {
+		"player": {"stats": battle_manager.casualty_stats(Unit.Team.PLAYER), "mortars": _live_mortar_row_data(battle_manager.player_units, false)},
+		"drone": _drone_row_data(battle_manager.recon_mode == GameConfig.ReconMode.DRONE_TEAM, battle_manager.drone_fleet_status()),
+		"enemy": {"stats": battle_manager.casualty_stats(Unit.Team.ENEMY), "mortars": _live_mortar_row_data(battle_manager.enemy_units, true)},
+	}
+
+
+## The same board as recorded at the replay's current moment — ground truth for
+## both sides (the replay is omniscient, like the rest of BattleHistoryViewer,
+## a deliberate choice confirmed with the user), so no fog-of-war filtering
+## and no "last seen" wording.
+func _replay_board() -> Dictionary:
+	return {
+		"player": {"stats": history_viewer.casualty_pips_at_current_index(Unit.Team.PLAYER), "mortars": _replay_mortar_row_data(Unit.Team.PLAYER)},
+		"drone": _drone_row_data(battle_manager.recon_mode == GameConfig.ReconMode.DRONE_TEAM, history_viewer.drone_fleet_at_current_index()),
+		"enemy": {"stats": history_viewer.casualty_pips_at_current_index(Unit.Team.ENEMY), "mortars": _replay_mortar_row_data(Unit.Team.ENEMY)},
+	}
+
+
+func _render(board: Dictionary) -> void:
+	_update_side(board.player.stats, _player_label, _player_bar, "Player")
+	_apply_mortar_rows(_player_mortar_rows, board.player.mortars)
+	_apply_drone_row(board.drone)
+	_update_side(board.enemy.stats, _enemy_label, _enemy_bar, "Enemy")
+	_apply_mortar_rows(_enemy_mortar_rows, board.enemy.mortars)
 
 
 ## `stats.estimated` (see BattleManager._compute_side_stats) marks the
@@ -220,35 +248,50 @@ func _update_side(stats: Dictionary, label: RichTextLabel, bar: ColorRect, side_
 ## itself reveal that a mortar exists there, exactly the omniscience this
 ## dashboard otherwise avoids for the enemy side. The player's own mortar
 ## needs no such filter — there's no fog of war on your own units.
-func _update_mortar_rows(units: Array[Unit], rows: Array[Dictionary], is_enemy: bool) -> void:
-	var mortars: Array[Unit] = []
+func _live_mortar_row_data(units: Array[Unit], is_enemy: bool) -> Array[Dictionary]:
+	var data: Array[Dictionary] = []
 	for u in units:
 		if u.kind != Unit.Kind.MORTAR:
 			continue
 		if is_enemy and not u.player_has_been_sighted and not battle_manager.mortar_ever_detected_firing(u):
 			continue
-		mortars.append(u)
+		var color: Color
+		if u.team != Unit.Team.PLAYER and not u.player_has_been_sighted:
+			# Detected firing without ever being sighted still reads as
+			# genuinely "in action" (green) — only a mortar with neither a
+			# sighting nor a recent fire detection is a true unknown (gray).
+			color = STATUS_COLOR[Unit.State.ACTIVE] if battle_manager.mortar_recently_detected_firing(u) else UNKNOWN_COLOR
+		else:
+			color = STATUS_COLOR[u.player_known_state if u.team != Unit.Team.PLAYER else u.state]
+		data.append({"text": "Mortar: %s" % _mortar_status_text(u), "color": color})
+	return data
 
+
+## Replay rows: every mortar of `team` as recorded at the current moment,
+## worded by _mortar_view_text — the same text function the live player row uses.
+func _replay_mortar_row_data(team: Unit.Team) -> Array[Dictionary]:
+	var data: Array[Dictionary] = []
+	for view in history_viewer.mortar_views_at_current_index(team):
+		data.append({"text": "Mortar: %s" % _mortar_view_text(view), "color": STATUS_COLOR[view.state]})
+	return data
+
+
+## Shows `data` ({text, color} per row, in order) on the pre-allocated rows and
+## hides the rest.
+func _apply_mortar_rows(rows: Array[Dictionary], data: Array[Dictionary]) -> void:
 	for i in rows.size():
 		var row: Dictionary = rows[i]
 		var label: RichTextLabel = row.label
 		var bg: ColorRect = row.bg
-		if i >= mortars.size():
+		if i >= data.size():
 			label.visible = false
 			bg.visible = false
 			continue
 		label.visible = true
 		bg.visible = true
-		var u: Unit = mortars[i]
-		label.text = "Mortar: %s" % _mortar_status_text(u)
+		label.text = data[i].text
 		var fill: ColorRect = row.fill
-		if u.team != Unit.Team.PLAYER and not u.player_has_been_sighted:
-			# Detected firing without ever being sighted still reads as
-			# genuinely "in action" (green) — only a mortar with neither a
-			# sighting nor a recent fire detection is a true unknown (gray).
-			fill.color = STATUS_COLOR[Unit.State.ACTIVE] if battle_manager.mortar_recently_detected_firing(u) else UNKNOWN_COLOR
-		else:
-			fill.color = STATUS_COLOR[u.player_known_state if u.team != Unit.Team.PLAYER else u.state]
+		fill.color = data[i].color
 
 
 ## A mortar's own casualty model (an exact crew headcount) does feed into
@@ -264,17 +307,24 @@ func _update_mortar_rows(units: Array[Unit], rows: Array[Dictionary], is_enemy: 
 func _mortar_status_text(u: Unit) -> String:
 	if u.team != Unit.Team.PLAYER:
 		return _enemy_mortar_status_text(u)
-	match u.state:
+	return _mortar_view_text(battle_manager.mortar_status_view(u))
+
+
+## A mortar's status from its plain-data view (BattleManager.mortar_status_view
+## — live for the board, recorded per moment for the history replay). The one
+## place this wording lives.
+func _mortar_view_text(view: Dictionary) -> String:
+	match view.state:
 		Unit.State.ACTIVE:
-			return "in action (%s%s)" % [GameConfig.round_count_text(u.mortar_rounds_remaining), _resupply_status_suffix(u)]
+			return "in action (%s%s)" % [GameConfig.round_count_text(view.rounds), _resupply_status_suffix(view.resupply)]
 		Unit.State.RETREATING:
-			if u.mortar_gun_abandoned:
-				return "abandoned, crew fleeing (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
-			return "falling back with the gun" if u.crew_casualties == 0 else "falling back with the gun (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
+			if view.gun_abandoned:
+				return "abandoned, crew fleeing (%d/%d crew casualties)" % [view.crew_casualties, view.crew_size]
+			return "falling back with the gun" if view.crew_casualties == 0 else "falling back with the gun (%d/%d crew casualties)" % [view.crew_casualties, view.crew_size]
 		Unit.State.WITHDRAWN:
-			return "withdrew safely" if u.crew_casualties == 0 else "withdrew (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
+			return "withdrew safely" if view.crew_casualties == 0 else "withdrew (%d/%d crew casualties)" % [view.crew_casualties, view.crew_size]
 		Unit.State.DESTROYED:
-			return "destroyed (%d/%d crew casualties)" % [u.crew_casualties, u.crew_size]
+			return "destroyed (%d/%d crew casualties)" % [view.crew_casualties, view.crew_size]
 	return ""
 
 
@@ -325,8 +375,7 @@ func _enemy_mortar_status_text(u: Unit) -> String:
 ## sees here always matches why the mortar is or isn't holding fire on a
 ## squad right now. Empty string (no suffix at all) when nothing's pending,
 ## so a mortar that's never requested resupply doesn't clutter its own row.
-func _resupply_status_suffix(u: Unit) -> String:
-	var status: Dictionary = battle_manager.mortar_resupply_status(u)
+func _resupply_status_suffix(status: Dictionary) -> String:
 	if not status.pending:
 		return ""
 	if status.in_transit:
@@ -342,19 +391,13 @@ func _resupply_status_suffix(u: Unit) -> String:
 ## (hidden entirely otherwise). If the ground team itself is out of action,
 ## that takes over the row instead (no fleet to report on without a team to
 ## fly it — see BattleManager._update_drone_operations).
-func _update_drone_row() -> void:
-	var using_drones: bool = battle_manager.recon_mode == GameConfig.ReconMode.DRONE_TEAM
-	_drone_label.visible = using_drones
-	_drone_bg.visible = using_drones
-	if not using_drones:
-		return
-	var status: Dictionary = battle_manager.drone_fleet_status()
+func _drone_row_data(using_drones: bool, status: Dictionary) -> Dictionary:
+	if not using_drones or status.is_empty():
+		return {"visible": false, "text": "", "color": Color.WHITE}
 	if not status.team_active:
-		_drone_label.text = "Drone team: %s (%d/%d crew casualties)" % [
+		return {"visible": true, "color": STATUS_COLOR[status.team_state], "text": "Drone team: %s (%d/%d crew casualties)" % [
 			_team_state_text(status.team_state), status.team_crew_casualties, status.team_crew_size
-		]
-		_drone_fill.color = STATUS_COLOR[status.team_state]
-		return
+		]}
 	var parts: PackedStringArray = []
 	parts.append("1 airborne (%d%% charge)" % int(round(status.airborne_charge * 100.0)) if status.airborne else "NONE AIRBORNE")
 	if status.backup:
@@ -371,8 +414,16 @@ func _update_drone_row() -> void:
 		parts.append("%d spare batteries (best %d%%)" % [status.spare_batteries, int(round(status.spare_best_charge * 100.0))])
 	if status.destroyed > 0:
 		parts.append("%d lost" % status.destroyed)
-	_drone_label.text = "Drones: %s" % ", ".join(parts)
-	_drone_fill.color = Color(0.25, 0.85, 0.35) if status.airborne else Color(1.0, 0.3, 0.2)
+	return {"visible": true, "text": "Drones: %s" % ", ".join(parts), "color": Color(0.25, 0.85, 0.35) if status.airborne else Color(1.0, 0.3, 0.2)}
+
+
+func _apply_drone_row(row: Dictionary) -> void:
+	_drone_label.visible = row.visible
+	_drone_bg.visible = row.visible
+	if not row.visible:
+		return
+	_drone_label.text = row.text
+	_drone_fill.color = row.color
 
 
 func _team_state_text(state: Unit.State) -> String:

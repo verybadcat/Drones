@@ -93,7 +93,7 @@ static func score(inputs: Dictionary) -> float:
 ## value. The points always sum to score().
 static func line_items(inputs: Dictionary) -> Array[Dictionary]:
 	var position_points: float = POSITION_STALEMATE
-	var position_label := "Stalemate (neither side held or lost the position)"
+	var position_label := "Stalemate (neither side held the position)"
 	match str(inputs.get("position", POSITION_STALEMATE_KEY)):
 		POSITION_HELD_KEY:
 			position_points = POSITION_HELD
