@@ -683,6 +683,7 @@ var score_log := BattleScoreLog.new()
 ## player chose (the recon mode) — user's definition. Recording happens here,
 ## in the real UI flow, never in BattleManager (which runs in every test).
 func _record_score_and_annotate(report_text: String) -> String:
+	_scenario_average_line = ""
 	if battle_manager == null or battle_manager.battle_result.is_empty():
 		return report_text
 	var map_id: String = GameConfig.current_map_id()
@@ -691,18 +692,30 @@ func _record_score_and_annotate(report_text: String) -> String:
 	var summary: Dictionary = BattleScoreLog.scenario_summary(score_log.load_records(), map_id, mode_name)
 	if summary.is_empty():
 		return report_text
-	var average_line: String = "Scenario average: %s over %d %s (%s, %s)" % [
+	_scenario_average_line = "Scenario average: %s over %d %s (%s, %s)" % [
 		BattleScore.format(summary.average), summary.count, "battle" if summary.count == 1 else "battles",
 		GameConfig.CURRENT_MAP.name, GameConfig.RECON_MODE_LABELS[recon_mode],
 	]
-	var lines: PackedStringArray = report_text.split("
-")
+	var lines: PackedStringArray = report_text.split("\n")
 	for i in lines.size():
 		if lines[i].begins_with("Battle score:"):
-			lines.insert(i + 1, average_line)
+			lines.insert(i + 1, _scenario_average_line)
 			break
-	return "
-".join(lines)
+	return "\n".join(lines)
+
+
+## The scenario-average line for the battle that just ended ("" if there is
+## none) — kept so the Score tab can show it too, not just the After Action
+## Report. Set by _record_score_and_annotate.
+var _scenario_average_line: String = ""
+
+
+## The Score tab's text: the total, the running scenario average, and every
+## line item that went into the score (see BattleScore.breakdown_text).
+func _score_tab_text() -> String:
+	if battle_manager == null or battle_manager.battle_result.is_empty():
+		return "No score is available for this battle."
+	return BattleScore.breakdown_text(battle_manager.battle_result.inputs, _scenario_average_line)
 
 
 func _on_battle_ended(report_text: String) -> void:
@@ -745,21 +758,35 @@ func _on_battle_ended(report_text: String) -> void:
 	# click-drag selection can't extend past whatever's currently visible in
 	# the wrapping ScrollContainer, so once a report is tall enough to need
 	# scrolling, drag-selection alone could never span the whole thing.
-	var report_label := GameConfig.make_selectable_label(report_text)
+	# Three tabs, in this order (user's spec): Score, Damage by unit, After
+	# Action Report. The last is the report this screen always had (formerly
+	# titled "Battle summary"), unchanged. The Score tab opens first when the
+	# battle produced a score; otherwise the report itself does, as before.
+	var has_score: bool = battle_manager != null and not battle_manager.battle_result.is_empty()
+	var score_text: String = _score_tab_text()
+	var report_label := GameConfig.make_selectable_label(score_text if has_score else report_text)
 	report_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	report_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	report_scroll.add_child(report_label)
-	var summary_tab := Button.new()
-	summary_tab.text = "Battle summary"
-	summary_tab.position = Vector2(10, 10)
-	summary_tab.pressed.connect(func(): report_label.text = report_text; report_scroll.scroll_vertical = 0)
-	report_background.add_child(summary_tab)
+	var score_tab := Button.new()
+	score_tab.name = "ScoreTab"
+	score_tab.text = "Score"
+	score_tab.pressed.connect(func(): report_label.text = score_text; report_scroll.scroll_vertical = 0)
 	var damage_tab := Button.new()
 	damage_tab.name = "DamageByUnit"
 	damage_tab.text = "Damage by unit"
-	damage_tab.position = Vector2(165, 10)
 	damage_tab.pressed.connect(func(): report_label.text = "\n".join(battle_manager.unit_combat_stats.report_lines()); report_scroll.scroll_vertical = 0)
-	report_background.add_child(damage_tab)
+	var report_tab := Button.new()
+	report_tab.name = "AfterActionReportTab"
+	report_tab.text = "After Action Report"
+	report_tab.pressed.connect(func(): report_label.text = report_text; report_scroll.scroll_vertical = 0)
+	# Laid out left to right by each button's own measured width, so no tab
+	# ever overlaps its neighbor whatever the font.
+	var tab_x := 10.0
+	for tab in [score_tab, damage_tab, report_tab]:
+		report_background.add_child(tab)
+		tab.position = Vector2(tab_x, 10)
+		tab_x += tab.get_combined_minimum_size().x + 6.0
 
 	restart_button = Button.new()
 	restart_button.text = "Choose new setup and try again"

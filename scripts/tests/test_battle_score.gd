@@ -34,6 +34,8 @@ func run() -> void:
 	test_the_score_uses_true_results_even_where_the_report_only_estimates()
 	test_casualties_count_by_side_whatever_the_source()
 	test_captured_personnel_count_on_both_sides()
+	test_line_items_always_sum_to_the_score()
+	test_breakdown_text_lists_what_happened()
 	print("Battle score tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
@@ -234,3 +236,42 @@ func test_captured_personnel_count_on_both_sides() -> void:
 	check(bm.battle_result.inputs.player_captured == 5, "Our surrendered personnel are captured, got %s" % [bm.battle_result.inputs])
 	check(bm.battle_result.inputs.enemy_captured == 7, "So are theirs, got %s" % [bm.battle_result.inputs])
 	check(is_equal_approx(bm.battle_result.score, BattleScore.score({"position": bm.battle_result.inputs.position, "player_captured": 5, "enemy_captured": 7})), "...and each is scored at its own rate (-8 vs +8)")
+
+
+## The Score tab's line items (user: "The score can show the line items that
+## went into computing the score"). They come from the SAME term table score()
+## uses, so they can never disagree with the number -- checked here across a
+## spread of battles, not just one.
+func test_line_items_always_sum_to_the_score() -> void:
+	var samples: Array[Dictionary] = [
+		{}, {"position": "held"}, {"position": "lost", "player_killed": 9},
+		{"position": "held", "player_killed": 2, "player_captured": 1, "player_heavily_wounded": 3, "player_walking_wounded": 4, "player_mortar_lost": 1,
+			"enemy_killed": 7, "enemy_captured": 2, "enemy_heavily_wounded": 5, "enemy_walking_wounded": 6, "enemy_mortar_out": 2},
+		{"position": "stalemate", "enemy_killed": 1, "enemy_walking_wounded": 1},
+	]
+	for inputs in samples:
+		var total := 0.0
+		for item in BattleScore.line_items(inputs):
+			total += item.points
+			check(is_equal_approx(item.points, item.count * item.value), "Each line item is count x value (%s)" % item.key)
+		check(is_equal_approx(total, BattleScore.score(inputs)), "The line items must sum to the score for %s (got %s vs %s)" % [inputs, total, BattleScore.score(inputs)])
+	var items: Array[Dictionary] = BattleScore.line_items({"position": "held"})
+	check(items[0].key == "position" and items.size() == 1 + BattleScore.TERMS.size(), "The position is first, then every scored term")
+
+
+func test_breakdown_text_lists_what_happened() -> void:
+	var inputs := {"position": "held", "player_killed": 2, "enemy_killed": 6, "enemy_walking_wounded": 3, "enemy_mortar_out": 1}
+	var text: String = BattleScore.breakdown_text(inputs, "Scenario average: +1.0 over 3 battles (X, Y)")
+	var lines: PackedStringArray = text.split("\n")
+	check(lines[0] == "Battle score: %s" % BattleScore.format(BattleScore.score(inputs)), "It leads with the total, got %s" % lines[0])
+	check(lines[1].begins_with("Scenario average:"), "...then the scenario average when there is one")
+	check("  Position held: +20.0" in lines, "The position is a line item")
+	check("  Our personnel killed: 2 \u00d7 -10 = -20.0" in lines, "A friendly loss shows count x points-each = points, got %s" % [lines])
+	check("  Enemy killed: 6 \u00d7 +5 = +30.0" in lines, "An enemy loss the same way")
+	check("  Enemy walking wounded: 3 \u00d7 +0.5 = +1.5" in lines, "Fractional values keep their sign and precision")
+	check("  Enemy mortar destroyed or abandoned: 1 \u00d7 +2.5 = +2.5" in lines, "The mortar term too")
+	check(not ("Our personnel captured" in text) and not ("Our mortar lost" in text), "Terms that didn't happen are not listed")
+	check(lines[-1] == "Total: %s" % BattleScore.format(BattleScore.score(inputs)), "It ends with the total, got %s" % lines[-1])
+	check(not ("Scenario average" in BattleScore.breakdown_text(inputs)), "No scenario line when none is given")
+	check("Stalemate" in BattleScore.breakdown_text({"position": "stalemate"}), "A stalemate says so rather than claiming held or lost")
+	check(not ("held" in BattleScore.breakdown_text({"position": "stalemate"}).replace("held or lost", "")), "...and never calls it held")

@@ -56,6 +56,24 @@ const POSITION_LOST_KEY := "lost"
 const POSITION_STALEMATE_KEY := "stalemate"
 
 
+## Every scored term other than the position, in the order they are shown:
+## [inputs key, label shown to the player, points per event]. The single table
+## score() AND line_items() both read, so the breakdown the player sees can
+## never disagree with the number.
+const TERMS: Array = [
+	["player_killed", "Our personnel killed", FRIENDLY_DEATH],
+	["player_captured", "Our personnel captured", FRIENDLY_CAPTURED],
+	["player_heavily_wounded", "Our heavily wounded", FRIENDLY_HEAVILY_WOUNDED],
+	["player_walking_wounded", "Our walking wounded", FRIENDLY_WALKING_WOUNDED],
+	["player_mortar_lost", "Our mortar lost", FRIENDLY_MORTAR_LOST],
+	["enemy_killed", "Enemy killed", ENEMY_DEATH],
+	["enemy_captured", "Enemy captured", ENEMY_CAPTURED],
+	["enemy_heavily_wounded", "Enemy heavily wounded", ENEMY_HEAVILY_WOUNDED],
+	["enemy_walking_wounded", "Enemy walking wounded", ENEMY_WALKING_WOUNDED],
+	["enemy_mortar_out", "Enemy mortar destroyed or abandoned", ENEMY_MORTAR_OUT],
+]
+
+
 ## `inputs`: {"position": "held" | "lost" | "stalemate", and integer counts
 ## player_killed, player_captured, player_heavily_wounded,
 ## player_walking_wounded, player_mortar_lost, enemy_killed, enemy_captured,
@@ -63,33 +81,67 @@ const POSITION_STALEMATE_KEY := "stalemate"
 ## missing counts as zero (a stored record from an older build may not have
 ## every field); an unrecognized position scores like a stalemate.
 static func score(inputs: Dictionary) -> float:
-	var total: float = POSITION_STALEMATE
-	match str(inputs.get("position", POSITION_STALEMATE_KEY)):
-		POSITION_HELD_KEY:
-			total = POSITION_HELD
-		POSITION_LOST_KEY:
-			total = POSITION_LOST
-	total += FRIENDLY_DEATH * _count(inputs, "player_killed")
-	total += ENEMY_DEATH * _count(inputs, "enemy_killed")
-	total += FRIENDLY_CAPTURED * _count(inputs, "player_captured")
-	total += ENEMY_CAPTURED * _count(inputs, "enemy_captured")
-	total += FRIENDLY_HEAVILY_WOUNDED * _count(inputs, "player_heavily_wounded")
-	total += ENEMY_HEAVILY_WOUNDED * _count(inputs, "enemy_heavily_wounded")
-	total += FRIENDLY_WALKING_WOUNDED * _count(inputs, "player_walking_wounded")
-	total += ENEMY_WALKING_WOUNDED * _count(inputs, "enemy_walking_wounded")
-	total += FRIENDLY_MORTAR_LOST * _count(inputs, "player_mortar_lost")
-	total += ENEMY_MORTAR_OUT * _count(inputs, "enemy_mortar_out")
+	var total := 0.0
+	for item in line_items(inputs):
+		total += item.points
 	return total
 
 
-static func _count(inputs: Dictionary, key: String) -> float:
-	return float(inputs.get(key, 0))
+## The score broken into its line items, position first, then every term in
+## TERMS order (including those with a zero count — callers decide whether to
+## show those): {key, label, count, value, points}, where points = count *
+## value. The points always sum to score().
+static func line_items(inputs: Dictionary) -> Array[Dictionary]:
+	var position_points: float = POSITION_STALEMATE
+	var position_label := "Stalemate (neither side held or lost the position)"
+	match str(inputs.get("position", POSITION_STALEMATE_KEY)):
+		POSITION_HELD_KEY:
+			position_points = POSITION_HELD
+			position_label = "Position held"
+		POSITION_LOST_KEY:
+			position_points = POSITION_LOST
+			position_label = "Position lost"
+	var items: Array[Dictionary] = [{"key": "position", "label": position_label, "count": 1, "value": position_points, "points": position_points}]
+	for term in TERMS:
+		var count: int = int(inputs.get(term[0], 0))
+		items.append({"key": term[0], "label": term[1], "count": count, "value": term[2], "points": term[2] * count})
+	return items
+
+
+## The Score tab of the end-of-battle report: the total, then every term that
+## actually happened as "label: count x points-each = points" (position always
+## shown), then the total again. `scenario_line` (the running scenario
+## average) goes under the headline if given.
+static func breakdown_text(inputs: Dictionary, scenario_line: String = "") -> String:
+	var lines: PackedStringArray = []
+	lines.append("Battle score: %s" % format(score(inputs)))
+	if not scenario_line.is_empty():
+		lines.append(scenario_line)
+	lines.append("")
+	lines.append("How it was scored:")
+	for item in line_items(inputs):
+		if item.key == "position":
+			lines.append("  %s: %s" % [item.label, format(item.points)])
+		elif item.count != 0:
+			lines.append("  %s: %d × %s = %s" % [item.label, item.count, _format_value(item.value), format(item.points)])
+	lines.append("")
+	lines.append("Total: %s" % format(score(inputs)))
+	return "
+".join(lines)
 
 
 static func position_key(held: bool, stalemate: bool) -> String:
 	if stalemate:
 		return POSITION_STALEMATE_KEY
 	return POSITION_HELD_KEY if held else POSITION_LOST_KEY
+
+
+## A per-event value as it appears in a line item: "-10", "+5", "+0.5" —
+## whole numbers without a decimal, fractions with one.
+static func _format_value(value: float) -> String:
+	if is_equal_approx(value, roundf(value)):
+		return "%+d" % int(value)
+	return "%+.1f" % value
 
 
 ## "+42.5" / "-17.0" — always signed, so a score reads as a swing, not a count.

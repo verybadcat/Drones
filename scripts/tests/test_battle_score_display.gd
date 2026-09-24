@@ -64,6 +64,7 @@ func run() -> void:
 	wipe()
 	await test_battle_end_records_and_shows_the_scenario_average()
 	await test_level_select_shows_average_scores_per_scenario()
+	await test_report_has_three_tabs_in_order()
 	wipe()
 	print("Battle score display tests: %d failures" % failures)
 	quit(1 if failures else 0)
@@ -173,3 +174,63 @@ func test_level_select_shows_average_scores_per_scenario() -> void:
 	check("a_map_since_removed" in text, "History for a map this build no longer has is still shown, by its stored id")
 	check(LevelSelectScreen.scenario_label("x", "Y") == "x — Y", "An unknown map/mode falls back to the stored ids")
 	screen.queue_free()
+
+
+## The text currently shown in the report body (the tab buttons are separate
+## children, so this is just the ScrollContainer's label).
+func report_body(main) -> String:
+	return main.report_background.get_child(0).get_child(0).text
+
+
+## The end-of-battle report has three tabs, in this order (user's spec):
+## Score, Damage by unit, After Action Report -- the last being the report the
+## screen always had, retitled from "Battle summary", unchanged. The Score tab
+## opens first and shows every line item that went into the score.
+func test_report_has_three_tabs_in_order() -> void:
+	var main = load("res://scripts/main.gd").new()
+	root.add_child(main)
+	await process_frame
+	var built: Array = finished_battle(4) # held; enemy 4 killed + 5 walking wounded; we lost nobody
+	main.battle_manager = built[0]
+	main._on_battle_ended(built[1])
+	var background: Control = main.report_background
+	var score_tab: Button = background.find_child("ScoreTab", false, false)
+	var damage_tab: Button = background.find_child("DamageByUnit", false, false)
+	var report_tab: Button = background.find_child("AfterActionReportTab", false, false)
+	check(score_tab != null and damage_tab != null and report_tab != null, "All three tabs must exist")
+	if score_tab == null or damage_tab == null or report_tab == null:
+		return
+	check(score_tab.text == "Score" and damage_tab.text == "Damage by unit" and report_tab.text == "After Action Report", "The tabs read Score / Damage by unit / After Action Report, got %s / %s / %s" % [score_tab.text, damage_tab.text, report_tab.text])
+	check(score_tab.position.x < damage_tab.position.x and damage_tab.position.x < report_tab.position.x, "...in that left-to-right order")
+	check(score_tab.position.x + score_tab.get_combined_minimum_size().x <= damage_tab.position.x and damage_tab.position.x + damage_tab.get_combined_minimum_size().x <= report_tab.position.x, "...without overlapping each other")
+	check(background.find_child("*ummary*", false, false) == null and not ("Battle summary" in all_text(background)), "The old 'Battle summary' title is gone")
+
+	# Opens on the Score tab, showing the line items that made the score.
+	var score: float = built[0].battle_result.score
+	var body: String = report_body(main)
+	var lines: PackedStringArray = body.split("\n")
+	check(lines[0] == "Battle score: %s" % BattleScore.format(score), "It opens on the Score tab, headed by the score, got: %s" % lines[0])
+	check("  Position held: +20.0" in lines, "The position line item is shown: %s" % [lines])
+	check("  Enemy killed: 4 \u00d7 +5 = +20.0" in lines, "...each event as count x points = points")
+	check("  Enemy walking wounded: 5 \u00d7 +0.5 = +2.5" in lines, "...including fractional values")
+	check(not ("Our personnel killed" in body), "...and not the things that didn't happen")
+	check(lines[-1] == "Total: %s" % BattleScore.format(score) and is_equal_approx(score, 42.5), "...ending in the total, which is the same score the report headline gives (got %s)" % lines[-1])
+
+	# The other two tabs.
+	damage_tab.pressed.emit()
+	check(report_body(main) == "\n".join(built[0].unit_combat_stats.report_lines()), "The Damage by unit tab is unchanged")
+	report_tab.pressed.emit()
+	var report_text: String = report_body(main)
+	check("=== AFTER-ACTION REPORT ===" in report_text and "Verdict:" in report_text, "The After Action Report tab is the report it always was")
+	check(("Battle score: %s" % BattleScore.format(score)) in report_text, "...still carrying its own score line, unchanged")
+	score_tab.pressed.emit()
+	check(report_body(main) == body, "Switching back to Score restores it")
+
+	# Nothing to score (no finished battle behind the report): it opens on the report, as it always did.
+	var bare = load("res://scripts/main.gd").new()
+	root.add_child(bare)
+	await process_frame
+	bare._on_battle_ended("Verdict: TEST")
+	check(report_body(bare) == "Verdict: TEST", "With no score available the report itself opens first")
+	bare.report_background.find_child("ScoreTab", false, false).pressed.emit()
+	check("No score" in report_body(bare), "...and the Score tab says there is none rather than showing nothing")
