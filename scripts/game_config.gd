@@ -7449,7 +7449,29 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 				min_threat_dist = min(min_threat_dist, candidate.distance_to(threat))
 			if hidden:
 				score *= 3.0 # real LOS-blocking concealment — a strong preference, not a requirement
-			if min_threat_dist < MORTAR_CREW_OVERRUN_DANGER_RANGE:
+			# A real, reported bug, traced directly from a live battle's own
+			# mortar debug history: a single "evade" relocation walked the
+			# crew 58 tactical seconds STRAIGHT TOWARD a known enemy squad
+			# cluster, getting closer every tick along the way, because this
+			# used to be nothing but the plain 0.5x score penalty below —
+			# trivially outweighed by the 3x concealment bonus just above and
+			# the up-to-1.5x threat-facing bonus just below (a hidden,
+			# threat-facing candidate scores 4.5x; a merely-safer, exposed
+			# one scores at most 1.5x). Promoted to the same two-stage hard
+			# preference already used for floor_ok/critically_close/
+			# is_reversal/reverses_direction: prefer a candidate that clears
+			# MORTAR_CREW_OVERRUN_DANGER_RANGE exclusively whenever at least
+			# one exists, only falling back to a closer one when every
+			# single candidate this pass found is that close. Checked right
+			# after firing_point (the one thing allowed to outrank it — a
+			# live counter-battery threat at the exact firing coordinate)
+			# and ahead of every other preference below: standing off from a
+			# known threat's engagement envelope matters more than home-
+			# leash progress, sibling bunching, or reversal avoidance. The
+			# plain score penalty stays too, as a tie-breaker within
+			# whichever group (clear or not) actually gets used.
+			var too_close_to_known_threat: bool = min_threat_dist < MORTAR_CREW_OVERRUN_DANGER_RANGE
+			if too_close_to_known_threat:
 				score *= 0.5 # still a valid move, just a weaker one this close to a known threat
 			# Facing away from the threat picture is worth up to 1.5x;
 			# facing directly toward it is worth as little as 0.5x — a
@@ -7503,7 +7525,7 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 			# priority tier entirely (a closing enemy squad, handled well
 			# above this search by the decision ladder itself).
 			var too_close_to_firing_point: bool = firing_point != Vector2.INF and candidate.distance_to(firing_point) < COUNTER_BATTERY_BLAST_RADIUS
-			candidates.append({"point": candidate, "score": score, "floor_ok": floor_ok, "critically_close": critically_close, "is_reversal": is_reversal, "reverses_direction": reverses_direction, "too_close_to_firing_point": too_close_to_firing_point})
+			candidates.append({"point": candidate, "score": score, "floor_ok": floor_ok, "critically_close": critically_close, "is_reversal": is_reversal, "reverses_direction": reverses_direction, "too_close_to_firing_point": too_close_to_firing_point, "too_close_to_known_threat": too_close_to_known_threat})
 
 	if candidates.is_empty():
 		return from
@@ -7514,6 +7536,14 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 	var clear_of_firing_point: Array[Dictionary] = candidates.filter(func(c): return not c.too_close_to_firing_point)
 	if not clear_of_firing_point.is_empty():
 		candidates = clear_of_firing_point
+
+	# See too_close_to_known_threat's own doc comment above — the real fix
+	# for a reported live bug (an evade walk that only got closer to a known
+	# enemy squad cluster). Checked second, right after firing_point, ahead
+	# of every preference below.
+	var clear_of_known_threat: Array[Dictionary] = candidates.filter(func(c): return not c.too_close_to_known_threat)
+	if not clear_of_known_threat.is_empty():
+		candidates = clear_of_known_threat
 
 	# Prefer floor-respecting candidates exclusively whenever at least one
 	# exists — only fall back to a floor-violating candidate when every

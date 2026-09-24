@@ -1022,6 +1022,10 @@ func _ready() -> void:
 	_terrain_layer.show_behind_parent = true
 	add_child(_terrain_layer)
 	move_child(_terrain_layer, 0)
+	_build_mortar_fire_sound_pool()
+
+
+func _build_mortar_fire_sound_pool() -> void:
 	for i in MORTAR_FIRE_SOUND_POOL_SIZE:
 		var player := AudioStreamPlayer.new()
 		add_child(player)
@@ -1033,9 +1037,25 @@ func _ready() -> void:
 ## currently free) means a shot fired well after the last one still varies
 ## which player handles it, so a stuck/misbehaving player node can never
 ## silently claim every shot.
+##
+## A real, discovered gap: characterize_doctrine.gd drives its whole 200-
+## trial loop synchronously from _initialize(), with no idle frame ever
+## elapsing before, during, or between trials — so this BattleManager (and
+## every AudioStreamPlayer it builds) never actually finishes entering the
+## tree in the sense the audio engine requires, even though add_child()
+## itself succeeds structurally. _ready() never firing meant an empty pool
+## (fixed above via the lazy build); a freshly-built player still can't
+## actually play in that same synchronous context, so this skips playback
+## entirely rather than erroring — a real no-op only in that harness, since
+## normal play always has a live, fully-entered tree before any battle
+## logic runs at all.
 func _play_mortar_fire_sound() -> void:
+	if _mortar_fire_sound_players.is_empty():
+		_build_mortar_fire_sound_pool()
 	var player: AudioStreamPlayer = _mortar_fire_sound_players[_mortar_fire_sound_pool_index]
 	_mortar_fire_sound_pool_index = (_mortar_fire_sound_pool_index + 1) % _mortar_fire_sound_players.size()
+	if not player.is_inside_tree():
+		return
 	player.stream = MORTAR_FIRE_SOUNDS[randi() % MORTAR_FIRE_SOUNDS.size()]
 	player.volume_db = MORTAR_FIRE_SOUND_VOLUME_DB
 	player.play()
