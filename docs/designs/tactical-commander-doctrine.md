@@ -3324,3 +3324,11 @@ The fix just above (`too_close_to_known_threat` in `_ring_search_hidden_point`) 
 **Fix**: `danger_range` is now a caller-supplied parameter threaded through `nearest_hidden_point` → `_ring_search_hidden_point` (default `MORTAR_CREW_OVERRUN_DANGER_RANGE`, so the mortar's own call site needs no change and keeps its exact existing behavior). `_update_drone_team_evasion` now passes `DRONE_TEAM_EVASION_RANGE`; `_relocate_for_risk` picks `MORTAR_CREW_OVERRUN_DANGER_RANGE` for a mortar and `SQUAD_DANGER_RANGE` for everything else, mirroring the same mortar-vs-everyone-else split `_retreat_avoidance_offset`'s own `range_m` already uses.
 
 **Verified**: new `test_drone_team_evasion_standoff.gd`, same real-terrain-search methodology as the mortar test — 60/60 too-close before this fix (with `danger_range` hardcoded to the mortar's own 750m), 0/500 after. All 38 permanent regression suites pass. A full 200-trial `characterize_doctrine.gd` run completed with no crashes.
+
+### 2026-09-23 — The enemy's mortar fire now sounds quieter than the player's own
+
+*"Let's have the enemy mortar be quieter than the friendly ones. Try reducing it by 10 decibels when it's an enemy mortar firing."*
+
+New `BattleManager.ENEMY_MORTAR_FIRE_SOUND_EXTRA_ATTENUATION_DB` (−10.0), applied on top of the existing shared `MORTAR_FIRE_SOUND_VOLUME_DB` — not a separate volume, so a future overall retune still moves both sides together. `_play_mortar_fire_sound` now takes the firing mortar's `team` (its one call site, in `_launch_mortar_shot`, already has `mortar.team` on hand) and adds the extra attenuation only for `Unit.Team.ENEMY`. The player's own mortar is completely unaffected — still plays at the plain base level.
+
+**Verified**: new `test_enemy_mortar_quieter.gd` — a player shot plays at the base volume, an enemy shot plays 10dB quieter, and the two are never equal. Sensitivity-checked by disabling the team check (both dB-difference assertions fail exactly as expected), restored passes clean. All 39 permanent regression suites pass.

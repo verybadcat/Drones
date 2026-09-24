@@ -33,10 +33,10 @@ const UnitCombatStats = preload("res://scripts/unit_combat_stats.gd")
 ## One of six real recordings plays at random for every mortar round fired
 ## (see _play_mortar_fire_sound) — a single fixed sound would make a burst
 ## of 3-4 rounds sound like the exact same shot copy-pasted. Not positional
-## (every AudioStreamPlayer here is plain, non-2D) and the same set plays
-## for both sides — direct user request: distance/side-awareness is a later
-## step, not part of this pass. The six files on disk are already well below
-## the quietest of the six original source recordings (see assets/audio/
+## (every AudioStreamPlayer here is plain, non-2D) and the same six clips
+## play for both sides — distance-based attenuation is still a later step,
+## not part of this pass. The six files on disk are already well below the
+## quietest of the six original source recordings (see assets/audio/
 ## mortar_fire's own sourcing note) — MORTAR_FIRE_SOUND_VOLUME_DB below is a
 ## SEPARATE, further mix-level cut on top of that, applied at playback
 ## rather than re-baked into the files, specifically so it's a one-constant
@@ -44,6 +44,11 @@ const UnitCombatStats = preload("res://scripts/unit_combat_stats.gd")
 ## quieter.") rather than a whole re-export every time the in-game mix
 ## needs adjusting.
 const MORTAR_FIRE_SOUND_VOLUME_DB: float = -10.0
+## Direct user request: "Let's have the enemy mortar be quieter than the
+## friendly ones." A further cut on top of MORTAR_FIRE_SOUND_VOLUME_DB,
+## applied only when the firing mortar is Unit.Team.ENEMY — see
+## _play_mortar_fire_sound.
+const ENEMY_MORTAR_FIRE_SOUND_EXTRA_ATTENUATION_DB: float = -10.0
 const MORTAR_FIRE_SOUNDS: Array[AudioStream] = [
 	preload("res://assets/audio/mortar_fire/mortar_shot_1.wav"),
 	preload("res://assets/audio/mortar_fire/mortar_shot_2.wav"),
@@ -1055,7 +1060,12 @@ func _build_mortar_fire_sound_pool() -> void:
 ## entirely rather than erroring — a real no-op only in that harness, since
 ## normal play always has a live, fully-entered tree before any battle
 ## logic runs at all.
-func _play_mortar_fire_sound() -> void:
+##
+## Direct user request: the enemy's own mortar fire should read as quieter
+## than the player's — `ENEMY_MORTAR_FIRE_SOUND_EXTRA_ATTENUATION_DB` on top
+## of the shared base level, not a separate volume entirely, so a further
+## overall retune still moves both sides together.
+func _play_mortar_fire_sound(team: Unit.Team) -> void:
 	if _mortar_fire_sound_players.is_empty():
 		_build_mortar_fire_sound_pool()
 	var player: AudioStreamPlayer = _mortar_fire_sound_players[_mortar_fire_sound_pool_index]
@@ -1064,6 +1074,8 @@ func _play_mortar_fire_sound() -> void:
 		return
 	player.stream = MORTAR_FIRE_SOUNDS[randi() % MORTAR_FIRE_SOUNDS.size()]
 	player.volume_db = MORTAR_FIRE_SOUND_VOLUME_DB
+	if team == Unit.Team.ENEMY:
+		player.volume_db += ENEMY_MORTAR_FIRE_SOUND_EXTRA_ATTENUATION_DB
 	player.play()
 
 
@@ -5560,7 +5572,7 @@ func _launch_mortar_shot(mortar: Unit, target: Unit) -> void:
 	_history_fire_events.append({
 		"from": mortar.global_position, "to": aim_point, "team": mortar.team, "time": scenario_elapsed_time, "is_mortar": true,
 	})
-	_play_mortar_fire_sound()
+	_play_mortar_fire_sound(mortar.team)
 	_seconds_since_last_shot = 0.0
 	# Firing is detectable (muzzle blast/trajectory) independent of whether
 	# the mortar is otherwise visually spotted — see
