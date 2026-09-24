@@ -8326,9 +8326,21 @@ func _check_battle_end() -> void:
 ## anything about the battle actually being decided: it can still fire the
 ## instant a target or the hold-fire roll changes. True for either side, not
 ## just the enemy — a player mortar with ammo left has the same standing.
+##
+## Direct user correction, from a later real battle that ended in a stalemate
+## with the player's mortar ACTIVE but out of ammunition: "The player has a
+## mortar. It is currently out of ammo, but that's not a reason to let
+## stalemate happen." A dry crew that is still in the fight is waiting on its
+## resupply, which is a continuous pipeline (see request_mortar_resupply /
+## _update_mortar_resupply: one run always on order for an ACTIVE mortar, and
+## the next requested the instant a run commits, even a failed one), so it WILL
+## fire again — nothing about the battle is decided. Such a mortar therefore
+## counts as still in the fight while a resupply is on order (`_mortar_resupply`
+## has it). One with no resupply coming at all (contact never made, so nothing
+## was ever requested) is not.
 func _any_armed_mortar_remains() -> bool:
 	for u in player_units + enemy_units:
-		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE and u.mortar_rounds_remaining > 0:
+		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE and (u.mortar_rounds_remaining > 0 or _mortar_resupply.has(u)):
 			return true
 	return false
 

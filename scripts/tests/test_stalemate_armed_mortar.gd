@@ -89,7 +89,53 @@ func test_a_destroyed_or_withdrawn_mortar_does_not_count_even_with_rounds_on_the
 	check(bm.battle_over, "Ammo left on a mortar that can no longer fire (destroyed or withdrawn) must not itself block the stalemate")
 
 
+## Direct user correction from a later real battle: "The player has a mortar. It
+## is currently out of ammo, but that's not a reason to let stalemate happen."
+## A dry ACTIVE crew is waiting on its resupply (always on order once contact is
+## made) and will fire again, so the battle is not decided.
+func test_a_dry_mortar_with_a_resupply_on_order_blocks_the_stalemate() -> void:
+	for team in [Unit.Team.PLAYER, Unit.Team.ENEMY]:
+		var bm = make_battle()
+		setup_static_standoff(bm)
+		var mortar: Unit = bm._make_unit(team, Unit.Kind.MORTAR, Vector2(-500, 0) if team == Unit.Team.PLAYER else Vector2(9500, 0))
+		(bm.player_units if team == Unit.Team.PLAYER else bm.enemy_units).append(mortar)
+		mortar.mortar_rounds_remaining = 0
+		bm._mortar_resupply[mortar] = {"arrival_time": bm.scenario_elapsed_time + 3000.0, "warning_time": 0.0, "warned": false, "staged": false}
+		var side := "player" if team == Unit.Team.PLAYER else "enemy"
+		check(bm._any_armed_mortar_remains(), "%s: an out-of-ammo ACTIVE mortar with a resupply on order still counts as in the fight" % side)
+		bm._check_battle_end()
+		check(not bm.battle_over, "%s: out of ammunition, with resupply coming, is not a reason to call a stalemate" % side)
+
+
+## ...through the real pipeline, for either side (user: "an enemy mortar waiting
+## for ammo would also prevent a stalemate"): contact made, the request goes out,
+## and a dry mortar is then protected until the crew is gone.
+func test_the_real_resupply_request_is_what_protects_a_dry_mortar() -> void:
+	for team in [Unit.Team.PLAYER, Unit.Team.ENEMY]:
+		var side := "player" if team == Unit.Team.PLAYER else "enemy"
+		var bm = make_battle()
+		setup_static_standoff(bm)
+		var mortar: Unit = bm._make_unit(team, Unit.Kind.MORTAR, Vector2(-500, 0) if team == Unit.Team.PLAYER else Vector2(9500, 0))
+		(bm.player_units if team == Unit.Team.PLAYER else bm.enemy_units).append(mortar)
+		mortar.mortar_rounds_remaining = 0
+		check(not bm._any_armed_mortar_remains(), "%s: setup: dry, and no contact yet so nothing on order: not armed" % side)
+		if team == Unit.Team.PLAYER:
+			bm._player_sighted_enemy = true
+		else:
+			bm._enemy_sighted_enemy = true
+		check(bm.request_mortar_resupply(mortar), "%s: setup: with contact, the request goes out" % side)
+		check(bm._any_armed_mortar_remains(), "%s: a dry mortar with the requested resupply counts" % side)
+		bm._check_battle_end()
+		check(not bm.battle_over, "%s: ...so the standoff is not a stalemate" % side)
+		mortar.state = Unit.State.DESTROYED
+		check(not bm._any_armed_mortar_remains(), "%s: once the crew is gone the pending resupply no longer counts" % side)
+		bm._check_battle_end()
+		check(bm.battle_over, "%s: ...and the stalemate can end the battle as before" % side)
+
+
 func run() -> void:
+	test_a_dry_mortar_with_a_resupply_on_order_blocks_the_stalemate()
+	test_the_real_resupply_request_is_what_protects_a_dry_mortar()
 	test_no_stalemate_while_an_active_mortar_still_has_rounds()
 	test_a_player_mortar_with_rounds_also_blocks_the_stalemate()
 	test_stalemate_still_ends_once_the_mortar_is_dry()
