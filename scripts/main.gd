@@ -388,7 +388,7 @@ func _map_mouse_world_position() -> Vector2:
 func _clear_all() -> void:
 	for node in [level_select_screen, deployment_screen, doctrine_panel, start_button, deployment_magnifier, battle_manager,
 			combat_log, casualty_dashboard, retreat_button, pause_button, drone_debug_panel, decision_inspector, inspect_button,
-			enemy_heatmap_overlay, report_background, restart_button, review_history_button,
+			enemy_heatmap_overlay, report_background, restart_button, review_history_button, hide_report_button,
 			history_viewer, history_slider, history_time_label, history_back_button, history_play_button,
 			schedule_retreat_label, scheduled_retreat_slider, scheduled_retreat_value_label, schedule_retreat_button,
 			scheduled_retreat_status_label, cancel_scheduled_retreat_button]:
@@ -418,6 +418,7 @@ func _clear_all() -> void:
 	report_background = null
 	restart_button = null
 	review_history_button = null
+	hide_report_button = null
 	history_viewer = null
 	history_slider = null
 	history_time_label = null

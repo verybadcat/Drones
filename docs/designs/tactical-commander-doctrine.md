@@ -3350,3 +3350,13 @@ The mortar audio log added the day before did exactly what it was built for. Its
 **Fix**: `_resolve_pending_counter_battery` now calls `_play_mortar_fire_sound(responder)` at the moment the reply fires (both sides, same enemy attenuation as ordinary fire). **Then the duplication itself, at the user's prompting** (*"code doing the same thing in different places rather than calling a subroutine"*): the two paths' flash/history/sound bookkeeping is now one helper, `_announce_mortar_shot(mortar, to)`, called by both `_launch_mortar_shot` and `_resolve_pending_counter_battery` — a new per-shot effect can no longer be added to one path and forgotten in the other. (My first version of this fix deliberately left the duplication alone as out of scope; that was the wrong call, since the duplication was the bug.) The test also covers the flash and replay record on the reply path.
 
 **Verified**: new `test_counter_battery_fire_sound.gd` — an enemy reply plays exactly one shot at the enemy volume, a player reply plays one too. Sensitivity-checked by removing the call (both checks fail), restored passes. All 42 permanent suites pass.
+
+### 2026-09-24 — "Choose new setup" left the Hide/Show Report button behind
+
+*"When the player goes to 'choose new setup', the show/hide report button should disappear."*
+
+The end-of-battle report creates three buttons (Choose new setup, Review Battle History, Hide/Show Report), but `Main._clear_all()` — which every phase change goes through — only tore down two of them: `hide_report_button` was in neither its free list nor its null reset, so it outlived the report it belonged to and sat on the scenario picker. Worse, since nothing ever released it, a second battle's report stacked a second button on top of the stale one (the test saw both "Hide Report" and "Show Report" at once).
+
+**Fix**: `hide_report_button` is now freed and nulled in `_clear_all()` alongside `restart_button` and `review_history_button`.
+
+**Verified**: new `test_report_buttons_cleared_on_new_setup.gd` drives `main.gd` directly — after "choose new setup" no report button survives, whether the report was showing or hidden ("Show Report"), and a second battle's report doesn't accumulate a stale button. Confirmed failing before the fix (3 failures), passing after. All 43 permanent suites pass.
