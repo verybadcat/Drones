@@ -5391,7 +5391,27 @@ const JOINT_MORTAR_HUNT_MAX_DURATION: float = 1800.0 # tactical seconds (30 min)
 # the question here is "is it worth finishing off right now," not "how
 # close is it to a fight."
 const TARGET_PRIORITY_RETREATING_ENEMY: float = 25.0
-const TARGET_PRIORITY_RETREATING_ENEMY_LOW: float = 2.0
+# The comment above always said the low value should "lose to the sweep", but at 2.0
+# it did not: the routine sweep's own floor is TARGET_PRIORITY_UNDISCOVERED_MORTAR_
+# SWEEP x DRONE_UNKNOWN_MORTAR_RESIDUAL_CONFIDENCE x (1 - DRONE_MORTAR_SEARCH_DANGER_
+# DISCOUNT) = 0.4, and 2.0 beat it — so with nothing else in view the drone sat on
+# one fleeing squad ("a low-priority distraction that still narrowly won") while
+# active squads it could not see were still out there (live report; user: "a
+# fleeing enemy squad should be a low priority target for the drone"). Now under
+# that floor, so a lone fleeing contact never outranks routine search; a guard test
+# keeps it there.
+const TARGET_PRIORITY_RETREATING_ENEMY_LOW: float = 0.1
+
+# When fleeing enemy squads stop being stragglers and become a routed force, the
+# drone should finish them (TARGET_PRIORITY_RETREATING_ENEMY). Direct user request:
+# "The only exception would be if a lot of enemy squads start fleeing at the same
+# time, indicating that the whole force is retreating." Judged from what the drone
+# team has actually seen (BattleManager._enemy_force_is_fleeing): at least this many
+# squads fleeing, and at least this fraction of the squads it knows to still be on
+# the field (fleeing or active). JUDGMENT: "a lot" is the user's phrase; 3 and half
+# are mine.
+const DRONE_MASS_FLIGHT_MIN_SQUADS: int = 3
+const DRONE_MASS_FLIGHT_FRACTION: float = 0.5
 
 # Once the enemy commander has ordered a general retreat, there's little
 # reason left to keep sweeping wide for a NEW enemy — every ACTIVE squad

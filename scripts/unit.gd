@@ -636,13 +636,18 @@ func _mortar_crew_holds_position(known_enemy_positions: Array[Vector2]) -> bool:
 ## threshold, one mortar crew abandoning its gun) still passes this
 ## through — see take_hit — since even then there's no reason not to
 ## avoid an ally's already-current position.
-func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: Array[Vector2] = []) -> void:
+## `reason` is what the debug snapshots show as this unit's last order reason: every
+## route into a retreat (a general retreat, a mortar left without squads, a crew
+## fleeing as a last resort ...) used to leave the same "Withdrawal ordered.", so
+## after the fact there was no telling WHY a unit had pulled out (live report: a
+## mortar retreating off the map with a full crew and ammunition, unexplained).
+func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: Array[Vector2] = [], reason: String = "Withdrawal ordered.") -> void:
 	if kind == Kind.DRONE:
 		return
 	if state != State.ACTIVE:
 		return
 	state = State.RETREATING
-	last_order_reason = "Withdrawal ordered."
+	last_order_reason = reason
 	movement_predictable = false # pulling out under pressure, not a calm march
 
 	if kind == Kind.MORTAR:

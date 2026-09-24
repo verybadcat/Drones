@@ -1535,7 +1535,7 @@ func order_general_retreat() -> void:
 				combat_log.log_squad_surrendered(unit)
 				any_ordered = true
 				continue
-			unit.order_retreat(known_enemy_positions, _ally_positions_for(unit) + claimed)
+			unit.order_retreat(known_enemy_positions, _ally_positions_for(unit) + claimed, "The commander ordered a general retreat.")
 			claimed.append(unit.move_target if unit.has_move_target else unit.global_position)
 			combat_log.log_ordered_retreat(unit)
 			_log_wounded_evacuation_outcome(unit)
@@ -1607,7 +1607,7 @@ func _check_enemy_commander_retreat() -> void:
 				combat_log.log_squad_surrendered(unit)
 				any_ordered = true
 				continue
-			unit.order_retreat(known_player_positions, _ally_positions_for(unit) + claimed)
+			unit.order_retreat(known_player_positions, _ally_positions_for(unit) + claimed, "The enemy commander ordered a general retreat.")
 			claimed.append(unit.move_target if unit.has_move_target else unit.global_position)
 			combat_log.log_ordered_retreat(unit)
 			_log_wounded_evacuation_outcome(unit)
@@ -1670,7 +1670,7 @@ func _check_enemy_mortar_isolated_retreat() -> void:
 	var claimed: Array[Vector2] = []
 	for unit in enemy_units:
 		if unit.kind == Unit.Kind.MORTAR and unit.state == Unit.State.ACTIVE:
-			unit.order_retreat(known_player_positions, _ally_positions_for(unit) + claimed)
+			unit.order_retreat(known_player_positions, _ally_positions_for(unit) + claimed, "No enemy squad left fighting — the mortar pulls back too.")
 			claimed.append(unit.move_target if unit.has_move_target else unit.global_position)
 			combat_log.log_ordered_retreat(unit)
 	combat_log.add_entry("--- With no squads left fighting, the enemy mortar(s) pull back too ---")
@@ -3835,19 +3835,21 @@ func _drone_search_target() -> Vector2:
 				best_retreating_dist = d
 				best_retreating = u
 	if best_retreating != null:
-		# High priority once the fight's effectively over (the enemy's own
-		# general retreat) — but while the battle is still actually going,
-		# one broken, defanged straggler (a mortar crew that's abandoned its
-		# gun, or fled off the map as a last resort — see BattleManager.
+		# High priority once the enemy force as a whole is running — its own
+		# general retreat, or a lot of squads fleeing at the same time
+		# (_enemy_force_is_fleeing) — but while the battle is still actually
+		# going, one broken, defanged straggler (a mortar crew that's abandoned
+		# its gun, or fled off the map as a last resort — see BattleManager.
 		# _mortar_flee_as_last_resort — counts here too, not as "the mortar
 		# priority") is a low-priority distraction next to whatever's still
-		# actually fighting.
-		var retreating_score: float = GameConfig.TARGET_PRIORITY_RETREATING_ENEMY if enemy_general_retreat_ordered else GameConfig.TARGET_PRIORITY_RETREATING_ENEMY_LOW
+		# actually fighting or still out there to be found.
+		var force_fleeing: bool = _enemy_force_is_fleeing()
+		var retreating_score: float = GameConfig.TARGET_PRIORITY_RETREATING_ENEMY if force_fleeing else GameConfig.TARGET_PRIORITY_RETREATING_ENEMY_LOW
 		# Direct user correction: "a fleeing enemy mortar should be a lower
 		# priority target than enemy squads... at least than squads that
 		# are not fleeing." The comment above already stated that exact
 		# intent, but the flat TARGET_PRIORITY_RETREATING_ENEMY_LOW
-		# constant (2.0) was still just compared against best_squad_score's
+		# constant was still just compared against best_squad_score's
 		# own continuous, distance-based scale (0 to TARGET_PRIORITY_SQUAD_
 		# MAX) — a real, currently-visible, still-ACTIVE squad merely
 		# distant from any friendly (score under 2) could still lose the
@@ -3858,12 +3860,20 @@ func _drone_search_target() -> Vector2:
 		# best_squad_score (or something higher) by this point whenever
 		# best_squad is non-null, so capping to it can only ever prevent
 		# this tier from winning, never help it.
-		if not enemy_general_retreat_ordered and best_squad != null:
+		if not force_fleeing and best_squad != null:
 			retreating_score = min(retreating_score, best_score)
+		# Later, same principle for a fleeing SQUAD (user: "As with a fleeing
+		# mortar, a fleeing enemy squad should be a low priority target for the
+		# drone"; live case: nothing else was visible, and the drone sat on one
+		# fleeing squad with 22% battery while two active squads it could not
+		# see were still out there). A low-priority contact is now also only
+		# worth a flight the battery can afford, and below routine search.
+		if not force_fleeing and not _drone_can_afford_target(active_drone, best_retreating.global_position):
+			retreating_score = -1.0
 		if retreating_score > best_score:
 			best_score = retreating_score
 			best_pos = best_retreating.global_position
-			_drone_pilot_reasoning = {"tier": "Finishing a retreating contact", "detail": "Nearest visible retreating enemy — %s." % ("the fight looks over, worth finishing" if enemy_general_retreat_ordered else "battle still on, so this is a low-priority distraction that still narrowly won"), "target": best_pos}
+			_drone_pilot_reasoning = {"tier": "Finishing a retreating contact", "detail": "Nearest visible retreating enemy — %s." % ("the fight looks over, worth finishing" if force_fleeing else "battle still on, so this is a low-priority distraction that only wins when there is nothing else to do"), "target": best_pos}
 
 	var flank_candidates: Array = _flank_watch_candidates()
 
@@ -3944,6 +3954,29 @@ func _squad_order_permits_mortar_watch(pos: Vector2) -> bool:
 		if m.global_position.distance_to(pos) <= soon_reach:
 			return true
 	return false
+
+
+## Whether the enemy FORCE is running, as opposed to one straggler: its own general
+## retreat, or a lot of squads fleeing at the same time — at least
+## GameConfig.DRONE_MASS_FLIGHT_MIN_SQUADS of them, and at least
+## GameConfig.DRONE_MASS_FLIGHT_FRACTION of the squads the drone team knows to be on
+## the field (fleeing or active). Judged from the player's own knowledge (each
+## squad's last SEEN state, Unit.player_known_state), not the omniscient one: the
+## drone cannot tell that squads it has not seen are fleeing.
+func _enemy_force_is_fleeing() -> bool:
+	if enemy_general_retreat_ordered:
+		return true
+	var fleeing := 0
+	var on_field := 0
+	for u in enemy_units:
+		if u.kind != Unit.Kind.SQUAD or not u.player_has_been_sighted:
+			continue
+		if u.player_known_state == Unit.State.RETREATING:
+			fleeing += 1
+			on_field += 1
+		elif u.player_known_state == Unit.State.ACTIVE:
+			on_field += 1
+	return fleeing >= GameConfig.DRONE_MASS_FLIGHT_MIN_SQUADS and float(fleeing) >= GameConfig.DRONE_MASS_FLIGHT_FRACTION * float(on_field)
 
 
 ## Whether any enemy squad is still in the fight as far as the drone team
@@ -7464,7 +7497,18 @@ func _mortar_flee_as_last_resort(m: Unit) -> void:
 				m.move_queue.append(legs[i])
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": detail}
 			return
-	m.order_retreat(_known_enemy_positions_for_retreat(m.team), [])
+	# Why, for the debug snapshots (see Unit.order_retreat's `reason`): the
+	# conditions that got the ladder here.
+	var why: PackedStringArray = []
+	if m.mortar_rounds_remaining <= 0:
+		why.append("out of ammunition")
+	if m.is_visible:
+		why.append("spotted")
+	if m.evading_counter_battery:
+		why.append("under counter-battery fire")
+	if why.is_empty():
+		why.append("a threat closing")
+	m.order_retreat(_known_enemy_positions_for_retreat(m.team), [], "Fled off the map as a last resort: %s, and no safe place to relocate to." % ", ".join(why))
 	if m.team == Unit.Team.PLAYER:
 		combat_log.log_mortar_fled_off_map(m)
 	_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "No safe relocation option remained nearby — fleeing off the map."}
