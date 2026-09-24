@@ -34,6 +34,10 @@ func _reply_sound_entries(responder_team: Unit.Team) -> Array:
 		"fired": false,
 	})
 	bm._resolve_pending_counter_battery()
+	# The shared per-shot helper also owns the flash and the replay record;
+	# a reply must produce all three, not just the sound.
+	check(bm._fire_flashes.size() == 1, "A reply must add exactly one muzzle flash, got %d" % bm._fire_flashes.size())
+	check(bm._history_fire_events.size() == 1, "A reply must add exactly one replay fire event, got %d" % bm._history_fire_events.size())
 	return bm.mortar_audio_debug_snapshot().log
 
 func run() -> void:

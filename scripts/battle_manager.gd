@@ -5607,6 +5607,24 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 ##
 ## Counter-battery is still triggered at the moment of firing, though (real
 ## counter-battery radar tracks the outgoing round, not its impact).
+## Everything that must happen the instant ANY mortar round leaves ANY tube:
+## the on-screen muzzle flash, the replay history record, and the shot's
+## sound. Both real firing paths (_launch_mortar_shot for ordinary fire and
+## _resolve_pending_counter_battery for a reply) go through this, so a new
+## per-shot effect can never again be added to one and forgotten in the
+## other — that exact duplication left every counter-battery reply silent
+## (see the 2026-09-24 doctrine-doc entry). A third firing path should call
+## this too.
+func _announce_mortar_shot(mortar: Unit, to: Vector2) -> void:
+	_fire_flashes.append({
+		"from": mortar.global_position, "to": to, "team": mortar.team, "time": elapsed_time, "is_mortar": true,
+	})
+	_history_fire_events.append({
+		"from": mortar.global_position, "to": to, "team": mortar.team, "time": scenario_elapsed_time, "is_mortar": true,
+	})
+	_play_mortar_fire_sound(mortar)
+
+
 func _launch_mortar_shot(mortar: Unit, target: Unit) -> void:
 	mortar.mortar_rounds_remaining -= 1 # spent the instant it's fired, hit or miss — you don't get the shell back
 	# See _mortar_relocation_plan's own doc comment on MORTAR_REVERSAL_
@@ -5626,13 +5644,7 @@ func _launch_mortar_shot(mortar: Unit, target: Unit) -> void:
 		"impact_point": impact_point,
 		"impact_time": scenario_elapsed_time + GameConfig.MORTAR_FLIGHT_TIME,
 	})
-	_fire_flashes.append({
-		"from": mortar.global_position, "to": aim_point, "team": mortar.team, "time": elapsed_time, "is_mortar": true,
-	})
-	_history_fire_events.append({
-		"from": mortar.global_position, "to": aim_point, "team": mortar.team, "time": scenario_elapsed_time, "is_mortar": true,
-	})
-	_play_mortar_fire_sound(mortar)
+	_announce_mortar_shot(mortar, aim_point)
 	_seconds_since_last_shot = 0.0
 	# Firing is detectable (muzzle blast/trajectory) independent of whether
 	# the mortar is otherwise visually spotted — see
@@ -6731,18 +6743,7 @@ func _resolve_pending_counter_battery() -> void:
 			if not is_instance_valid(responder) or responder.state != Unit.State.ACTIVE:
 				continue # the responding crew was knocked out before it could actually fire — mission aborted, nothing lands
 			strike.fired = true
-			# A counter-battery reply is a real mortar round leaving a real
-			# tube, not a silent one: this is a SECOND firing path that
-			# bypasses _launch_mortar_shot, so it has to ask for the shot's
-			# sound itself. Found via the mortar audio log (no enemy entries
-			# at all while the enemy's replies were visibly landing).
-			_play_mortar_fire_sound(responder)
-			_fire_flashes.append({
-				"from": responder.global_position, "to": strike.impact_position, "team": responder.team, "time": elapsed_time, "is_mortar": true,
-			})
-			_history_fire_events.append({
-				"from": responder.global_position, "to": strike.impact_position, "team": responder.team, "time": scenario_elapsed_time, "is_mortar": true,
-			})
+			_announce_mortar_shot(responder, strike.impact_position)
 			combat_log.log_counter_battery_incoming(strike.target)
 			# The responder's own muzzle blast/trajectory gives ITS position
 			# away too, exactly like any other shot — recorded here so
