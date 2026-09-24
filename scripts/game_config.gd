@@ -25,6 +25,12 @@ enum TerrainType { OPEN, TREES, BUILDING }
 ## flying a rotation of scout drones — see Unit.Kind.DRONE_TEAM/DRONE and
 ## the drone-specific constants below.
 enum ReconMode { SPOTTER, DRONE_TEAM }
+## How each recon mode is named to the player (the level-select screen's option
+## titles and the battle-score history both use these, so they can't drift).
+const RECON_MODE_LABELS: Dictionary = {
+	ReconMode.SPOTTER: "Level 0 — Artillery Spotter",
+	ReconMode.DRONE_TEAM: "Level 1 — Drone Recon",
+}
 
 ## Everything about ANY map — as opposed to the game's general rules,
 ## which live as ordinary top-level constants throughout this file — lives
@@ -3711,6 +3717,16 @@ static func _static_init() -> void:
 ## deployment. main.gd still has to re-apply the derived window/camera
 ## sizing itself afterward (see its own _apply_map_dimensions) — this
 ## function only updates GameConfig's own state.
+## The id (MAPS key) of the map loaded right now — the stable identity of a
+## scenario (a map's display name can change; its id doesn't). CURRENT_MAP is
+## always one of MAPS' own values, so this is a plain reverse lookup.
+static func current_map_id() -> String:
+	for map_id in MAPS:
+		if MAPS[map_id] == CURRENT_MAP:
+			return map_id
+	return DEFAULT_MAP_ID
+
+
 static func set_active_map(map_id: String) -> void:
 	if not MAPS.has(map_id) or CURRENT_MAP == MAPS[map_id]:
 		return

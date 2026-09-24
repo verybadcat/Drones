@@ -6,6 +6,9 @@ extends Node2D
 ## trying again can change the reconnaissance setup itself, not just
 ## doctrine, rather than being stuck with whatever was chosen at launch.
 
+const BattleScore = preload("res://scripts/battle_score.gd")
+const BattleScoreLog = preload("res://scripts/battle_score_log.gd")
+
 var level_select_screen: LevelSelectScreen
 var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
 
@@ -161,6 +164,11 @@ var _location_label: Label
 
 
 func _ready() -> void:
+	# The score history is a PLAYER's record: an automated (headless) run — every
+	# test that drives a battle through this scene — must never write to it.
+	# (An empty path is "no history"; a test that wants one sets its own.)
+	if DisplayServer.get_name() == "headless":
+		score_log.path = ""
 	map_container = SubViewportContainer.new()
 	map_container.position = Vector2(0, 0)
 	map_container.stretch = true
@@ -435,6 +443,7 @@ func _show_level_select() -> void:
 	_map_hud_overlay.queue_redraw()
 
 	level_select_screen = LevelSelectScreen.new()
+	level_select_screen.score_log = score_log # one history, one path (and the same headless guard)
 	level_select_screen.mode_chosen.connect(_on_recon_mode_chosen)
 	level_select_screen.map_chosen.connect(_on_map_chosen)
 	add_child(level_select_screen)
@@ -662,7 +671,42 @@ func _on_pause_pressed() -> void:
 	pause_button.text = "Resume" if battle_manager.is_paused else "Pause"
 
 
+## The durable score history (see BattleScoreLog for how it survives restarts
+## and code updates). A field, not a constant path, so a test can point it
+## somewhere disposable — nothing else should ever reassign it.
+var score_log := BattleScoreLog.new()
+
+
+## Records the finished battle's score to the durable history, then returns
+## the report with this scenario's running average added under the "Battle
+## score" line. A scenario is the LOCATION plus the KIND OF SCOUTING the
+## player chose (the recon mode) — user's definition. Recording happens here,
+## in the real UI flow, never in BattleManager (which runs in every test).
+func _record_score_and_annotate(report_text: String) -> String:
+	if battle_manager == null or battle_manager.battle_result.is_empty():
+		return report_text
+	var map_id: String = GameConfig.current_map_id()
+	var mode_name: String = GameConfig.ReconMode.keys()[recon_mode]
+	score_log.record(battle_manager.battle_result, map_id, mode_name)
+	var summary: Dictionary = BattleScoreLog.scenario_summary(score_log.load_records(), map_id, mode_name)
+	if summary.is_empty():
+		return report_text
+	var average_line: String = "Scenario average: %s over %d %s (%s, %s)" % [
+		BattleScore.format(summary.average), summary.count, "battle" if summary.count == 1 else "battles",
+		GameConfig.CURRENT_MAP.name, GameConfig.RECON_MODE_LABELS[recon_mode],
+	]
+	var lines: PackedStringArray = report_text.split("
+")
+	for i in lines.size():
+		if lines[i].begins_with("Battle score:"):
+			lines.insert(i + 1, average_line)
+			break
+	return "
+".join(lines)
+
+
 func _on_battle_ended(report_text: String) -> void:
+	report_text = _record_score_and_annotate(report_text)
 	if retreat_button:
 		retreat_button.queue_free()
 		retreat_button = null

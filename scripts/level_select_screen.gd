@@ -7,6 +7,9 @@ class_name LevelSelectScreen
 ## same programmatic way as every other screen in this game — no separate
 ## .tscn.
 
+const BattleScore = preload("res://scripts/battle_score.gd")
+const BattleScoreLog = preload("res://scripts/battle_score_log.gd")
+
 signal mode_chosen(mode: GameConfig.ReconMode)
 ## Emitted the moment the map dropdown's selection changes — live, not
 ## gated behind a separate "Choose" button, since there's nothing to
@@ -19,6 +22,11 @@ signal map_chosen(map_id: String)
 ## Index -> map id, in the same order the dropdown lists them — an
 ## OptionButton only ever hands back an index, never the id string itself.
 var _map_ids: Array[String] = []
+
+## The durable score history shown at the bottom (see BattleScoreLog). Public
+## so a test can point it at a disposable file BEFORE this screen enters the
+## tree; nothing else should reassign it.
+var score_log := BattleScoreLog.new()
 
 
 func _ready() -> void:
@@ -36,15 +44,70 @@ func _ready() -> void:
 	root.add_child(title)
 
 	root.add_child(_build_option(
-		"Level 0 — Artillery Spotter",
+		GameConfig.RECON_MODE_LABELS[GameConfig.ReconMode.SPOTTER],
 		"The original setup: a small ground team calls in fire on whatever it can see from wherever you post it.",
 		GameConfig.ReconMode.SPOTTER
 	))
 	root.add_child(_build_option(
-		"Level 1 — Drone Recon",
+		GameConfig.RECON_MODE_LABELS[GameConfig.ReconMode.DRONE_TEAM],
 		"Replaces the spotter with a 3-person team equipped with four Mavic-3 scout drones, plus spare batteries",
 		GameConfig.ReconMode.DRONE_TEAM
 	))
+
+	root.add_child(_build_score_history())
+
+
+## Average battle score per SCENARIO — a scenario being the location plus the
+## kind of scouting the player used (user's definition) — from the durable
+## history in BattleScoreLog, which survives restarts and code updates.
+## Scores are re-scored under the current rubric. Scrolls if it ever outgrows its space (3 locations x 2 setups).
+func _build_score_history() -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+
+	var title := GameConfig.make_selectable_label("Your average scores")
+	title.add_theme_font_size_override("normal_font_size", 17)
+	box.add_child(title)
+
+	var summaries: Array[Dictionary] = BattleScoreLog.summarize(score_log.load_records())
+	if summaries.is_empty():
+		box.add_child(GameConfig.make_selectable_label("No battles scored yet."))
+		return box
+
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(820, 150)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	box.add_child(scroll)
+	var grid := GridContainer.new()
+	grid.columns = 5
+	grid.add_theme_constant_override("h_separation", 24)
+	scroll.add_child(grid)
+	for heading in ["Scenario", "Battles", "Average", "Best", "Worst"]:
+		grid.add_child(_cell(heading, true))
+	for entry in summaries:
+		grid.add_child(_cell(scenario_label(entry.map_id, entry.recon_mode), false))
+		grid.add_child(_cell(str(entry.count), false))
+		grid.add_child(_cell(BattleScore.format(entry.average), false))
+		grid.add_child(_cell(BattleScore.format(entry.best), false))
+		grid.add_child(_cell(BattleScore.format(entry.worst), false))
+	return box
+
+
+func _cell(text: String, heading: bool) -> Label:
+	var label := Label.new()
+	label.text = text
+	if heading:
+		label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	return label
+
+
+## "Pishchane — Level 1 — Drone Recon". A map or mode this build no longer
+## knows (removed or renamed since the record was written) shows its stored
+## id instead — old history is never hidden just because the catalog changed.
+static func scenario_label(map_id: String, recon_mode: String) -> String:
+	var map_name: String = GameConfig.MAPS[map_id].name if GameConfig.MAPS.has(map_id) else map_id
+	var mode_label: String = GameConfig.RECON_MODE_LABELS[GameConfig.ReconMode[recon_mode]] if GameConfig.ReconMode.has(recon_mode) else recon_mode
+	return "%s — %s" % [map_name, mode_label]
 
 
 ## Every real place in the catalog, by its own place name — GameConfig.

@@ -29,6 +29,7 @@ const DecisionRecorder = preload("res://scripts/decision_recorder.gd")
 const UnitDoctrine = preload("res://scripts/unit_doctrine.gd")
 const RiskForecast = preload("res://scripts/risk_forecast.gd")
 const UnitCombatStats = preload("res://scripts/unit_combat_stats.gd")
+const BattleScore = preload("res://scripts/battle_score.gd")
 
 ## One of six real recordings plays at random for every mortar round fired
 ## (see _play_mortar_fire_sound) — a single fixed sound would make a burst
@@ -414,6 +415,15 @@ var battle_over: bool = false
 ## characterize_doctrine.gd too, which recomputes the verdict independently
 ## from the same public accessors rather than parsing the AAR text.
 var _ended_by_stalemate: bool = false
+## The finished battle's score, built once by _end_battle (empty until then):
+## {verdict, held, stalemate, rubric_version, score, inputs}. `score` is the
+## TRUE-results score the player is shown (user: "the score can go based off
+## of the true results"); `inputs` are the plain counts it was computed from —
+## exactly what BattleScoreLog stores, so a battle can be re-scored if the
+## rubric is ever tuned. See BattleScore. BattleManager only COMPUTES this;
+## recording it to disk is main.gd's job (this class runs in every test and
+## must never write history).
+var battle_result: Dictionary = {}
 # User-requested pause (see toggle_pause) — freezes the entire simulation
 # exactly where it stands: _process returns immediately, before either
 # clock advances or any tick logic runs, so nothing (movement, fire,
@@ -808,6 +818,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	scenario_elapsed_time = 0.0
 	battle_over = false
 	_ended_by_stalemate = false
+	battle_result = {}
 	is_paused = false
 	_fire_flashes.clear()
 	_mortar_impacts.clear()
@@ -8321,6 +8332,45 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false, is_enemy_s
 ## one unit actively fighting (not retreating/withdrawn/destroyed) the moment
 ## the battle ended — ordering a general retreat gives up the position even
 ## before the withdrawal physically finishes.
+## The score inputs and the score for a finished battle — see BattleScore.
+## Built entirely from TRUE ground-truth casualty counts, by side: our own
+## (always fully known) and `true_enemy_stats` (pure ground truth, NOT the
+## fog-of-war-limited figures the report displays). Each side's casualties
+## come from the VICTIMS' own counts, so they count whatever caused them —
+## friendly fire against the player, an enemy's own fire on itself in the
+## player's favor. A stalemate scores neither +20 nor -20 for the position.
+func _build_battle_result(verdict: String, held: bool, player_stats: Dictionary, true_enemy_stats: Dictionary) -> Dictionary:
+	var player_mortar_lost := 0
+	for u in player_units:
+		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.DESTROYED:
+			player_mortar_lost += 1
+	var enemy_mortar_out := 0
+	for u in enemy_units:
+		if u.kind == Unit.Kind.MORTAR and BattleScore.enemy_mortar_out(u, held):
+			enemy_mortar_out += 1
+	var inputs: Dictionary = {
+		"position": BattleScore.position_key(held, _ended_by_stalemate),
+		"player_killed": player_stats.killed,
+		"player_captured": player_stats.captured,
+		"player_heavily_wounded": player_stats.heavily_wounded,
+		"player_walking_wounded": player_stats.walking_wounded,
+		"player_mortar_lost": player_mortar_lost,
+		"enemy_killed": true_enemy_stats.killed,
+		"enemy_captured": true_enemy_stats.captured,
+		"enemy_heavily_wounded": true_enemy_stats.heavily_wounded,
+		"enemy_walking_wounded": true_enemy_stats.walking_wounded,
+		"enemy_mortar_out": enemy_mortar_out,
+	}
+	return {
+		"verdict": verdict,
+		"held": held,
+		"stalemate": _ended_by_stalemate,
+		"rubric_version": BattleScore.RUBRIC_VERSION,
+		"score": BattleScore.score(inputs),
+		"inputs": inputs,
+	}
+
+
 func _end_battle() -> void:
 	battle_over = true
 	_number_remaining_undiscovered_enemies() # anything the AAR/Damage-by-unit report names but the player never actually spotted still needs a real number
@@ -8378,6 +8428,7 @@ func _end_battle() -> void:
 	# computation, not a reuse of `true_enemy_stats` above — that one has to
 	# stay pure ground truth for scoring, this one is deliberately not.
 	var enemy_stats := _compute_side_stats(enemy_units, not held, true)
+	battle_result = _build_battle_result(verdict, held, player_stats, true_enemy_stats)
 
 	var lines: PackedStringArray = []
 	lines.append("=== AFTER-ACTION REPORT ===")
@@ -8386,6 +8437,9 @@ func _end_battle() -> void:
 		lines.append("%s: stalemate — neither side broke contact before the fight was called" % GameConfig.CURRENT_MAP.name)
 	else:
 		lines.append("%s held: %s" % [GameConfig.CURRENT_MAP.name, "YES" if held else "NO"])
+	# The score, from the TRUE results (user's ruling) — even where the report's
+	# own enemy casualty figures below are only estimates. See BattleScore.
+	lines.append("Battle score: %s" % BattleScore.format(battle_result.score))
 	if weather != null:
 		var weather_line: String = "Weather: %s, %d °C" % [weather.wind_label().replace("Wind", "wind"), roundi(weather.temperature_c)]
 		if weather.is_precipitating():
