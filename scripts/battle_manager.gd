@@ -8295,8 +8295,20 @@ func _prune_fire_flashes() -> void:
 
 
 func _check_battle_end() -> void:
-	if _all_done_fighting(player_units) or _all_done_fighting(enemy_units) \
-			or scenario_elapsed_time >= GameConfig.BATTLE_TIME_LIMIT:
+	if _all_done_fighting(player_units) or _all_done_fighting(enemy_units):
+		_end_battle()
+	elif scenario_elapsed_time >= GameConfig.BATTLE_TIME_LIMIT:
+		# Direct user report from a live battle that ran to the limit with both
+		# sides still on the field: "should have been scored as a stalemate. It
+		# says Position held." Running out the clock with each side still
+		# holding ground decided nothing — neither held nor lost, the same
+		# ruling as the stagnation timeout below. A side that is already
+		# broken (nobody ACTIVE — all withdrawn, destroyed or still pulling
+		# out) is a different story: the fight WAS decided, and the ordinary
+		# held/lost verdict stands.
+		if _has_active_units(player_units) and _has_active_units(enemy_units):
+			combat_log.add_entry("--- Time limit reached with neither side driven from the field: stalemate ---")
+			_ended_by_stalemate = true
 		_end_battle()
 	elif _seconds_since_last_shot >= STAGNATION_TIMEOUT and not _anyone_moving() and not _any_armed_mortar_remains():
 		combat_log.add_entry("--- Battle stalemated: no movement or fire for %ds ---" % int(STAGNATION_TIMEOUT))

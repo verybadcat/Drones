@@ -4447,9 +4447,12 @@ const RETREAT_DIRECTION_MAX_EXTRA_M: float = 500.0
 # realistic-paced firefight — punctuated by units breaking for cover at a
 # realistic pace too, not instantly re-engaging — needs real room after
 # that to actually develop and resolve, not just time out early with both
-# sides barely scratched. 4 tactical hours, worst case, still caps actual
-# watching time at BATTLE_TIME_LIMIT / TIME_SCALE_NORMAL (240 real seconds).
-const BATTLE_TIME_LIMIT: float = 14400.0
+# sides barely scratched. 12 tactical hours (0600 to 1800; raised from 4 by
+# direct user request — a battle that reaches it with both sides still on the
+# field is scored a stalemate, see BattleManager._check_battle_end), worst
+# case, still caps actual watching time at BATTLE_TIME_LIMIT / TIME_SCALE_NORMAL
+# (720 real seconds).
+const BATTLE_TIME_LIMIT: float = 43200.0
 
 # Spotting. Named _PER_TACTICAL_SECOND, not just _PER_SECOND, on purpose —
 # CombatResolver.roll_spot multiplies this by scenario_delta (tactical
