@@ -291,6 +291,13 @@ func test_mortar_hunt_caps_how_many_squads_chase_at_once() -> void:
 	bm.player_units.append(mortar)
 	mortar.is_visible = true
 
+	# Two friendly squads still in action, far off: with fewer than 3 enemy squads
+	# per friendly one the ordinary cap applies (with none left it would not - see
+	# test_enemy_mortar_hunt_superiority.gd).
+	for i in 2:
+		var friendly: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, Vector2(-GameConfig.SQUAD_DANGER_RANGE * 3.0, 200.0 * i))
+		bm.player_units.append(friendly)
+
 	var squads: Array[Unit] = []
 	for i in 5:
 		# Distinct distances, all within SQUAD_DANGER_RANGE (hot-pursuit

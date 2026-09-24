@@ -5314,6 +5314,17 @@ const SQUAD_DANGER_RANGE: float = 1200.0 * PIXELS_PER_METER
 ## front of them instead.
 const MORTAR_HUNT_SQUAD_CAP: int = 3
 
+## The exception to that cap, direct user request: "A 3:1 superiority over
+## friendly squads they are fighting should allow any squads they have beyond
+## that to chase the mortar. Otherwise, the existing max can apply. ... with no
+## friendly squads remaining, all enemy squads would hunt the mortar." Squads
+## are only "needed" against the friendly squads in action at this ratio (3
+## enemy squads per friendly one); every enemy squad beyond that is free to go
+## after the mortar. The cap is then max(MORTAR_HUNT_SQUAD_CAP, enemy squads -
+## RATIO x friendly squads in action), see BattleManager._mortar_hunt_cap.
+## JUDGMENT: the 3 is the user's own figure.
+const MORTAR_HUNT_SUPERIORITY_RATIO: float = 3.0
+
 ## Checking whether an enemy is currently flanking around toward the
 ## mortar's blind side used to be its own outer-tier TARGET_PRIORITY_
 ## FLANK_WATCH constant, competing directly against squad-danger/

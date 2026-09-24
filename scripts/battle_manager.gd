@@ -6282,6 +6282,7 @@ func _alert_enemy_squads() -> void:
 ## hunt below, everyone else falls through to the ordinary division-of-
 ## labor/advance-by-bounds logic exactly as if they were never in range.
 func _mortar_hunt_assignments() -> Dictionary:
+	var cap: int = _mortar_hunt_cap()
 	var eligible: Array[Unit] = []
 	for u in enemy_units:
 		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or not u.sought_cover:
@@ -6289,7 +6290,7 @@ func _mortar_hunt_assignments() -> Dictionary:
 		if _chasing_mortar_in_hot_pursuit(u):
 			eligible.append(u)
 	var assigned: Dictionary = {}
-	if eligible.size() <= GameConfig.MORTAR_HUNT_SQUAD_CAP:
+	if eligible.size() <= cap:
 		for u in eligible:
 			assigned[u] = true
 		return assigned
@@ -6297,9 +6298,34 @@ func _mortar_hunt_assignments() -> Dictionary:
 	# stand a chance of catching it; the rest are better used elsewhere.
 	var mortar_pos: Vector2 = _known_friendly_mortar_position()
 	eligible.sort_custom(func(a, b): return a.global_position.distance_to(mortar_pos) < b.global_position.distance_to(mortar_pos))
-	for i in GameConfig.MORTAR_HUNT_SQUAD_CAP:
+	for i in cap:
 		assigned[eligible[i]] = true
 	return assigned
+
+
+## How many enemy squads may run down the friendly mortar at once right now:
+## the fixed GameConfig.MORTAR_HUNT_SQUAD_CAP, unless the enemy outnumbers the
+## friendly squads still in action by more than GameConfig.MORTAR_HUNT_
+## SUPERIORITY_RATIO to 1 — then every squad beyond that ratio is spare and may
+## chase too. With no friendly squad in action, that is all of them.
+func _mortar_hunt_cap() -> int:
+	var enemy_squads := 0
+	for u in enemy_units:
+		if u.kind == Unit.Kind.SQUAD and u.state == Unit.State.ACTIVE:
+			enemy_squads += 1
+	var needed_against_squads: int = ceili(GameConfig.MORTAR_HUNT_SUPERIORITY_RATIO * float(_friendly_squads_in_action()))
+	return maxi(GameConfig.MORTAR_HUNT_SQUAD_CAP, enemy_squads - needed_against_squads)
+
+
+## Friendly squads still in the fight: ACTIVE ones. A squad that is retreating,
+## withdrawn, destroyed or captured is not "in action" (it may still be a
+## target of opportunity, but it is not what the enemy has to be held back for).
+func _friendly_squads_in_action() -> int:
+	var n := 0
+	for u in player_units:
+		if u.kind == Unit.Kind.SQUAD and u.state == Unit.State.ACTIVE:
+			n += 1
+	return n
 
 
 func _update_enemy_squad_advance() -> void:
@@ -6600,7 +6626,42 @@ func _enemy_advance_objective(u: Unit = null) -> Vector2:
 	var mortar_pos := _known_friendly_mortar_position()
 	if not is_inf(mortar_pos.x) and _friendly_mortar_is_active():
 		return mortar_pos
+	# Direct user report from a live battle: "With no friendly squads left in
+	# action, the enemy squads should definitely be hunting our mortar. In the
+	# current battle, they are not." The fix above expires after
+	# MORTAR_FIRE_DETECTION_EXPIRY, so a mortar that had gone quiet (out of
+	# ammunition) left the enemy with no objective but the village — where its
+	# squads already were — and they sat there. With nothing else in the field to
+	# fight, a real force goes and looks where the gun was last known to be (the
+	# same probing advance _known_enemy_mortar_lead already gives the player's own
+	# side): the freshest of where it was last seen or last heard firing, no
+	# expiry. Only with no friendly squad in action: while there is one, the
+	# assault's objective stays the village as before.
+	if _friendly_mortar_is_active() and _friendly_squads_in_action() == 0:
+		var last_known := _last_known_friendly_mortar_position()
+		if not is_inf(last_known.x):
+			return last_known
 	return GameConfig.CURRENT_MAP.village_center
+
+
+## The freshest place the enemy has any fix on the friendly mortar — where it
+## was last seen, or where it was last detected firing — with no expiry, or
+## Vector2.INF if it has never been seen or heard. (_known_friendly_mortar_
+## position is the current fix, which lapses after MORTAR_FIRE_DETECTION_EXPIRY.)
+func _last_known_friendly_mortar_position() -> Vector2:
+	var best_pos := Vector2.INF
+	var best_time := -INF
+	for u in player_units:
+		if u.kind != Unit.Kind.MORTAR or u.state == Unit.State.DESTROYED:
+			continue
+		if u.enemy_has_been_sighted and u.enemy_known_position_time > best_time:
+			best_time = u.enemy_known_position_time
+			best_pos = u.enemy_known_position
+		var info: Dictionary = _last_detected_mortar_fire.get(u, {})
+		if not info.is_empty() and info.time > best_time:
+			best_time = info.time
+			best_pos = info.position
+	return best_pos
 
 
 func _friendly_mortar_is_active() -> bool:
