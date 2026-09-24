@@ -264,32 +264,76 @@ func test_drone_default_is_untouched() -> void:
 	cleanup(bm)
 
 
-## The orders panel is the player's only way to reach the order: ticking it
-## issues the order, unticking countermands, and it always shows the manager's
-## own state (an order changed elsewhere can't leave it stale).
+## The orders card is the player's only way to reach the order. Direct user
+## request: it pops up next to the mortar when clicked, clicking the mortar
+## again removes it, and it holds only the orders that can be given.
 func test_panel_reflects_and_sets_the_order() -> void:
 	var bm = make_battle(10, false)
 	var mortar: Unit = bm.player_units[0]
+	mortar.global_position = Vector2(300, 300)
+	var vp := SubViewport.new() # identity canvas transform: screen == world
+	root.add_child(vp)
+	var area := Rect2(0, 0, 1000, 700)
 	var panel := MortarOrdersPanel.new()
 	root.add_child(panel)
-	panel.setup(bm)
+	panel.setup(bm, vp, area)
 	check(not panel.visible, "Panel starts hidden")
 	bm.mortar_selected.connect(panel.show_for)
+
 	bm.handle_click(mortar.global_position)
-	check(panel.visible, "Clicking the mortar opens the panel")
-	check(not panel._order_check.button_pressed, "Unordered mortar shows an unticked box")
-	panel._order_check.button_pressed = true
-	check(bm.mortar_squad_fire_ordered(mortar), "Ticking the box issues the order")
-	panel._order_check.button_pressed = false
-	check(not bm.mortar_squad_fire_ordered(mortar), "Unticking the box countermands it")
+	check(panel.visible, "Clicking the mortar opens the card")
+	check(panel.position.x >= mortar.global_position.x + 10.0, "The card pops up beside the mortar, to its right (x %.0f)" % panel.position.x)
+	check(absf(panel.position.y + panel.size.y / 2.0 - mortar.global_position.y) < 2.0, "...vertically centred on it")
+	check(not panel._order_switch.button_pressed, "Unordered mortar shows the switch off")
+	panel._order_switch.button_pressed = true
+	check(bm.mortar_squad_fire_ordered(mortar), "Flipping the switch issues the order")
+	panel._order_switch.button_pressed = false
+	check(not bm.mortar_squad_fire_ordered(mortar), "Flipping it back countermands it")
 	bm.set_mortar_squad_fire_order(mortar, true)
 	panel._refresh()
-	check(panel._order_check.button_pressed, "An order set elsewhere shows as ticked")
-	check(bm.mortar_squad_fire_ordered(mortar), "Refreshing the panel must not disturb the order")
+	check(panel._order_switch.button_pressed, "An order set elsewhere shows as on")
+	check(bm.mortar_squad_fire_ordered(mortar), "Refreshing the card must not disturb the order")
+
+	# Clicking the mortar again removes the card, and the order stands.
+	bm.handle_click(mortar.global_position)
+	check(not panel.visible, "Clicking the mortar again dismisses the card")
+	check(bm.mortar_squad_fire_ordered(mortar), "Dismissing the card must not change the order")
+	bm.handle_click(mortar.global_position)
+	check(panel.visible and panel._order_switch.button_pressed, "A third click reopens it, showing the standing order")
+
+	# It follows the mortar...
+	mortar.global_position = Vector2(500, 400)
+	panel._reposition()
+	check(panel.position.x >= 500.0 + 10.0 and absf(panel.position.y + panel.size.y / 2.0 - 400.0) < 2.0, "The card follows the mortar")
+	# ...flips to the left with no room on the right...
+	mortar.global_position = Vector2(980, 400)
+	panel._reposition()
+	check(panel.position.x + panel.size.x <= 980.0, "With no room to the right the card sits to the mortar's left")
+	# ...and stays inside the map at the edges.
+	mortar.global_position = Vector2(300, 5)
+	panel._reposition()
+	check(area.encloses(Rect2(panel.position, panel.size)), "The card stays inside the map near the top edge")
+
+	# Nothing but the order in it: no status text, no close button.
+	var buttons := 0
+	var labels := []
+	var stack: Array = [panel]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		for c in n.get_children():
+			stack.append(c)
+		if n is BaseButton:
+			buttons += 1
+		elif n is Label:
+			labels.append(n.text)
+	check(buttons == 1, "The card holds just the one order switch (found %d buttons)" % buttons)
+	check(labels.size() == 2, "Only a heading and the order's name (found %s)" % str(labels))
+
 	bm.battle_over = true
 	panel._refresh()
-	check(not panel.visible, "Panel hides when the battle ends")
+	check(not panel.visible, "Card hides when the battle ends")
 	panel.free()
+	vp.free()
 	cleanup(bm)
 
 

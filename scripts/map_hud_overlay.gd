@@ -37,7 +37,8 @@ func _draw() -> void:
 
 
 ## Wind and precipitation, in a block just left of the compass: an arrow
-## pointing the way the wind BLOWS (longer = stronger), the speed and gusts,
+## pointing the way the wind BLOWS (longer = stronger), the speed, the
+## temperature and gusts,
 ## and — only while it is actually happening — a rain/sleet/snow icon and
 ## label. A line says when the drones are grounded by it.
 func _draw_weather(compass_center: Vector2) -> void:
@@ -57,7 +58,7 @@ func _draw_weather(compass_center: Vector2) -> void:
 	var side: Vector2 = toward.orthogonal()
 	draw_line(head, head - toward * 7.0 + side * 4.5, accent, 2.5)
 	draw_line(head, head - toward * 7.0 - side * 4.5, accent, 2.5)
-	draw_string(font, wind_center + Vector2(-44.0, 44.0), "%d m/s from %s" % [roundi(w.wind_speed_10m), Weather.compass_name(w.wind_from_deg)],
+	draw_string(font, wind_center + Vector2(-44.0, 44.0), "%d m/s from %s, %s" % [roundi(w.wind_speed_10m), Weather.compass_name(w.wind_from_deg), w.temperature_label()],
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, white)
 	draw_string(font, wind_center + Vector2(-44.0, 58.0), "gusts %d, aloft %d" % [roundi(w.wind_speed_10m * Weather.WIND_GUST_RATIO_PEAK), roundi(w.wind_speed_at(300.0))],
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, white)

@@ -276,6 +276,12 @@ func precip_label() -> String:
 	return "%s %s" % [adjective, noun]
 
 
+## "9°C (48°F)" — the game's units are metric, but the temperature is the one
+## reading players most often think of in Fahrenheit, so both are shown.
+func temperature_label() -> String:
+	return "%d°C (%d°F)" % [roundi(temperature_c), roundi(temperature_c * 9.0 / 5.0 + 32.0)]
+
+
 func wind_label() -> String:
 	return "Wind %d m/s from %s, gusts %d" % [roundi(wind_speed_10m), compass_name(wind_from_deg), roundi(wind_speed_10m * WIND_GUST_RATIO_PEAK)]
 

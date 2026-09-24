@@ -576,11 +576,11 @@ func _on_start_pressed() -> void:
 
 	battle_manager.start_battle(doctrine, combat_log)
 
-	# Over the right edge of the map, clear of the sidebar and the top
-	# strip; hides itself when the mortar is lost or the battle ends.
+	# A card that pops up beside the mortar when it's clicked (and goes away
+	# when it's clicked again); hides itself if the mortar is lost or the
+	# battle ends.
 	mortar_orders_panel = MortarOrdersPanel.new()
-	mortar_orders_panel.position = Vector2(GameConfig.SIDEBAR_X - 340, 64)
-	mortar_orders_panel.setup(battle_manager)
+	mortar_orders_panel.setup(battle_manager, map_viewport, Rect2(Vector2.ZERO, map_container.size))
 	add_child(mortar_orders_panel)
 	battle_manager.mortar_selected.connect(mortar_orders_panel.show_for)
 	decision_inspector = preload("res://scripts/decision_inspector.gd").new()
