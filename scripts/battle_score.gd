@@ -121,9 +121,9 @@ static func breakdown_text(inputs: Dictionary, scenario_line: String = "") -> St
 	lines.append("How it was scored:")
 	for item in line_items(inputs):
 		if item.key == "position":
-			lines.append("  %s: %s" % [item.label, format(item.points)])
+			lines.append("  %s: %s" % [item.label, _format_points(item.points)])
 		elif item.count != 0:
-			lines.append("  %s: %d × %s = %s" % [item.label, item.count, _format_value(item.value), format(item.points)])
+			lines.append("  %s: %d × %s = %s" % [item.label, item.count, _format_value(item.value), _format_points(item.points)])
 	lines.append("")
 	lines.append("Total: %s" % format(score(inputs)))
 	return "
@@ -136,12 +136,20 @@ static func position_key(held: bool, stalemate: bool) -> String:
 	return POSITION_HELD_KEY if held else POSITION_LOST_KEY
 
 
-## A per-event value as it appears in a line item: "-10", "+5", "+0.5" —
-## whole numbers without a decimal, fractions with one.
+## A per-event value as it appears in a line item: "-10", "5", "0.5" — whole
+## numbers without a decimal, fractions with one; a minus sign for a negative and
+## no plus sign for a positive (user: "this text can omit both plus signs. But
+## negative numbers should have minus signs").
 static func _format_value(value: float) -> String:
 	if is_equal_approx(value, roundf(value)):
-		return "%+d" % int(value)
-	return "%+.1f" % value
+		return "%d" % int(value)
+	return "%.1f" % value
+
+
+## A line item's points, same convention: "40.0", "-20.0". (The headline score
+## and the total, by contrast, stay signed — see format().)
+static func _format_points(value: float) -> String:
+	return "%.1f" % value
 
 
 ## "+42.5" / "-17.0" — always signed, so a score reads as a swing, not a count.
