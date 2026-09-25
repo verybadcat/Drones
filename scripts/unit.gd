@@ -239,6 +239,10 @@ var concern_threshold: float = 0.25
 # spares, but "always fly on a full battery" isn't guaranteed the way it
 # would be if this were still just a flight-time countdown.
 var drone_battery_charge: float = 1.0
+## Whether the drone team that flies this DRONE is itself on the move (set every tick by
+## BattleManager._update_drone_operations): the drone is then operated with degraded
+## performance — see GameConfig.DRONE_TEAM_MOVING_*.
+var drone_operator_moving: bool = false
 
 # MORTAR only: a small crew-served weapon, GameConfig.mortar_crew_size(team)
 # people including ammunition carriers — see that function's own doc comment

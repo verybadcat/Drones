@@ -6182,6 +6182,36 @@ const MORTAR_DISPERSION_SPOTTER_FLOOR: float = 18.0 * PIXELS_PER_METER
 const MORTAR_DISPERSION_SQUAD_DECAY: float = 0.65
 const MORTAR_DISPERSION_SQUAD_FLOOR: float = 30.0 * PIXELS_PER_METER
 
+## The drone team operating its drones WHILE THE TEAM ITSELF IS ON THE MOVE (BattleManager.
+## _drone_team_on_the_move — a move order standing: repositioning, evading, falling back). The
+## user: it "should be able to operate its drones while the team itself is moving. However,
+## this should degrade its performance in multiple ways. Its value for artillery spotting
+## should still be above that of a spotter, but less than its value when stationary. Aim for
+## about halfway in between. It should also be slightly less likely to see enemies and suffer
+## a slightly greater chance of drone loss." Real basis: a crew walking or riding with a
+## controller in hand has divided attention, a jerkier link and a screen that shakes — the
+## video is still there, but it is not the steady, dedicated feed of a crew set up in one place.
+## All of the figures below are JUDGMENT (the halfway is the user's).
+##
+## How far, between a stationary team's spotting value (0) and a plain spotter's (1), a moving
+## team's sits: halfway. It scales BOTH parts of the value — the convergence of walked fire
+## (decay and floor) and the accuracy bonus of a live overhead feed — so the two stay
+## consistent: with the values above, a moving team's fire converges at 0.25 per corrected round
+## to a 12 m floor (a stationary team's 0.15 / 6 m, a spotter's 0.35 / 18 m) and multiplies
+## accuracy by 1.375 (1.75 stationary, none for a spotter).
+const DRONE_TEAM_MOVING_SPOTTING_BLEND: float = 0.5
+const MORTAR_DISPERSION_DRONE_MOVING_DECAY: float = MORTAR_DISPERSION_DRONE_DECAY + (MORTAR_DISPERSION_SPOTTER_DECAY - MORTAR_DISPERSION_DRONE_DECAY) * DRONE_TEAM_MOVING_SPOTTING_BLEND
+const MORTAR_DISPERSION_DRONE_MOVING_FLOOR: float = MORTAR_DISPERSION_DRONE_FLOOR + (MORTAR_DISPERSION_SPOTTER_FLOOR - MORTAR_DISPERSION_DRONE_FLOOR) * DRONE_TEAM_MOVING_SPOTTING_BLEND
+const DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER_MOVING: float = DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER + (1.0 - DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER) * DRONE_TEAM_MOVING_SPOTTING_BLEND
+## "Slightly less likely to see enemies": a drone whose team is on the move has this fraction of
+## its usual chance, each moment, of noticing a target that is in its view (its range is unchanged).
+const DRONE_TEAM_MOVING_SPOT_CHANCE_MULTIPLIER: float = 0.85
+## "A slightly greater chance of drone loss": a drone whose team is on the move has its
+## in-flight failure hazard (Weather.drone_hazard_per_minute: baseline, wind, cold, rain)
+## multiplied by this — a crew that is not at rest is a worse place to launch from, land on and
+## keep a link with.
+const DRONE_TEAM_MOVING_FAILURE_MULTIPLIER: float = 1.5
+
 const REPOSITION_SPEED: float = 1.8 * PIXELS_PER_METER # m/s (tactical), for any non-retreat repositioning
 
 # A retreating unit under actual mortar fire (Unit.zigzagging) juke

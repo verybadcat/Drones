@@ -171,6 +171,10 @@ static func roll_spot(observer: Unit, target: Unit, scenario_delta: float) -> bo
 		chance *= GameConfig.tree_sight_transmission(observer.get_instance_id(), target.get_instance_id(), observer.global_position, target.global_position)
 	var concealment_table: Dictionary = GameConfig.DRONE_CONCEALMENT_MULTIPLIER if observer_is_drone else CONCEALMENT_MULTIPLIER
 	chance *= concealment_table[target.terrain_type()]
+	# A drone whose team is itself on the move is flown with divided attention and a shakier
+	# feed: slightly less likely to notice what is in its view.
+	if observer_is_drone and observer.drone_operator_moving:
+		chance *= GameConfig.DRONE_TEAM_MOVING_SPOT_CHANCE_MULTIPLIER
 	var target_hidden_spotter := target.kind == Unit.Kind.SPOTTER and GameConfig.is_in_cover(target.terrain_type())
 	if target.kind == Unit.Kind.SPOTTER and not target_hidden_spotter:
 		chance *= GameConfig.SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER
@@ -299,9 +303,11 @@ static func has_live_observer(target: Unit, observers: Array[Unit], ignore_trees
 ## doesn't get this — a lobbed shell's accuracy isn't a function of how
 ## close the target happens to be to the tube.
 ##
-## `drone_directed` — true only for the player's own mortar, and only while
-## a friendly drone is actually airborne, per GameConfig.DRONE_DIRECTED_
-## MORTAR_ACCURACY_MULTIPLIER's own reasoning — applies a further flat
+## `drone_directing_multiplier` — 1.0 (no effect) except for the player's own mortar
+## while a friendly drone is actually airborne, per GameConfig.DRONE_DIRECTED_
+## MORTAR_ACCURACY_MULTIPLIER's own reasoning: then the multiplier BattleManager
+## _drone_directing_multiplier works out (the full bonus with a stationary drone team, a
+## smaller one with a team on the move) — applies a further flat
 ## accuracy bonus on top of everything else above. A continuous overhead
 ## video feed corrects the next round off the last one's actual impact in
 ## a way a ground spotter's limited, single-position view never can; cover
@@ -352,7 +358,7 @@ static func has_live_observer(target: Unit, observers: Array[Unit], ignore_trees
 ## ask "what's the risk to this drone," and the honest answer is now none
 ## from ground fire), so the two paths can't silently disagree.
 ## The same hit model used for resolution and read-only forecasts.
-static func hit_probability(attacker: Unit, defender: Unit, drone_directed: bool = false, defender_position: Vector2 = Vector2.INF, attacker_position: Vector2 = Vector2.INF) -> float:
+static func hit_probability(attacker: Unit, defender: Unit, drone_directing_multiplier: float = 1.0, defender_position: Vector2 = Vector2.INF, attacker_position: Vector2 = Vector2.INF) -> float:
 	var point: Vector2 = defender.global_position if is_inf(defender_position.x) else defender_position
 	var origin: Vector2 = attacker.global_position if is_inf(attacker_position.x) else attacker_position
 	var chance: float
@@ -382,13 +388,13 @@ static func hit_probability(attacker: Unit, defender: Unit, drone_directed: bool
 				chance *= GameConfig.MORTAR_PREDICTABLE_MOVING_MULTIPLIER if defender.movement_predictable else GameConfig.MORTAR_UNPREDICTABLE_MOVING_MULTIPLIER
 			else:
 				chance *= GameConfig.MOVING_HIT_MULTIPLIER
-		if attacker.kind == Unit.Kind.MORTAR and drone_directed:
-			chance *= GameConfig.DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER
+		if attacker.kind == Unit.Kind.MORTAR:
+			chance *= drone_directing_multiplier
 	return clampf(chance, 0.0, 1.0)
 
 
-static func resolve_fire(attacker: Unit, defender: Unit, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], drone_directed: bool = false, impact_distance: float = 0.0) -> bool:
-	var chance := hit_probability(attacker, defender, drone_directed)
+static func resolve_fire(attacker: Unit, defender: Unit, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], drone_directing_multiplier: float = 1.0, impact_distance: float = 0.0) -> bool:
+	var chance := hit_probability(attacker, defender, drone_directing_multiplier)
 	var hit: bool = randf() < chance
 	if hit:
 		defender.take_hit(attacker.kind == Unit.Kind.MORTAR, ally_positions, known_enemy_positions, impact_distance)

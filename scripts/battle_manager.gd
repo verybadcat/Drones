@@ -132,7 +132,7 @@ func _type_target_score(unit: Unit, target: Unit) -> float:
 				var visible_path := GameConfig.has_aerial_los(unit.global_position, target.global_position)
 				var concealment: float = GameConfig.DRONE_CONCEALMENT_MULTIPLIER[target.terrain_type()]
 				return maxf(0.0, 1.0 - distance / GameConfig.DRONE_DETECTION_RANGE) * concealment if visible_path else 0.0
-			return CombatResolver.hit_probability(unit, target, _drone_directing_mortar_fire(unit))
+			return CombatResolver.hit_probability(unit, target, _drone_directing_multiplier(unit))
 	return 1.0
 
 
@@ -197,7 +197,7 @@ func _risk_forecast(unit: Unit, target: Unit, point: Vector2) -> Dictionary:
 	forecast["goal"] = "Continue the assigned support or movement task (success not forecast)."
 	if target != null and unit.kind in [Unit.Kind.SQUAD, Unit.Kind.MORTAR]:
 		var shots := RiskForecast.shot_count(unit, RiskForecast.HORIZON_SECONDS, GameConfig.TIME_SCALE_NORMAL, true)
-		var hit := CombatResolver.hit_probability(unit, target, _drone_directing_mortar_fire(unit))
+		var hit := CombatResolver.hit_probability(unit, target, _drone_directing_multiplier(unit))
 		forecast.goal_probability = 1.0 - pow(1.0 - hit, shots)
 		forecast.goal = "Land at least one damaging hit on %s." % target.display_name()
 	forecast["assumptions"] = "Next 3 tactical minutes at fixed positions/current posture. Known threats assumed able to focus fire; unseen threats, future movement, morale, splash and cook-offs are not forecast. This estimates elimination by damage, not everyone's death."
@@ -2233,7 +2233,7 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit, impact_point
 	var before := UnitCombatStats.before_hit(target)
 	unit_combat_stats.register(attacker)
 	var target_was_active := target.state == Unit.State.ACTIVE
-	CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team), _drone_directing_mortar_fire(attacker), target.global_position.distance_to(impact_point))
+	CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team), _drone_directing_multiplier(attacker), target.global_position.distance_to(impact_point))
 	unit_combat_stats.damage(attacker, target, before)
 	_log_hit_consequence(target, target_was_active)
 	# Collateral risk is about who else is near the actual impact point,
@@ -2270,21 +2270,34 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit, impact_point
 	_log_hit_consequence(victim, victim_was_active)
 
 
-## True while `attacker`'s shot should get GameConfig.DRONE_DIRECTED_MORTAR_
-## ACCURACY_MULTIPLIER's bonus — only the player's own mortar (the enemy
-## has no doctrine-level recon choice at all) firing while the doctrine is
-## actually DRONE_TEAM AND a friendly drone (active or backup — either one
-## airborne means the team's ISR feed is live right now) is actually up.
+## The accuracy multiplier `attacker`'s shot gets from the drone feed: 1.0 (none) except for
+## the player's own mortar (the enemy has no doctrine-level recon choice at all) firing while
+## the doctrine is actually DRONE_TEAM AND a friendly drone (active or backup — either one
+## airborne means the team's ISR feed is live right now) is actually up. Then
+## GameConfig.DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER — or, with the drone team itself on the
+## move (_drone_team_on_the_move), the smaller ..._MOVING (halfway to a plain spotter's none).
 ## Checked fresh at resolution time (mortar shots land ~40 tactical seconds
 ## after firing — see _launch_mortar_shot/_resolve_pending_mortar_shots),
 ## the same moment the target's own moving/terrain state is read, not
 ## frozen at the instant the round left the tube.
-func _drone_directing_mortar_fire(attacker: Unit) -> bool:
+func _drone_directing_multiplier(attacker: Unit) -> float:
 	if attacker.kind != Unit.Kind.MORTAR or attacker.team != Unit.Team.PLAYER:
-		return false
+		return 1.0
 	if recon_mode != GameConfig.ReconMode.DRONE_TEAM:
-		return false
-	return active_drone != null or backup_drone != null
+		return 1.0
+	if active_drone == null and backup_drone == null:
+		return 1.0
+	if _drone_team_on_the_move():
+		return GameConfig.DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER_MOVING
+	return GameConfig.DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER
+
+
+## Whether the drone team is itself under way (a move order standing — repositioning, evading, an
+## order to fall back), so its drones are being operated on the move: still flown, still
+## spotting, but with degraded performance (see GameConfig.DRONE_TEAM_MOVING_*).
+func _drone_team_on_the_move() -> bool:
+	return recon_mode == GameConfig.ReconMode.DRONE_TEAM and drone_team != null \
+		and drone_team.state == Unit.State.ACTIVE and drone_team.has_move_target
 
 
 ## Any unit (either SIDE — real HE fragmentation and even a stray round
@@ -3190,6 +3203,12 @@ func _update_drone_operations(scenario_delta: float) -> void:
 			_drones_ready.append(_drones_swapping[i].charge)
 			_drones_swapping.remove_at(i)
 
+	# Every drone in the air is flown by this team, so it is operated on the move whenever the team is.
+	var on_the_move := _drone_team_on_the_move()
+	for d in [active_drone, backup_drone] + returning_drones:
+		if d != null:
+			d.drone_operator_moving = on_the_move
+
 	_update_drone_weather(scenario_delta)
 	_update_returning_drones(scenario_delta)
 
@@ -3296,6 +3315,7 @@ func _launch_drone() -> void:
 	d.drone_battery_charge = max(charge - GameConfig.DRONE_LAUNCH_CHARGE_COST, 0.0) # climb-out to DRONE_ALTITUDE_M isn't free — see GameConfig's own comment
 	d.state_changed.connect(_on_drone_state_changed)
 	d.move_speed = GameConfig.DRONE_CRUISE_SPEED
+	d.drone_operator_moving = _drone_team_on_the_move()
 	player_units.append(d)
 	active_drone = d
 	combat_log.log_drone_launched(d)
@@ -3316,6 +3336,7 @@ func _launch_backup_drone(watched: Unit) -> void:
 	d.drone_battery_charge = max(charge - GameConfig.DRONE_LAUNCH_CHARGE_COST, 0.0) # climb-out to DRONE_ALTITUDE_M isn't free — see GameConfig's own comment
 	d.state_changed.connect(_on_drone_state_changed)
 	d.move_speed = GameConfig.DRONE_CRUISE_SPEED
+	d.drone_operator_moving = _drone_team_on_the_move()
 	player_units.append(d)
 	backup_drone = d
 	combat_log.log_drone_backup_launched(d, watched)
@@ -3626,7 +3647,7 @@ func _update_drone_weather(scenario_delta: float) -> void:
 			_drone_weather_clear_s = 0.0
 
 	var altitude: float = weather.drone_operating_altitude_m()
-	var failure_chance: float = 1.0 - exp(-weather.drone_hazard_per_minute(altitude) * scenario_delta / 60.0)
+	var failure_chance: float = _drone_failure_chance(scenario_delta, altitude)
 	var airborne: Array[Unit] = []
 	for d in [active_drone, backup_drone] + returning_drones:
 		if d != null:
@@ -3634,6 +3655,16 @@ func _update_drone_weather(scenario_delta: float) -> void:
 	for d in airborne:
 		if weather.rng.randf() < failure_chance:
 			_weather_fail_drone(d, altitude)
+
+
+## The chance, over `scenario_delta` tactical seconds, that an airborne drone fails:
+## Weather.drone_hazard_per_minute (baseline, wind, cold, rain), multiplied by
+## GameConfig.DRONE_TEAM_MOVING_FAILURE_MULTIPLIER while its team is on the move.
+func _drone_failure_chance(scenario_delta: float, altitude: float) -> float:
+	var hazard: float = weather.drone_hazard_per_minute(altitude)
+	if _drone_team_on_the_move():
+		hazard *= GameConfig.DRONE_TEAM_MOVING_FAILURE_MULTIPLIER
+	return 1.0 - exp(-hazard * scenario_delta / 60.0)
 
 
 ## A weather failure: usually the airframe is lost; a search drone (never one
@@ -6523,7 +6554,8 @@ func _mortar_fire_observation_quality(mortar: Unit, target: Unit) -> String:
 		elif u.kind == Unit.Kind.SPOTTER:
 			spotters.append(u)
 	if CombatResolver.has_live_observer(target, drones):
-		return "drone"
+		# Between a stationary team's feed and a spotter's when the team is on the move.
+		return "drone_moving" if _drone_team_on_the_move() else "drone"
 	if CombatResolver.has_live_observer(target, spotters):
 		return "spotter"
 	if CombatResolver.has_live_observer(target, allies):
@@ -6563,6 +6595,9 @@ func _mortar_dispersion_offset(mortar: Unit, target: Unit, aim_point: Vector2) -
 		"drone":
 			decay = GameConfig.MORTAR_DISPERSION_DRONE_DECAY
 			floor_dist = GameConfig.MORTAR_DISPERSION_DRONE_FLOOR
+		"drone_moving":
+			decay = GameConfig.MORTAR_DISPERSION_DRONE_MOVING_DECAY
+			floor_dist = GameConfig.MORTAR_DISPERSION_DRONE_MOVING_FLOOR
 		"spotter":
 			decay = GameConfig.MORTAR_DISPERSION_SPOTTER_DECAY
 			floor_dist = GameConfig.MORTAR_DISPERSION_SPOTTER_FLOOR
