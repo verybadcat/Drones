@@ -1491,12 +1491,19 @@ var _fall_back_orders: Dictionary = {} # Unit -> {"destination": Vector2, "order
 ## bearings within FALL_BACK_BEARINGS_DEG of the direction of the unit's own map edge,
 ## plus the nearest cover to waypoints along that direction.
 const FALL_BACK_RING_DISTANCES_M: Array[float] = [400.0, 500.0, 600.0, 750.0, 900.0, 1000.0, 1250.0, 1500.0]
-const FALL_BACK_BEARINGS_DEG: Array[float] = [-60.0, -40.0, -20.0, 0.0, 20.0, 40.0, 60.0]
+const FALL_BACK_BEARINGS_DEG: Array[float] = [-60.0, -45.0, -30.0, -15.0, 0.0, 15.0, 30.0, 45.0, 60.0]
 const FALL_BACK_COVER_WAYPOINTS_M: Array[float] = [500.0, 750.0, 1000.0]
 const FALL_BACK_HIDDEN_SAMPLES: int = 4
-## Anything used as a destination must be within this of the edge direction (degrees) —
-## "it does not have to be straight back, just generally towards the edge".
-const FALL_BACK_MAX_BEARING_DEG: float = 70.0
+## "It does not have to be straight back, just generally towards the edge": within
+## FALL_BACK_PREFERRED_BEARING_DEG (45) of the edge direction costs nothing; between that and
+## FALL_BACK_MAX_BEARING_DEG (60) it costs FALL_BACK_BEARING_PENALTY_PER_15_DEG per 15 degrees
+## (0.5, about what an excellent position's cover and cleared line of sight are worth
+## together, so a terrific spot can win but this is rare). The user: "in all cases it should
+## be within a 60 degree angle. Never shallower than that ever" — so nothing past 60 degrees
+## is ever used, however good it looks. JUDGMENT for the penalty, as the distance one is.
+const FALL_BACK_PREFERRED_BEARING_DEG: float = 45.0
+const FALL_BACK_BEARING_PENALTY_PER_15_DEG: float = 0.5
+const FALL_BACK_MAX_BEARING_DEG: float = 60.0
 ## The distance the user asked for: "in general 500-1000 meters, but it could go over that,
 ## or maybe slightly less if there is an excellent position say 400 meters back, but that
 ## should be rare." Inside the range costs nothing; short of it costs FALL_BACK_SHORT_PENALTY
@@ -1572,8 +1579,9 @@ func _issue_fall_back_move(unit: Unit, destination: Vector2) -> void:
 ## direction — a ring of them at several distances and bearings, plus the nearest cover to
 ## a few waypoints along the way and a few hidden spots — and the best by _fall_back_score
 ## (safety: cover, cleared lines of sight, distance from the enemy and from where advancing
-## enemies will be) plus a penalty for straying from the preferred 500-1000 m
-## (_fall_back_distance_penalty) wins. A unit nearer its edge than that goes as far as the
+## enemies will be) plus penalties for straying from the preferred 500-1000 m
+## (_fall_back_distance_penalty) and from within 45 degrees of the edge direction
+## (_fall_back_bearing_penalty) wins. A unit nearer its edge than that goes as far as the
 ## edge allows. Nothing here is ever a retreat off the map: the edge is only the direction.
 func _fall_back_destination(unit: Unit) -> Vector2:
 	# The unit's own edge: the line a retreat runs to (a spawned unit's retreat_target_x).
@@ -1598,7 +1606,6 @@ func _fall_back_destination(unit: Unit) -> Vector2:
 	for i in FALL_BACK_HIDDEN_SAMPLES:
 		raw.append(_hidden_point_for(unit, threats))
 	var min_move: float = minf(FALL_BACK_MIN_MOVE_M * GameConfig.PIXELS_PER_METER, remaining)
-	var min_cos: float = cos(deg_to_rad(FALL_BACK_MAX_BEARING_DEG))
 	var best := Vector2.INF
 	var best_score := INF
 	for candidate in raw:
@@ -1606,16 +1613,26 @@ func _fall_back_destination(unit: Unit) -> Vector2:
 		var point := GameConfig.clamp_to_operating_area(candidate)
 		point.x = maxf(point.x, edge_x) if edge_dir.x < 0.0 else minf(point.x, edge_x)
 		var offset: Vector2 = point - unit.global_position
-		if offset.length() < min_move or offset.normalized().dot(edge_dir) < min_cos:
+		if offset.length() < min_move:
+			continue
+		var bearing: float = rad_to_deg(acos(clampf(offset.normalized().dot(edge_dir), -1.0, 1.0)))
+		if bearing > FALL_BACK_MAX_BEARING_DEG + 0.01:
 			continue
 		if GameConfig.is_river_at(point) or (unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(point)):
 			continue
 		var score: float = _fall_back_score(unit, point, known, advancing) \
-			+ _fall_back_distance_penalty(offset.length() / GameConfig.PIXELS_PER_METER, remaining / GameConfig.PIXELS_PER_METER)
+			+ _fall_back_distance_penalty(offset.length() / GameConfig.PIXELS_PER_METER, remaining / GameConfig.PIXELS_PER_METER) \
+			+ _fall_back_bearing_penalty(bearing)
 		if score < best_score:
 			best_score = score
 			best = point
 	return best
+
+
+## What straying from the edge direction costs (see FALL_BACK_PREFERRED_BEARING_DEG):
+## `bearing_deg` is the angle between the way to the candidate and the way to the edge.
+func _fall_back_bearing_penalty(bearing_deg: float) -> float:
+	return FALL_BACK_BEARING_PENALTY_PER_15_DEG * maxf(0.0, bearing_deg - FALL_BACK_PREFERRED_BEARING_DEG) / 15.0
 
 
 ## What straying from the preferred distance costs (see FALL_BACK_PREFERRED_MIN_M):

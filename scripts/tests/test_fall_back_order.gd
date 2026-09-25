@@ -7,7 +7,10 @@ extends SceneTree
 ## close. It does not require the unit to fall back off of the map. In general it should
 ## move 500-1000 meters, but it could go over that, or maybe slightly less if there is an
 ## excellent position say 400 meters back, but that should be rare. It does not have to
-## be straight back. Just generally towards the edge."
+## be straight back. Just generally towards the edge." And: "generally fall back within a
+## 45 degree angle of towards the map edge. Occasionally going outside of that range could
+## be ok if a position looks terrific, but this should be rare." And: "in all cases it
+## should be within a 60 degree angle. Never shallower than that ever."
 ##
 ## Run: godot --headless --path . --script scripts/tests/test_fall_back_order.gd
 const Log = preload("res://scripts/tests/test_combat_log.gd")
@@ -68,6 +71,9 @@ func run() -> void:
 	seed(7)
 	test_it_falls_back_toward_its_edge_500_to_1000_m()
 	test_it_need_not_go_straight_back()
+	test_it_generally_stays_within_45_degrees_of_the_edge_direction()
+	test_a_terrific_position_beyond_45_degrees_can_win_but_only_if_it_is_terrific()
+	test_nothing_beyond_60_degrees_is_ever_used()
 	test_the_distance_penalty_has_the_asked_for_shape()
 	test_a_shorter_position_wins_only_if_it_is_excellent()
 	test_a_unit_already_very_close_to_its_edge_does_not_move()
@@ -159,6 +165,70 @@ func test_it_need_not_go_straight_back() -> void:
 			bearings.append(bearing_off_west(u.global_position, dest))
 		cleanup(bm)
 	check(bearings.max() > 20.0 and bearings.min() < 10.0, "Destinations vary in bearing (%.0f to %.0f degrees off due west)" % [bearings.min(), bearings.max()])
+
+
+## "Within a 45 degree angle of towards the map edge": nearly all destinations are, and none
+## is past the hard cap.
+func test_it_generally_stays_within_45_degrees_of_the_edge_direction() -> void:
+	var inside := 0
+	var total := 0
+	for sc in scenarios():
+		seed(sc.seed)
+		var bm = make_battle()
+		var u: Unit = add_squad(bm, sc.start)
+		if sc.enemy != null:
+			add_enemy(bm, sc.start + sc.enemy)
+		var dest: Vector2 = bm._fall_back_destination(u)
+		if not is_inf(dest.x):
+			var b: float = bearing_off_west(u.global_position, dest)
+			total += 1
+			if b <= 45.0 + 0.5:
+				inside += 1
+			check(b <= BattleManager.FALL_BACK_MAX_BEARING_DEG + 0.5, "Never past the hard cap (%.0f degrees), from %s enemy %s" % [b, sc.start, str(sc.enemy)])
+		cleanup(bm)
+	check(total > 0 and float(inside) / total >= 0.85, "Generally within 45 degrees of the edge direction (%d of %d)" % [inside, total])
+
+
+## The bearing penalty by hand: free within 45 degrees, 0.5 per 15 degrees beyond. With the
+## safety scoring set by hand, a terrific spot at 60 degrees (600 m out, so the distance
+## costs nothing) wins only if it is a lot better than the rest; a merely good one loses.
+func test_a_terrific_position_beyond_45_degrees_can_win_but_only_if_it_is_terrific() -> void:
+	var bm0 = make_battle()
+	for c in [[0.0, 0.0], [45.0, 0.0], [52.5, 0.25], [60.0, 0.5]]:
+		check(is_equal_approx(bm0._fall_back_bearing_penalty(c[0]), c[1]), "%.1f degrees off the edge direction costs %.2f (got %.2f)" % [c[0], c[1], bm0._fall_back_bearing_penalty(c[0])])
+	cleanup(bm0)
+	for c in [[60.0, -0.8, true], [60.0, -0.3, false], [45.0, -0.1, true]]:
+		var bm = load("res://scripts/tests/fall_back_scoring_stub.gd").new()
+		root.add_child(bm)
+		bm.set_process(false)
+		bm.combat_log = Log.new()
+		var u: Unit = add_squad(bm, Vector2(1500, 1500))
+		var spot: Vector2 = u.global_position + Vector2(-1, 0).rotated(deg_to_rad(c[0])) * m(600.0)
+		bm.bonus_point = spot
+		bm.bonus = c[1]
+		# The ring has 15-degree steps, so the spot IS a candidate (600 m is a ring distance).
+		var dest: Vector2 = bm._fall_back_destination(u)
+		check((dest.distance_to(spot) < 1.0) == c[2], "A spot at %.0f degrees scoring %.1f better than the rest: taken is %s (went %.0f degrees)" % [c[0], c[1], c[2], bearing_off_west(u.global_position, dest)])
+		cleanup(bm)
+
+
+## "In all cases within a 60 degree angle. Never shallower than that ever": however
+## terrific, a spot at 75 or 90 degrees, or straight back the other way, is not used.
+func test_nothing_beyond_60_degrees_is_ever_used() -> void:
+	for degrees in [61.0, 75.0, 90.0, 135.0]:
+		var bm = load("res://scripts/tests/fall_back_scoring_stub.gd").new()
+		root.add_child(bm)
+		bm.set_process(false)
+		bm.combat_log = Log.new()
+		var u: Unit = add_squad(bm, Vector2(1500, 1500))
+		var spot: Vector2 = u.global_position + Vector2(-1, 0).rotated(deg_to_rad(degrees)) * m(600.0)
+		bm.bonus_point = spot
+		bm.bonus = -50.0
+		var dest: Vector2 = bm._fall_back_destination(u)
+		check(is_inf(dest.x) or dest.distance_to(spot) > 1.0, "A spot at %.0f degrees is never used, however good it scores" % degrees)
+		if not is_inf(dest.x):
+			check(bearing_off_west(u.global_position, dest) <= 60.0 + 0.5, "...and the destination is within 60 degrees (%.0f)" % bearing_off_west(u.global_position, dest))
+		cleanup(bm)
 
 
 func test_the_distance_penalty_has_the_asked_for_shape() -> void:
