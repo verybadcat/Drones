@@ -1,8 +1,7 @@
 extends SceneTree
 ## The orders card for any unit (was the mortar's alone): every friendly unit gets a
-## "Be safe" switch, the mortar keeps its "Expend ammo on enemy
-## squads" switch too. The switches mirror the battle manager's own state and turning
-## one off countermands the order.
+## "Be safe" button — a one-shot order that also dismisses the card — and the mortar
+## keeps its "Expend ammo on enemy squads" switch too.
 ##
 ## Run: godot --headless --path . --script scripts/tests/test_unit_orders_card.gd
 const Log = preload("res://scripts/tests/test_combat_log.gd")
@@ -52,68 +51,64 @@ func cleanup(c: Dictionary) -> void:
 	c.bm.free()
 
 func run() -> void:
-	test_a_squads_card_has_only_the_fall_back_switch()
+	test_a_squads_card_has_only_the_be_safe_button()
 	test_the_mortars_card_has_both()
-	test_the_switch_issues_and_countermands_the_order()
-	test_a_refused_order_leaves_the_switch_off()
-	test_the_switch_follows_the_order_when_it_ends()
+	test_the_button_gives_the_order_and_dismisses_the_card()
+	test_a_refused_order_still_dismisses_the_card()
+	test_the_card_can_be_reopened_and_the_order_given_again()
 	print("Unit orders card tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
 
-func test_a_squads_card_has_only_the_fall_back_switch() -> void:
+func test_a_squads_card_has_only_the_be_safe_button() -> void:
 	for kind in [Unit.Kind.SQUAD, Unit.Kind.SPOTTER, Unit.Kind.DRONE_TEAM]:
 		var c := make(kind)
 		c.bm.handle_click(c.unit.global_position)
 		check(c.panel.visible, "%s: clicking it opens the card" % Unit.Kind.keys()[kind])
 		check(not c.panel._fire_row.visible, "%s: the mortar's expend-ammo order is not offered" % Unit.Kind.keys()[kind])
-		check(c.panel._fall_back_switch.is_visible_in_tree(), "%s: fall back is offered" % Unit.Kind.keys()[kind])
+		check(c.panel._be_safe_button.is_visible_in_tree(), "%s: the Be safe button is offered" % Unit.Kind.keys()[kind])
 		cleanup(c)
 
 
 func test_the_mortars_card_has_both() -> void:
 	var c := make(Unit.Kind.MORTAR)
 	c.bm.handle_click(c.unit.global_position)
-	check(c.panel.visible and c.panel._fire_row.visible and c.panel._fall_back_switch.is_visible_in_tree(), "The mortar's card offers both orders")
+	check(c.panel.visible and c.panel._fire_row.visible and c.panel._be_safe_button.is_visible_in_tree(), "The mortar's card offers both orders")
 	cleanup(c)
 
 
-func test_the_switch_issues_and_countermands_the_order() -> void:
+func test_the_button_gives_the_order_and_dismisses_the_card() -> void:
 	var c := make(Unit.Kind.SQUAD)
 	c.bm.handle_click(c.unit.global_position)
-	check(not c.panel._fall_back_switch.button_pressed, "Setup: no order, switch off")
-	c.panel._fall_back_switch.button_pressed = true
-	check(c.bm.fall_back_ordered(c.unit) and c.unit.has_move_target, "Turning the switch on orders the unit to fall back")
-	check(c.panel._fall_back_switch.button_pressed, "...and it stays on while the order stands")
-	c.panel._fall_back_switch.button_pressed = false
-	check(not c.bm.fall_back_ordered(c.unit) and not c.unit.has_move_target, "Turning it off countermands the order")
+	check(not c.bm.fall_back_ordered(c.unit), "Setup: no order yet")
+	c.panel._be_safe_button.pressed.emit()
+	check(c.bm.fall_back_ordered(c.unit) and c.unit.has_move_target, "Pressing Be safe orders the unit to fall back")
+	check(not c.panel.visible, "...and the card goes away")
 	cleanup(c)
 
 
-## Nowhere safer: the order is refused and the switch goes straight back off.
-func test_a_refused_order_leaves_the_switch_off() -> void:
+## Nowhere safer: the order is refused (the combat log says so) but the card still goes.
+func test_a_refused_order_still_dismisses_the_card() -> void:
 	var c := make(Unit.Kind.SQUAD, false)
 	c.unit.global_position = Vector2(m(300), m(2000)) # already in trees, no enemy known
 	c.bm.handle_click(c.unit.global_position)
-	c.panel._fall_back_switch.button_pressed = true
+	c.panel._be_safe_button.pressed.emit()
 	check(not c.bm.fall_back_ordered(c.unit), "Setup: the order was refused")
-	check(not c.panel._fall_back_switch.button_pressed, "The switch goes back off instead of showing an order that does not exist")
+	check(not c.panel.visible, "The card goes away all the same")
 	cleanup(c)
 
 
-func test_the_switch_follows_the_order_when_it_ends() -> void:
+func test_the_card_can_be_reopened_and_the_order_given_again() -> void:
 	var c := make(Unit.Kind.SQUAD)
 	c.bm.handle_click(c.unit.global_position)
-	c.panel._fall_back_switch.button_pressed = true
+	c.panel._be_safe_button.pressed.emit()
 	c.unit.global_position = c.bm._fall_back_orders[c.unit].destination
 	c.bm._update_fall_back_orders()
-	c.panel._refresh()
-	check(not c.panel._fall_back_switch.button_pressed, "When the unit arrives the order ends and the switch shows it")
-	check(c.panel.visible, "...the card stays open")
-	# An order set elsewhere shows as on (back in the open: where it has just arrived
-	# it is already sheltered and would properly refuse).
-	c.unit.global_position = Vector2(m(-200), m(1500))
-	c.bm.set_fall_back_order(c.unit, true)
-	c.panel._refresh()
-	check(c.panel._fall_back_switch.button_pressed, "An order given by other means shows as on")
+	check(not c.bm.fall_back_ordered(c.unit), "Setup: the unit arrived and the order ended")
+	c.unit.global_position = Vector2(m(-200), m(1500)) # back in the open
+	c.panel._dismissed_frame = -1
+	c.bm.handle_click(c.unit.global_position)
+	check(c.panel.visible, "Clicking the unit again reopens the card")
+	c.panel._be_safe_button.pressed.emit()
+	check(c.bm.fall_back_ordered(c.unit) and not c.panel.visible, "...and the order can be given again")
 	cleanup(c)

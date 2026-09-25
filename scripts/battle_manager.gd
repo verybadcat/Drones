@@ -1967,12 +1967,14 @@ func _enemy_situation_hopeless() -> bool:
 ## project's own established distinction for what that principle actually
 ## covers), it's a real gap in what the enemy is even capable of knowing
 ## at all. Now genuinely symmetric.
-func _known_enemy_positions(team: Unit.Team) -> Array[Vector2]:
+func _known_enemy_positions(team: Unit.Team, include_drones: bool = true) -> Array[Vector2]:
 	var opposing: Array[Unit] = enemy_units if team == Unit.Team.PLAYER else player_units
 	var positions: Array[Vector2] = []
 	for u in opposing:
 		var still_a_threat: bool = u.state == Unit.State.ACTIVE or u.state == Unit.State.RETREATING
 		if not still_a_threat:
+			continue
+		if u.kind == Unit.Kind.DRONE and not include_drones:
 			continue
 		if team == Unit.Team.PLAYER:
 			if u.player_has_been_sighted:
@@ -5165,10 +5167,30 @@ func _mortar_advance_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 ## truth) is enough on its own now: a real crew doesn't need to physically
 ## see a closing threat to justify displacing before it arrives.
 func _unwatched_threat_closing(m: Unit) -> bool:
-	for pos in _known_enemy_positions(m.team):
+	# Not a drone: it cannot overrun a crew (it has no weapon), so one flying
+	# nearby is no reason for an unspotted crew to run.
+	for pos in _known_enemy_positions(m.team, false):
 		if m.global_position.distance_to(pos) <= GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE:
 			return true
 	return false
+
+
+## Whether the only thing troubling `m`'s crew is a drone: it is seen, and by a
+## drone alone (nothing else has it in sight), with no ground threat within overrun
+## range and no counter-battery fire landing on it. That is a reason to conceal the
+## crew, never to leave the map.
+func _mortar_troubled_only_by_drones(m: Unit) -> bool:
+	if not m.is_visible or m.evading_counter_battery or _unwatched_threat_closing(m):
+		return false
+	var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
+	var drones: Array[Unit] = []
+	var others: Array[Unit] = []
+	for u in opposing:
+		if u.kind == Unit.Kind.DRONE:
+			drones.append(u)
+		else:
+			others.append(u)
+	return CombatResolver.has_live_observer(m, drones) and not CombatResolver.has_live_observer(m, others)
 
 
 ## The single authoritative per-mortar-per-tick decision, replacing what
@@ -7680,6 +7702,11 @@ func _relocate_mortar(mortar: Unit, intent: String, force_urgent: bool = false) 
 ## blocked) falls back to the old immediate commitment rather than leaving
 ## the crew with nothing to do.
 func _mortar_flee_as_last_resort(m: Unit) -> void:
+	# Seen by a drone and nothing else: hiding is worth trying (the caller
+	# already did), but running for the edge is not — stay put.
+	if _mortar_troubled_only_by_drones(m):
+		_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Only a drone has sighted us — no place to hide, but not leaving the map over it."}
+		return
 	if absf(m.retreat_target_x - m.global_position.x) > GameConfig.MORTAR_FLEE_COMMIT_DISTANCE:
 		var legs: Array[Vector2] = _mortar_edge_run_legs(m)
 		if not legs.is_empty():

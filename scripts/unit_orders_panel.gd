@@ -6,12 +6,11 @@ extends PanelContainer
 ## pops it up beside the unit; any click outside the card dismisses it (see _input),
 ## including a click on the unit itself. It follows the unit if it moves, and holds
 ## only the orders that can be given:
-##   - every unit: "Be safe" (BattleManager.set_fall_back_order)
-##   - the mortar also: "Expend ammo on enemy squads"
-##     (BattleManager.set_mortar_squad_fire_order)
-## Each switch always mirrors the battle manager's own state, so an order that
-## ended (the unit arrived), was refused (nowhere safer), or was changed elsewhere
-## can't leave it stale — turning a switch off countermands the order.
+##   - every unit: a "Be safe" button (BattleManager.set_fall_back_order) — a
+##     one-shot order: pressing it gives the order and dismisses the card
+##   - the mortar also: an "Expend ammo on enemy squads" switch
+##     (BattleManager.set_mortar_squad_fire_order), a standing order that always
+##     mirrors the battle manager's own state
 
 const CARD_COLOR := Color(0.10, 0.12, 0.14, 0.94)
 const BORDER_COLOR := Color(0.42, 0.50, 0.44, 0.9)
@@ -30,8 +29,7 @@ var _map_rect: Rect2
 var _fire_row: HBoxContainer
 var _fire_label: Label
 var _fire_switch: CheckButton
-var _fall_back_label: Label
-var _fall_back_switch: CheckButton
+var _be_safe_button: Button
 var _syncing := false
 var _card_on_right := true
 # The process frame in which a click outside just dismissed the card — a click on the
@@ -83,13 +81,14 @@ func setup(bm: BattleManager, map_viewport: SubViewport, map_rect: Rect2) -> voi
 	_fire_switch = _add_row_switch(_fire_row, "Make this mortar much more willing to fire on enemy squads instead of holding its ammunition. Enemy mortars still come first.")
 	_fire_switch.toggled.connect(_on_fire_toggled)
 
-	# Every unit's order.
-	var fall_back_row := HBoxContainer.new()
-	fall_back_row.add_theme_constant_override("separation", 10)
-	box.add_child(fall_back_row)
-	_fall_back_label = _add_row_label(fall_back_row, "Be safe")
-	_fall_back_switch = _add_row_switch(fall_back_row, "Move to wherever looks safest — cover, concealment, or simply out of the known enemy's reach, in any direction (forward too). Not a retreat off the map. Turn off to cancel.")
-	_fall_back_switch.toggled.connect(_on_fall_back_toggled)
+	# Every unit's order: a button, not a switch — it is given once and the card goes.
+	_be_safe_button = Button.new()
+	_be_safe_button.text = "Be safe"
+	_be_safe_button.focus_mode = Control.FOCUS_NONE
+	_be_safe_button.add_theme_font_size_override("font_size", 14)
+	_be_safe_button.tooltip_text = "Move to wherever looks safest — cover, concealment, or simply out of the known enemy's reach, in any direction (forward too). Not a retreat off the map."
+	_be_safe_button.pressed.connect(_on_be_safe_pressed)
+	box.add_child(_be_safe_button)
 
 	# Fit to content once, after the theme/fonts have settled.
 	reset_size.call_deferred()
@@ -155,7 +154,6 @@ func _refresh() -> void:
 	if unit == null or not is_instance_valid(unit) or battle_manager == null or battle_manager.battle_over or unit.state != Unit.State.ACTIVE:
 		hide_panel()
 		return
-	_mirror(_fall_back_switch, _fall_back_label, battle_manager.fall_back_ordered(unit))
 	if unit.kind == Unit.Kind.MORTAR:
 		_mirror(_fire_switch, _fire_label, battle_manager.mortar_squad_fire_ordered(unit))
 
@@ -206,10 +204,10 @@ func _on_fire_toggled(pressed: bool) -> void:
 	battle_manager.set_mortar_squad_fire_order(unit, pressed)
 
 
-func _on_fall_back_toggled(pressed: bool) -> void:
-	if _syncing or unit == null:
+## Gives the order and dismisses the card. An order the unit can't carry out (nowhere
+## safer) is refused and says so in the combat log; the card goes either way.
+func _on_be_safe_pressed() -> void:
+	if unit == null:
 		return
-	# A refused order (nowhere safer) leaves the manager without an order, and the
-	# refresh below flips the switch straight back off.
-	battle_manager.set_fall_back_order(unit, pressed)
-	_refresh()
+	battle_manager.set_fall_back_order(unit, true)
+	hide_panel()
