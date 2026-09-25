@@ -15,7 +15,19 @@ extends Node2D
 ## directly: "please put a scale onto the map" from a player who had no
 ## way to know one already existed in the code.
 
+## Whether the map marks (scale bar, compass, weather) are drawn at all. main.gd turns
+## them off while the level-select screen is up — that screen has no map to measure
+## yet — and on again from deployment on.
+var map_marks_visible: bool = true:
+	set(value):
+		if value != map_marks_visible:
+			map_marks_visible = value
+			queue_redraw()
+
+
 func _draw() -> void:
+	if not map_marks_visible:
+		return
 	var bar_m := 1000.0
 	var bar_px: float = bar_m * GameConfig.PIXELS_PER_METER
 	var origin := Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX - 20.0 - bar_px, 34.0) # below main.gd's own _clock_label, which sits at y=4

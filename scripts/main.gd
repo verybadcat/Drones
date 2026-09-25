@@ -466,13 +466,21 @@ func _show_level_select() -> void:
 	# battle's weather is only rolled when deployment starts (_show_deployment),
 	# and the previous battle's must not linger here.
 	Weather.current = null
-	_map_hud_overlay.queue_redraw()
+	_set_map_marks_visible(false)
 
 	level_select_screen = LevelSelectScreen.new()
 	level_select_screen.score_log = score_log # one history, one path (and the same headless guard)
 	level_select_screen.mode_chosen.connect(_on_recon_mode_chosen)
 	level_select_screen.map_chosen.connect(_on_map_chosen)
 	add_child(level_select_screen)
+
+
+## The scale bar, compass, weather block and the tactical clock belong to the map and
+## the battle: not on the level-select screen, back from deployment on.
+func _set_map_marks_visible(shown: bool) -> void:
+	_map_hud_overlay.map_marks_visible = shown
+	_map_hud_overlay.queue_redraw()
+	_clock_label.visible = shown
 
 
 ## The map dropdown changed — switch GameConfig's own active map, then
@@ -495,7 +503,7 @@ func _show_deployment() -> void:
 	# A fresh March draw for this battle — shown on the map from the moment
 	# deployment starts, and used as-is by BattleManager.start_battle.
 	Weather.current = Weather.roll()
-	_map_hud_overlay.queue_redraw()
+	_set_map_marks_visible(true)
 
 	deployment_screen = DeploymentScreen.new()
 	deployment_screen.recon_mode = recon_mode
