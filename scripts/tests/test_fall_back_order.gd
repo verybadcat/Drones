@@ -65,7 +65,11 @@ func run() -> void:
 	test_it_picks_a_position_judged_only_on_safety()
 	test_it_can_go_forward_or_any_other_way()
 	test_a_unit_with_nowhere_safer_refuses()
-	test_a_sheltered_unit_does_not_move_for_a_marginal_gain()
+	test_a_sheltered_unit_with_no_threat_near_does_not_move()
+	test_a_sheltered_unit_with_a_threat_near_assumes_its_position_is_about_to_be_lost()
+	test_it_gets_away_from_an_advancing_enemy()
+	test_it_does_not_run_from_one_enemy_into_the_arms_of_another()
+	test_a_drone_is_not_a_threat_to_fall_back_from()
 	test_the_worth_moving_for_threshold()
 	test_the_order_lifecycle()
 	test_other_systems_do_not_steer_the_unit_away()
@@ -129,19 +133,93 @@ func test_a_unit_with_nowhere_safer_refuses() -> void:
 	cleanup(bm)
 
 
-## Already in good cover with the only threat a last-seen enemy far off: a hair's gain in
-## safety (a slightly better spot, a little farther from where it was last seen) is
-## not worth moving for.
-func test_a_sheltered_unit_does_not_move_for_a_marginal_gain() -> void:
+## Already in good cover and the only threat a last-seen enemy far beyond the danger
+## range (GameConfig.SQUAD_DANGER_RANGE, 1200 m): nothing is about to happen to it, and a
+## hair's gain in safety is not worth moving for.
+func test_a_sheltered_unit_with_no_threat_near_does_not_move() -> void:
 	for sd in 6:
 		seed(sd)
 		var bm = make_battle()
 		var u: Unit = add_squad(bm, Vector2(300, 2000)) # in trees
-		var e: Unit = add_enemy(bm, Vector2(1000, 2000))
+		var e: Unit = add_enemy(bm, Vector2(2500, 2000))
 		e.is_visible = false # last seen there, not in view now
-		check(is_inf(bm._fall_back_destination(u).x), "seed %d: a sheltered unit is not sent for a marginal improvement" % sd)
+		check(is_inf(bm._fall_back_destination(u).x), "seed %d: a sheltered unit with the enemy far off is not sent anywhere" % sd)
 		check(not bm.set_fall_back_order(u, true), "seed %d: so the order is refused" % sd)
 		cleanup(bm)
+
+
+## Direct user follow-up: the typical time to give this order is when the area is about to
+## be overrun, so "maybe the unit should assume that its current location is about to
+## become dangerous, even if it's in cover". The same sheltered unit, with the enemy last
+## seen well inside the danger range, does go — and away from it.
+func test_a_sheltered_unit_with_a_threat_near_assumes_its_position_is_about_to_be_lost() -> void:
+	for sd in 6:
+		seed(sd)
+		var bm = make_battle()
+		var u: Unit = add_squad(bm, Vector2(300, 2000)) # in trees
+		var e: Unit = add_enemy(bm, Vector2(1000, 2000)) # 700 m east
+		e.is_visible = false
+		var dest: Vector2 = bm._fall_back_destination(u)
+		check(not is_inf(dest.x), "seed %d: it goes although it is in cover" % sd)
+		if not is_inf(dest.x):
+			check(dest.distance_to(e.global_position) > u.global_position.distance_to(e.global_position), "seed %d: and farther from the enemy" % sd)
+		cleanup(bm)
+
+
+## Live report: told to "be safe" with an enemy advancing and becoming dangerous, squads
+## did not move. Nothing but where the enemy is NOW was scored, and an enemy still
+## beyond weapon range scored as harmless. An enemy squad marching in, from cover or
+## from the open, at 500 to 1500 m: the squad moves, away from where it is headed.
+func test_it_gets_away_from_an_advancing_enemy() -> void:
+	for start in [Vector2(-200, 1500), Vector2(300, 2000)]: # open ground, trees
+		for enemy_range in [500.0, 800.0, 1100.0, 1500.0]:
+			for sd in 4:
+				seed(sd)
+				var bm = make_battle()
+				var u: Unit = add_squad(bm, start)
+				var e: Unit = add_enemy(bm, start + Vector2(enemy_range, 0))
+				e.move_target = u.global_position
+				e.has_move_target = true
+				e.move_speed = GameConfig.REPOSITION_SPEED
+				var dest: Vector2 = bm._fall_back_destination(u)
+				var what := "from %s, enemy advancing from %d m (seed %d)" % [start, enemy_range, sd]
+				check(not is_inf(dest.x), "It moves " + what)
+				if not is_inf(dest.x):
+					check(dest.distance_to(e.global_position) > u.global_position.distance_to(e.global_position), "...away from the enemy, " + what)
+				cleanup(bm)
+
+
+## "They don't want to become surrounded, for example": enemies on two sides (west and
+## north) push a unit toward neither — it ends up no nearer to either than it started.
+func test_it_does_not_run_from_one_enemy_into_the_arms_of_another() -> void:
+	for sd in 8:
+		seed(sd)
+		var bm = make_battle()
+		var u: Unit = add_squad(bm, Vector2(-200, 1500))
+		var west: Unit = add_enemy(bm, Vector2(-700, 1500))
+		var north: Unit = add_enemy(bm, Vector2(-200, 1000))
+		var dest: Vector2 = bm._fall_back_destination(u)
+		check(not is_inf(dest.x), "seed %d: flanked, it moves" % sd)
+		if not is_inf(dest.x):
+			check(dest.distance_to(west.global_position) >= u.global_position.distance_to(west.global_position) - m(25.0), "seed %d: no nearer the western enemy" % sd)
+			check(dest.distance_to(north.global_position) >= u.global_position.distance_to(north.global_position) - m(25.0), "seed %d: no nearer the northern one" % sd)
+		cleanup(bm)
+
+
+## A drone has no weapon; a sighted one next to a sheltered squad is nothing to run from.
+func test_a_drone_is_not_a_threat_to_fall_back_from() -> void:
+	var bm = make_battle()
+	var u: Unit = add_squad(bm, Vector2(300, 2000)) # in trees
+	var d: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.DRONE, Vector2(m(400), m(2000)))
+	bm.enemy_units.append(d)
+	d.is_visible = true
+	bm._update_player_intel() # the player side now knows where the drone is
+	check(d.player_has_been_sighted and bm._known_enemy_positions(Unit.Team.PLAYER).size() == 1, "Setup: the drone is a known contact")
+	d.move_target = u.global_position
+	d.has_move_target = true
+	d.move_speed = GameConfig.REPOSITION_SPEED
+	check(is_inf(bm._fall_back_destination(u).x), "An enemy drone alone, even approaching, gives a sheltered squad nothing to fall back from")
+	cleanup(bm)
 
 
 ## The threshold itself, with the scoring set by hand: a candidate must beat the current
