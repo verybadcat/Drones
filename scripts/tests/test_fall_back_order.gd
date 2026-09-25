@@ -74,6 +74,12 @@ func run() -> void:
 	test_it_generally_stays_within_45_degrees_of_the_edge_direction()
 	test_a_terrific_position_beyond_45_degrees_can_win_but_only_if_it_is_terrific()
 	test_nothing_beyond_60_degrees_is_ever_used()
+	test_a_unit_that_has_fallen_back_is_held_there_and_may_not_advance()
+	test_nothing_sends_a_fallen_back_unit_forward()
+	test_a_fallen_back_squad_does_not_go_forward_to_cover()
+	test_a_fallen_back_mortar_does_not_hunt_forward()
+	test_it_may_fall_back_further_and_the_hold_ends_when_it_stops_fighting()
+	test_the_hold_survives_the_real_battle_loop()
 	test_the_distance_penalty_has_the_asked_for_shape()
 	test_a_shorter_position_wins_only_if_it_is_excellent()
 	test_a_unit_already_very_close_to_its_edge_does_not_move()
@@ -229,6 +235,178 @@ func test_nothing_beyond_60_degrees_is_ever_used() -> void:
 		if not is_inf(dest.x):
 			check(bearing_off_west(u.global_position, dest) <= 60.0 + 0.5, "...and the destination is within 60 degrees (%.0f)" % bearing_off_west(u.global_position, dest))
 		cleanup(bm)
+
+
+## "A unit that has just fallen back per order should not then advance."
+func test_a_unit_that_has_fallen_back_is_held_there_and_may_not_advance() -> void:
+	var bm = make_battle()
+	var u: Unit = exposed_squad(bm)
+	check(not bm.fall_back_holding(u), "Setup: not held before it falls back")
+	check(bm.set_fall_back_order(u, true), "Setup: ordered")
+	check(not bm.fall_back_holding(u), "...and not held while it is still on its way")
+	u.global_position = bm._fall_back_orders[u].destination
+	bm._update_fall_back_orders()
+	check(bm.fall_back_holding(u), "Once it has arrived it is held where it is")
+	var here: Vector2 = u.global_position
+	check(bm._advances_past_fall_back_line(u, here + Vector2(m(100.0), 0.0)), "A point 100 m forward (east) is an advance")
+	check(not bm._advances_past_fall_back_line(u, here + Vector2(m(30.0), 0.0)), "...a nudge of 30 m is not")
+	check(not bm._advances_past_fall_back_line(u, here + Vector2(0.0, m(400.0))) and not bm._advances_past_fall_back_line(u, here + Vector2(0.0, -m(400.0))), "Sideways is not an advance, however far")
+	check(not bm._advances_past_fall_back_line(u, here + Vector2(-m(300.0), 0.0)), "Further back is not an advance")
+	var other: Unit = add_squad(bm, Vector2(500, 1500))
+	check(not bm._advances_past_fall_back_line(other, other.global_position + Vector2(m(500.0), 0.0)), "A unit that has not fallen back is not held")
+	cleanup(bm)
+
+
+## Whatever else steers it (cover-seeking, screening, the risk policy ... anything that ends up
+## as a move order), a forward move is cancelled, a sideways or rearward one is not, and the
+## forward part of a queued route is cut off.
+func test_nothing_sends_a_fallen_back_unit_forward() -> void:
+	var bm = make_battle()
+	var u: Unit = exposed_squad(bm)
+	bm.set_fall_back_order(u, true)
+	u.global_position = bm._fall_back_orders[u].destination
+	bm._update_fall_back_orders()
+	var here: Vector2 = u.global_position
+	u.move_target = here + Vector2(m(300.0), 0.0)
+	u.has_move_target = true
+	bm._enforce_fall_back_hold()
+	check(not u.has_move_target, "A move forward is cancelled")
+	u.move_target = here + Vector2(-m(300.0), m(100.0))
+	u.has_move_target = true
+	bm._enforce_fall_back_hold()
+	check(u.has_move_target, "A move further back stands")
+	u.move_target = here + Vector2(-m(100.0), 0.0)
+	u.move_queue.clear()
+	u.move_queue.append(here + Vector2(-m(200.0), 0.0))
+	u.move_queue.append(here + Vector2(m(400.0), 0.0))
+	u.move_queue.append(here + Vector2(-m(300.0), 0.0))
+	bm._enforce_fall_back_hold()
+	check(u.has_move_target and u.move_queue.size() == 1, "A route that later turns forward is cut off there (queue left: %d)" % u.move_queue.size())
+	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2(m(-200), m(1500)))
+	bm.player_units.append(mortar)
+	bm._fallen_back[mortar] = {"line_x": mortar.global_position.x}
+	bm._issue_mortar_move(mortar, mortar.global_position + Vector2(m(500.0), 0.0), 1.0, "hunt")
+	bm._enforce_fall_back_hold()
+	check(not mortar.has_move_target and bm._mortar_move_intent.get(mortar, "") == "", "A mortar's forward move is cancelled too")
+	cleanup(bm)
+
+
+## The everyday way a squad in the open ends up going forward: it sees cover ahead and takes
+## it. Found on the real map: a spot in the open whose nearest cover is well to the east.
+func find_open_spot_with_cover_to_the_east() -> Vector2:
+	var none: Array[Vector2] = []
+	var x := -240.0
+	while x <= 1200.0:
+		var y := 60.0
+		while y <= 640.0:
+			var p := Vector2(x, y)
+			if not GameConfig.is_in_cover(GameConfig.get_terrain_type_at(p)) and not GameConfig.is_river_at(p):
+				# The cover search picks among near candidates at random, so it must be east
+				# every time, not just the once.
+				var always_east := true
+				for trial in 15:
+					var c: Vector2 = GameConfig.nearest_cover_point(p, 0.0, false, none, none)
+					if c == p or c.x - p.x <= m(150.0) or absf(c.y - p.y) >= m(300.0):
+						always_east = false
+						break
+				if always_east:
+					return p
+			y += 20.0
+		x += 20.0
+	return Vector2.INF
+
+
+func test_a_fallen_back_squad_does_not_go_forward_to_cover() -> void:
+	var spot: Vector2 = find_open_spot_with_cover_to_the_east()
+	check(not is_inf(spot.x), "Setup: the map has an open spot with cover ahead of it")
+	if is_inf(spot.x):
+		return
+	# Control: an idle squad there, never ordered back, does head for the cover to the east.
+	var bm = make_battle()
+	var free: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, spot)
+	bm.player_units.append(free)
+	bm._update_friendly_squad_positioning()
+	check(free.has_move_target and free.move_target.x > spot.x + m(100.0), "Control: an ordinary idle squad takes the cover ahead of it")
+	cleanup(bm)
+	# The same squad, having just fallen back to that spot, does not.
+	bm = make_battle()
+	var u: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, spot)
+	bm.player_units.append(u)
+	bm._fallen_back[u] = {"line_x": spot.x}
+	bm._update_friendly_squad_positioning()
+	check(not (u.has_move_target and u.move_target.x > spot.x + m(BattleManager.FALL_BACK_HOLD_TOLERANCE_M)), "A squad that has fallen back does not go forward to take that cover")
+	cleanup(bm)
+
+
+func test_a_fallen_back_mortar_does_not_hunt_forward() -> void:
+	for held in [false, true]:
+		var bm = make_battle()
+		var home := Vector2(0, 500)
+		bm._friendly_mortar_home_position = home
+		var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, home)
+		mortar.mortar_rounds_remaining = 10
+		mortar.seconds_stationary = 1e9
+		bm.player_units.append(mortar)
+		var enemy_mortar: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, home + Vector2(1500, 0))
+		bm.enemy_units.append(enemy_mortar)
+		enemy_mortar.is_visible = true
+		bm._update_player_intel()
+		if held:
+			bm._fallen_back[mortar] = {"line_x": mortar.global_position.x}
+		bm.unit_type_doctrines[Unit.Team.PLAYER] = load("res://scripts/unit_doctrine.gd").sanitize({})
+		for i in 3:
+			bm._decide_mortar_action(mortar)
+		var hunts: bool = bm._mortar_move_intent.get(mortar, "") == "hunt"
+		check(hunts != held, "A mortar %s closes on a known enemy mortar (intent '%s')" % ["that has fallen back does not" if held else "not held does", bm._mortar_move_intent.get(mortar, "")])
+		cleanup(bm)
+
+
+## "If it wants to fall back further, that is ok."
+func test_it_may_fall_back_further_and_the_hold_ends_when_it_stops_fighting() -> void:
+	var bm = make_battle()
+	var u: Unit = add_squad(bm, Vector2(1500, 1500))
+	add_enemy(bm, Vector2(2100, 1500))
+	check(bm.set_fall_back_order(u, true), "Setup: ordered")
+	u.global_position = bm._fall_back_orders[u].destination
+	bm._update_fall_back_orders()
+	var first_line: float = bm._fallen_back[u].line_x
+	check(bm.set_fall_back_order(u, true), "A second order to fall back is accepted")
+	check(u.has_move_target and u.move_target.x < first_line, "...and sends it further back, which the hold allows")
+	bm._enforce_fall_back_hold()
+	check(u.has_move_target, "...the hold does not stop it")
+	u.global_position = bm._fall_back_orders[u].destination
+	bm._update_fall_back_orders()
+	check(bm._fallen_back[u].line_x < first_line, "The line moves back with it (%.0f, was %.0f)" % [bm._fallen_back[u].line_x, first_line])
+	# A unit that is no longer in action is no longer held.
+	u.state = Unit.State.RETREATING
+	bm._enforce_fall_back_hold()
+	check(not bm.fall_back_holding(u), "The hold ends when the unit stops fighting")
+	cleanup(bm)
+
+
+## Through the battle's own loop: fall back, arrive, then many ticks with nothing to shoot at
+## and cover ahead — the unit never ends up forward of where it fell back to.
+func test_the_hold_survives_the_real_battle_loop() -> void:
+	var spot: Vector2 = find_open_spot_with_cover_to_the_east()
+	if is_inf(spot.x):
+		return
+	seed(3)
+	var bm = make_battle()
+	var u: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, spot)
+	bm.player_units.append(u)
+	bm._fallen_back[u] = {"line_x": spot.x}
+	var furthest := spot.x
+	# Something else (here, by hand) sends it forward: the very next tick cancels that.
+	u.move_target = spot + Vector2(m(500.0), 0.0)
+	u.has_move_target = true
+	u.move_speed = GameConfig.REPOSITION_SPEED
+	bm._process(0.05)
+	check(not (u.has_move_target and u.move_target.x > spot.x + m(BattleManager.FALL_BACK_HOLD_TOLERANCE_M)), "A forward order from any source is cancelled by the tick itself")
+	for i in 400:
+		bm._process(0.05)
+		furthest = maxf(furthest, u.global_position.x)
+	check(furthest <= spot.x + m(BattleManager.FALL_BACK_HOLD_TOLERANCE_M) + 1.0, "Over 400 ticks the fallen-back squad never goes forward of its line (furthest %.0f m ahead)" % ((furthest - spot.x) / GameConfig.PIXELS_PER_METER))
+	cleanup(bm)
 
 
 func test_the_distance_penalty_has_the_asked_for_shape() -> void:

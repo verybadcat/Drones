@@ -271,6 +271,7 @@ func _relocate_for_risk(unit: Unit) -> void:
 	var best_risk := INF
 	for point in choices:
 		if unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(point): continue
+		if _advances_past_fall_back_line(unit, point): continue
 		var alternative := _risk_forecast(unit, null, point)
 		var cost: float = alternative.loss_probability + alternative.hit_probability
 		if cost < best_risk:
@@ -859,6 +860,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_last_detected_mortar_fire.clear()
 	_mortar_squad_fire_orders.clear()
 	_fall_back_orders.clear()
+	_fallen_back.clear()
 	_mortar_tick_shot.clear()
 	_mortar_move_intent.clear()
 	_mortar_reasoning.clear()
@@ -1486,6 +1488,13 @@ func _scheduled_retreat_ammo_discount(mortar: Unit) -> float:
 ## Player units only: squads, the mortar, the spotter, the drone team.
 ## ---------------------------------------------------------------------------
 var _fall_back_orders: Dictionary = {} # Unit -> {"destination": Vector2, "ordered_at": float}
+## Units that have fallen back on order and arrived: Unit -> {"line_x": float}, the x of the
+## place they fell back to. "A unit that has just fallen back per order should not then
+## advance": from then on nothing may send such a unit forward of that line (a nudge of up
+## to FALL_BACK_HOLD_TOLERANCE_M is allowed); sideways and further back are free ("if it
+## wants to fall back further, that is ok"). See _advances_past_fall_back_line.
+var _fallen_back: Dictionary = {}
+const FALL_BACK_HOLD_TOLERANCE_M: float = 40.0
 
 ## "Fall back" candidates (see _fall_back_destination): points this far (metres) out along
 ## bearings within FALL_BACK_BEARINGS_DEG of the direction of the unit's own map edge,
@@ -1676,6 +1685,49 @@ func _fall_back_score(unit: Unit, point: Vector2, known: Array[Vector2], advanci
 	return score
 
 
+## Whether `unit` has fallen back on order and may not go forward, and `point` is forward of
+## where it fell back to (by more than FALL_BACK_HOLD_TOLERANCE_M). Forward is toward the
+## enemy: east for the player. Everything that picks a voluntary destination for a unit —
+## cover-seeking, screening the mortar, the risk policy, the mortar hunting an enemy mortar —
+## asks this, and _enforce_fall_back_hold cancels whatever slips through.
+func _advances_past_fall_back_line(unit: Unit, point: Vector2) -> bool:
+	if not _fallen_back.has(unit):
+		return false
+	var forward: float = 1.0 if unit.team == Unit.Team.PLAYER else -1.0
+	return (point.x - _fallen_back[unit].line_x) * forward > FALL_BACK_HOLD_TOLERANCE_M * GameConfig.PIXELS_PER_METER
+
+
+func fall_back_holding(unit: Unit) -> bool:
+	return _fallen_back.has(unit)
+
+
+## Run after every system that can steer a unit: a unit that has fallen back on order is not
+## sent forward of where it fell back to by anything — a move (or the part of a queued route)
+## that goes there is cancelled. Moves sideways or further back stand. The hold ends when the
+## unit is no longer in action (a retreat, a loss); a fresh order to fall back further
+## replaces it on arrival.
+func _enforce_fall_back_hold() -> void:
+	for unit in _fallen_back.keys():
+		if not is_instance_valid(unit) or unit.state != Unit.State.ACTIVE:
+			_fallen_back.erase(unit)
+			continue
+		if _fall_back_orders.has(unit) or not unit.has_move_target:
+			continue
+		if _advances_past_fall_back_line(unit, unit.move_target):
+			if unit.kind == Unit.Kind.MORTAR:
+				_clear_mortar_move(unit)
+			else:
+				unit.has_move_target = false
+				unit.move_queue.clear()
+				unit.activity = Unit.Activity.STATIONARY
+			unit.last_order_reason = "Holding where it fell back to; not advancing."
+			continue
+		for i in unit.move_queue.size():
+			if _advances_past_fall_back_line(unit, unit.move_queue[i]):
+				unit.move_queue.resize(i)
+				break
+
+
 ## Where each visible, active enemy squad that is on the move will be
 ## GameConfig.RETREAT_ADVANCE_PROJECTION_TIME from now, along its current heading (the same
 ## honest projection the retreat routing uses; a squad only known from an old sighting has
@@ -1704,6 +1756,7 @@ func _update_fall_back_orders() -> void:
 		var destination: Vector2 = _fall_back_orders[unit].destination
 		if unit.global_position.distance_to(destination) <= Unit.MOVE_ARRIVE_RADIUS * 1.5:
 			_fall_back_orders.erase(unit)
+			_fallen_back[unit] = {"line_x": unit.global_position.x}
 			if unit.kind == Unit.Kind.MORTAR:
 				_clear_mortar_move(unit)
 			else:
@@ -5647,7 +5700,7 @@ func _decide_mortar_action(m: Unit) -> void:
 			_mortar_reasoning[m] = {"tier": "Destroy enemy mortars", "detail": "In range of a known enemy mortar."}
 			return
 		var dest := _mortar_hunt_destination_for(m, fix.position, fix.trusted)
-		if dest != m.global_position:
+		if dest != m.global_position and not _advances_past_fall_back_line(m, dest):
 			var was_already_hunting: bool = current_intent == "hunt"
 			var speed: float = GameConfig.MORTAR_RELOCATE_SPEED if m.team == Unit.Team.PLAYER else GameConfig.REPOSITION_SPEED
 			_issue_mortar_move(m, dest, speed, "hunt")
@@ -5900,6 +5953,7 @@ func _process(delta: float) -> void:
 	_check_enemy_mortar_isolated_retreat()
 	_check_scheduled_retreat()
 	_update_fall_back_orders()
+	_enforce_fall_back_hold()
 	_prune_fire_flashes()
 	_record_unit_decisions()
 	_check_battle_end()
@@ -7132,6 +7186,8 @@ func _update_friendly_squad_positioning() -> void:
 		var cover_dest: Vector2 = GameConfig.nearest_cover_point(u.global_position, 0.0, false, _ally_positions_for(u) + claimed, known_enemies)
 		if cover_dest == u.global_position:
 			continue # nothing better nearby this tick
+		if _advances_past_fall_back_line(u, cover_dest):
+			continue # it has fallen back on order: cover ahead of that line is not for it
 		u.last_order_reason = "Moving into available cover."
 		u.move_target = cover_dest
 		u.has_move_target = true
@@ -7188,8 +7244,8 @@ func _update_friendly_squad_positioning() -> void:
 	for u in player_units:
 		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or u.has_move_target or at_risk.has(u):
 			continue
-		if _pick_target(u, enemy_units) != null or _risk_holds.has(u):
-			continue
+		if _pick_target(u, enemy_units) != null or _risk_holds.has(u) or _fallen_back.has(u):
+			continue # (a squad that has fallen back on order does not go forward to screen)
 		var d: float = u.global_position.distance_to(mortar.global_position)
 		if d < best_dist:
 			best_dist = d

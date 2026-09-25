@@ -86,7 +86,7 @@ func setup(bm: BattleManager, map_viewport: SubViewport, map_rect: Rect2) -> voi
 	_fall_back_button.text = "Fall back"
 	_fall_back_button.focus_mode = Control.FOCUS_NONE
 	_fall_back_button.add_theme_font_size_override("font_size", 14)
-	_fall_back_button.tooltip_text = "Move back toward your edge of the map — usually 500 to 1000 m, to a better position along the way if there is one. Not a retreat off the map, and it does nothing if the unit is already very close to the edge."
+	_fall_back_button.tooltip_text = "Move back toward your edge of the map — usually 500 to 1000 m, to a better position along the way if there is one. The unit then holds there rather than advancing. Not a retreat off the map, and it does nothing if the unit is already very close to the edge."
 	_fall_back_button.pressed.connect(_on_fall_back_pressed)
 	box.add_child(_fall_back_button)
 
