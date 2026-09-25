@@ -6,7 +6,7 @@ extends PanelContainer
 ## pops it up beside the unit; any click outside the card dismisses it (see _input),
 ## including a click on the unit itself. It follows the unit if it moves, and holds
 ## only the orders that can be given:
-##   - every unit: a "Be safe" button (BattleManager.set_fall_back_order) — a
+##   - every unit: a "Fall back" button (BattleManager.set_fall_back_order) — a
 ##     one-shot order: pressing it gives the order and dismisses the card
 ##   - the mortar also: an "Expend ammo on enemy squads" switch
 ##     (BattleManager.set_mortar_squad_fire_order), a standing order that always
@@ -29,7 +29,7 @@ var _map_rect: Rect2
 var _fire_row: HBoxContainer
 var _fire_label: Label
 var _fire_switch: CheckButton
-var _be_safe_button: Button
+var _fall_back_button: Button
 var _syncing := false
 var _card_on_right := true
 # The process frame in which a click outside just dismissed the card — a click on the
@@ -82,13 +82,13 @@ func setup(bm: BattleManager, map_viewport: SubViewport, map_rect: Rect2) -> voi
 	_fire_switch.toggled.connect(_on_fire_toggled)
 
 	# Every unit's order: a button, not a switch — it is given once and the card goes.
-	_be_safe_button = Button.new()
-	_be_safe_button.text = "Be safe"
-	_be_safe_button.focus_mode = Control.FOCUS_NONE
-	_be_safe_button.add_theme_font_size_override("font_size", 14)
-	_be_safe_button.tooltip_text = "Move to wherever looks safest — cover, concealment, or simply out of the known enemy's reach, in any direction (forward too). Not a retreat off the map."
-	_be_safe_button.pressed.connect(_on_be_safe_pressed)
-	box.add_child(_be_safe_button)
+	_fall_back_button = Button.new()
+	_fall_back_button.text = "Fall back"
+	_fall_back_button.focus_mode = Control.FOCUS_NONE
+	_fall_back_button.add_theme_font_size_override("font_size", 14)
+	_fall_back_button.tooltip_text = "Move back toward your edge of the map — usually 500 to 1000 m, to a better position along the way if there is one. Not a retreat off the map, and it does nothing if the unit is already very close to the edge."
+	_fall_back_button.pressed.connect(_on_fall_back_pressed)
+	box.add_child(_fall_back_button)
 
 	# Fit to content once, after the theme/fonts have settled.
 	reset_size.call_deferred()
@@ -206,7 +206,7 @@ func _on_fire_toggled(pressed: bool) -> void:
 
 ## Gives the order and dismisses the card. An order the unit can't carry out (nowhere
 ## safer) is refused and says so in the combat log; the card goes either way.
-func _on_be_safe_pressed() -> void:
+func _on_fall_back_pressed() -> void:
 	if unit == null:
 		return
 	battle_manager.set_fall_back_order(unit, true)

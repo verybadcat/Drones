@@ -1,9 +1,13 @@
 extends SceneTree
 ## Direct user request: "I want to be able to give any unit an order to 'fall back'.
 ## This does NOT have to mean to leave the map. It means the unit should evaluate
-## where it might be safer than its current location, and move there. The orders can
-## work similarly to the way they already work with the mortar." And: "The 'falling
-## back' could even go forward if it thinks that is the safest direction."
+## where it might be safer than its current location, and move there." Reworked after
+## use ("it's not working very well. Let's change the paradigm"): "Fall back" now
+## "requires the unit to move towards the edge of the map, unless it is already very
+## close. It does not require the unit to fall back off of the map. In general it should
+## move 500-1000 meters, but it could go over that, or maybe slightly less if there is an
+## excellent position say 400 meters back, but that should be rare. It does not have to
+## be straight back. Just generally towards the edge."
 ##
 ## Run: godot --headless --path . --script scripts/tests/test_fall_back_order.gd
 const Log = preload("res://scripts/tests/test_combat_log.gd")
@@ -62,181 +66,277 @@ func log_has(bm, fragment: String) -> bool:
 
 func run() -> void:
 	seed(7)
-	test_it_picks_a_position_judged_only_on_safety()
-	test_it_can_go_forward_or_any_other_way()
-	test_a_unit_with_nowhere_safer_refuses()
-	test_a_sheltered_unit_with_no_threat_near_does_not_move()
-	test_a_sheltered_unit_with_a_threat_near_assumes_its_position_is_about_to_be_lost()
+	test_it_falls_back_toward_its_edge_500_to_1000_m()
+	test_it_need_not_go_straight_back()
+	test_the_distance_penalty_has_the_asked_for_shape()
+	test_a_shorter_position_wins_only_if_it_is_excellent()
+	test_a_unit_already_very_close_to_its_edge_does_not_move()
+	test_a_unit_near_its_edge_goes_as_far_as_the_edge_allows()
+	test_a_place_past_the_edge_is_never_chosen_however_good_it_scores()
 	test_it_gets_away_from_an_advancing_enemy()
+	test_it_does_not_fall_back_into_the_path_of_an_advancing_enemy()
+	test_the_scoring_counts_advancing_enemies_and_adds_up_all_the_enemies()
 	test_it_does_not_run_from_one_enemy_into_the_arms_of_another()
 	test_a_drone_is_not_a_threat_to_fall_back_from()
-	test_the_worth_moving_for_threshold()
 	test_the_order_lifecycle()
 	test_other_systems_do_not_steer_the_unit_away()
 	test_only_our_ground_units_in_action_can_be_ordered()
 	test_a_retreat_ends_the_order()
 	test_the_unit_actually_gets_there()
 	test_it_works_through_the_real_battle_loop()
-	test_the_mortar_falls_back_through_its_own_planner()
+	test_the_mortar_falls_back_the_same_way()
 	test_clicking_selects_the_right_units()
 	print("Fall-back order tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
 
-func test_it_picks_a_position_judged_only_on_safety() -> void:
-	# The search samples its shelter candidates at random, so check several seeds.
-	for sd in 8:
-		seed(sd)
+## Where the player's units' edge is (the line a retreat runs to), in metres.
+func edge_m() -> float:
+	return GameConfig.PLAYER_SAFE_X / GameConfig.PIXELS_PER_METER
+
+## An enemy squad marching at `toward`, visible and known.
+func add_advancing_enemy(bm, pos_m: Vector2, toward: Unit) -> Unit:
+	var e: Unit = add_enemy(bm, pos_m)
+	e.move_target = toward.global_position
+	e.has_move_target = true
+	e.move_speed = GameConfig.REPOSITION_SPEED
+	return e
+
+## Angle (degrees) between the way from `from` to `to` and due west, the direction of the
+## player's edge.
+func bearing_off_west(from: Vector2, to: Vector2) -> float:
+	return absf(rad_to_deg((to - from).angle_to(Vector2(-1, 0))))
+
+
+## The scenarios: open ground and trees, at a few places, with no enemy, an enemy ahead,
+## one advancing, one to the side and one behind. Several seeds (the hidden-spot samples
+## are random).
+func scenarios() -> Array:
+	var out: Array = []
+	for start in [Vector2(1500, 1500), Vector2(1500, 2000), Vector2(-200, 1500), Vector2(300, 500)]:
+		for enemy in [null, Vector2(600, 0), Vector2(900, 0), Vector2(0, -500), Vector2(-500, 0)]:
+			for sd in 3:
+				out.append({"start": start, "enemy": enemy, "advancing": enemy != null and enemy == Vector2(900, 0), "seed": sd})
+	return out
+
+
+func test_it_falls_back_toward_its_edge_500_to_1000_m() -> void:
+	var in_range := 0
+	var total := 0
+	for sc in scenarios():
+		seed(sc.seed)
 		var bm = make_battle()
-		var u: Unit = exposed_squad(bm)
-		var known: Array[Vector2] = bm._known_enemy_positions(Unit.Team.PLAYER)
-		var here: float = bm._fall_back_score(u, u.global_position, known)
+		var u: Unit = add_squad(bm, sc.start)
+		if sc.enemy != null:
+			var e: Unit = add_advancing_enemy(bm, sc.start + sc.enemy, u) if sc.advancing else add_enemy(bm, sc.start + sc.enemy)
 		var dest: Vector2 = bm._fall_back_destination(u)
-		check(not is_inf(dest.x), "seed %d: an exposed squad with a known enemy in range finds somewhere safer" % sd)
+		var what := "from %s, enemy %s (seed %d)" % [sc.start, str(sc.enemy), sc.seed]
+		check(not is_inf(dest.x), "It finds a place to fall back to, " + what)
 		if not is_inf(dest.x):
-			var there: float = bm._fall_back_score(u, dest, known)
-			check(here - there >= BattleManager.FALL_BACK_MIN_IMPROVEMENT, "seed %d: it really is safer by the scoring (%.2f -> %.2f)" % [sd, here, there])
-			check(GameConfig.is_in_cover(GameConfig.get_terrain_type_at(dest)), "seed %d: it is cover (%s)" % [sd, GameConfig.TerrainType.keys()[GameConfig.get_terrain_type_at(dest)]])
-			check(dest.distance_to(u.global_position) <= m(700.0), "seed %d: nearby, not a run off the map (%.0f m)" % [sd, dest.distance_to(u.global_position) / GameConfig.PIXELS_PER_METER])
+			var d_m: float = dest.distance_to(u.global_position) / GameConfig.PIXELS_PER_METER
+			check(dest.x < u.global_position.x, "...toward its edge (west), " + what)
+			check(bearing_off_west(u.global_position, dest) <= BattleManager.FALL_BACK_MAX_BEARING_DEG + 0.5, "...within %d degrees of it, %s" % [BattleManager.FALL_BACK_MAX_BEARING_DEG, what])
+			check(d_m >= 400.0 - 1.0 and d_m <= 1500.0 + 1.0, "...not absurdly near or far (%.0f m), %s" % [d_m, what])
+			check(dest.x >= GameConfig.PLAYER_SAFE_X - 0.01, "...and never past the edge itself, " + what)
+			total += 1
+			if d_m >= 500.0 - 1.0 and d_m <= 1000.0 + 1.0:
+				in_range += 1
 		cleanup(bm)
+	check(total > 0 and float(in_range) / total >= 0.85, "In general 500-1000 m (%d of %d)" % [in_range, total])
 
 
-## Direct user follow-up: it "could even go forward if it thinks that is the safest
-## direction". No direction is preferred: with the enemy at the squad's own rear
-## (west) the safe ground is FORWARD (east); with the enemy ahead (east) it goes back
-## (west); with the enemy to the north it goes south.
-func test_it_can_go_forward_or_any_other_way() -> void:
-	for sd in 6:
-		seed(sd)
-		var start := Vector2(-200, 1500)
-		var cases := [["west (its rear)", Vector2(-700, 1500), "x", 1.0], ["east (ahead)", Vector2(300, 1500), "x", -1.0], ["north", Vector2(-200, 1000), "y", 1.0]]
-		for c in cases:
-			var bm = make_battle()
-			var u: Unit = add_squad(bm, start)
-			add_enemy(bm, c[1])
-			var dest: Vector2 = bm._fall_back_destination(u)
-			check(not is_inf(dest.x), "seed %d, enemy %s: it finds somewhere safer" % [sd, c[0]])
-			if not is_inf(dest.x):
-				var moved: float = (dest.x - u.global_position.x) if c[2] == "x" else (dest.y - u.global_position.y)
-				check(moved * c[3] > 0.0, "seed %d, enemy %s: it goes away from the threat, along %s (moved %.0f px)" % [sd, c[0], c[2], moved])
-			cleanup(bm)
+## "It does not have to be straight back. Just generally towards the edge."
+func test_it_need_not_go_straight_back() -> void:
+	var bearings: Array[float] = []
+	for sc in scenarios():
+		seed(sc.seed)
+		var bm = make_battle()
+		var u: Unit = add_squad(bm, sc.start)
+		if sc.enemy != null:
+			add_enemy(bm, sc.start + sc.enemy)
+		var dest: Vector2 = bm._fall_back_destination(u)
+		if not is_inf(dest.x):
+			bearings.append(bearing_off_west(u.global_position, dest))
+		cleanup(bm)
+	check(bearings.max() > 20.0 and bearings.min() < 10.0, "Destinations vary in bearing (%.0f to %.0f degrees off due west)" % [bearings.min(), bearings.max()])
 
 
-func test_a_unit_with_nowhere_safer_refuses() -> void:
-	seed(1)
+func test_the_distance_penalty_has_the_asked_for_shape() -> void:
 	var bm = make_battle()
-	var u: Unit = add_squad(bm, Vector2(300, 2000)) # already in trees, nothing known around
-	check(is_inf(bm._fall_back_destination(u).x), "A unit already well sheltered has nowhere safer to go")
-	check(not bm.set_fall_back_order(u, true), "So the order is refused")
-	check(not bm.fall_back_ordered(u) and not u.has_move_target, "...no order stands and it does not move")
-	check(log_has(bm, "can find nowhere safer"), "...and the log says why (got %s)" % str(bm.combat_log.captured))
+	for c in [[500.0, 0.0], [750.0, 0.0], [1000.0, 0.0], [400.0, 0.5], [300.0, 1.0], [1500.0, 0.75]]:
+		check(is_equal_approx(bm._fall_back_distance_penalty(c[0], 5000.0), c[1]), "%.0f m costs %.2f (got %.2f)" % [c[0], c[1], bm._fall_back_distance_penalty(c[0], 5000.0)])
+	# A unit with the edge nearer than the preferred minimum is not penalised for stopping there.
+	check(is_equal_approx(bm._fall_back_distance_penalty(300.0, 300.0), 0.0), "Reaching the edge 300 m away costs nothing")
+	check(is_equal_approx(bm._fall_back_distance_penalty(150.0, 300.0), 0.75), "...but stopping 150 m short of it does")
 	cleanup(bm)
 
 
-## Already in good cover and the only threat a last-seen enemy far beyond the danger
-## range (GameConfig.SQUAD_DANGER_RANGE, 1200 m): nothing is about to happen to it, and a
-## hair's gain in safety is not worth moving for.
-func test_a_sheltered_unit_with_no_threat_near_does_not_move() -> void:
-	for sd in 6:
-		seed(sd)
-		var bm = make_battle()
-		var u: Unit = add_squad(bm, Vector2(300, 2000)) # in trees
-		var e: Unit = add_enemy(bm, Vector2(2500, 2000))
-		e.is_visible = false # last seen there, not in view now
-		check(is_inf(bm._fall_back_destination(u).x), "seed %d: a sheltered unit with the enemy far off is not sent anywhere" % sd)
-		check(not bm.set_fall_back_order(u, true), "seed %d: so the order is refused" % sd)
-		cleanup(bm)
-
-
-## Direct user follow-up: the typical time to give this order is when the area is about to
-## be overrun, so "maybe the unit should assume that its current location is about to
-## become dangerous, even if it's in cover". The same sheltered unit, with the enemy last
-## seen well inside the danger range, does go — and away from it.
-func test_a_sheltered_unit_with_a_threat_near_assumes_its_position_is_about_to_be_lost() -> void:
-	for sd in 6:
-		seed(sd)
-		var bm = make_battle()
-		var u: Unit = add_squad(bm, Vector2(300, 2000)) # in trees
-		var e: Unit = add_enemy(bm, Vector2(1000, 2000)) # 700 m east
-		e.is_visible = false
-		var dest: Vector2 = bm._fall_back_destination(u)
-		check(not is_inf(dest.x), "seed %d: it goes although it is in cover" % sd)
-		if not is_inf(dest.x):
-			check(dest.distance_to(e.global_position) > u.global_position.distance_to(e.global_position), "seed %d: and farther from the enemy" % sd)
-		cleanup(bm)
-
-
-## Live report: told to "be safe" with an enemy advancing and becoming dangerous, squads
-## did not move. Nothing but where the enemy is NOW was scored, and an enemy still
-## beyond weapon range scored as harmless. An enemy squad marching in, from cover or
-## from the open, at 500 to 1500 m: the squad moves, away from where it is headed.
-func test_it_gets_away_from_an_advancing_enemy() -> void:
-	for start in [Vector2(-200, 1500), Vector2(300, 2000)]: # open ground, trees
-		for enemy_range in [500.0, 800.0, 1100.0, 1500.0]:
-			for sd in 4:
-				seed(sd)
-				var bm = make_battle()
-				var u: Unit = add_squad(bm, start)
-				var e: Unit = add_enemy(bm, start + Vector2(enemy_range, 0))
-				e.move_target = u.global_position
-				e.has_move_target = true
-				e.move_speed = GameConfig.REPOSITION_SPEED
-				var dest: Vector2 = bm._fall_back_destination(u)
-				var what := "from %s, enemy advancing from %d m (seed %d)" % [start, enemy_range, sd]
-				check(not is_inf(dest.x), "It moves " + what)
-				if not is_inf(dest.x):
-					check(dest.distance_to(e.global_position) > u.global_position.distance_to(e.global_position), "...away from the enemy, " + what)
-				cleanup(bm)
-
-
-## "They don't want to become surrounded, for example": enemies on two sides (west and
-## north) push a unit toward neither — it ends up no nearer to either than it started.
-func test_it_does_not_run_from_one_enemy_into_the_arms_of_another() -> void:
-	for sd in 8:
-		seed(sd)
-		var bm = make_battle()
-		var u: Unit = add_squad(bm, Vector2(-200, 1500))
-		var west: Unit = add_enemy(bm, Vector2(-700, 1500))
-		var north: Unit = add_enemy(bm, Vector2(-200, 1000))
-		var dest: Vector2 = bm._fall_back_destination(u)
-		check(not is_inf(dest.x), "seed %d: flanked, it moves" % sd)
-		if not is_inf(dest.x):
-			check(dest.distance_to(west.global_position) >= u.global_position.distance_to(west.global_position) - m(25.0), "seed %d: no nearer the western enemy" % sd)
-			check(dest.distance_to(north.global_position) >= u.global_position.distance_to(north.global_position) - m(25.0), "seed %d: no nearer the northern one" % sd)
-		cleanup(bm)
-
-
-## A drone has no weapon; a sighted one next to a sheltered squad is nothing to run from.
-func test_a_drone_is_not_a_threat_to_fall_back_from() -> void:
-	var bm = make_battle()
-	var u: Unit = add_squad(bm, Vector2(300, 2000)) # in trees
-	var d: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.DRONE, Vector2(m(400), m(2000)))
-	bm.enemy_units.append(d)
-	d.is_visible = true
-	bm._update_player_intel() # the player side now knows where the drone is
-	check(d.player_has_been_sighted and bm._known_enemy_positions(Unit.Team.PLAYER).size() == 1, "Setup: the drone is a known contact")
-	d.move_target = u.global_position
-	d.has_move_target = true
-	d.move_speed = GameConfig.REPOSITION_SPEED
-	check(is_inf(bm._fall_back_destination(u).x), "An enemy drone alone, even approaching, gives a sheltered squad nothing to fall back from")
-	cleanup(bm)
-
-
-## The threshold itself, with the scoring set by hand: a candidate must beat the current
-## position by at least FALL_BACK_MIN_IMPROVEMENT to be worth the move.
-func test_the_worth_moving_for_threshold() -> void:
-	var minimum: float = BattleManager.FALL_BACK_MIN_IMPROVEMENT
-	for c in [[0.95, false], [1.0 - minimum + 0.01, false], [1.0 - minimum - 0.01, true], [0.2, true]]:
+## "Maybe slightly less if there is an excellent position say 400 meters back, but that
+## should be rare": with the scoring set by hand, a 400 m spot that is a lot better beats
+## the 500-1000 m range and one that is only a little better does not.
+func test_a_shorter_position_wins_only_if_it_is_excellent() -> void:
+	for c in [[-0.8, true], [-0.3, false], [0.0, false]]:
 		var bm = load("res://scripts/tests/fall_back_scoring_stub.gd").new()
 		root.add_child(bm)
 		bm.set_process(false)
 		bm.combat_log = Log.new()
-		var u: Unit = add_squad(bm, Vector2(-200, 1500))
-		bm.here_score = 1.0
-		bm.candidate_score = c[0]
+		var u: Unit = add_squad(bm, Vector2(1500, 1500))
+		bm.bonus_point = u.global_position + Vector2(-m(400.0), 0.0)
+		bm.bonus = c[0]
 		var dest: Vector2 = bm._fall_back_destination(u)
-		check(is_inf(dest.x) != c[1], "A candidate scoring %.2f against 1.00 here (need %.2f better): worth moving is %s" % [c[0], minimum, c[1]])
+		var d_m: float = dest.distance_to(u.global_position) / GameConfig.PIXELS_PER_METER
+		check((absf(d_m - 400.0) < 1.0) == c[1], "A 400 m spot scoring %.1f better than the rest: taken is %s (went %.0f m)" % [c[0], c[1], d_m])
 		cleanup(bm)
+
+
+## "Unless it is already very close": no order, and the log says why.
+func test_a_unit_already_very_close_to_its_edge_does_not_move() -> void:
+	var bm = make_battle()
+	var u: Unit = add_squad(bm, Vector2(edge_m() + 150.0, 1500))
+	check(is_inf(bm._fall_back_destination(u).x), "A unit 150 m from its edge has nowhere to fall back to")
+	check(not bm.set_fall_back_order(u, true), "So the order is refused")
+	check(not bm.fall_back_ordered(u) and not u.has_move_target, "...no order stands and it does not move")
+	check(log_has(bm, "already at the edge of the map"), "...and the log says why (got %s)" % str(bm.combat_log.captured))
+	cleanup(bm)
+
+
+## Nearer its edge than 500 m but not very close: it goes as far as the edge allows and
+## never past it (and never leaves the map: this is not a retreat).
+func test_a_unit_near_its_edge_goes_as_far_as_the_edge_allows() -> void:
+	for remaining in [300.0, 450.0, 700.0]:
+		for sd in 3:
+			seed(sd)
+			var bm = make_battle()
+			var u: Unit = add_squad(bm, Vector2(edge_m() + remaining, 1500))
+			var dest: Vector2 = bm._fall_back_destination(u)
+			check(not is_inf(dest.x), "%.0f m from its edge it still falls back" % remaining)
+			if not is_inf(dest.x):
+				check(dest.x >= GameConfig.PLAYER_SAFE_X - 0.01, "...but not past the edge (%.0f m from it)" % ((dest.x - GameConfig.PLAYER_SAFE_X) / GameConfig.PIXELS_PER_METER))
+				check(dest.x < u.global_position.x, "...and toward it")
+				var left_m: float = (dest.x - GameConfig.PLAYER_SAFE_X) / GameConfig.PIXELS_PER_METER
+				check(left_m <= remaining * 0.5 + 1.0, "...using most of the room it has (%.0f m of %.0f m left)" % [left_m, remaining])
+			cleanup(bm)
+
+
+## The best-scoring place (by hand) lies just past the edge: it is clamped back, not used.
+func test_a_place_past_the_edge_is_never_chosen_however_good_it_scores() -> void:
+	var bm = load("res://scripts/tests/fall_back_scoring_stub.gd").new()
+	root.add_child(bm)
+	bm.set_process(false)
+	bm.combat_log = Log.new()
+	var u: Unit = add_squad(bm, Vector2(edge_m() + 300.0, 1500))
+	bm.bonus_point = u.global_position + Vector2(-m(400.0), 0.0) # 100 m beyond the edge
+	bm.bonus = -5.0
+	var dest: Vector2 = bm._fall_back_destination(u)
+	check(not is_inf(dest.x) and dest.x >= GameConfig.PLAYER_SAFE_X - 0.01, "A place beyond the edge is not used (x %.0f m, edge %.0f m)" % [dest.x / GameConfig.PIXELS_PER_METER, edge_m()])
+	cleanup(bm)
+
+
+## Live report (when it was still called "be safe"): with an enemy advancing and becoming dangerous, squads
+## did not move. Where the enemy WILL be counts: an enemy marching in from the north
+## (across the direction of the fall back) leaves the unit farther from where it is
+## headed, not nearer.
+func test_it_gets_away_from_an_advancing_enemy() -> void:
+	for sd in 6:
+		seed(sd)
+		var bm = make_battle()
+		var u: Unit = add_squad(bm, Vector2(1500, 1500))
+		var e: Unit = add_advancing_enemy(bm, Vector2(1500, 1000), u)
+		var projected: Vector2 = bm._advancing_enemy_projections(Unit.Team.PLAYER)[0]
+		var dest: Vector2 = bm._fall_back_destination(u)
+		check(not is_inf(dest.x), "seed %d: it moves" % sd)
+		if not is_inf(dest.x):
+			check(dest.distance_to(projected) > u.global_position.distance_to(projected), "seed %d: and ends farther from where the enemy is headed" % sd)
+		cleanup(bm)
+
+
+## The enemy is still 1500 m off (beyond the danger range, so nothing that is known about
+## where it IS matters) but marching straight at the squad, from the direction it would
+## fall back in: where it will be in four minutes is right on the straight-back route, and
+## the destination steers clear of that.
+func test_it_does_not_fall_back_into_the_path_of_an_advancing_enemy() -> void:
+	for sd in 6:
+		seed(sd)
+		var bm = make_battle()
+		var u: Unit = add_squad(bm, Vector2(1500, 1500))
+		add_advancing_enemy(bm, Vector2(0, 1500), u)
+		var projected: Vector2 = bm._advancing_enemy_projections(Unit.Team.PLAYER)[0]
+		var dest: Vector2 = bm._fall_back_destination(u)
+		check(not is_inf(dest.x), "seed %d: it still falls back" % sd)
+		if not is_inf(dest.x):
+			check(dest.distance_to(projected) >= m(400.0), "seed %d: but not to within 400 m of where the enemy will be (%.0f m)" % [sd, dest.distance_to(projected) / GameConfig.PIXELS_PER_METER])
+		cleanup(bm)
+
+
+## The scoring terms themselves, on one and the same point (so the terrain cancels): a place
+## near where an enemy squad will be scores worse, and each further enemy nearby adds to it
+## rather than only the nearest counting. And the destination search hands the projections on.
+func test_the_scoring_counts_advancing_enemies_and_adds_up_all_the_enemies() -> void:
+	var bm = make_battle()
+	var u: Unit = add_squad(bm, Vector2(1500, 1500))
+	var point: Vector2 = u.global_position + Vector2(-m(700.0), 0.0)
+	var a := Vector2(point.x, point.y + m(900.0)) # 900 m from the point: no risk forecast, just distance
+	var b := Vector2(point.x, point.y - m(900.0))
+	var none: Array[Vector2] = []
+	var one: Array[Vector2] = [a]
+	var two: Array[Vector2] = [a, b]
+	var near_projected: Array[Vector2] = [point + Vector2(m(100.0), 0.0)]
+	var far_projected: Array[Vector2] = [point + Vector2(m(900.0), 0.0)]
+	var base: float = bm._fall_back_score(u, point, none, none)
+	check(bm._fall_back_score(u, point, none, near_projected) - base >= 1.0, "A place 100 m from where an enemy will be is penalised heavily (by at least 1.0 of score)")
+	check(bm._fall_back_score(u, point, none, near_projected) > bm._fall_back_score(u, point, none, far_projected), "...more than one 900 m from it")
+	var one_enemy: float = bm._fall_back_score(u, point, one, none)
+	var two_enemies: float = bm._fall_back_score(u, point, two, none)
+	check(one_enemy > base and two_enemies > one_enemy + 0.05, "Each enemy nearby adds to the exposure (%.2f, %.2f, %.2f)" % [base, one_enemy, two_enemies])
+	cleanup(bm)
+	# The search passes the projected positions on to the scoring.
+	bm = load("res://scripts/tests/fall_back_scoring_stub.gd").new()
+	root.add_child(bm)
+	bm.set_process(false)
+	bm.combat_log = Log.new()
+	var v: Unit = add_squad(bm, Vector2(1500, 1500))
+	add_advancing_enemy(bm, Vector2(1500, 1000), v)
+	bm._fall_back_destination(v)
+	check(bm.last_advancing_count == 1, "_fall_back_destination scores with the advancing enemy's projected position (got %d)" % bm.last_advancing_count)
+	cleanup(bm)
+
+
+## "They don't want to become surrounded": enemies to the north and east push a unit toward
+## neither — it ends up no nearer to either than it started.
+func test_it_does_not_run_from_one_enemy_into_the_arms_of_another() -> void:
+	for sd in 8:
+		seed(sd)
+		var bm = make_battle()
+		var u: Unit = add_squad(bm, Vector2(1500, 1500))
+		var east: Unit = add_enemy(bm, Vector2(2000, 1500))
+		var north: Unit = add_enemy(bm, Vector2(1500, 1000))
+		var dest: Vector2 = bm._fall_back_destination(u)
+		check(not is_inf(dest.x), "seed %d: flanked, it moves" % sd)
+		if not is_inf(dest.x):
+			check(dest.distance_to(east.global_position) >= u.global_position.distance_to(east.global_position) - m(25.0), "seed %d: no nearer the eastern enemy" % sd)
+			check(dest.distance_to(north.global_position) >= u.global_position.distance_to(north.global_position) - m(25.0), "seed %d: no nearer the northern one" % sd)
+		cleanup(bm)
+
+
+## A drone has no weapon; a sighted one, even approaching, changes nothing.
+func test_a_drone_is_not_a_threat_to_fall_back_from() -> void:
+	var results: Array[Vector2] = []
+	for with_drone in [false, true]:
+		var bm = make_battle()
+		var u: Unit = add_squad(bm, Vector2(1500, 1500))
+		if with_drone:
+			var d: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.DRONE, Vector2(m(1700), m(1500)))
+			bm.enemy_units.append(d)
+			d.is_visible = true
+			bm._update_player_intel() # the player side now knows where the drone is
+			check(d.player_has_been_sighted and bm._known_enemy_positions(Unit.Team.PLAYER).size() == 1, "Setup: the drone is a known contact")
+			d.move_target = u.global_position
+			d.has_move_target = true
+			d.move_speed = GameConfig.REPOSITION_SPEED
+		seed(5)
+		results.append(bm._fall_back_destination(u))
+		cleanup(bm)
+	check(results[0].is_equal_approx(results[1]), "An enemy drone makes no difference to where a squad falls back to")
 
 
 func test_the_order_lifecycle() -> void:
@@ -246,7 +346,7 @@ func test_the_order_lifecycle() -> void:
 	check(bm.fall_back_ordered(u) and u.has_move_target, "The unit is ordered and on the move")
 	var dest: Vector2 = bm._fall_back_orders[u].destination
 	check(u.move_target.distance_to(dest) < 1.0, "...to the chosen position")
-	check(u.last_order_reason == "Ordered to fall back to a safer position.", "...and its debug reason says so (got '%s')" % u.last_order_reason)
+	check(u.last_order_reason == "Ordered to fall back toward the map edge.", "...and its debug reason says so (got '%s')" % u.last_order_reason)
 	check(log_has(bm, "ordered to fall back ---"), "The log records the order")
 	check(bm.set_fall_back_order(u, true), "Ordering it again is harmless")
 	check(bm._fall_back_orders.size() == 1, "...and does not stack")
@@ -371,7 +471,7 @@ func test_it_works_through_the_real_battle_loop() -> void:
 	cleanup(bm)
 
 
-func test_the_mortar_falls_back_through_its_own_planner() -> void:
+func test_the_mortar_falls_back_the_same_way() -> void:
 	var bm = make_battle()
 	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2(m(-200), m(1500)))
 	bm.player_units.append(mortar)

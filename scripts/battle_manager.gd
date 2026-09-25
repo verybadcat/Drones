@@ -1467,49 +1467,57 @@ func _scheduled_retreat_ammo_discount(mortar: Unit) -> float:
 ## unit should evaluate where it might be safer than its current location, and move
 ## there. The orders can work similarly to the way they already work with the
 ## mortar." And: "The 'falling back' could even go forward if it thinks that is the
-## safest direction." So this is not a retreat and has no rear bias: candidates are
-## considered in every direction, judged only on safety. Later: "Be safe" (the card's
-## title for it) "needs to have more bias towards getting away from advancing enemies",
-## squads told to do it with an enemy closing in did not move; and the usual time to give
-## the order is when the area is about to be overrun, so "the unit should assume that its
-## current location is about to become dangerous, even if it's in cover", and not become
-## surrounded. Hence, in _fall_back_score: where advancing enemy squads WILL be counts
-## heavily, closeness to all known enemies is summed, and with a threat inside the danger
-## range the unit's own position is assumed compromised.
+## safest direction." That first version (a search for the safest place anywhere, titled
+## "Be safe") did not work well in use — squads told to do it with an enemy closing in
+## did not move, and the usual time to give the order is when the area is about to be
+## overrun — so the paradigm changed: "Fall back" "requires the unit to move towards the
+## edge of the map, unless it is already very close. It does not require the unit to fall
+## back off of the map. In general it should move 500-1000 meters, but it could go over
+## that, or maybe slightly less if there is an excellent position say 400 meters back, but
+## that should be rare. It does not have to be straight back. Just generally towards the
+## edge." See _fall_back_destination.
 ##
 ## A one-shot order the commander can also countermand: while it stands, the unit
 ## walks to the position chosen when the order was given (the same choice
 ## _fall_back_destination would make now), the systems that would otherwise steer
 ## it stand back (_update_fall_back_orders re-asserts the walk after them every
 ## tick), and on arrival the order ends and the unit's ordinary behaviour resumes. A
-## unit that finds nowhere safer than where it is refuses the order (and says so).
+## unit already very close to its edge refuses the order (and says so).
 ## Player units only: squads, the mortar, the spotter, the drone team.
 ## ---------------------------------------------------------------------------
 var _fall_back_orders: Dictionary = {} # Unit -> {"destination": Vector2, "ordered_at": float}
 
-## Candidate distances (metres) for the direction-agnostic ring search, 8 bearings each.
-const FALL_BACK_RING_DISTANCES_M: Array[float] = [100.0, 250.0, 450.0]
-## Extra samples of the shelter searches (see _fall_back_destination).
-const FALL_BACK_COVER_SAMPLES: int = 6
+## "Fall back" candidates (see _fall_back_destination): points this far (metres) out along
+## bearings within FALL_BACK_BEARINGS_DEG of the direction of the unit's own map edge,
+## plus the nearest cover to waypoints along that direction.
+const FALL_BACK_RING_DISTANCES_M: Array[float] = [400.0, 500.0, 600.0, 750.0, 900.0, 1000.0, 1250.0, 1500.0]
+const FALL_BACK_BEARINGS_DEG: Array[float] = [-60.0, -40.0, -20.0, 0.0, 20.0, 40.0, 60.0]
+const FALL_BACK_COVER_WAYPOINTS_M: Array[float] = [500.0, 750.0, 1000.0]
 const FALL_BACK_HIDDEN_SAMPLES: int = 4
-## How much better (score, see _fall_back_score) a place must be than the current one to be worth moving to.
-const FALL_BACK_MIN_IMPROVEMENT: float = 0.25
+## Anything used as a destination must be within this of the edge direction (degrees) —
+## "it does not have to be straight back, just generally towards the edge".
+const FALL_BACK_MAX_BEARING_DEG: float = 70.0
+## The distance the user asked for: "in general 500-1000 meters, but it could go over that,
+## or maybe slightly less if there is an excellent position say 400 meters back, but that
+## should be rare." Inside the range costs nothing; short of it costs FALL_BACK_SHORT_PENALTY
+## per 100 m (about what a good position's cover and cleared line of sight are worth
+## together, so only an excellent one at 400 m wins), beyond it FALL_BACK_LONG_PENALTY.
+## JUDGMENT. Never less than FALL_BACK_MIN_MOVE_M unless the edge is nearer than that.
+const FALL_BACK_PREFERRED_MIN_M: float = 500.0
+const FALL_BACK_PREFERRED_MAX_M: float = 1000.0
+const FALL_BACK_SHORT_PENALTY_PER_100M: float = 0.5
+const FALL_BACK_LONG_PENALTY_PER_100M: float = 0.15
+const FALL_BACK_MIN_MOVE_M: float = 250.0
+## A unit this close to its edge (or closer) is "already very close" and does not move.
+const FALL_BACK_EDGE_CLOSE_M: float = 200.0
 ## An enemy squad that is visible and on the move is projected RETREAT_ADVANCE_PROJECTION_TIME
 ## ahead along its heading; a place within this distance of where it will be is unsafe in
 ## proportion (FALL_BACK_ADVANCE_WEIGHT at the projected point itself, fading to nothing at
-## this range). Its weapon range plus room to spare. JUDGMENT, as is the weight: it makes
-## getting clear of an advancing enemy worth more than the cover it may mean leaving.
+## this range). Its weapon range plus room to spare. JUDGMENT.
 const FALL_BACK_ADVANCE_REACH: float = 600.0 * GameConfig.PIXELS_PER_METER
 const FALL_BACK_ADVANCE_WEIGHT: float = 2.0
-## The order is given when a unit's area is about to be overrun, so with a threat within
-## GameConfig.SQUAD_DANGER_RANGE it assumes where it stands is about to become dangerous
-## even if it is in cover: its position (and, fading out over FALL_BACK_COMPROMISED_RADIUS,
-## the ground around it) is penalised by FALL_BACK_COMPROMISED_PENALTY. JUDGMENT.
-const FALL_BACK_COMPROMISED_PENALTY: float = 1.0
-const FALL_BACK_COMPROMISED_RADIUS: float = 300.0 * GameConfig.PIXELS_PER_METER
 ## Weight of the summed closeness of ALL known enemies (each fading to nothing at
-## SQUAD_DANGER_RANGE) — a place with enemies on more than one side counts for more, so a
-## unit does not run from one enemy into the arms of another.
+## SQUAD_DANGER_RANGE) — a place with enemies on more than one side counts for more.
 const FALL_BACK_PRESSURE_WEIGHT: float = 0.5
 
 
@@ -1534,11 +1542,11 @@ func set_fall_back_order(unit: Unit, enabled: bool) -> bool:
 		return true
 	var destination: Vector2 = _fall_back_destination(unit)
 	if is_inf(destination.x):
-		combat_log.add_entry("--- %s ordered to fall back, but can find nowhere safer than where it is ---" % unit.display_name())
+		combat_log.add_entry("--- %s ordered to fall back, but is already at the edge of the map ---" % unit.display_name())
 		return false
 	_fall_back_orders[unit] = {"destination": destination, "ordered_at": scenario_elapsed_time}
 	_issue_fall_back_move(unit, destination)
-	unit.last_order_reason = "Ordered to fall back to a safer position."
+	unit.last_order_reason = "Ordered to fall back toward the map edge."
 	combat_log.add_entry("--- %s ordered to fall back ---" % unit.display_name())
 	return true
 
@@ -1558,81 +1566,85 @@ func _issue_fall_back_move(unit: Unit, destination: Vector2) -> void:
 	unit.movement_predictable = false
 
 
-## Where `unit` would be safer than it is now, or Vector2.INF if nowhere is. The
-## mortar uses its own relocation planner (concealment, its leash to its home
-## position, its siblings ...) searched as far out as an urgent move; everyone
-## else scores the shared shelter candidates plus a ring of points around it in
-## every direction (no bias toward the rear) with _fall_back_score.
+## Where "fall back" sends `unit`: generally toward its own edge of the map, usually
+## 500-1000 m, or Vector2.INF if it is already very close to that edge (or no place fits).
+## Not a straight run: candidates lie within FALL_BACK_MAX_BEARING_DEG of the edge
+## direction — a ring of them at several distances and bearings, plus the nearest cover to
+## a few waypoints along the way and a few hidden spots — and the best by _fall_back_score
+## (safety: cover, cleared lines of sight, distance from the enemy and from where advancing
+## enemies will be) plus a penalty for straying from the preferred 500-1000 m
+## (_fall_back_distance_penalty) wins. A unit nearer its edge than that goes as far as the
+## edge allows. Nothing here is ever a retreat off the map: the edge is only the direction.
 func _fall_back_destination(unit: Unit) -> Vector2:
-	if unit.kind == Unit.Kind.MORTAR:
-		var plan: Dictionary = _mortar_relocation_plan(unit, true)
-		return Vector2.INF if plan.is_empty() else plan.destination
+	# The unit's own edge: the line a retreat runs to (a spawned unit's retreat_target_x).
+	var edge_x: float = GameConfig.PLAYER_SAFE_X if unit.team == Unit.Team.PLAYER else GameConfig.ENEMY_SAFE_X
+	var remaining: float = absf(edge_x - unit.global_position.x)
+	if remaining < FALL_BACK_EDGE_CLOSE_M * GameConfig.PIXELS_PER_METER:
+		return Vector2.INF
+	var edge_dir := Vector2(signf(edge_x - unit.global_position.x), 0.0)
 	# A drone has no weapon: it is no threat to walk away from.
 	var known: Array[Vector2] = _known_enemy_positions(unit.team, false)
 	var advancing: Array[Vector2] = _advancing_enemy_projections(unit.team)
 	var threats: Array[Vector2] = known.duplicate()
 	threats.append_array(advancing)
-	var candidates: Array[Vector2] = _shelter_candidates(unit, threats)
-	# More than one sample of each kind: the hidden-point search picks among its best
-	# candidates at random, and the nearest cover zone alone may be exposed to the
-	# very enemy that prompted the order — so the several nearest DISTINCT cover
-	# zones and a few more hidden-point draws are all scored, and the safest wins.
-	var taken: Array[Vector2] = _ally_positions_for(unit)
-	for i in FALL_BACK_COVER_SAMPLES:
-		var cover: Vector2 = _cover_point_for(unit, threats, taken)
-		if cover == unit.global_position or taken.has(cover):
-			break
-		candidates.append(cover)
-		taken.append(cover)
-	for i in FALL_BACK_HIDDEN_SAMPLES:
-		candidates.append(_hidden_point_for(unit, threats))
+	var raw: Array[Vector2] = []
 	for distance_m in FALL_BACK_RING_DISTANCES_M:
-		for i in 8:
-			candidates.append(unit.global_position + Vector2.from_angle(TAU * float(i) / 8.0) * distance_m * GameConfig.PIXELS_PER_METER)
-	var compromised := false
-	for p in threats:
-		if p.distance_to(unit.global_position) <= GameConfig.SQUAD_DANGER_RANGE:
-			compromised = true
-			break
-	var here: float = _fall_back_score(unit, unit.global_position, known, advancing, compromised)
+		for bearing in FALL_BACK_BEARINGS_DEG:
+			raw.append(unit.global_position + edge_dir.rotated(deg_to_rad(bearing)) * distance_m * GameConfig.PIXELS_PER_METER)
+	var allies: Array[Vector2] = _ally_positions_for(unit)
+	for distance_m in FALL_BACK_COVER_WAYPOINTS_M:
+		var waypoint: Vector2 = unit.global_position + edge_dir * distance_m * GameConfig.PIXELS_PER_METER
+		raw.append(GameConfig.nearest_cover_point(waypoint, 0.0, unit.kind == Unit.Kind.MORTAR, allies, threats))
+	for i in FALL_BACK_HIDDEN_SAMPLES:
+		raw.append(_hidden_point_for(unit, threats))
+	var min_move: float = minf(FALL_BACK_MIN_MOVE_M * GameConfig.PIXELS_PER_METER, remaining)
+	var min_cos: float = cos(deg_to_rad(FALL_BACK_MAX_BEARING_DEG))
 	var best := Vector2.INF
-	var best_score := here
-	for point in candidates:
-		if point.distance_to(unit.global_position) <= Unit.MOVE_ARRIVE_RADIUS:
+	var best_score := INF
+	for candidate in raw:
+		# Never past the edge itself, whatever the ring said.
+		var point := GameConfig.clamp_to_operating_area(candidate)
+		point.x = maxf(point.x, edge_x) if edge_dir.x < 0.0 else minf(point.x, edge_x)
+		var offset: Vector2 = point - unit.global_position
+		if offset.length() < min_move or offset.normalized().dot(edge_dir) < min_cos:
 			continue
-		if point.x < -GameConfig.WEST_FLANK_WIDTH_PX or point.x > GameConfig.MAP_WIDTH_PX or point.y < 0.0 or point.y > GameConfig.MAP_HEIGHT_PX:
+		if GameConfig.is_river_at(point) or (unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(point)):
 			continue
-		if GameConfig.is_river_at(point):
-			continue
-		var score: float = _fall_back_score(unit, point, known, advancing, compromised)
+		var score: float = _fall_back_score(unit, point, known, advancing) \
+			+ _fall_back_distance_penalty(offset.length() / GameConfig.PIXELS_PER_METER, remaining / GameConfig.PIXELS_PER_METER)
 		if score < best_score:
 			best_score = score
 			best = point
-	if here - best_score < FALL_BACK_MIN_IMPROVEMENT:
-		return Vector2.INF
 	return best
 
 
-## How exposed `unit` would be at `point`; lower is safer. Safety only — no
-## direction is preferred. Dominant: the forecast chance of being hit or lost from
-## the enemies it can see or has heard (_risk_forecast, x100). Then, since most
-## threats are not currently visible: each KNOWN enemy position (last seen) that
-## could see the point in range counts a little, standing in the open counts
+## What straying from the preferred distance costs (see FALL_BACK_PREFERRED_MIN_M):
+## `distance_m` is how far the candidate is, `remaining_m` how far the unit's edge is (a
+## unit nearer than the preferred minimum is not penalised for being unable to go it).
+func _fall_back_distance_penalty(distance_m: float, remaining_m: float) -> float:
+	var preferred_min: float = minf(FALL_BACK_PREFERRED_MIN_M, remaining_m)
+	if distance_m < preferred_min:
+		return FALL_BACK_SHORT_PENALTY_PER_100M * (preferred_min - distance_m) / 100.0
+	if distance_m > FALL_BACK_PREFERRED_MAX_M:
+		return FALL_BACK_LONG_PENALTY_PER_100M * (distance_m - FALL_BACK_PREFERRED_MAX_M) / 100.0
+	return 0.0
+
+
+## How exposed `unit` would be at `point`; lower is safer. Dominant: the forecast chance
+## of being hit or lost from the enemies it can see or has heard (_risk_forecast, x100).
+## Then, since most threats are not currently visible: each KNOWN enemy position (last
+## seen) that could see the point in range counts a little, standing in the open counts
 ## something, and closeness to the known enemies counts (SUMMED over all of them, so
-## enemies on several sides add up rather than only the nearest mattering); a longer
-## walk costs a very little. Weighted heavily: an enemy squad that is ADVANCING — the
-## forecast and the known positions are all where it is now, so an enemy on its way in
-## from beyond weapon range looks harmless until it arrives; `advancing` (see
-## _advancing_enemy_projections) are where such squads will be, and a place close to one
-## is penalised (FALL_BACK_ADVANCE_WEIGHT, fading out at FALL_BACK_ADVANCE_REACH). And
-## with `assume_compromised` (the order was given with a threat near): the unit's own
-## position, and the ground close around it, count as about to become dangerous
-## (FALL_BACK_COMPROMISED_PENALTY) even if it is in cover.
-func _fall_back_score(unit: Unit, point: Vector2, known: Array[Vector2], advancing: Array[Vector2] = [], assume_compromised: bool = false) -> float:
+## enemies on several sides add up rather than only the nearest mattering). Weighted
+## heavily: an enemy squad that is ADVANCING — the forecast and the known positions are
+## all where it is now, so an enemy on its way in from beyond weapon range looks harmless
+## until it arrives; `advancing` (see _advancing_enemy_projections) are where such squads
+## will be, and a place close to one is penalised (FALL_BACK_ADVANCE_WEIGHT, fading out at
+## FALL_BACK_ADVANCE_REACH). Distance travelled is not scored here (see
+## _fall_back_distance_penalty).
+func _fall_back_score(unit: Unit, point: Vector2, known: Array[Vector2], advancing: Array[Vector2] = []) -> float:
 	var forecast: Dictionary = _risk_forecast(unit, null, point)
 	var score: float = (forecast.loss_probability + forecast.hit_probability) * 100.0
-	if assume_compromised:
-		score += FALL_BACK_COMPROMISED_PENALTY * clampf(1.0 - point.distance_to(unit.global_position) / FALL_BACK_COMPROMISED_RADIUS, 0.0, 1.0)
 	for p in advancing:
 		var d_advance: float = point.distance_to(p)
 		score += FALL_BACK_ADVANCE_WEIGHT * clampf(1.0 - d_advance / FALL_BACK_ADVANCE_REACH, 0.0, 1.0)
@@ -1644,7 +1656,6 @@ func _fall_back_score(unit: Unit, point: Vector2, known: Array[Vector2], advanci
 			score += 0.5
 	if not GameConfig.is_in_cover(GameConfig.get_terrain_type_at(point)):
 		score += 0.3
-	score += 0.1 * point.distance_to(unit.global_position) / (500.0 * GameConfig.PIXELS_PER_METER)
 	return score
 
 
@@ -5293,7 +5304,7 @@ func _decide_mortar_action(m: Unit) -> void:
 	# ammo conjunct here).
 	var target: Unit = _mortar_shot_this_tick(m, opposing)
 	if _fall_back_orders.has(m):
-		_mortar_reasoning[m] = {"tier": "Commander's order", "detail": "Falling back to a safer position, as ordered."}
+		_mortar_reasoning[m] = {"tier": "Commander's order", "detail": "Falling back toward the map edge, as ordered."}
 		return
 	if _risk_holds.has(m):
 		_mortar_reasoning[m] = {"tier": "Self-risk policy", "detail": m.last_order_reason}
