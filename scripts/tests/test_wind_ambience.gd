@@ -84,7 +84,7 @@ func test_rounding_and_gusts() -> void:
 	var main_src := FileAccess.get_file_as_string("res://scripts/main.gd")
 	check("wind_ambience.set_wind(Weather.current.wind_speed_10m if weather_audible" in main_src, "main.gd feeds it the ground-level wind_speed_10m")
 	check(not ("WIND_GUST_RATIO_PEAK" in FileAccess.get_file_as_string("res://scripts/wind_ambience.gd")), "Gusts appear nowhere in the wind sound")
-	check("var weather_audible: bool = Weather.current != null and not (battle_manager != null and battle_manager.battle_over)" in main_src, "It sounds from deployment (weather rolled) until the battle is over, and not on the level-select screen")
+	check("var weather_audible: bool = Weather.current != null and not current_screen.battle_is_over()" in main_src, "It sounds from deployment (weather rolled) until the battle is over, and not on the level-select screen")
 
 
 func test_the_node_fades_in_and_out() -> void:

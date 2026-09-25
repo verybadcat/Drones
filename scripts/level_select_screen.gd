@@ -1,5 +1,5 @@
-extends Control
 class_name LevelSelectScreen
+extends GameScreen
 ## The very first screen the player sees: choose which real place to fight
 ## over (see GameConfig.MAPS) and which reconnaissance/target-acquisition
 ## setup to fight with (see GameConfig.ReconMode). main.gd shows this before
@@ -44,7 +44,7 @@ const RECENT_BATTLES_SHOWN: int = 4
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	super()
 
 	# Two columns: the setup on the left, the score history on the right of it.
 	var columns := HBoxContainer.new()
@@ -74,6 +74,11 @@ func _ready() -> void:
 	))
 
 	columns.add_child(_build_score_history())
+
+
+## No map is shown yet, so no scale bar, compass, weather block or clock (see GameScreen).
+func shows_map_marks() -> bool:
+	return false
 
 
 ## The player's scores as a table: a row per location, a column per reconnaissance

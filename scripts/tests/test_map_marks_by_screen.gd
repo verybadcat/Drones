@@ -21,7 +21,7 @@ func run() -> void:
 	var main = load("res://scripts/main.gd").new()
 	root.add_child(main)
 	await process_frame
-	check(main.level_select_screen != null, "Setup: the game opens on the level-select screen")
+	check(main.current_screen is LevelSelectScreen, "Setup: the game opens on the level-select screen")
 	check(not main._map_hud_overlay.map_marks_visible, "The first screen draws no scale bar, compass or weather")
 	check(not main._clock_label.visible, "...and no clock")
 	check(main._location_label.visible, "...but the location readout stays")
@@ -33,7 +33,7 @@ func run() -> void:
 	check(not main._map_hud_overlay.map_marks_visible and not main._clock_label.visible, "Back on the first screen they are hidden again")
 	check(main._location_label.visible, "...with the location readout still there")
 	main._show_deployment()
-	main._on_start_pressed()
+	main.current_screen.request_start()
 	await process_frame
 	check(main._map_hud_overlay.map_marks_visible and main._clock_label.visible, "The battle shows them")
 	print("Map marks by screen tests: %d failures" % failures)

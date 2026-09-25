@@ -60,6 +60,8 @@ func finished_battle(enemy_dead: int) -> Array:
 	bm._end_battle()
 	return [bm, text[0]]
 
+const ReportHelper = preload("res://scripts/tests/report_helper.gd")
+
 func run() -> void:
 	wipe()
 	await test_battle_end_records_and_shows_the_scenario_average()
@@ -82,35 +84,33 @@ func test_battle_end_records_and_shows_the_scenario_average() -> void:
 	check(main.score_log.path.is_empty(), "A headless run must default to NO history path, not the player's real file")
 	var real_size_before: int = file_size(BattleScoreLog.DEFAULT_PATH)
 	var unguarded: Array = finished_battle(4)
-	main.battle_manager = unguarded[0]
-	main._on_battle_ended(unguarded[1])
+	var report: BattleReport = ReportHelper.open_report(main, unguarded[0], unguarded[1])
 	check(file_size(BattleScoreLog.DEFAULT_PATH) == real_size_before, "A battle ended in an automated run must not write to the real history (%d -> %d bytes)" % [real_size_before, file_size(BattleScoreLog.DEFAULT_PATH)])
-	check(not ("Scenario average" in all_text(main.report_background)), "...and with no history there's no scenario average to show")
+	check(not ("Scenario average" in all_text(report.report_background)), "...and with no history there's no scenario average to show")
+	report.queue_free()
 	main._show_level_select()
 	await process_frame
-	check(main.level_select_screen.score_log == main.score_log, "The level-select screen shares main's one history (and its guard)")
+	check(main.current_screen is LevelSelectScreen and main.current_screen.score_log == main.score_log, "The level-select screen shares main's one history (and its guard)")
 
 	main.score_log.path = test_path
 	main.recon_mode = GameConfig.ReconMode.DRONE_TEAM
 	var map_id: String = GameConfig.current_map_id()
 
 	# No battle at all (e.g. the existing report-button tests): nothing to record, nothing breaks.
-	main._on_battle_ended("Verdict: TEST")
+	report = ReportHelper.open_report(main, null, "Verdict: TEST")
 	check(main.score_log.load_records().is_empty(), "A report with no finished battle behind it must record nothing")
-	main._show_level_select()
-	await process_frame
+	report.queue_free()
 
 	# Battle 1: 9 enemy dead-or-wounded, position held. We use the game's own number.
 	var first: Array = finished_battle(4)
-	main.battle_manager = first[0]
-	main._on_battle_ended(first[1])
+	report = ReportHelper.open_report(main, first[0], first[1])
 	var score_one: float = first[0].battle_result.score
 	var records: Array[Dictionary] = main.score_log.load_records()
 	check(records.size() == 1, "The finished battle must be written to the durable history, got %d records" % records.size())
 	if records.size() == 1:
 		check(records[0].map_id == map_id and records[0].recon_mode == "DRONE_TEAM", "...filed under its scenario (this map + this scouting), got %s / %s" % [records[0].map_id, records[0].recon_mode])
 		check(is_equal_approx(records[0].score, score_one), "...with the score that was shown")
-	var shown: String = all_text(main.report_background)
+	var shown: String = all_text(report.report_background)
 	check(("Battle score: %s" % BattleScore.format(score_one)) in shown, "The report on screen must show the battle score")
 	check("Scenario average: %s over 1 battle (" % BattleScore.format(score_one) in shown, "...and this scenario's average, singular for the first battle (got: %s)" % shown.substr(0, 400))
 	check(GameConfig.CURRENT_MAP.name in shown and GameConfig.RECON_MODE_LABELS[GameConfig.ReconMode.DRONE_TEAM] in shown, "...naming the scenario: location and scouting")
@@ -122,24 +122,20 @@ func test_battle_end_records_and_shows_the_scenario_average() -> void:
 	check(score_index >= 0 and score_index + 1 < lines.size() and lines[score_index + 1].begins_with("Scenario average:"), "The average sits directly under the score")
 
 	# Battle 2 in the same scenario: the average now covers both.
-	main._show_level_select()
-	await process_frame
+	report.queue_free()
 	var second: Array = finished_battle(9)
-	main.battle_manager = second[0]
-	main._on_battle_ended(second[1])
+	report = ReportHelper.open_report(main, second[0], second[1])
 	var score_two: float = second[0].battle_result.score
 	check(not is_equal_approx(score_one, score_two), "Setup check: the two battles should score differently")
 	var expected_average: float = (score_one + score_two) / 2.0
-	check(("Scenario average: %s over 2 battles" % BattleScore.format(expected_average)) in all_text(main.report_background), "The second battle's report must show the average of both, %s" % BattleScore.format(expected_average))
+	check(("Scenario average: %s over 2 battles" % BattleScore.format(expected_average)) in all_text(report.report_background), "The second battle's report must show the average of both, %s" % BattleScore.format(expected_average))
 
 	# Same location, DIFFERENT scouting: its own scenario, starting fresh.
-	main._show_level_select()
-	await process_frame
+	report.queue_free()
 	main.recon_mode = GameConfig.ReconMode.SPOTTER
 	var third: Array = finished_battle(4)
-	main.battle_manager = third[0]
-	main._on_battle_ended(third[1])
-	check("over 1 battle (" in all_text(main.report_background), "A different kind of scouting at the same location must have its own average, not share the drone one")
+	report = ReportHelper.open_report(main, third[0], third[1])
+	check("over 1 battle (" in all_text(report.report_background), "A different kind of scouting at the same location must have its own average, not share the drone one")
 	check(main.score_log.load_records().size() == 3, "All three battles are in the history")
 
 
@@ -232,8 +228,8 @@ func test_level_select_shows_average_scores_per_scenario() -> void:
 
 ## The text currently shown in the report body (the tab buttons are separate
 ## children, so this is just the ScrollContainer's label).
-func report_body(main) -> String:
-	return main.report_background.get_child(0).get_child(0).text
+func report_body(report: BattleReport) -> String:
+	return report.report_background.get_child(0).get_child(0).text
 
 
 ## The end-of-battle report has three tabs, in this order (user's spec):
@@ -245,9 +241,8 @@ func test_report_has_three_tabs_in_order() -> void:
 	root.add_child(main)
 	await process_frame
 	var built: Array = finished_battle(4) # held; enemy 4 killed + 5 walking wounded; we lost nobody
-	main.battle_manager = built[0]
-	main._on_battle_ended(built[1])
-	var background: Control = main.report_background
+	var report: BattleReport = ReportHelper.open_report(main, built[0], built[1])
+	var background: Control = report.report_background
 	var score_tab: Button = background.find_child("ScoreTab", false, false)
 	var damage_tab: Button = background.find_child("DamageByUnit", false, false)
 	var report_tab: Button = background.find_child("AfterActionReportTab", false, false)
@@ -261,7 +256,7 @@ func test_report_has_three_tabs_in_order() -> void:
 
 	# Opens on the Score tab, showing the line items that made the score.
 	var score: float = built[0].battle_result.score
-	var body: String = report_body(main)
+	var body: String = report_body(report)
 	var lines: PackedStringArray = body.split("\n")
 	check(lines[0] == "Battle score: %s" % BattleScore.format(score), "It opens on the Score tab, headed by the score, got: %s" % lines[0])
 	check("  Position held: 20.0" in lines, "The position line item is shown: %s" % [lines])
@@ -272,9 +267,9 @@ func test_report_has_three_tabs_in_order() -> void:
 
 	# The other two tabs.
 	damage_tab.pressed.emit()
-	check(report_body(main) == "\n".join(built[0].unit_combat_stats.report_lines()), "The Damage by unit tab is unchanged")
+	check(report_body(report) == "\n".join(built[0].unit_combat_stats.report_lines()), "The Damage by unit tab is unchanged")
 	report_tab.pressed.emit()
-	var report_text: String = report_body(main)
+	var report_text: String = report_body(report)
 	check("=== AFTER-ACTION REPORT ===" in report_text and "Verdict:" in report_text, "The After Action Report tab is the report it always was")
 	check(("Battle score: %s" % BattleScore.format(score)) in report_text, "...still carrying its own score line, unchanged")
 	var report_lines: PackedStringArray = report_text.split("
@@ -282,13 +277,13 @@ func test_report_has_three_tabs_in_order() -> void:
 	check(report_lines[1] == "This report details higher command's assessment of enemy casualties. It may or may not match reality.", "The report opens with the note that its enemy casualty figures are higher command's assessment (got %s)" % report_lines[1])
 	check(report_text.count("may or may not match reality") == 1, "...stated once")
 	score_tab.pressed.emit()
-	check(report_body(main) == body, "Switching back to Score restores it")
+	check(report_body(report) == body, "Switching back to Score restores it")
 
 	# Nothing to score (no finished battle behind the report): it opens on the report, as it always did.
 	var bare = load("res://scripts/main.gd").new()
 	root.add_child(bare)
 	await process_frame
-	bare._on_battle_ended("Verdict: TEST")
-	check(report_body(bare) == "Verdict: TEST", "With no score available the report itself opens first")
-	bare.report_background.find_child("ScoreTab", false, false).pressed.emit()
-	check("No score" in report_body(bare), "...and the Score tab says there is none rather than showing nothing")
+	var bare_report: BattleReport = ReportHelper.open_report(bare, null, "Verdict: TEST")
+	check(report_body(bare_report) == "Verdict: TEST", "With no score available the report itself opens first")
+	bare_report.report_background.find_child("ScoreTab", false, false).pressed.emit()
+	check("No score" in report_body(bare_report), "...and the Score tab says there is none rather than showing nothing")

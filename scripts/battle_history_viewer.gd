@@ -1,6 +1,6 @@
 extends Node2D
 class_name BattleHistoryViewer
-## Post-battle "drag through time" replay — see main.gd's "Review Battle
+## Post-battle "drag through time" replay — see BattleReport's "Review Battle
 ## History" button on the AAR screen. Draws a SELF-CONTAINED snapshot of
 ## recorded unit positions/states (BattleManager.battle_history/
 ## _record_history_snapshot), not the live Unit nodes themselves: some of
@@ -13,8 +13,8 @@ class_name BattleHistoryViewer
 ## feature, confirmed with the user, unlike the AAR report itself, which
 ## stays honest to what was actually known at the time.
 ##
-## Two ways to move through it: manual scrubbing (main.gd's slider calls
-## set_index) or the "Play" button (main.gd calls toggle_play, then ticks
+## Two ways to move through it: manual scrubbing (BattleReport's slider calls
+## set_index) or the "Play" button (BattleReport calls toggle_play, then ticks
 ## advance_playback every frame) — see GameConfig.HISTORY_PLAYBACK_TIME_
 ## SCALE for the replay pace. playback_time is the single source of truth
 ## for "what moment is currently displayed" either way; set_index just
@@ -59,7 +59,7 @@ func toggle_play() -> void:
 	is_playing = true
 
 
-## Called every frame from main.gd's own _process while is_playing.
+## Called every frame from BattleReport's own _process while is_playing.
 ## delta_real is real engine seconds, same as any other _process delta —
 ## converted to tactical time at the replay's own fixed pace (unrelated to
 ## whatever time scale was actually in effect during the live battle, which

@@ -16,7 +16,7 @@ class_name DeploymentMagnifier
 ## sharing the main map's World2D: a shared-world camera would zoom the
 ## SAME UnitToken node the main view already draws, scaling its circle UP
 ## right along with the terrain — the opposite of "smaller and more
-## transparent" this feature exists to provide. main.gd owns showing/
+## transparent" this feature exists to provide. DeploymentPhase owns showing/
 ## hiding this and keeping focus_position/unit_kind in sync with whichever
 ## token DeploymentScreen currently has in `_dragging` — see its own
 ## _process.
@@ -34,7 +34,7 @@ var unit_kind: Unit.Kind = Unit.Kind.SQUAD
 ## The whole map's terrain, drawn ONCE (see terrain_layer.gd) at ZOOM x and
 ## then just moved each frame so the focus sits at the window's center —
 ## this used to be re-drawn from scratch on every frame the loupe was shown
-## (main.gd asks for a redraw every frame while a token is selected), which
+## (DeploymentPhase asks for a redraw every frame while a token is selected), which
 ## rebuilt every contour segment, building and tree: ~10ms on the older maps
 ## and ~67ms on a real-data one, the reported "a second to follow my drag".
 var _terrain: Node2D

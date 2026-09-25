@@ -18,7 +18,7 @@ class_name BattleManager
 
 signal battle_ended(report_text: String)
 ## Emitted by handle_click when the player clicks a friendly unit that can take
-## orders - main.gd opens the orders card for it.
+## orders - BattleScreen opens the orders card for it.
 signal unit_selected(unit: Unit)
 
 ## Printed at the top of every after-action report.
@@ -447,7 +447,7 @@ var _ended_by_stalemate: bool = false
 ## of the true results"); `inputs` are the plain counts it was computed from —
 ## exactly what BattleScoreLog stores, so a battle can be re-scored if the
 ## rubric is ever tuned. See BattleScore. BattleManager only COMPUTES this;
-## recording it to disk is main.gd's job (this class runs in every test and
+## recording it to disk is BattleReport's job (this class runs in every test and
 ## must never write history).
 var battle_result: Dictionary = {}
 # User-requested pause (see toggle_pause) — freezes the entire simulation
@@ -462,7 +462,7 @@ var is_paused: bool = false
 # scenario_elapsed_time at which order_general_retreat() should fire on
 # its own, or Vector2.INF's scalar equivalent (INF) if none is scheduled.
 # See order_scheduled_retreat/_check_scheduled_retreat — the player's own
-# "plan a retreat for later" order (main.gd's slider), distinct from
+# "plan a retreat for later" order (BattleScreen's slider), distinct from
 # order_general_retreat's own immediate button. Re-callable: scheduling a
 # new one just overwrites this, so adjusting the slider and re-confirming
 # simply reschedules rather than stacking multiple pending retreats.
@@ -799,7 +799,7 @@ var _contact_watch_since: Dictionary = {}
 # out of sync with the real logic. {"tier": String, "detail": String,
 # "target": Vector2} describing whichever branch actually won this tick.
 # Read-only introspection for drone_pilot_debug_snapshot (the debug
-# overlay/export — see main.gd) — nothing else may ever branch on this.
+# overlay/export — see BattleScreen) — nothing else may ever branch on this.
 var _drone_pilot_reasoning: Dictionary = {}
 # Rounded-to-the-pixel point -> scenario_elapsed_time it was last confirmed
 # clear by estimated_enemy_likelihood (the enemy heat-map overlay's own
@@ -975,13 +975,13 @@ func mortar_status_view(u: Unit) -> Dictionary:
 	}
 
 
-## Public accessor for main.gd's BattleHistoryViewer — read-only, recorded
+## Public accessor for BattleReport's BattleHistoryViewer — read-only, recorded
 ## once per battle, never mutated after the fact.
 func battle_history() -> Array[Dictionary]:
 	return _history
 
 
-## Public accessor for main.gd's BattleHistoryViewer — see _history_fire_
+## Public accessor for BattleReport's BattleHistoryViewer — see _history_fire_
 ## events' own doc comment for the shape. Read-only, recorded once per
 ## battle, never mutated after the fact.
 func battle_history_fire_events() -> Array[Dictionary]:
@@ -1200,7 +1200,7 @@ func _play_mortar_fire_sound(mortar: Unit) -> void:
 ## Public accessor for mortar-fire audio diagnostics — see _mortar_audio_
 ## log's own doc comment for why this exists and what each field answers.
 ## Same conventions as the other debug snapshots: both sides, unconditional,
-## written every frame regardless of any on-screen toggle (main.gd's own
+## written every frame regardless of any on-screen toggle (BattleScreen's own
 ## _write_debug_snapshot).
 func mortar_audio_debug_snapshot() -> Dictionary:
 	return {
@@ -1365,7 +1365,7 @@ func _log_wounded_evacuation_outcome(unit: Unit) -> void:
 		combat_log.log_wounded_abandoned(unit, unit.wounded_left_behind_count)
 
 
-## Toggled by the player's own pause control (main.gd) — not gated on
+## Toggled by the player's own pause control (BattleScreen) — not gated on
 ## battle_over the way order_general_retreat is, since pausing an already-
 ## finished battle is simply a no-op either way (there's nothing left for
 ## _process to do once battle_over is true regardless of is_paused).
@@ -1373,7 +1373,7 @@ func toggle_pause() -> void:
 	is_paused = not is_paused
 
 
-## The player's "plan a retreat for later" order (main.gd's delay slider),
+## The player's "plan a retreat for later" order (BattleScreen's delay slider),
 ## distinct from order_general_retreat's own immediate button. Doesn't
 ## move anyone by itself — it only sets the clock order_general_retreat
 ## eventually fires from on its own (_check_scheduled_retreat), the same
@@ -4416,7 +4416,7 @@ func _retreat_route_scout_target() -> Dictionary:
 
 ## `point` as a plain, JSON-safe {"x","y"} dict in whole meters — used only
 ## by drone_pilot_debug_snapshot, which must not return raw Vector2 values
-## (main.gd's JSON export of it would otherwise need its own conversion
+## (BattleScreen's JSON export of it would otherwise need its own conversion
 ## pass; keeping the snapshot itself JSON-native avoids that entirely).
 func _pos_to_debug_dict(point: Vector2) -> Dictionary:
 	return {"x": roundi(point.x / GameConfig.PIXELS_PER_METER), "y": roundi(point.y / GameConfig.PIXELS_PER_METER)}
@@ -4428,7 +4428,7 @@ func _pos_to_debug_dict(point: Vector2) -> Dictionary:
 ## (clamped at the map's own north/south edges past the first/last row),
 ## summing the same squad- and mortar-hunting weights _sweep_candidates
 ## itself adds together. Used by estimated_enemy_likelihood below to paint
-## a full-map gradient for the enemy heat-map overlay (main.gd's "e" key)
+## a full-map gradient for the enemy heat-map overlay (BattleScreen's "e" key)
 ## rather than 25 isolated dots — never used by any actual sweep decision,
 ## which still runs on the real discrete grid.
 func _row_bias_at_y(y: float) -> float:
@@ -4454,7 +4454,7 @@ func _row_bias_at_y(y: float) -> float:
 ## _sweep_candidates itself scores a cell with (off-road/road row bias,
 ## east-approach likelihood, real recent-contact evidence), just evaluated
 ## smoothly across the whole map instead of only at the 25 fixed sweep
-## waypoints. Read-only, for the enemy heat-map overlay (main.gd's "e"
+## waypoints. Read-only, for the enemy heat-map overlay (BattleScreen's "e"
 ## key, independent of the drone-pilot debug overlay's "d" key) — never
 ## drives any actual decision itself, the same way drone_pilot_debug_
 ## snapshot doesn't.
@@ -4577,9 +4577,9 @@ func _point_currently_observed(point: Vector2, count_drone_camera: bool = true) 
 
 ## Read-only introspection into the drone's current reasoning — "what is
 ## the drone pilot thinking right now, and why" — for the player-
-## toggleable debug overlay (see main.gd's DronePilotDebugPanel) and, while
+## toggleable debug overlay (see BattleScreen's DronePilotDebugPanel) and, while
 ## the battle is paused, for external inspection of exactly what the
-## decision logic sees at that frozen moment (main.gd also exports this to
+## decision logic sees at that frozen moment (BattleScreen also exports this to
 ## a JSON file whenever the overlay is on, specifically so it can be
 ## inspected from outside the running game). Purely descriptive — nothing
 ## here may ever feed back into an actual decision. {"active": false} if no
@@ -5814,7 +5814,7 @@ func _record_mortar_debug_history(m: Unit) -> void:
 
 
 ## Public accessor for an out-of-band developer view of live mortar
-## decisions, mirroring drone_pilot_debug_snapshot() — see main.gd's
+## decisions, mirroring drone_pilot_debug_snapshot() — see BattleScreen's
 ## _write_debug_snapshot for why this is written unconditionally, every
 ## frame, rather than gated on any on-screen toggle. Deliberately includes
 ## BOTH sides (an out-of-band developer file, not something the player
@@ -5861,7 +5861,7 @@ func mortar_decision_debug_snapshot() -> Dictionary:
 ## unit is currently walking to, not just its own kind's own narrower
 ## slice of the decision space. Same conventions as mortar_decision_debug_
 ## snapshot: both sides, unconditional, written every frame regardless of
-## any on-screen toggle (see main.gd's own _write_debug_snapshot).
+## any on-screen toggle (see BattleScreen's own _write_debug_snapshot).
 func general_unit_debug_snapshot() -> Dictionary:
 	var out: Dictionary = {}
 	for u in player_units + enemy_units:
@@ -9363,7 +9363,7 @@ func _end_battle() -> void:
 		lines.append("Enemy surrendered: %s" % ", ".join(enemy_stats.surrendered))
 
 	# unit_combat_stats.report_lines() used to be appended here too — now
-	# that main.gd's own "Damage by unit" tab fetches it fresh on demand
+	# that BattleReport's own "Damage by unit" tab fetches it fresh on demand
 	# (see its own pressed handler), duplicating the whole thing onto the
 	# end of this summary as well is just redundant scrolling.
 	var report_text := "\n".join(lines)

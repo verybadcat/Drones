@@ -1,10 +1,10 @@
 extends Node2D
 class_name EnemyHeatmapOverlay
 ## "Where enemies are known to be, and where the commander's models guess
-## they might be" — a player-toggleable overlay (default OFF, see main.gd's
+## they might be" — a player-toggleable overlay (default OFF, see BattleScreen's
 ## "e" key), independent of the drone-pilot debug overlay ("d" key) so
 ## either, both, or neither can be on at once. Drawn IN MAP SPACE (added to
-## map_viewport, not root — see main.gd) so it pans correctly with the
+## map_viewport, not root — see BattleScreen) so it pans correctly with the
 ## camera and lines up with real unit/terrain positions, unlike
 ## DronePilotDebugPanel's fixed-position sidebar-style text panel.
 ## Refreshed every engine frame regardless of the battle's own pause state,

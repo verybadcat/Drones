@@ -37,8 +37,8 @@ const STATUS_COLOR := {
 const UNKNOWN_COLOR := Color(0.35, 0.35, 0.4)
 
 var battle_manager: BattleManager
-## Set/cleared directly by main.gd exactly when Review Battle History
-## opens/closes (untyped — same brand-new-class_name reason main.gd's own
+## Set/cleared directly by BattleReport exactly when Review Battle History
+## opens/closes (untyped — same brand-new-class_name reason BattleScreen's own
 ## history_viewer field is untyped). While set, the two casualty bars read
 ## from THIS viewer's currently-scrubbed snapshot instead of the live,
 ## final battle_manager.casualty_stats() — see _refresh's own doc comment.

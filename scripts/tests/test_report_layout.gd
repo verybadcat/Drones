@@ -22,8 +22,8 @@ func run() -> void:
 	var main = load("res://scripts/main.gd").new()
 	root.add_child(main)
 	await process_frame
-	main._on_battle_ended("Verdict: TEST")
-	var panel: ColorRect = main.report_background
+	var report: BattleReport = load("res://scripts/tests/report_helper.gd").open_report(main, null, "Verdict: TEST")
+	var panel: ColorRect = report.report_background
 	# The strip along the top: everything main.gd keeps there.
 	var strip: Array[Control] = [main._elevation_label, main._location_label, main._clock_label]
 	var strip_bottom := 0.0
@@ -37,7 +37,7 @@ func run() -> void:
 	check(panel.position.y >= strip_bottom, "The report panel (top %.0f) must clear the strip along the top of the screen (bottom %.0f)" % [panel.position.y, strip_bottom])
 	check(panel.position.y > 20.0, "...it has moved down from where it used to sit (y=20)")
 	# The three buttons stack below it, in order, without overlapping it or each other.
-	var buttons: Array[Control] = [main.restart_button, main.review_history_button, main.hide_report_button]
+	var buttons: Array[Control] = [report.restart_button, report.review_history_button, report.hide_report_button]
 	var previous_bottom: float = panel.position.y + panel.size.y
 	for b in buttons:
 		check(b.position.y >= previous_bottom, "%s (top %.0f) must sit below what is above it (bottom %.0f)" % [b.text, b.position.y, previous_bottom])

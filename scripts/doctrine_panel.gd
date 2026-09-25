@@ -3,7 +3,7 @@ class_name DoctrinePanel
 ## Sidebar doctrine controls that aren't a map position: one shared retreat
 ## threshold for the whole force, and the mortar's shoot-and-scoot doctrine.
 ## Starting positions are set on DeploymentScreen instead (drag and drop) —
-## see main.gd, which reads from both this panel and the deployment screen
+## see DeploymentPhase, which reads from both this panel and the deployment screen
 ## to build the doctrine dict when Start Battle is pressed.
 ##
 ## No retreat-threshold control for the mortar: a mortar crew is either in

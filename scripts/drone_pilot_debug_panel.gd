@@ -1,9 +1,9 @@
 extends PanelContainer
 class_name DronePilotDebugPanel
 ## "What is the drone pilot thinking right now, and why" — a player-
-## toggleable debug overlay (default OFF, see main.gd's "d" key binding) drawn
+## toggleable debug overlay (default OFF, see BattleScreen's "d" key binding) drawn
 ## over the map itself rather than in the sidebar, which has no spare
-## vertical space left (see main.gd's own comments on the button row).
+## vertical space left (see BattleScreen's own comments on the button row).
 ## Refreshed every engine frame from BattleManager.drone_pilot_debug_
 ## snapshot() regardless of whether the battle itself is paused — this
 ## node's own _process is never touched by BattleManager.is_paused, so a
