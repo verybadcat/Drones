@@ -28,13 +28,16 @@ func _initialize() -> void:
 func m(v: float) -> float:
 	return v * GameConfig.PIXELS_PER_METER
 
-## The live battle's own conditions: light rain, NW wind, 161 m altitude.
+## The live battle's own conditions: light rain, NW wind, 161 m altitude. (Rain kept the
+## drone at 161 m there; the rain-altitude curve has since been recalibrated, and 161 m is
+## now 0.96 mm/h rather than the 0.34 mm/h of that battle. The drone's low ceiling and
+## short sight are what the test needs, not the exact rain rate.)
 func live_battle():
 	var w := Weather.new()
 	w.wind_speed_10m = 5.4
 	w.wind_from_deg = 307.0
 	w.temperature_c = 8.7
-	w.precip_mm_h = 0.34
+	w.precip_mm_h = 0.96
 	w._wet = true
 	w._gust_z = 0.0
 	w.rng.seed = 1

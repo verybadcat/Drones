@@ -15,9 +15,9 @@ the rest of each file is not committed). Each 30-second clip simply loops in the
 
 | File | Used for | Length | Measured loudness* |
 | --- | --- | --- | --- |
-| `eryliaa-gentle-rain-for-relaxation-and-sleep-337279-first30s.mp3` | light and light-moderate rain | 30 s | -36.7 LUFS |
-| `freesound_community-drizzle-4perspectives-23254-first30s.mp3` | moderate rain | 30 s | -37.3 LUFS |
-| `boons_freak-rain-sound-188158-first30s.mp3` | heavy rain (above moderate) | 30 s | -21.4 LUFS |
+| `eryliaa-gentle-rain-for-relaxation-and-sleep-337279-first30s.mp3` | light rain (0.5 to 2.5 mm/h) | 30 s | -36.7 LUFS |
+| `freesound_community-drizzle-4perspectives-23254-first30s.mp3` | moderate rain (2.5 to 7.6 mm/h) | 30 s | -37.3 LUFS |
+| `boons_freak-rain-sound-188158-first30s.mp3` | heavy rain (above 7.6 mm/h) | 30 s | -21.4 LUFS |
 
 \* Integrated loudness of the 30-second clip, measured with ffmpeg's `ebur128`
 filter. The game sets the rain's volume by target loudness using these three numbers

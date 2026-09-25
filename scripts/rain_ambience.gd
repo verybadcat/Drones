@@ -4,13 +4,14 @@ extends Node
 ## The sound of rain, chosen by the weather's own rain class (Weather.
 ## intensity_class, the same classes the map's weather block labels). Direct user
 ## spec:
-##   below light rain (< 0.1 mm/h)   no sound
-##   light, light-moderate           the "gentle rain" recording, quieter than its
-##                                   own level in both cases, light-moderate louder
-##                                   than light
-##   moderate                        the "drizzle" recording
-##   heavy (above moderate)          the "rain sound" recording — but even that
+##   drizzle (up to 0.5 mm/h)        no sound
+##   light rain (0.5 to 2.5 mm/h)    the "gentle rain" recording, quieter than its own level
+##   moderate (2.5 to 7.6)           the "drizzle" recording
+##   heavy (above 7.6)               the "rain sound" recording — but even that
 ##                                   played quieter than the file as supplied
+## (The classes are the standard rain scale, see Weather; the sound follows the class NAME,
+## by the user's decision, so most of the rain this map produces is drizzle or light rain:
+## silence, or the gentle recording.)
 ## and "we want the total volume perceived by the user to increase the heavier the
 ## rain is". Plays during deployment as well as the battle, like the wind (main.gd
 ## drives it), and is silent on the level-select screen and once the battle is over.
@@ -40,15 +41,14 @@ const HEAVY_FILE_LUFS: float = -21.4
 
 const SILENT_DB: float = AmbientMixer.SILENT_DB
 
-## Target heard loudness (LUFS) per rain class. Each is louder than the last; the
-## two gentle-rain classes sit 9 and 5 dB under that recording's own level, and the
-## heavy class 13 dB under the "rain sound"'s. JUDGMENT throughout (the ordering and
+## Target heard loudness (LUFS) per rain class. Each is louder than the last; light rain sits
+## 7 dB under the gentle-rain recording's own level, moderate 3 dB under the "drizzle"
+## recording's, and heavy 13 dB under the "rain sound"'s. JUDGMENT throughout (the ordering and
 ## the "quieter" are the user's; the numbers are mine, set with the wind in mind — the
 ## strongest wind is about -36 LUFS, a player mortar shot about -32 — so even heavy
 ## rain is a bed under the fight, not over it).
 const LOUDNESS_LUFS: Dictionary = {
-	Weather.Intensity.LIGHT: -48.0,
-	Weather.Intensity.LIGHT_MODERATE: -44.0,
+	Weather.Intensity.LIGHT: -44.0,
 	Weather.Intensity.MODERATE: -40.0,
 	Weather.Intensity.HEAVY: -34.0,
 }
@@ -66,7 +66,7 @@ static func plan(intensity: int, precip_type: int) -> Dictionary:
 		return off
 	var loudness: float = LOUDNESS_LUFS[intensity]
 	match intensity:
-		Weather.Intensity.LIGHT, Weather.Intensity.LIGHT_MODERATE:
+		Weather.Intensity.LIGHT:
 			return {"gentle": loudness - GENTLE_FILE_LUFS, "drizzle": SILENT_DB, "heavy": SILENT_DB}
 		Weather.Intensity.MODERATE:
 			return {"gentle": SILENT_DB, "drizzle": loudness - DRIZZLE_FILE_LUFS, "heavy": SILENT_DB}

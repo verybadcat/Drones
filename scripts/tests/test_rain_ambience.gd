@@ -1,8 +1,8 @@
 extends SceneTree
-## Direct user spec for rain sound: below light rain none; light and light-moderate
-## the first 30 s of the "gentle rain" recording, quieter than the file in both cases
-## and light-moderate louder than light; moderate the "drizzle" recording; anything
-## above moderate the "rain sound" recording, but even that quieter than supplied;
+## Direct user spec for rain sound, by the standard rain class names (drizzle, up to
+## 0.5 mm/h, is silent; if that makes most rain silent, that is fine): light rain the first
+## 30 s of the "gentle rain" recording, quieter than the file; moderate the "drizzle"
+## recording; heavy the "rain sound" recording, but even that quieter than supplied;
 ## "the total volume perceived by the user [should] increase the heavier the rain is";
 ## only the first 30 s of each file committed, documented as from the same site as the
 ## wind recordings. Plays from deployment through the battle, like the wind.
@@ -38,21 +38,21 @@ func run() -> void:
 
 func test_which_recording_for_which_rain() -> void:
 	var rain: int = Weather.Precip.RAIN
-	check(heard(RainAmbience.plan(Weather.Intensity.NONE, rain)).is_empty(), "Below light rain: no sound")
+	check(heard(RainAmbience.plan(Weather.Intensity.NONE, rain)).is_empty(), "Not raining: no sound")
 	check(heard(RainAmbience.plan(Weather.Intensity.NONE, Weather.Precip.NONE)).is_empty(), "No precipitation at all: no sound")
+	check(heard(RainAmbience.plan(Weather.Intensity.DRIZZLE, rain)).is_empty(), "Drizzle: no sound")
 	check(heard(RainAmbience.plan(Weather.Intensity.LIGHT, rain)) == ["gentle"], "Light rain: the gentle rain")
-	check(heard(RainAmbience.plan(Weather.Intensity.LIGHT_MODERATE, rain)) == ["gentle"], "Light-moderate rain: the gentle rain")
 	check(heard(RainAmbience.plan(Weather.Intensity.MODERATE, rain)) == ["drizzle"], "Moderate rain: the drizzle")
-	check(heard(RainAmbience.plan(Weather.Intensity.HEAVY, rain)) == ["heavy"], "Above moderate: the rain sound")
+	check(heard(RainAmbience.plan(Weather.Intensity.HEAVY, rain)) == ["heavy"], "Heavy rain: the rain sound")
 
 
 ## "The total volume perceived by the user to increase the heavier the rain is" —
 ## across every class boundary, though the three recordings differ by up to 15 LU in
 ## their own loudness.
 func test_the_level_rises_with_the_rain() -> void:
-	check(RainAmbience.heard_loudness(Weather.Intensity.NONE, Weather.Precip.RAIN) == -INF, "Silence below light rain")
+	check(RainAmbience.heard_loudness(Weather.Intensity.NONE, Weather.Precip.RAIN) == -INF and RainAmbience.heard_loudness(Weather.Intensity.DRIZZLE, Weather.Precip.RAIN) == -INF, "Silence for drizzle")
 	var previous := -INF
-	for intensity in [Weather.Intensity.LIGHT, Weather.Intensity.LIGHT_MODERATE, Weather.Intensity.MODERATE, Weather.Intensity.HEAVY]:
+	for intensity in [Weather.Intensity.LIGHT, Weather.Intensity.MODERATE, Weather.Intensity.HEAVY]:
 		var level: float = RainAmbience.heard_loudness(intensity, Weather.Precip.RAIN)
 		check(level > previous, "Heard level must rise with the class: %s is %.1f LUFS after %.1f" % [Weather.Intensity.keys()[intensity], level, previous])
 		previous = level
@@ -61,9 +61,7 @@ func test_the_level_rises_with_the_rain() -> void:
 func test_quieter_than_supplied() -> void:
 	var rain: int = Weather.Precip.RAIN
 	var light: float = RainAmbience.plan(Weather.Intensity.LIGHT, rain).gentle
-	var light_moderate: float = RainAmbience.plan(Weather.Intensity.LIGHT_MODERATE, rain).gentle
-	check(light < 0.0 and light_moderate < 0.0, "The gentle rain is quieter than the file in both classes (%.1f and %.1f dB)" % [light, light_moderate])
-	check(light_moderate > light, "...and light-moderate is louder than light (%.1f vs %.1f dB)" % [light_moderate, light])
+	check(light < 0.0, "The gentle rain is quieter than the file (%.1f dB)" % light)
 	var heavy: float = RainAmbience.plan(Weather.Intensity.HEAVY, rain).heavy
 	check(heavy < 0.0, "Even the 'rain sound' is played quieter than supplied (%.1f dB)" % heavy)
 	check(heavy <= -3.0, "...clearly quieter, not a rounding error (%.1f dB)" % heavy)
@@ -72,7 +70,7 @@ func test_quieter_than_supplied() -> void:
 ## Only actual rain: sleet and snow have their own look on the map and make no rain sound.
 func test_only_rain_sounds_like_rain() -> void:
 	for kind in [Weather.Precip.SLEET, Weather.Precip.SNOW]:
-		for intensity in [Weather.Intensity.LIGHT, Weather.Intensity.MODERATE, Weather.Intensity.HEAVY]:
+		for intensity in [Weather.Intensity.DRIZZLE, Weather.Intensity.LIGHT, Weather.Intensity.MODERATE, Weather.Intensity.HEAVY]:
 			check(heard(RainAmbience.plan(intensity, kind)).is_empty(), "%s at %s makes no rain sound" % [Weather.Precip.keys()[kind], Weather.Intensity.keys()[intensity]])
 	# And main.gd feeds it the weather's own class and type, on the wind's terms.
 	var main_src := FileAccess.get_file_as_string("res://scripts/main.gd")

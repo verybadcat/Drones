@@ -3525,7 +3525,7 @@ func _drone_detection_range() -> float:
 	return GameConfig.DRONE_DETECTION_RANGE * (weather.drone_detection_scale() if weather != null else 1.0)
 
 
-## Moderate-or-worse rain/snow blinds the camera at once: whatever is searching
+## Rain/snow at or above Weather.DRONE_BLIND_FROM_MM_H blinds the camera at once: whatever is searching
 ## is recalled (a flight home, in the same weather) and nothing launches until
 ## the precipitation has stayed below Weather.DRONE_RESUME_BELOW_MM_H for
 ## Weather.DRONE_RESUME_AFTER_S. Then, for every airborne drone, the per-minute

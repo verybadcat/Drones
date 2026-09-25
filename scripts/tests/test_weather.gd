@@ -194,10 +194,14 @@ func test_precipitation_type_follows_temperature_and_classes_follow_intensity() 
 	check(wet(pinned(), 0.3, 0.5).precip_type() == Weather.Precip.SLEET, "Around freezing: sleet")
 	check(wet(pinned(), 0.3, 6.0).precip_type() == Weather.Precip.RAIN, "Above freezing: rain")
 	check(pinned().precip_type() == Weather.Precip.NONE and pinned().precip_label() == "", "Dry: no type, no label")
-	var cases := {0.2: Weather.Intensity.LIGHT, 0.7: Weather.Intensity.LIGHT_MODERATE, 1.5: Weather.Intensity.MODERATE, 4.0: Weather.Intensity.HEAVY}
+	# The standard rate scale (AMS: light under 2.5 mm/h, moderate 2.5-7.6, heavy above 7.6), with
+	# the lightest rain, up to and including 0.5 mm/h, called drizzle (the user's decision).
+	var cases := {0.2: Weather.Intensity.DRIZZLE, 0.5: Weather.Intensity.DRIZZLE, 0.51: Weather.Intensity.LIGHT, 2.4: Weather.Intensity.LIGHT, 2.5: Weather.Intensity.MODERATE, 7.5: Weather.Intensity.MODERATE, 7.6: Weather.Intensity.HEAVY, 11.0: Weather.Intensity.HEAVY}
 	for mm in cases:
-		check(wet(pinned(), mm).intensity_class() == cases[mm], "%.1f mm/h must classify as %d" % [mm, cases[mm]])
-	check(wet(pinned(), 1.5).precip_label() == "Moderate rain", "Label reads as the user's classes (got '%s')" % wet(pinned(), 1.5).precip_label())
+		check(wet(pinned(), mm).intensity_class() == cases[mm], "%.2f mm/h must classify as %s" % [mm, Weather.Intensity.keys()[cases[mm]]])
+	check(wet(pinned(), 4.0).precip_label() == "Moderate rain", "Label reads as the standard class (got '%s')" % wet(pinned(), 4.0).precip_label())
+	check(wet(pinned(), 0.3).precip_label() == "Drizzle" and wet(pinned(), 1.0).precip_label() == "Light rain" and wet(pinned(), 9.0).precip_label() == "Heavy rain", "Drizzle, Light rain, Heavy rain")
+	check(wet(pinned(), 0.3, -5.0).precip_label() == "Light snow" and wet(pinned(), 0.3, 0.5).precip_label() == "Light sleet", "Only rain is called drizzle: the same faint fall of snow or sleet is 'light'")
 	check(wet(pinned(), 0.03).is_precipitating() == false, "Below 0.1 mm/h is not precipitation")
 
 
@@ -220,17 +224,36 @@ func test_wind_vector_points_the_way_it_blows_and_grows_with_height() -> void:
 	check(absf(w.wind_speed_at(300.0) / w.wind_speed_at(10.0) - pow(30.0, 0.14)) < 0.001, "Shear follows the measured 0.14 power law")
 
 
-func test_rain_lowers_flight_altitude_and_blinds_moderate_or_worse() -> void:
+func test_rain_lowers_flight_altitude_and_blinds_from_2_5_mm_per_hour() -> void:
 	check(pinned().drone_operating_altitude_m() == 300.0 and pinned().drone_detection_scale() == 1.0, "Dry: full altitude, full range")
-	var drizzle: float = wet(pinned(), 0.1).drone_operating_altitude_m()
-	var light: float = wet(pinned(), 0.2).drone_operating_altitude_m()
-	var lm: float = wet(pinned(), 0.5).drone_operating_altitude_m()
-	check(absf(drizzle - 250.0) < 8.0 and absf(light - 208.0) < 8.0 and absf(lm - 120.0) < 8.0, "Flight ceiling in 0.1 / 0.2 / 0.5 mm/h must be about 250 / 208 / 120 m (got %.0f / %.0f / %.0f)" % [drizzle, light, lm])
-	check(absf(wet(pinned(), 0.5).drone_detection_scale() - lm / 300.0) < 0.001, "Detection range scales with altitude")
-	check(not wet(pinned(), 0.9).drone_vision_blocked(), "Light-moderate rain is still flyable")
-	check(wet(pinned(), 1.0).drone_vision_blocked() and wet(pinned(), 5.0).drone_vision_blocked(), "Moderate and heavy rain blind the camera")
-	check(wet(pinned(), 1.5).drone_detection_scale() == 0.0, "Blind means zero detection range")
-	check(wet(pinned(), 0.5).ground_detection_scale() == 0.8 and wet(pinned(), 5.0).ground_detection_scale() == 0.4 and pinned().ground_detection_scale() == 1.0, "Ground detection shrinks with precipitation class")
+	# The ceiling falls smoothly with the rate, reaching its 60 m floor where the camera is blinded.
+	var expected := {0.1: 281.0, 0.5: 217.0, 1.0: 158.0, 2.0: 83.0, 2.4: 64.0}
+	for mm in expected:
+		var got: float = wet(pinned(), mm).drone_operating_altitude_m()
+		check(absf(got - expected[mm]) < 4.0, "Flight ceiling at %.1f mm/h must be about %.0f m (got %.0f)" % [mm, expected[mm], got])
+	check(absf(wet(pinned(), 1.0).drone_detection_scale() - wet(pinned(), 1.0).drone_operating_altitude_m() / 300.0) < 0.001, "Detection range scales with altitude")
+	check(not wet(pinned(), 2.4).drone_vision_blocked() and wet(pinned(), 2.4).drone_detection_scale() > 0.15, "Just under 2.5 mm/h (light rain) the drone still sees, from low down")
+	check(wet(pinned(), 2.5).drone_vision_blocked() and wet(pinned(), 5.0).drone_vision_blocked(), "From 2.5 mm/h (the bottom of moderate rain) the camera is blinded")
+	check(wet(pinned(), 3.0).drone_detection_scale() == 0.0, "Blind means zero detection range")
+	# A ground observer's range follows the RATE (breakpoints 0.5 / 1 / 3 mm/h), whatever the class is called.
+	check(wet(pinned(), 0.3).ground_detection_scale() == 0.9 and wet(pinned(), 0.7).ground_detection_scale() == 0.8 and wet(pinned(), 2.0).ground_detection_scale() == 0.6 and wet(pinned(), 5.0).ground_detection_scale() == 0.4 and pinned().ground_detection_scale() == 1.0, "Ground detection shrinks with the rate")
+
+
+## What the drones suffer is set by the rate; the class names only label it. Across the
+## class boundaries at 0.5 and 7.6 mm/h nothing about the drone's trouble jumps (the one
+## jump is the deliberate one at the blinding rate, DRONE_BLIND_FROM_MM_H).
+func test_drone_trouble_follows_the_rate_not_the_class() -> void:
+	for boundary in [0.5, 7.6]:
+		var below := wet(pinned(0.0), boundary - 0.01)
+		var above := wet(pinned(0.0), boundary + 0.01)
+		check(below.intensity_class() != above.intensity_class(), "Setup: %.1f mm/h is a class boundary" % boundary)
+		var h_below: float = below.drone_hazard_per_minute(below.drone_operating_altitude_m())
+		var h_above: float = above.drone_hazard_per_minute(above.drone_operating_altitude_m())
+		check(absf(h_above - h_below) / h_below < 0.05, "The hazard does not jump across the class boundary at %.1f mm/h (%.5f vs %.5f)" % [boundary, h_below, h_above])
+		check(absf(above.drone_operating_altitude_m() - below.drone_operating_altitude_m()) < 3.0 and above.drone_vision_blocked() == below.drone_vision_blocked(), "...nor the altitude or the blinding")
+	var before := wet(pinned(0.0), Weather.DRONE_BLIND_FROM_MM_H - 0.01)
+	var after := wet(pinned(0.0), Weather.DRONE_BLIND_FROM_MM_H)
+	check(after.drone_vision_blocked() and not before.drone_vision_blocked(), "The blinding rate is a rate: it is where the drone is blinded")
 
 
 func test_cold_shortens_flight_time() -> void:
@@ -248,20 +271,21 @@ func test_failure_rates_are_the_agreed_table() -> void:
 	var w15 := pinned(15.0 / pow(30.0, 0.14))
 	check(absf(sortie_failure_chance(w12, 35.0) - 0.059) < 0.012, "12 m/s aloft: about 6%% per sortie (got %.3f)" % sortie_failure_chance(w12, 35.0))
 	check(absf(sortie_failure_chance(w15, 35.0) - 0.29) < 0.05, "15 m/s aloft: about 29%% per sortie (got %.3f)" % sortie_failure_chance(w15, 35.0))
-	# Rain below moderate: per 35-minute sortie, at the altitude the drone then flies.
-	var expected := {0.1: 0.059, 0.2: 0.091, 0.5: 0.166}
+	# Rain under the blinding rate: per 35-minute sortie, at the altitude the drone then flies
+	# (the risk goes in proportion to the rate: multiplier 1 + 30 * I).
+	var expected := {0.1: 0.0115, 0.5: 0.046, 1.0: 0.086, 2.0: 0.165}
 	for mm in expected:
 		var w := wet(pinned(0.0), mm)
 		var p: float = sortie_failure_chance(w, 35.0, w.drone_operating_altitude_m())
-		check(absf(p - expected[mm]) < 0.015, "%.1f mm/h rain: about %.0f%% per sortie (got %.3f)" % [mm, expected[mm] * 100.0, p])
-	# Moderate and worse: the flight home, per minute — about 20/30/45/60% over 5 minutes.
-	var home := {1.0: 0.20, 2.0: 0.30, 4.0: 0.45, 8.0: 0.62}
+		check(absf(p - expected[mm]) < 0.01, "%.1f mm/h rain: about %.1f%% per sortie (got %.3f)" % [mm, expected[mm] * 100.0, p])
+	# At or above the blinding rate: the flight home, per minute — about 35/45/60% over 5 minutes.
+	var home := {2.5: 0.35, 4.0: 0.45, 8.0: 0.62}
 	for mm in home:
 		var w := wet(pinned(0.0), mm)
 		var p5: float = sortie_failure_chance(w, 5.0)
-		check(absf(p5 - home[mm]) < 0.05, "%.0f mm/h: about %.0f%% over a 5-minute flight home (got %.3f)" % [mm, home[mm] * 100.0, p5])
-	# Moderate rain is far worse than light-moderate, minute for minute.
-	check(wet(pinned(0.0), 1.0).drone_hazard_per_minute(300.0) > wet(pinned(0.0), 0.9).drone_hazard_per_minute(120.0) * 4.0, "Crossing into moderate rain must step the hazard up sharply")
+		check(absf(p5 - home[mm]) < 0.05, "%.1f mm/h: about %.0f%% over a 5-minute flight home (got %.3f)" % [mm, home[mm] * 100.0, p5])
+	# Blinded rain is far worse than just under it, minute for minute.
+	check(wet(pinned(0.0), 2.5).drone_hazard_per_minute(300.0) > wet(pinned(0.0), 2.4).drone_hazard_per_minute(64.0) * 4.0, "Crossing into blinding rain must step the hazard up sharply")
 	# Snow: half the rain effect when dry, the full rain effect when wet or mixed
 	# (compared with the cold multiplier divided out, since cold adds its own).
 	var rain: float = wet(pinned(0.0), 0.3, 6.0).drone_hazard_per_minute(300.0)
@@ -273,7 +297,7 @@ func test_failure_rates_are_the_agreed_table() -> void:
 
 
 func test_failure_cause_names_the_biggest_contributor() -> void:
-	check(wet(pinned(0.0), 1.5).drone_hazard_cause(300.0) == "the moderate rain", "Moderate rain gets the blame")
+	check(wet(pinned(0.0), 3.0).drone_hazard_cause(300.0) == "the moderate rain", "Moderate rain gets the blame")
 	check(pinned(14.0 / pow(30.0, 0.14)).drone_hazard_cause(300.0) == "the wind", "Strong wind gets the blame")
 	check(pinned(0.0, 270.0, -8.0).drone_hazard_cause(300.0) == "the cold", "Cold gets the blame")
 	check(pinned(0.0).drone_hazard_cause(300.0) == "a mechanical fault", "Nothing else: a fault")
@@ -442,8 +466,8 @@ func drone_battle(w: Weather):
 	return bm
 
 
-func test_moderate_rain_recalls_and_grounds_the_drones_until_it_eases() -> void:
-	var w := wet(pinned(0.0), 2.0)
+func test_blinding_rain_recalls_and_grounds_the_drones_until_it_eases() -> void:
+	var w := wet(pinned(0.0), 3.0)
 	var bm = drone_battle(w)
 	var d: Unit = bm.active_drone
 	bm._update_drone_operations(6.0)
@@ -453,8 +477,8 @@ func test_moderate_rain_recalls_and_grounds_the_drones_until_it_eases() -> void:
 		bm._update_drone_operations(6.0)
 	check(bm.active_drone == null, "Nothing may launch while it is raining moderately")
 	check(CombatResolver.effective_detection_range(d, unit(bm, Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(m(900), m(1500)))) == 0.0, "A drone's detection range must be zero at once")
-	# Eases to light-moderate: still grounded until it has stayed calm for a while.
-	w.precip_mm_h = 0.4
+	# Eases to light rain: still grounded until it has stayed under the resume rate for a while.
+	w.precip_mm_h = 1.0
 	for i in 30: # 180 s
 		bm._update_drone_operations(6.0)
 	check(bm._drone_grounded_for_weather and bm.active_drone == null, "Just easing is not enough — still grounded after 3 minutes")
@@ -514,7 +538,7 @@ func test_weather_failures_lose_or_abort_and_the_books_balance() -> void:
 func test_hazard_actually_kills_drones_over_time() -> void:
 	# 12 m/s aloft and moderate rain on the way home: run many drone-minutes and
 	# check the loss count is in the expected ballpark (not zero, not everything).
-	var w := wet(pinned(0.0), 2.0)
+	var w := wet(pinned(0.0), 2.5) # the blinding rate: the flight home is blind
 	var bm = drone_battle(w)
 	bm.active_drone = null
 	var total_drones := 400
@@ -528,7 +552,7 @@ func test_hazard_actually_kills_drones_over_time() -> void:
 			bm._update_drone_weather(6.0)
 	losses = bm._drones_lost_to_weather
 	var share: float = float(losses) / total_drones
-	check(share > 0.22 and share < 0.38, "A 5-minute flight home in 2 mm/h rain should lose about 30%% of drones (got %.2f)" % share)
+	check(share > 0.27 and share < 0.43, "A 5-minute blind flight home in 2.5 mm/h rain should lose about 35%% of drones (got %.2f)" % share)
 
 
 func test_wind_changes_ground_speed_and_the_trip_home() -> void:
@@ -607,33 +631,33 @@ func test_start_battle_rolls_fresh_weather_each_time_and_keeps_a_deployment_roll
 
 ## Hysteresis: a class changes only once the intensity is INTENSITY_CLASS_HYSTERESIS
 ## (10%) past the boundary, in either direction — a little reluctance, not a lock. The
-## light | light-moderate boundary is 0.5 mm/h, so 0.55 going up and 0.45 coming back.
+## drizzle | light boundary is 0.5 mm/h, so 0.55 going up and 0.45 coming back.
 func test_a_class_changes_only_once_the_intensity_is_clear_of_the_boundary() -> void:
 	var w := wet(pinned(), 0.42)
-	check(w.intensity_class() == Weather.Intensity.LIGHT, "Setup: 0.42 mm/h is light")
+	check(w.intensity_class() == Weather.Intensity.DRIZZLE, "Setup: 0.42 mm/h is drizzle")
 	w.precip_mm_h = 0.52
-	check(w.intensity_class() == Weather.Intensity.LIGHT, "Just over the 0.5 boundary is still light")
+	check(w.intensity_class() == Weather.Intensity.DRIZZLE, "Just over the 0.5 boundary is still drizzle")
 	w.precip_mm_h = 0.54
-	check(w.intensity_class() == Weather.Intensity.LIGHT, "...and 0.54 (inside the band)")
+	check(w.intensity_class() == Weather.Intensity.DRIZZLE, "...and 0.54 (inside the band)")
 	w.precip_mm_h = 0.57
-	check(w.intensity_class() == Weather.Intensity.LIGHT_MODERATE, "Clear of the band it becomes light-moderate")
+	check(w.intensity_class() == Weather.Intensity.LIGHT, "Clear of the band it becomes light rain")
 	w.precip_mm_h = 0.48
-	check(w.intensity_class() == Weather.Intensity.LIGHT_MODERATE, "Back just under the boundary it stays light-moderate")
+	check(w.intensity_class() == Weather.Intensity.LIGHT, "Back just under the boundary it stays light rain")
 	w.precip_mm_h = 0.46
-	check(w.intensity_class() == Weather.Intensity.LIGHT_MODERATE, "...also at 0.46 (inside the band)")
+	check(w.intensity_class() == Weather.Intensity.LIGHT, "...also at 0.46 (inside the band)")
 	w.precip_mm_h = 0.43
-	check(w.intensity_class() == Weather.Intensity.LIGHT, "Clear of the band on the way down it is light again")
-	w.precip_mm_h = 6.0
+	check(w.intensity_class() == Weather.Intensity.DRIZZLE, "Clear of the band on the way down it is drizzle again")
+	w.precip_mm_h = 9.0
 	check(w.intensity_class() == Weather.Intensity.HEAVY, "A jump across several classes lands in the right one")
-	w.precip_mm_h = 2.8
-	check(w.intensity_class() == Weather.Intensity.HEAVY, "Heavy holds just under its 3 mm/h boundary")
-	w.precip_mm_h = 2.6
+	w.precip_mm_h = 7.4
+	check(w.intensity_class() == Weather.Intensity.HEAVY, "Heavy holds just under its 7.6 mm/h boundary")
+	w.precip_mm_h = 6.5
 	check(w.intensity_class() == Weather.Intensity.MODERATE, "...and gives way once clear of it")
 	w._wet = false
 	w.precip_mm_h = 0.0
 	check(w.intensity_class() == Weather.Intensity.NONE, "Dry is no class")
 	wet(w, 0.55)
-	check(w.intensity_class() == Weather.Intensity.LIGHT_MODERATE, "A fresh shower starts in the class its intensity is in, with no memory of the last one")
+	check(w.intensity_class() == Weather.Intensity.LIGHT, "A fresh shower starts in the class its intensity is in, with no memory of the last one")
 
 
 ## Live report: the rain (its sound, the map's label and the "becomes ..." log lines)
@@ -740,7 +764,7 @@ func run() -> void:
 	test_precipitation_type_follows_temperature_and_classes_follow_intensity()
 	test_ground_speed_crabs_into_the_wind()
 	test_wind_vector_points_the_way_it_blows_and_grows_with_height()
-	test_rain_lowers_flight_altitude_and_blinds_moderate_or_worse()
+	test_rain_lowers_flight_altitude_and_blinds_from_2_5_mm_per_hour()
 	test_cold_shortens_flight_time()
 	test_failure_rates_are_the_agreed_table()
 	test_failure_cause_names_the_biggest_contributor()
@@ -749,7 +773,8 @@ func run() -> void:
 	test_one_crew_error_persists_through_a_mission()
 	test_observation_improves_the_correction_and_a_drone_most()
 	test_a_wind_that_changes_mid_mission_leaves_the_crew_correcting_for_the_old_one()
-	test_moderate_rain_recalls_and_grounds_the_drones_until_it_eases()
+	test_blinding_rain_recalls_and_grounds_the_drones_until_it_eases()
+	test_drone_trouble_follows_the_rate_not_the_class()
 	test_light_rain_does_not_ground_and_drizzle_lowers_range()
 	test_weather_failures_lose_or_abort_and_the_books_balance()
 	test_hazard_actually_kills_drones_over_time()

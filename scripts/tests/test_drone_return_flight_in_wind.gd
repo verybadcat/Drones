@@ -109,8 +109,12 @@ func test_pilot_flies_lower_when_the_wind_aloft_is_strong() -> void:
 	check(is_equal_approx(pinned(30.0).drone_operating_altitude_m(), Weather.DRONE_MIN_ALTITUDE_M), "It never goes below the floor altitude")
 	var wet: Weather = pinned(8.0)
 	wet._wet = true
-	wet.precip_mm_h = 0.5
-	check(wet.drone_operating_altitude_m() <= minf(altitude, 130.0), "Rain and wind both want it low: it takes the lower of the two")
+	wet.precip_mm_h = 1.5 # rain alone would put it at ~114 m
+	var rain_only: Weather = pinned(0.0)
+	rain_only._wet = true
+	rain_only.precip_mm_h = 1.5
+	check(wet.drone_operating_altitude_m() <= minf(altitude, rain_only.drone_operating_altitude_m()) + 0.01, "Rain and wind both want it low: it takes the lower of the two")
+	check(rain_only.drone_operating_altitude_m() < altitude, "Setup: here the rain is the stricter of the two")
 	check(pinned(8.0).drone_hazard_per_minute(altitude) < pinned(8.0).drone_hazard_per_minute(300.0), "The lower altitude must actually cut the wind hazard")
 
 

@@ -21,7 +21,7 @@ class_name Weather
 static var current: Weather = null # the weather of the battle being set up or fought; null = none (tests)
 
 enum Precip { NONE, RAIN, SLEET, SNOW }
-enum Intensity { NONE, LIGHT, LIGHT_MODERATE, MODERATE, HEAVY }
+enum Intensity { NONE, DRIZZLE, LIGHT, MODERATE, HEAVY }
 
 # --- Wind (SOURCED) ---------------------------------------------------------
 const WIND_WEIBULL_SHAPE: float = 2.44 # daytime 10 m speed: Weibull shape 2.44, scale 5.34 m/s (mean 4.7)
@@ -61,10 +61,19 @@ const INTENSITY_WITHIN_EVENT_LOG_SD: float = 0.5 # JUDGMENT
 const INTENSITY_HOURLY_AUTOCORR: float = 0.8 # JUDGMENT
 const INTENSITY_MAX_MM_H: float = 12.0
 
-# --- Intensity classes (JUDGMENT; user's "moderate and above" reading) -------
-const LIGHT_BELOW_MM_H: float = 0.5
-const LIGHT_MODERATE_BELOW_MM_H: float = 1.0
-const MODERATE_BELOW_MM_H: float = 3.0
+# --- Intensity classes -------------------------------------------------------
+## The standard rate scale (American Meteorological Society Glossary; the UK Met Office's
+## Fact Sheet 3 agrees on light and differs on the upper bounds, 10 and 10-50 mm/h):
+## light rain under 2.5 mm/h, moderate 2.5 to 7.6, heavy above 7.6 (violent, over 50 mm/h,
+## is beyond anything this model produces: INTENSITY_MAX_MM_H). Drizzle is not a rate class
+## in those sources — the Met Office is explicit that the difference from rain "is purely
+## one of drop size rather than intensity" — and drop size is not modelled here, so, by the
+## user's decision, the lightest rain, up to and INCLUDING 0.5 mm/h, is called drizzle.
+## The classes only NAME and LABEL the rain (and pick its sound): what it does to drones and
+## observers depends on the rate itself, by the constants below, not on the class.
+const DRIZZLE_UP_TO_MM_H: float = 0.5
+const LIGHT_BELOW_MM_H: float = 2.5
+const MODERATE_BELOW_MM_H: float = 7.6
 ## Hysteresis on the class: the intensity is a random walk (see advance), so near a
 ## boundary it jitters across it many times. A class only changes once the intensity
 ## is this fraction PAST the boundary, so a jitter that stays inside the band changes
@@ -87,19 +96,41 @@ const DRONE_COLD_HAZARD_PER_DEGREE: float = 0.10 # JUDGMENT
 const DRONE_BASE_FAILURES_PER_FLIGHT_HOUR: float = 1.0 / 200.0 # JUDGMENT: no defensible published figure for small quadcopters
 const DRONE_WIND_HAZARD_SCALE: float = 20.0 # JUDGMENT: multiplier 1 + 20 (v/12)^8 — about 6% per 35-minute sortie at 12 m/s, 29% at 15
 const DRONE_WIND_HAZARD_EXPONENT: float = 8.0
-const DRONE_RAIN_HAZARD_SCALE: float = 100.0 # JUDGMENT: below moderate, multiplier 1 + 100 * I^0.7 (6% per sortie in drizzle, 17% at 0.5 mm/h)
-const DRONE_PRECIP_HAZARD_EXPONENT: float = 0.7
-const DRONE_WET_RETURN_HAZARD_PER_MIN: float = 0.045 # JUDGMENT: moderate+ rain, per minute of the flight home x I^0.7 (~20% over 5 min at 1 mm/h, 60% at 8)
+## Below DRONE_BLIND_FROM_MM_H the failure chance is multiplied by 1 + 30 * I: water on a
+## non-waterproof airframe, so the risk goes with how much falls on it, in proportion to the
+## rate. About 1% per 35-minute sortie at 0.1 mm/h, 5% at 0.5, 9% at 1, 20% at 2.4 (the
+## baseline alone is 0.3%). JUDGMENT: no published figure was found; the anchor is that a
+## sortie just short of the grounding rate is a real gamble. (Before the standard classes
+## were adopted this was 1 + 100 * I^0.7 — 6% at 0.1, 17% at 0.5, 25% at 1, 42% at 2.4 —
+## which made even trace drizzle a serious risk.)
+const DRONE_RAIN_HAZARD_SCALE: float = 30.0
+const DRONE_PRECIP_HAZARD_EXPONENT: float = 1.0
+const DRONE_RETURN_HAZARD_EXPONENT: float = 0.7 # the blind flight home, below
+const DRONE_WET_RETURN_HAZARD_PER_MIN: float = 0.045 # JUDGMENT: at or above DRONE_BLIND_FROM_MM_H, per minute of the flight home x I^0.7 (~35% over 5 min at 2.5 mm/h, 60% at 8)
 const DRONE_DRY_SNOW_HAZARD_FACTOR: float = 0.5 # JUDGMENT: no documented rate; the manual only groups snow with rain
-const DRONE_ABORT_SHARE: float = 0.35 # JUDGMENT: share of ordinary failures that end in a forced return instead of a crash (never in moderate+ rain)
-const DRONE_ALTITUDE_DECAY_PER_MM_H: float = 1.83 # JUDGMENT: fly lower to see through rain: 300 m x exp(-1.83 I) (250 at 0.1, 200 at 0.2, 120 at 0.5)
+const DRONE_ABORT_SHARE: float = 0.35 # JUDGMENT: share of ordinary failures that end in a forced return instead of a crash (never once blind)
+## The drone flies lower to see through rain, and sees less: 300 m x exp(-k I), reaching the
+## minimum altitude (and a fifth of its normal detection range) exactly where the camera is
+## blinded, so the loss is spread over the whole light-rain range instead of piled into its
+## first millimetre: about 280 m at 0.1 mm/h, 220 at 0.5, 160 at 1, 80 at 2, 60 at 2.5. JUDGMENT.
+const DRONE_ALTITUDE_DECAY_PER_MM_H: float = 0.644 # = ln(300 / 60) / DRONE_BLIND_FROM_MM_H
 const DRONE_MIN_ALTITUDE_M: float = 60.0
 const DRONE_NORMAL_ALTITUDE_M: float = GameConfig.DRONE_ALTITUDE_M
-const DRONE_RESUME_BELOW_MM_H: float = 0.7 # JUDGMENT: grounded drones fly again once rain has stayed under this...
+## Rain this heavy blinds the camera at once (lens and dome swamped; the manual says not to
+## fly in rain at all): whatever is searching is recalled and nothing launches. It is the
+## bottom of the standard MODERATE rain class — "people don't fly in even moderate rain", the
+## user's own reading of practice — but a rate, not a class: retune it here. JUDGMENT.
+const DRONE_BLIND_FROM_MM_H: float = 2.5
+const DRONE_RESUME_BELOW_MM_H: float = 1.75 # JUDGMENT: grounded drones fly again once rain has stayed under this (0.7 of the blinding rate)...
 const DRONE_RESUME_AFTER_S: float = 300.0 # ...for this long
 
 # --- Other effects (JUDGMENT) ------------------------------------------------
-const GROUND_DETECTION_SCALE: Array[float] = [1.0, 0.9, 0.8, 0.6, 0.4] # by Intensity: none, light, light-moderate, moderate, heavy
+## A ground observer's detection range in precipitation, by RATE: [upper bound mm/h, scale]
+## pairs, then GROUND_DETECTION_HEAVIEST at and above the last bound. (These are the same
+## rate breakpoints as before the standard class names were adopted: the effect follows the
+## rate, not the name.)
+const GROUND_DETECTION_BY_RATE: Array = [[0.5, 0.9], [1.0, 0.8], [3.0, 0.6]]
+const GROUND_DETECTION_HEAVIEST: float = 0.4
 const MORTAR_WIND_COUPLING: float = 0.25 # rough shell drift as a fraction of wind x flight time
 const MORTAR_WIND_ALTITUDE_M: float = 300.0
 ## The crew estimates that drift and aims off to cancel it, and the estimate is
@@ -298,20 +329,20 @@ func displayed_intensity_mm_h() -> float:
 
 
 static func _raw_class(mm_h: float) -> int:
+	if mm_h <= DRIZZLE_UP_TO_MM_H:
+		return Intensity.DRIZZLE
 	if mm_h < LIGHT_BELOW_MM_H:
 		return Intensity.LIGHT
-	if mm_h < LIGHT_MODERATE_BELOW_MM_H:
-		return Intensity.LIGHT_MODERATE
 	if mm_h < MODERATE_BELOW_MM_H:
 		return Intensity.MODERATE
 	return Intensity.HEAVY
 
 
-## The intensity at which `cls` begins (LIGHT begins at precipitation itself).
+## The intensity at which `cls` begins (DRIZZLE begins at precipitation itself).
 static func _class_lower_edge(cls: int) -> float:
 	match cls:
-		Intensity.LIGHT_MODERATE: return LIGHT_BELOW_MM_H
-		Intensity.MODERATE: return LIGHT_MODERATE_BELOW_MM_H
+		Intensity.LIGHT: return DRIZZLE_UP_TO_MM_H
+		Intensity.MODERATE: return LIGHT_BELOW_MM_H
 		Intensity.HEAVY: return MODERATE_BELOW_MM_H
 	return INTENSITY_FLOOR_MM_H
 
@@ -321,7 +352,10 @@ func precip_label() -> String:
 	if cls == Intensity.NONE:
 		return ""
 	var noun: String = ["", "rain", "sleet", "snow"][precip_type()]
-	var adjective: String = ["", "Light", "Light-moderate", "Moderate", "Heavy"][cls]
+	if cls == Intensity.DRIZZLE:
+		# Drizzle is a rain word; the same faint fall as sleet or snow is just light.
+		return "Drizzle" if precip_type() == Precip.RAIN else "Light %s" % noun
+	var adjective: String = ["", "", "Light", "Moderate", "Heavy"][cls]
 	return "%s %s" % [adjective, noun]
 
 
@@ -346,11 +380,10 @@ func hud_signature() -> String:
 
 # --- Drone effects ---------------------------------------------------------------
 
-## True once rain/snow is heavy enough that the camera can't see the ground:
-## moderate and above (the user's reading of real practice; the manual says not
-## to fly in rain at all).
+## True once rain/snow is heavy enough that the camera can't see the ground: at or
+## above DRONE_BLIND_FROM_MM_H (see there; a rate, not a class).
 func drone_vision_blocked() -> bool:
-	return is_precipitating() and precip_mm_h >= LIGHT_MODERATE_BELOW_MM_H
+	return is_precipitating() and precip_mm_h >= DRONE_BLIND_FROM_MM_H
 
 
 ## The highest altitude at which the MEAN wind is still within the airframe's
@@ -368,8 +401,8 @@ func drone_wind_limited_altitude_m() -> float:
 	return clampf(10.0 * pow(DRONE_WIND_RATING_MPS / wind_speed_10m, 1.0 / WIND_SHEAR_EXPONENT), DRONE_MIN_ALTITUDE_M, DRONE_NORMAL_ALTITUDE_M)
 
 
-## Where the drone actually flies: the lower of the rain altitude (below
-## moderate precipitation it flies lower to see through it) and the wind
+## Where the drone actually flies: the lower of the rain altitude (in rain it
+## flies lower to see through it, more so the harder it falls) and the wind
 ## altitude above (JUDGMENT: no cited pilot practice for the exact rule —
 ## the rating is the one sourced number, DJI's own).
 func drone_operating_altitude_m() -> float:
@@ -389,7 +422,12 @@ func drone_detection_scale() -> float:
 
 ## Multiplies a GROUND observer's detection range.
 func ground_detection_scale() -> float:
-	return GROUND_DETECTION_SCALE[intensity_class()]
+	if not is_precipitating():
+		return 1.0
+	for pair in GROUND_DETECTION_BY_RATE:
+		if precip_mm_h < pair[0]:
+			return pair[1]
+	return GROUND_DETECTION_HEAVIEST
 
 
 ## Flight time on a full battery, as a fraction of its rated value.
@@ -402,8 +440,8 @@ func _drone_precip_type_factor() -> float:
 
 
 ## Per-flight-minute chance of a failure. Baseline x wind x cold x (below
-## moderate) precipitation; in moderate-or-worse precipitation the drone is on
-## a forced flight home, and the wet adds its own per-minute hazard instead.
+## DRONE_BLIND_FROM_MM_H) precipitation; at or above it the drone is on a forced
+## flight home, and the wet adds its own per-minute hazard instead.
 func drone_hazard_per_minute(altitude_m: float) -> float:
 	var base: float = DRONE_BASE_FAILURES_PER_FLIGHT_HOUR / 60.0
 	var wind: float = wind_speed_at(altitude_m) * gust_multiplier(altitude_m)
@@ -411,11 +449,10 @@ func drone_hazard_per_minute(altitude_m: float) -> float:
 	var cold_mult: float = 1.0 + DRONE_COLD_HAZARD_PER_DEGREE * maxf(0.0, DRONE_COLD_CAPACITY_ONSET_C - temperature_c)
 	var hazard: float = base * wind_mult * cold_mult
 	if is_precipitating():
-		var wet_term: float = pow(precip_mm_h, DRONE_PRECIP_HAZARD_EXPONENT) * _drone_precip_type_factor()
 		if drone_vision_blocked():
-			hazard += DRONE_WET_RETURN_HAZARD_PER_MIN * wet_term
+			hazard += DRONE_WET_RETURN_HAZARD_PER_MIN * pow(precip_mm_h, DRONE_RETURN_HAZARD_EXPONENT) * _drone_precip_type_factor()
 		else:
-			hazard *= 1.0 + DRONE_RAIN_HAZARD_SCALE * wet_term
+			hazard *= 1.0 + DRONE_RAIN_HAZARD_SCALE * pow(precip_mm_h, DRONE_PRECIP_HAZARD_EXPONENT) * _drone_precip_type_factor()
 	return hazard
 
 
