@@ -154,6 +154,20 @@ static func summarize(records: Array[Dictionary]) -> Array[Dictionary]:
 	return out
 
 
+## The battles of one scenario, newest first, at most `limit`: {time_utc, verdict,
+## score} with the score under the CURRENT rubric (see rescored).
+static func scenario_battles(records: Array[Dictionary], map_id: String, recon_mode: String, limit: int = 10) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for i in range(records.size() - 1, -1, -1):
+		var rec: Dictionary = records[i]
+		if rec.map_id != map_id or rec.recon_mode != recon_mode:
+			continue
+		out.append({"time_utc": str(rec.get("time_utc", "")), "verdict": str(rec.get("verdict", "")), "score": rescored(rec)})
+		if out.size() >= limit:
+			break
+	return out
+
+
 ## The summary for one scenario, or an empty Dictionary if it has no history.
 static func scenario_summary(records: Array[Dictionary], map_id: String, recon_mode: String) -> Dictionary:
 	for entry in summarize(records):

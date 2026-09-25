@@ -51,6 +51,7 @@ func run() -> void:
 	wipe()
 	test_records_survive_a_restart()
 	test_averages_are_per_scenario_location_and_scouting()
+	test_one_scenarios_battles_newest_first_with_a_limit()
 	test_a_tuned_rubric_rescores_the_whole_history()
 	test_damaged_files_lose_at_most_the_damaged_line()
 	test_unknown_fields_and_a_missing_file_are_fine()
@@ -99,6 +100,28 @@ func test_averages_are_per_scenario_location_and_scouting() -> void:
 	check(spotter.count == 1 and is_equal_approx(spotter.average, 40.0), "The same place with a different kind of scouting is its own scenario")
 	check(BattleScoreLog.scenario_summary(log.load_records(), "pervomaiske", "SPOTTER").is_empty(), "A scenario never played has no summary")
 	check(summaries[0].map_id <= summaries[-1].map_id, "Summaries come back in a stable order")
+
+
+## The scores table's detail view: one scenario's battles, newest first, at most `limit`,
+## each scored under the current rubric.
+func test_one_scenarios_battles_newest_first_with_a_limit() -> void:
+	wipe()
+	var log := fresh_log()
+	var won := {"position": "held", "enemy_killed": 6}
+	var lost := {"position": "lost", "enemy_killed": 1}
+	log.record({"score": 999.0, "inputs": won, "verdict": "FIRST"}, "pishchane", "DRONE_TEAM")
+	log.record({"score": 1.0, "inputs": lost, "verdict": "OTHER PLACE"}, "pervomaiske", "DRONE_TEAM")
+	log.record({"score": 1.0, "inputs": lost, "verdict": "OTHER SETUP"}, "pishchane", "SPOTTER")
+	log.record({"score": 999.0, "inputs": lost, "verdict": "SECOND"}, "pishchane", "DRONE_TEAM")
+	log.record({"score": 999.0, "inputs": won, "verdict": "THIRD"}, "pishchane", "DRONE_TEAM")
+	var records := fresh_log().load_records()
+	var battles := BattleScoreLog.scenario_battles(records, "pishchane", "DRONE_TEAM")
+	check(battles.size() == 3, "Only this scenario's battles (got %d)" % battles.size())
+	check(battles[0].verdict == "THIRD" and battles[1].verdict == "SECOND" and battles[2].verdict == "FIRST", "Newest first")
+	check(is_equal_approx(battles[0].score, BattleScore.score(won)) and is_equal_approx(battles[1].score, BattleScore.score(lost)), "Scored under the current rubric from the stored counts, not the stored number")
+	check(BattleScoreLog.scenario_battles(records, "pishchane", "DRONE_TEAM", 2).size() == 2 and BattleScoreLog.scenario_battles(records, "pishchane", "DRONE_TEAM", 2)[0].verdict == "THIRD", "The limit keeps the newest")
+	check(BattleScoreLog.scenario_battles(records, "svystunivka", "SPOTTER").is_empty(), "A scenario with no battles has none")
+	wipe()
 
 
 func test_a_tuned_rubric_rescores_the_whole_history() -> void:

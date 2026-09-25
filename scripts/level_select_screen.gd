@@ -23,19 +23,38 @@ signal map_chosen(map_id: String)
 ## OptionButton only ever hands back an index, never the id string itself.
 var _map_ids: Array[String] = []
 
-## The durable score history shown at the bottom (see BattleScoreLog). Public
-## so a test can point it at a disposable file BEFORE this screen enters the
+## The durable score history shown to the right of the setup (see BattleScoreLog).
+## Public so a test can point it at a disposable file BEFORE this screen enters the
 ## tree; nothing else should reassign it.
 var score_log := BattleScoreLog.new()
+
+## The score table's cells (see _build_score_history): "map|mode" -> Button, the one
+## currently opened (null if none), the records it was built from, and the panel that
+## shows the opened cell's details.
+var _cells: Dictionary = {}
+var _opened_cell: Button = null
+var _records: Array[Dictionary] = []
+var _detail_panel: PanelContainer = null
+var _detail_box: VBoxContainer = null
+
+const SETUP_WIDTH: float = 820.0
+const CELL_SIZE := Vector2(200, 58)
+const ROW_HEADING_WIDTH: float = 190.0
+const RECENT_BATTLES_SHOWN: int = 4
 
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 
+	# Two columns: the setup on the left, the score history on the right of it.
+	var columns := HBoxContainer.new()
+	columns.position = Vector2(60, 50)
+	columns.add_theme_constant_override("separation", 40)
+	add_child(columns)
+
 	var root := VBoxContainer.new()
-	root.position = Vector2(60, 50)
 	root.add_theme_constant_override("separation", 20)
-	add_child(root)
+	columns.add_child(root)
 
 	root.add_child(_build_map_picker())
 
@@ -54,60 +73,176 @@ func _ready() -> void:
 		GameConfig.ReconMode.DRONE_TEAM
 	))
 
-	root.add_child(_build_score_history())
+	columns.add_child(_build_score_history())
 
 
-## Average battle score per SCENARIO — a scenario being the location plus the
-## kind of scouting the player used (user's definition) — from the durable
-## history in BattleScoreLog, which survives restarts and code updates.
-## Scores are re-scored under the current rubric. Scrolls if it ever outgrows its space (3 locations x 2 setups).
+## The player's scores as a table: a row per location, a column per reconnaissance
+## setup, and in each cell only the average score and the number of battles fought
+## (from the durable history in BattleScoreLog, which survives restarts and code
+## updates; scores are re-scored under the current rubric). Clicking a cell opens more
+## about that scenario underneath (best, worst, latest, the recent battles); clicking it
+## again, or another cell, closes or moves it. Every location and setup the game has
+## is there, with a dash where nothing has been fought; history for a location or
+## setup this build no longer has gets a row or column of its own, by its stored id.
 func _build_score_history() -> Control:
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 6)
+	box.add_theme_constant_override("separation", 10)
 
 	var title := GameConfig.make_selectable_label("Your average scores")
 	title.add_theme_font_size_override("normal_font_size", 17)
 	box.add_child(title)
 
-	var summaries: Array[Dictionary] = BattleScoreLog.summarize(score_log.load_records())
+	_records = score_log.load_records()
+	var summaries: Array[Dictionary] = BattleScoreLog.summarize(_records)
 	if summaries.is_empty():
 		box.add_child(GameConfig.make_selectable_label("No battles scored yet."))
 		return box
 
-	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(820, 150)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	box.add_child(scroll)
-	var grid := GridContainer.new()
-	grid.columns = 5
-	grid.add_theme_constant_override("h_separation", 24)
-	scroll.add_child(grid)
-	for heading in ["Scenario", "Battles", "Average", "Best", "Worst"]:
-		grid.add_child(_cell(heading, true))
+	var by_scenario: Dictionary = {}
 	for entry in summaries:
-		grid.add_child(_cell(scenario_label(entry.map_id, entry.recon_mode), false))
-		grid.add_child(_cell(str(entry.count), false))
-		grid.add_child(_cell(BattleScore.format(entry.average), false))
-		grid.add_child(_cell(BattleScore.format(entry.best), false))
-		grid.add_child(_cell(BattleScore.format(entry.worst), false))
+		by_scenario["%s|%s" % [entry.map_id, entry.recon_mode]] = entry
+	var map_ids: Array[String] = _table_map_ids(summaries)
+	var modes: Array[String] = _table_recon_modes(summaries)
+
+	var grid := GridContainer.new()
+	grid.columns = modes.size() + 1
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	box.add_child(grid)
+	grid.add_child(_heading_label("", ROW_HEADING_WIDTH))
+	for mode in modes:
+		grid.add_child(_heading_label(mode_label(mode), CELL_SIZE.x))
+	for map_id in map_ids:
+		grid.add_child(_heading_label(map_name(map_id), ROW_HEADING_WIDTH))
+		for mode in modes:
+			grid.add_child(_score_cell(map_id, mode, by_scenario.get("%s|%s" % [map_id, mode], {})))
+
+	_detail_panel = PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.12, 0.12, 0.12, 0.92)
+	style.set_content_margin_all(12.0)
+	style.set_corner_radius_all(6.0)
+	_detail_panel.add_theme_stylebox_override("panel", style)
+	_detail_panel.visible = false
+	_detail_box = VBoxContainer.new()
+	_detail_box.add_theme_constant_override("separation", 4)
+	_detail_panel.add_child(_detail_box)
+	box.add_child(_detail_panel)
 	return box
 
 
-func _cell(text: String, heading: bool) -> Label:
+## Every location: the game's own, in its catalog order, then any that only the
+## history knows (by id).
+func _table_map_ids(summaries: Array[Dictionary]) -> Array[String]:
+	var ids: Array[String] = []
+	for map_id in GameConfig.MAPS:
+		ids.append(map_id)
+	var extra: Array[String] = []
+	for entry in summaries:
+		if not ids.has(entry.map_id) and not extra.has(entry.map_id):
+			extra.append(entry.map_id)
+	extra.sort()
+	return ids + extra
+
+
+## Every reconnaissance setup: the game's own, in its order, then any only the
+## history knows.
+func _table_recon_modes(summaries: Array[Dictionary]) -> Array[String]:
+	var modes: Array[String] = []
+	for key in GameConfig.ReconMode.keys():
+		modes.append(key)
+	var extra: Array[String] = []
+	for entry in summaries:
+		if not modes.has(entry.recon_mode) and not extra.has(entry.recon_mode):
+			extra.append(entry.recon_mode)
+	extra.sort()
+	return modes + extra
+
+
+func _heading_label(text: String, width: float) -> Label:
 	var label := Label.new()
 	label.text = text
-	if heading:
-		label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	label.custom_minimum_size = Vector2(width, 0)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
 	return label
 
 
-## "Pishchane — Level 1 — Drone Recon". A map or mode this build no longer
-## knows (removed or renamed since the record was written) shows its stored
-## id instead — old history is never hidden just because the catalog changed.
+## One cell: the average and the number of battles, or a dash (and nothing to click)
+## where that scenario has not been fought.
+func _score_cell(map_id: String, mode: String, entry: Dictionary) -> Button:
+	var button := Button.new()
+	button.custom_minimum_size = CELL_SIZE
+	button.focus_mode = Control.FOCUS_NONE
+	if entry.is_empty():
+		button.text = "—"
+		button.disabled = true
+	else:
+		button.text = "%s\n%s" % [BattleScore.format(entry.average), battles_text(entry.count)]
+		button.toggle_mode = true
+		button.tooltip_text = "Click for more about %s" % scenario_label(map_id, mode)
+		button.toggled.connect(_on_cell_toggled.bind(map_id, mode, button))
+	_cells["%s|%s" % [map_id, mode]] = button
+	return button
+
+
+func _on_cell_toggled(pressed: bool, map_id: String, mode: String, button: Button) -> void:
+	if pressed:
+		if _opened_cell != null and _opened_cell != button and is_instance_valid(_opened_cell):
+			_opened_cell.set_pressed_no_signal(false)
+		_opened_cell = button
+		_show_details(map_id, mode)
+	elif _opened_cell == button:
+		_opened_cell = null
+		_detail_panel.visible = false
+
+
+## More about one scenario: its counts, best, worst and latest score, and its most
+## recent battles, newest first.
+func _show_details(map_id: String, mode: String) -> void:
+	for child in _detail_box.get_children():
+		_detail_box.remove_child(child)
+		child.queue_free()
+	var entry: Dictionary = BattleScoreLog.scenario_summary(_records, map_id, mode)
+	var heading := GameConfig.make_selectable_label(scenario_label(map_id, mode))
+	heading.add_theme_font_size_override("normal_font_size", 16)
+	_detail_box.add_child(heading)
+	_detail_box.add_child(GameConfig.make_selectable_label("%s   Average %s   Best %s   Worst %s   Latest %s" % [
+		battles_text(entry.count), BattleScore.format(entry.average), BattleScore.format(entry.best), BattleScore.format(entry.worst), BattleScore.format(entry.latest)]))
+	var battles: Array[Dictionary] = BattleScoreLog.scenario_battles(_records, map_id, mode, RECENT_BATTLES_SHOWN)
+	_detail_box.add_child(GameConfig.make_selectable_label("Most recent battles, newest first:" if battles.size() > 1 else "The battle:"))
+	for battle in battles:
+		var parts: PackedStringArray = []
+		if not battle.time_utc.is_empty():
+			parts.append(battle.time_utc.replace("T", " ") + " UTC")
+		if not battle.verdict.is_empty():
+			parts.append(battle.verdict)
+		parts.append(BattleScore.format(battle.score))
+		_detail_box.add_child(GameConfig.make_selectable_label("   ".join(parts)))
+	if entry.count > battles.size():
+		_detail_box.add_child(GameConfig.make_selectable_label("(and %d earlier)" % (entry.count - battles.size())))
+	_detail_panel.visible = true
+
+
+static func battles_text(count: int) -> String:
+	return "1 battle" if count == 1 else "%d battles" % count
+
+
+## A location's own name; one this build no longer has shows its stored id — old
+## history is never hidden just because the catalog changed.
+static func map_name(map_id: String) -> String:
+	return GameConfig.MAPS[map_id].name if GameConfig.MAPS.has(map_id) else map_id
+
+
+## A recon setup's own label; one this build no longer has shows its stored id.
+static func mode_label(recon_mode: String) -> String:
+	return GameConfig.RECON_MODE_LABELS[GameConfig.ReconMode[recon_mode]] if GameConfig.ReconMode.has(recon_mode) else recon_mode
+
+
+## "Pishchane — Level 1 — Drone Recon".
 static func scenario_label(map_id: String, recon_mode: String) -> String:
-	var map_name: String = GameConfig.MAPS[map_id].name if GameConfig.MAPS.has(map_id) else map_id
-	var mode_label: String = GameConfig.RECON_MODE_LABELS[GameConfig.ReconMode[recon_mode]] if GameConfig.ReconMode.has(recon_mode) else recon_mode
-	return "%s — %s" % [map_name, mode_label]
+	return "%s — %s" % [map_name(map_id), mode_label(recon_mode)]
 
 
 ## Every real place in the catalog, by its own place name — GameConfig.

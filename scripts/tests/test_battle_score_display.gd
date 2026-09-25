@@ -143,6 +143,20 @@ func test_battle_end_records_and_shows_the_scenario_average() -> void:
 	check(main.score_log.load_records().size() == 3, "All three battles are in the history")
 
 
+func find_grid(node: Node) -> GridContainer:
+	var stack: Array[Node] = [node]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is GridContainer:
+			return n
+		for c in n.get_children():
+			stack.append(c)
+	return null
+
+
+## The score history on the first screen: a table, rows the locations and columns the
+## reconnaissance setups, each cell just the average and the number of battles; a click
+## on a cell shows more about it. And it sits to the RIGHT of the setup, not below.
 func test_level_select_shows_average_scores_per_scenario() -> void:
 	wipe()
 	var empty := LevelSelectScreen.new()
@@ -166,13 +180,53 @@ func test_level_select_shows_average_scores_per_scenario() -> void:
 	screen.score_log.path = test_path
 	root.add_child(screen)
 	await process_frame
+	await process_frame
 	var text: String = all_text(screen)
 	check(not ("No battles scored yet." in text), "With history the screen shows it instead")
-	check(LevelSelectScreen.scenario_label(maps[0], "DRONE_TEAM") in text, "Each scenario is labelled by location and scouting: %s" % LevelSelectScreen.scenario_label(maps[0], "DRONE_TEAM"))
-	check(LevelSelectScreen.scenario_label(maps[0], "SPOTTER") in text, "...and the same place with the other scouting is its own row")
-	check(BattleScore.format((50.0 + 50.0 - 15.0) / 3.0) in text, "The average for the drone scenario ((50+50-15)/3) must be shown")
-	check("a_map_since_removed" in text, "History for a map this build no longer has is still shown, by its stored id")
 	check(LevelSelectScreen.scenario_label("x", "Y") == "x — Y", "An unknown map/mode falls back to the stored ids")
+
+	# The table: a column per setup (plus the row-heading column), a row per location,
+	# including the one only the history knows.
+	var grid: GridContainer = find_grid(screen)
+	check(grid != null and grid.columns == GameConfig.ReconMode.size() + 1, "The scores are a table with a column per recon setup")
+	var rows: int = maps.size() + 1
+	check(grid != null and grid.get_child_count() == (rows + 1) * grid.columns, "...and a row per location, plus the removed one and a heading row (%d cells)" % (grid.get_child_count() if grid != null else -1))
+	for mode in GameConfig.ReconMode.keys():
+		check(GameConfig.RECON_MODE_LABELS[GameConfig.ReconMode[mode]] in text, "Each recon setup heads a column: %s" % mode)
+	for map_id in maps:
+		check(GameConfig.MAPS[map_id].name in text, "Each location heads a row: %s" % GameConfig.MAPS[map_id].name)
+	check("a_map_since_removed" in text, "History for a map this build no longer has is still shown, by its stored id")
+
+	# The cells: just the average and the battle count.
+	var average: float = (50.0 + 50.0 - 15.0) / 3.0
+	var drone_cell: Button = screen._cells["%s|DRONE_TEAM" % maps[0]]
+	var spotter_cell: Button = screen._cells["%s|SPOTTER" % maps[0]]
+	check(drone_cell.text == "%s\n3 battles" % BattleScore.format(average), "The drone cell shows only the average ((50+50-15)/3) and '3 battles' (got '%s')" % drone_cell.text)
+	check(spotter_cell.text == "%s\n1 battle" % BattleScore.format(50.0), "One battle reads '1 battle' (got '%s')" % spotter_cell.text)
+	var untouched: Button = screen._cells["%s|SPOTTER" % maps[1]]
+	check(untouched.text == "—" and untouched.disabled, "A scenario never fought shows a dash and cannot be opened")
+	check(screen._cells["a_map_since_removed|DRONE_TEAM"].text.ends_with("1 battle"), "The removed map's row has its battle")
+	check(not screen._detail_panel.visible, "Nothing more is shown until a cell is clicked")
+
+	# Clicking a cell opens more about it; clicking it again closes it; another cell moves it.
+	drone_cell.button_pressed = true
+	check(screen._detail_panel.visible, "Clicking a cell shows more")
+	var detail: String = all_text(screen._detail_panel)
+	check(LevelSelectScreen.scenario_label(maps[0], "DRONE_TEAM") in detail, "...which scenario it is")
+	check("3 battles" in detail and "Best %s" % BattleScore.format(50.0) in detail and "Worst %s" % BattleScore.format(-15.0) in detail and "Latest %s" % BattleScore.format(-15.0) in detail, "...its best, worst and latest score (got: %s)" % detail.replace("\n", " | "))
+	var lines: Array = screen._detail_box.get_children()
+	check(lines.size() >= 3 and lines[lines.size() - 3].text.contains(BattleScore.format(-15.0)) and lines[lines.size() - 1].text.contains(BattleScore.format(50.0)), "...and its battles, the newest (the loss) first")
+	spotter_cell.button_pressed = true
+	check(not drone_cell.button_pressed and screen._detail_panel.visible and LevelSelectScreen.scenario_label(maps[0], "SPOTTER") in all_text(screen._detail_panel), "Clicking another cell moves the details to it")
+	spotter_cell.button_pressed = false
+	check(not screen._detail_panel.visible, "Clicking the open cell again closes the details")
+
+	# To the right of the setup, not below it.
+	var columns: Control = screen.get_child(0)
+	var setup: Control = columns.get_child(0)
+	var scores: Control = columns.get_child(1)
+	check(scores.get_global_rect().position.x >= setup.get_global_rect().end.x - 1.0, "The scores are to the right of the setup (%.0f vs its right edge %.0f)" % [scores.get_global_rect().position.x, setup.get_global_rect().end.x])
+	check(absf(scores.get_global_rect().position.y - setup.get_global_rect().position.y) < 2.0, "...level with the top of it, not underneath")
 	screen.queue_free()
 
 
