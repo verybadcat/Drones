@@ -605,12 +605,78 @@ func test_start_battle_rolls_fresh_weather_each_time_and_keeps_a_deployment_roll
 	check(Weather.current == deployed, "A battle uses the weather rolled at deployment, not a new one")
 
 
+## Hysteresis: a class changes only once the intensity is INTENSITY_CLASS_HYSTERESIS
+## (10%) past the boundary, in either direction — a little reluctance, not a lock. The
+## light | light-moderate boundary is 0.5 mm/h, so 0.55 going up and 0.45 coming back.
+func test_a_class_changes_only_once_the_intensity_is_clear_of_the_boundary() -> void:
+	var w := wet(pinned(), 0.42)
+	check(w.intensity_class() == Weather.Intensity.LIGHT, "Setup: 0.42 mm/h is light")
+	w.precip_mm_h = 0.52
+	check(w.intensity_class() == Weather.Intensity.LIGHT, "Just over the 0.5 boundary is still light")
+	w.precip_mm_h = 0.54
+	check(w.intensity_class() == Weather.Intensity.LIGHT, "...and 0.54 (inside the band)")
+	w.precip_mm_h = 0.57
+	check(w.intensity_class() == Weather.Intensity.LIGHT_MODERATE, "Clear of the band it becomes light-moderate")
+	w.precip_mm_h = 0.48
+	check(w.intensity_class() == Weather.Intensity.LIGHT_MODERATE, "Back just under the boundary it stays light-moderate")
+	w.precip_mm_h = 0.46
+	check(w.intensity_class() == Weather.Intensity.LIGHT_MODERATE, "...also at 0.46 (inside the band)")
+	w.precip_mm_h = 0.43
+	check(w.intensity_class() == Weather.Intensity.LIGHT, "Clear of the band on the way down it is light again")
+	w.precip_mm_h = 6.0
+	check(w.intensity_class() == Weather.Intensity.HEAVY, "A jump across several classes lands in the right one")
+	w.precip_mm_h = 2.8
+	check(w.intensity_class() == Weather.Intensity.HEAVY, "Heavy holds just under its 3 mm/h boundary")
+	w.precip_mm_h = 2.6
+	check(w.intensity_class() == Weather.Intensity.MODERATE, "...and gives way once clear of it")
+	w._wet = false
+	w.precip_mm_h = 0.0
+	check(w.intensity_class() == Weather.Intensity.NONE, "Dry is no class")
+	wet(w, 0.55)
+	check(w.intensity_class() == Weather.Intensity.LIGHT_MODERATE, "A fresh shower starts in the class its intensity is in, with no memory of the last one")
+
+
+## Live report: the rain (its sound, the map's label and the "becomes ..." log lines)
+## "was switching back and forth way too often". The intensity is a random walk that
+## takes a step every frame, so its path is jagged at every scale and near a class
+## boundary it used to cross back and forth over and over (about 8 class changes per
+## wet hour, well over a hundred in one bad spell). Some changing is fine and wanted —
+## just not that. Frame-sized steps, many seeds.
+func test_rain_does_not_flip_class_back_and_forth_at_frame_sized_steps() -> void:
+	var changes := 0
+	var wet_hours := 0.0
+	var worst := 0
+	for seed_value in 40:
+		var w := Weather.roll(seed_value)
+		if not w._wet:
+			w._start_event()
+		w.temperature_c = 15.0
+		var last: int = w.intensity_class()
+		var run_changes := 0
+		for i in int(3.0 * 3600.0 / 0.5):
+			w.advance(0.5)
+			if not w.is_precipitating():
+				break
+			wet_hours += 0.5 / 3600.0
+			var c: int = w.intensity_class()
+			if c != last:
+				run_changes += 1
+				last = c
+		changes += run_changes
+		worst = maxi(worst, run_changes)
+	check(wet_hours > 20.0, "Setup: enough rain to judge (%.1f h)" % wet_hours)
+	check(float(changes) / wet_hours < 0.5, "Rain changes class well under once per tactical hour (got %.2f)" % (float(changes) / wet_hours))
+	check(worst <= 8, "...and no spell dithers (worst: %d changes in 3 h)" % worst)
+
+
 func run() -> void:
 	test_climatology_matches_the_era5_march_data()
 	test_wind_has_memory()
 	test_direction_drifts_slowly_and_precipitation_comes_in_spells()
 	test_intensity_distribution_has_a_heavy_tail_and_a_light_body()
 	test_same_seed_same_weather()
+	test_a_class_changes_only_once_the_intensity_is_clear_of_the_boundary()
+	test_rain_does_not_flip_class_back_and_forth_at_frame_sized_steps()
 	test_precipitation_type_follows_temperature_and_classes_follow_intensity()
 	test_ground_speed_crabs_into_the_wind()
 	test_wind_vector_points_the_way_it_blows_and_grows_with_height()

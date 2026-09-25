@@ -65,6 +65,11 @@ const INTENSITY_MAX_MM_H: float = 12.0
 const LIGHT_BELOW_MM_H: float = 0.5
 const LIGHT_MODERATE_BELOW_MM_H: float = 1.0
 const MODERATE_BELOW_MM_H: float = 3.0
+## Hysteresis on the class: the intensity is a random walk (see advance), so near a
+## boundary it jitters across it many times. A class only changes once the intensity
+## is this fraction PAST the boundary, so a jitter that stays inside the band changes
+## nothing while a real change of strength still does. JUDGMENT.
+const INTENSITY_CLASS_HYSTERESIS: float = 0.1
 
 # --- Drone effects ----------------------------------------------------------
 const DRONE_WIND_RATING_MPS: float = 12.0 # SOURCED: DJI max wind speed resistance (spec: at takeoff and landing)
@@ -112,6 +117,7 @@ var battle_started: bool = false
 var _wind_z: float = 0.0 # standard normal that wind speed is a Weibull quantile of (a Gaussian copula: AR(1) memory, real Weibull tail)
 var _gust_z: float = 0.0
 var _wet: bool = false
+var _held_class: int = Intensity.NONE
 var _event_log_intensity: float = 0.0
 var _log_intensity: float = 0.0
 var _dry_to_wet_rate_per_h: float = (1.0 / WET_SPELL_MEAN_H) * WET_PROBABILITY / (1.0 - WET_PROBABILITY)
@@ -255,16 +261,40 @@ func precip_type() -> int:
 	return Precip.RAIN
 
 
+## The rain class, with hysteresis: the class held so far only changes once the
+## intensity is INTENSITY_CLASS_HYSTERESIS past the boundary in question, in either
+## direction. (Tracks the calls, so ask it as time goes on — the game does, every frame.)
 func intensity_class() -> int:
 	if not is_precipitating():
-		return Intensity.NONE
-	if precip_mm_h < LIGHT_BELOW_MM_H:
+		_held_class = Intensity.NONE
+		return _held_class
+	var raw: int = _raw_class(precip_mm_h)
+	if _held_class == Intensity.NONE:
+		_held_class = raw
+	while _held_class < raw and precip_mm_h >= _class_lower_edge(_held_class + 1) * (1.0 + INTENSITY_CLASS_HYSTERESIS):
+		_held_class += 1
+	while _held_class > raw and precip_mm_h < _class_lower_edge(_held_class) * (1.0 - INTENSITY_CLASS_HYSTERESIS):
+		_held_class -= 1
+	return _held_class
+
+
+static func _raw_class(mm_h: float) -> int:
+	if mm_h < LIGHT_BELOW_MM_H:
 		return Intensity.LIGHT
-	if precip_mm_h < LIGHT_MODERATE_BELOW_MM_H:
+	if mm_h < LIGHT_MODERATE_BELOW_MM_H:
 		return Intensity.LIGHT_MODERATE
-	if precip_mm_h < MODERATE_BELOW_MM_H:
+	if mm_h < MODERATE_BELOW_MM_H:
 		return Intensity.MODERATE
 	return Intensity.HEAVY
+
+
+## The intensity at which `cls` begins (LIGHT begins at precipitation itself).
+static func _class_lower_edge(cls: int) -> float:
+	match cls:
+		Intensity.LIGHT_MODERATE: return LIGHT_BELOW_MM_H
+		Intensity.MODERATE: return LIGHT_MODERATE_BELOW_MM_H
+		Intensity.HEAVY: return MODERATE_BELOW_MM_H
+	return INTENSITY_FLOOR_MM_H
 
 
 func precip_label() -> String:
