@@ -1,6 +1,6 @@
 extends SceneTree
 ## The orders card for any unit (was the mortar's alone): every friendly unit gets a
-## "Fall back to a safer position" switch, the mortar keeps its "Expend ammo on enemy
+## "Be safe" switch, the mortar keeps its "Expend ammo on enemy
 ## squads" switch too. The switches mirror the battle manager's own state and turning
 ## one off countermands the order.
 ##

@@ -6,7 +6,7 @@ extends PanelContainer
 ## pops it up beside the unit; any click outside the card dismisses it (see _input),
 ## including a click on the unit itself. It follows the unit if it moves, and holds
 ## only the orders that can be given:
-##   - every unit: "Fall back to a safer position" (BattleManager.set_fall_back_order)
+##   - every unit: "Be safe" (BattleManager.set_fall_back_order)
 ##   - the mortar also: "Expend ammo on enemy squads"
 ##     (BattleManager.set_mortar_squad_fire_order)
 ## Each switch always mirrors the battle manager's own state, so an order that
@@ -87,7 +87,7 @@ func setup(bm: BattleManager, map_viewport: SubViewport, map_rect: Rect2) -> voi
 	var fall_back_row := HBoxContainer.new()
 	fall_back_row.add_theme_constant_override("separation", 10)
 	box.add_child(fall_back_row)
-	_fall_back_label = _add_row_label(fall_back_row, "Fall back to a\nsafer position")
+	_fall_back_label = _add_row_label(fall_back_row, "Be safe")
 	_fall_back_switch = _add_row_switch(fall_back_row, "Move to wherever looks safest — cover, concealment, or simply out of the known enemy's reach, in any direction (forward too). Not a retreat off the map. Turn off to cancel.")
 	_fall_back_switch.toggled.connect(_on_fall_back_toggled)
 
