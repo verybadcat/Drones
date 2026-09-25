@@ -66,7 +66,7 @@ func _draw_weather(compass_center: Vector2) -> void:
 	if w.is_precipitating():
 		var label_origin := wind_center + Vector2(-44.0, -36.0)
 		_draw_precip_icon(label_origin + Vector2(-6.0, -4.0), w.precip_type())
-		draw_string(font, label_origin + Vector2(10.0, 0.0), "%s (%.1f mm/h)" % [w.precip_label(), w.precip_mm_h],
+		draw_string(font, label_origin + Vector2(10.0, 0.0), "%s (%.1f mm/h)" % [w.precip_label(), w.displayed_intensity_mm_h()],
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 13, accent)
 		if w.drone_vision_blocked():
 			draw_string(font, label_origin + Vector2(0.0, -16.0), "Drones grounded — cannot see", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1.0, 0.6, 0.4))

@@ -70,6 +70,12 @@ const MODERATE_BELOW_MM_H: float = 3.0
 ## is this fraction PAST the boundary, so a jitter that stays inside the band changes
 ## nothing while a real change of strength still does. JUDGMENT.
 const INTENSITY_CLASS_HYSTERESIS: float = 0.1
+## The intensity number the HUD shows holds its value until the true intensity is
+## further from it than this (the larger of DISPLAY_HOLD_MIN_MM_H and this fraction of
+## the shown value): a slightly untrue but steady reading, rather than digits that
+## shimmer as the random walk crosses a rounding edge. JUDGMENT.
+const DISPLAY_HOLD_FRACTION: float = 0.1
+const DISPLAY_HOLD_MIN_MM_H: float = 0.07
 
 # --- Drone effects ----------------------------------------------------------
 const DRONE_WIND_RATING_MPS: float = 12.0 # SOURCED: DJI max wind speed resistance (spec: at takeoff and landing)
@@ -118,6 +124,7 @@ var _wind_z: float = 0.0 # standard normal that wind speed is a Weibull quantile
 var _gust_z: float = 0.0
 var _wet: bool = false
 var _held_class: int = Intensity.NONE
+var _shown_mm_h: float = 0.0
 var _event_log_intensity: float = 0.0
 var _log_intensity: float = 0.0
 var _dry_to_wet_rate_per_h: float = (1.0 / WET_SPELL_MEAN_H) * WET_PROBABILITY / (1.0 - WET_PROBABILITY)
@@ -278,6 +285,18 @@ func intensity_class() -> int:
 	return _held_class
 
 
+## The intensity (mm/h, to 0.1) for the HUD to show: it stays put until the true value
+## has moved a real distance from it (see DISPLAY_HOLD_FRACTION), so it deliberately
+## lags the truth a little. Tracks the calls, like intensity_class.
+func displayed_intensity_mm_h() -> float:
+	if not is_precipitating():
+		_shown_mm_h = 0.0
+		return 0.0
+	if _shown_mm_h <= 0.0 or absf(precip_mm_h - _shown_mm_h) > maxf(DISPLAY_HOLD_MIN_MM_H, DISPLAY_HOLD_FRACTION * _shown_mm_h):
+		_shown_mm_h = snappedf(precip_mm_h, 0.1)
+	return _shown_mm_h
+
+
 static func _raw_class(mm_h: float) -> int:
 	if mm_h < LIGHT_BELOW_MM_H:
 		return Intensity.LIGHT
@@ -322,7 +341,7 @@ static func compass_name(deg: float) -> String:
 
 ## One short string that changes whenever anything the HUD shows changes.
 func hud_signature() -> String:
-	return "%d|%s|%s|%d" % [roundi(wind_speed_10m), compass_name(wind_from_deg), precip_label(), roundi(temperature_c)]
+	return "%d|%s|%s|%d|%.1f" % [roundi(wind_speed_10m), compass_name(wind_from_deg), precip_label(), roundi(temperature_c), displayed_intensity_mm_h()]
 
 
 # --- Drone effects ---------------------------------------------------------------

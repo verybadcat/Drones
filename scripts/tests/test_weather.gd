@@ -669,6 +669,64 @@ func test_rain_does_not_flip_class_back_and_forth_at_frame_sized_steps() -> void
 	check(worst <= 8, "...and no spell dithers (worst: %d changes in 3 h)" % worst)
 
 
+## The HUD's "(0.6 mm/h)": it may lie a little so the digits stop shimmering as the
+## intensity crosses a rounding edge. It holds until the truth is more than
+## max(0.07 mm/h, 10% of the shown value) away, then snaps to the truth (to 0.1).
+func test_the_displayed_intensity_holds_until_the_truth_is_clearly_elsewhere() -> void:
+	var w := wet(pinned(), 0.6)
+	check(is_equal_approx(w.displayed_intensity_mm_h(), 0.6), "Setup: shows 0.6")
+	for mm in [0.64, 0.66, 0.55, 0.54]:
+		w.precip_mm_h = mm
+		check(is_equal_approx(w.displayed_intensity_mm_h(), 0.6), "%.2f mm/h still shows 0.6 (it is within 0.07 of it)" % mm)
+	w.precip_mm_h = 0.68
+	check(is_equal_approx(w.displayed_intensity_mm_h(), 0.7), "0.68 is far enough to show 0.7")
+	w.precip_mm_h = 0.64 # would round to 0.6, but only 0.06 from the shown 0.7
+	check(is_equal_approx(w.displayed_intensity_mm_h(), 0.7), "...and coming back to 0.64 it does not switch straight back")
+	w.precip_mm_h = 0.62
+	check(is_equal_approx(w.displayed_intensity_mm_h(), 0.6), "...until it is clearly back at 0.62")
+	w.precip_mm_h = 5.0
+	check(is_equal_approx(w.displayed_intensity_mm_h(), 5.0), "A jump shows the new value")
+	w.precip_mm_h = 5.4
+	check(is_equal_approx(w.displayed_intensity_mm_h(), 5.0), "The hold grows with the intensity (10%): 5.4 still shows 5.0")
+	w.precip_mm_h = 5.6
+	check(is_equal_approx(w.displayed_intensity_mm_h(), 5.6), "...and 5.6 is far enough")
+	w._wet = false
+	w.precip_mm_h = 0.0
+	check(w.displayed_intensity_mm_h() == 0.0, "Dry shows nothing")
+	check(is_equal_approx(wet(w, 0.3).displayed_intensity_mm_h(), 0.3), "A fresh shower shows its own intensity, not the last one's")
+	check(w.hud_signature().contains("0.3"), "The HUD redraws when the shown intensity changes (it is in the signature)")
+
+
+## Against plain rounding to 0.1, frame-sized steps: the shown number must change far
+## less often, and hardly ever go A, B, A again straight away.
+func test_the_displayed_intensity_shimmers_far_less_than_plain_rounding() -> void:
+	var plain := 0
+	var shown := 0
+	var wet_hours := 0.0
+	for seed_value in 20:
+		var w := Weather.roll(seed_value)
+		if not w._wet:
+			w._start_event()
+		w.temperature_c = 15.0
+		var last_plain: float = snappedf(w.precip_mm_h, 0.1)
+		var last_shown: float = w.displayed_intensity_mm_h()
+		for i in int(3.0 * 3600.0 / 0.5):
+			w.advance(0.5)
+			if not w.is_precipitating():
+				break
+			wet_hours += 0.5 / 3600.0
+			var p: float = snappedf(w.precip_mm_h, 0.1)
+			if not is_equal_approx(p, last_plain):
+				plain += 1
+				last_plain = p
+			var d: float = w.displayed_intensity_mm_h()
+			if not is_equal_approx(d, last_shown):
+				shown += 1
+				last_shown = d
+	check(plain > 100, "Setup: plain rounding does shimmer (%d changes)" % plain)
+	check(shown * 4 < plain, "The held reading changes under a quarter as often (%d vs %d)" % [shown, plain])
+
+
 func run() -> void:
 	test_climatology_matches_the_era5_march_data()
 	test_wind_has_memory()
@@ -677,6 +735,8 @@ func run() -> void:
 	test_same_seed_same_weather()
 	test_a_class_changes_only_once_the_intensity_is_clear_of_the_boundary()
 	test_rain_does_not_flip_class_back_and_forth_at_frame_sized_steps()
+	test_the_displayed_intensity_holds_until_the_truth_is_clearly_elsewhere()
+	test_the_displayed_intensity_shimmers_far_less_than_plain_rounding()
 	test_precipitation_type_follows_temperature_and_classes_follow_intensity()
 	test_ground_speed_crabs_into_the_wind()
 	test_wind_vector_points_the_way_it_blows_and_grows_with_height()
