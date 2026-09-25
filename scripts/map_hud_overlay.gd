@@ -15,19 +15,34 @@ extends Node2D
 ## directly: "please put a scale onto the map" from a player who had no
 ## way to know one already existed in the code.
 
-## Whether the map marks (scale bar, compass, weather) are drawn at all. main.gd turns
-## them off while the level-select screen is up — that screen has no map to measure
-## yet — and on again from deployment on.
+## Whether the map marks (scale bar, compass) are drawn at all. main.gd turns them off while
+## the level-select screen is up — that screen has no map to measure yet — and on again from
+## deployment on.
 var map_marks_visible: bool = true:
 	set(value):
 		if value != map_marks_visible:
 			map_marks_visible = value
 			queue_redraw()
 
+## Whether the weather block (wind, temperature, precipitation) is drawn. Independent of the
+## map marks: Weather.current is global and always there once rolled; whether a screen
+## presents it is that screen's say (GameScreen.shows_weather).
+var weather_visible: bool = true:
+	set(value):
+		if value != weather_visible:
+			weather_visible = value
+			queue_redraw()
+
 
 func _draw() -> void:
-	if not map_marks_visible:
-		return
+	var compass_center := Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX - 50.0, GameConfig.MAP_HEIGHT_PX - 50.0)
+	if map_marks_visible:
+		_draw_scale_and_compass(compass_center)
+	if weather_visible:
+		_draw_weather(compass_center)
+
+
+func _draw_scale_and_compass(compass_center: Vector2) -> void:
 	var bar_m := 1000.0
 	var bar_px: float = bar_m * GameConfig.PIXELS_PER_METER
 	var origin := Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX - 20.0 - bar_px, 34.0) # below main.gd's own _clock_label, which sits at y=4
@@ -37,7 +52,6 @@ func _draw() -> void:
 	draw_string(ThemeDB.fallback_font, origin + Vector2(0.0, 20.0), "%d m" % int(bar_m),
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
 
-	var compass_center := Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX - 50.0, GameConfig.MAP_HEIGHT_PX - 50.0)
 	var compass_radius := 26.0
 	var north_dir: Vector2 = GameConfig.CURRENT_MAP.compass_north_screen_direction
 	draw_arc(compass_center, compass_radius, 0.0, TAU, 32, Color(1, 1, 1, 0.7), 1.5, true)
@@ -45,7 +59,6 @@ func _draw() -> void:
 	draw_line(compass_center, north_tip, Color(1.0, 0.85, 0.2), 2.0)
 	draw_string(ThemeDB.fallback_font, north_tip + north_dir * 10.0 - Vector2(5, -5), "N",
 		HORIZONTAL_ALIGNMENT_CENTER, -1, 13, Color(1.0, 0.85, 0.2))
-	_draw_weather(compass_center)
 
 
 ## Wind and precipitation, in a block just left of the compass: an arrow

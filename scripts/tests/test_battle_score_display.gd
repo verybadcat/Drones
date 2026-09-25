@@ -159,7 +159,18 @@ func test_level_select_shows_average_scores_per_scenario() -> void:
 	empty.score_log.path = test_path
 	root.add_child(empty)
 	await process_frame
+	await process_frame
 	check("No battles scored yet." in all_text(empty), "With no history the screen says so")
+	# ...and it is actually room enough to be read: (a label with no width shows nothing at all)
+	var empty_note: RichTextLabel = null
+	var empty_stack: Array[Node] = [empty]
+	while not empty_stack.is_empty():
+		var n: Node = empty_stack.pop_back()
+		for c in n.get_children():
+			empty_stack.append(c)
+		if n is RichTextLabel and n.text == "No battles scored yet.":
+			empty_note = n
+	check(empty_note != null and empty_note.get_global_rect().size.x >= 150.0, "The 'No battles scored yet.' line has room to be read (width %.0f)" % (empty_note.get_global_rect().size.x if empty_note != null else -1.0))
 	empty.queue_free()
 
 	var log := BattleScoreLog.new()

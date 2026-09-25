@@ -25,12 +25,13 @@ func run() -> void:
 	check(not main._map_hud_overlay.map_marks_visible, "The first screen draws no scale bar, compass or weather")
 	check(not main._clock_label.visible, "...and no clock")
 	check(main._location_label.visible, "...but the location readout stays")
+	check(not main._map_hud_overlay.weather_visible, "...and no weather block")
 	main._show_deployment()
 	await process_frame
-	check(main._map_hud_overlay.map_marks_visible and main._clock_label.visible, "Deployment shows the scale bar, compass and clock again")
+	check(main._map_hud_overlay.map_marks_visible and main._clock_label.visible and main._map_hud_overlay.weather_visible, "Deployment shows the scale bar, compass, clock and weather again")
 	main._show_level_select()
 	await process_frame
-	check(not main._map_hud_overlay.map_marks_visible and not main._clock_label.visible, "Back on the first screen they are hidden again")
+	check(not main._map_hud_overlay.map_marks_visible and not main._clock_label.visible and not main._map_hud_overlay.weather_visible, "Back on the first screen they are hidden again")
 	check(main._location_label.visible, "...with the location readout still there")
 	main._show_deployment()
 	main.current_screen.request_start()

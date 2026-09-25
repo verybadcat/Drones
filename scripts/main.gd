@@ -42,7 +42,7 @@ var _map_hud_overlay: Node2D
 var _last_weather_signature: String = ""
 
 # The sound of the wind — follows Weather.current from deployment through the end of the battle
-# (see _process); silent on the level-select screen.
+# (see _process); silent on the level-select screen, which shows no weather.
 var wind_ambience: WindAmbience
 # The sound of the rain — same lifetime as the wind (see _process).
 var rain_ambience: RainAmbience
@@ -163,12 +163,15 @@ func _apply_map_dimensions() -> void:
 	_map_hud_overlay.queue_redraw() # the scale bar/compass depend on the loaded map too
 
 
-## The scale bar, compass, weather block and the tactical clock belong to the map and
-## the battle: not on the level-select screen, back from deployment on.
-func _set_map_marks_visible(shown: bool) -> void:
-	_map_hud_overlay.map_marks_visible = shown
+## What the display that outlasts the screens shows follows what the current screen asks for
+## (see GameScreen): the scale bar and compass and the tactical clock belong to the map and the
+## battle — not on the level-select screen, back from deployment on — and the weather is only
+## presented where the screen shows it. (Weather.current is global; it is never cleared for this.)
+func _apply_screen_hud(screen: GameScreen) -> void:
+	_map_hud_overlay.map_marks_visible = screen.shows_map_marks()
+	_map_hud_overlay.weather_visible = screen.shows_weather()
 	_map_hud_overlay.queue_redraw()
-	_clock_label.visible = shown
+	_clock_label.visible = screen.shows_map_marks()
 
 
 ## The map dropdown changed — switch GameConfig's own active map, then
@@ -198,9 +201,9 @@ func _process(_delta: float) -> void:
 	_clock_label.text = current_screen.clock_text()
 
 	# Wind and rain sound: from the moment this battle's weather is rolled (deployment)
-	# until the battle ends; none on the level-select screen (no weather yet) or
-	# on the report screen. Ground-level wind, gusts ignored.
-	var weather_audible: bool = Weather.current != null and not current_screen.battle_is_over()
+	# until the battle ends; none where the screen presents no weather (the scenario
+	# picker) or once the battle is over. Ground-level wind, gusts ignored.
+	var weather_audible: bool = Weather.current != null and current_screen.shows_weather() and not current_screen.battle_is_over()
 	wind_ambience.set_wind(Weather.current.wind_speed_10m if weather_audible else -1.0)
 	# Rain sounds on the same terms (only actual rain: sleet and snow are silent).
 	rain_ambience.set_rain(
@@ -220,15 +223,11 @@ func _open_screen(screen: GameScreen) -> void:
 	if current_screen != null:
 		current_screen.queue_free()
 	current_screen = screen
-	_set_map_marks_visible(screen.shows_map_marks())
+	_apply_screen_hud(screen)
 	add_child(screen)
 
 
 func _show_level_select() -> void:
-	# No wind/precipitation readout while a scenario is being picked: this
-	# battle's weather is only rolled when deployment starts (_show_deployment),
-	# and the previous battle's must not linger here.
-	Weather.current = null
 	var screen := LevelSelectScreen.new()
 	screen.score_log = score_log # one history, one path (and the same headless guard)
 	screen.mode_chosen.connect(_on_recon_mode_chosen)

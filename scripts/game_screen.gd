@@ -26,6 +26,14 @@ func shows_map_marks() -> bool:
 	return true
 
 
+## Whether the weather is presented while this screen is up: the wind and precipitation block
+## on the map and the wind and rain sound. Weather.current itself is global — it outlives every
+## screen, and is rolled when deployment starts — so a screen that has no weather to show says
+## so here rather than clearing it.
+func shows_weather() -> bool:
+	return true
+
+
 ## What the tactical clock reads while this screen is up (frozen at the planned H-hour
 ## until a battle is running).
 func clock_text() -> String:

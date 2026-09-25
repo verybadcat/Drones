@@ -76,8 +76,13 @@ func _ready() -> void:
 	columns.add_child(_build_score_history())
 
 
-## No map is shown yet, so no scale bar, compass, weather block or clock (see GameScreen).
+## No map is shown yet, so no scale bar, compass or clock (see GameScreen).
 func shows_map_marks() -> bool:
+	return false
+
+
+## Picking a scenario shows no weather: this battle's is only rolled when deployment starts.
+func shows_weather() -> bool:
 	return false
 
 
@@ -92,6 +97,10 @@ func shows_map_marks() -> bool:
 func _build_score_history() -> Control:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 10)
+	# As wide as the table will be — also with no history to fill it: the labels here have no
+	# minimum width of their own, and in a column with nothing else to give it one they would
+	# shrink to nothing and the "No battles scored yet." line would never be seen.
+	box.custom_minimum_size = Vector2(ROW_HEADING_WIDTH + GameConfig.ReconMode.size() * (CELL_SIZE.x + 8.0), 0.0)
 
 	var title := GameConfig.make_selectable_label("Your average scores")
 	title.add_theme_font_size_override("normal_font_size", 17)
