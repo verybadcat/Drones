@@ -8,7 +8,7 @@ extends Node2D
 
 const BattleScore = preload("res://scripts/battle_score.gd")
 const BattleScoreLog = preload("res://scripts/battle_score_log.gd")
-const MortarOrdersPanel = preload("res://scripts/mortar_orders_panel.gd")
+const UnitOrdersPanel = preload("res://scripts/unit_orders_panel.gd")
 const WindAmbience = preload("res://scripts/wind_ambience.gd")
 const RainAmbience = preload("res://scripts/rain_ambience.gd")
 
@@ -93,8 +93,8 @@ var hide_report_button: Button
 var wind_ambience: WindAmbience
 # The sound of the rain — same lifetime as the wind (see _process).
 var rain_ambience: RainAmbience
-# Opened by clicking a friendly mortar on the map (BattleManager.mortar_selected).
-var mortar_orders_panel: MortarOrdersPanel
+# Opened by clicking a friendly unit on the map (BattleManager.unit_selected).
+var unit_orders_panel: UnitOrdersPanel
 
 # Post-battle "drag through time" replay — see battle_history_viewer.gd.
 # history_viewer is untyped for the same brand-new-class_name reason as
@@ -421,7 +421,7 @@ func _map_mouse_world_position() -> Vector2:
 func _clear_all() -> void:
 	for node in [level_select_screen, deployment_screen, doctrine_panel, start_button, deployment_magnifier, battle_manager,
 			combat_log, casualty_dashboard, retreat_button, pause_button, drone_debug_panel, decision_inspector, inspect_button,
-			enemy_heatmap_overlay, report_background, restart_button, review_history_button, hide_report_button, mortar_orders_panel,
+			enemy_heatmap_overlay, report_background, restart_button, review_history_button, hide_report_button, unit_orders_panel,
 			history_viewer, history_slider, history_time_label, history_back_button, history_play_button,
 			schedule_retreat_label, scheduled_retreat_slider, scheduled_retreat_value_label, schedule_retreat_button,
 			scheduled_retreat_status_label, cancel_scheduled_retreat_button]:
@@ -452,7 +452,7 @@ func _clear_all() -> void:
 	restart_button = null
 	review_history_button = null
 	hide_report_button = null
-	mortar_orders_panel = null
+	unit_orders_panel = null
 	history_viewer = null
 	history_slider = null
 	history_time_label = null
@@ -598,13 +598,13 @@ func _on_start_pressed() -> void:
 
 	battle_manager.start_battle(doctrine, combat_log)
 
-	# A card that pops up beside the mortar when it's clicked (and goes away
-	# when it's clicked again); hides itself if the mortar is lost or the
-	# battle ends.
-	mortar_orders_panel = MortarOrdersPanel.new()
-	mortar_orders_panel.setup(battle_manager, map_viewport, Rect2(Vector2.ZERO, map_container.size))
-	add_child(mortar_orders_panel)
-	battle_manager.mortar_selected.connect(mortar_orders_panel.show_for)
+	# A card that pops up beside a friendly unit when it's clicked (and goes away
+	# on any click outside it); hides itself if the unit is lost or the battle
+	# ends.
+	unit_orders_panel = UnitOrdersPanel.new()
+	unit_orders_panel.setup(battle_manager, map_viewport, Rect2(Vector2.ZERO, map_container.size))
+	add_child(unit_orders_panel)
+	battle_manager.unit_selected.connect(unit_orders_panel.show_for)
 	decision_inspector = preload("res://scripts/decision_inspector.gd").new()
 	decision_inspector.setup(battle_manager)
 	decision_inspector.position = Vector2(12, 50)

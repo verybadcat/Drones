@@ -182,9 +182,9 @@ func test_clicking_selects_only_a_friendly_active_mortar() -> void:
 	var bm = make_battle(10, true)
 	var mortar: Unit = bm.player_units[0]
 	_selected.clear()
-	bm.mortar_selected.connect(func(u): _selected.append(u))
+	bm.unit_selected.connect(func(u): _selected.append(u))
 	check(bm.handle_click(mortar.global_position + Vector2(5, 5)) == mortar, "Clicking on the mortar selects it")
-	check(_selected.size() == 1 and _selected[0] == mortar, "mortar_selected emitted once with the mortar")
+	check(_selected.size() == 1 and _selected[0] == mortar, "unit_selected emitted once with the mortar")
 	check(bm.handle_click(mortar.global_position + Vector2(200, 0)) == null, "Clicking empty ground selects nothing")
 	check(bm.handle_click(bm.enemy_units[1].global_position) == null, "An enemy mortar can't be selected")
 	mortar.state = Unit.State.RETREATING
@@ -282,30 +282,30 @@ func test_panel_reflects_and_sets_the_order() -> void:
 	var vp := SubViewport.new() # identity canvas transform: screen == world
 	root.add_child(vp)
 	var area := Rect2(0, 0, 1000, 700)
-	var panel := MortarOrdersPanel.new()
+	var panel := UnitOrdersPanel.new()
 	root.add_child(panel)
 	panel.setup(bm, vp, area)
 	check(not panel.visible, "Panel starts hidden")
-	bm.mortar_selected.connect(panel.show_for)
+	bm.unit_selected.connect(panel.show_for)
 
 	bm.handle_click(mortar.global_position)
 	check(panel.visible, "Clicking the mortar opens the card")
 	check(panel.position.x >= mortar.global_position.x + 10.0, "The card pops up beside the mortar, to its right (x %.0f)" % panel.position.x)
 	check(absf(panel.position.y + panel.size.y / 2.0 - mortar.global_position.y) < 2.0, "...vertically centred on it")
-	check(not panel._order_switch.button_pressed, "Unordered mortar shows the switch off")
-	panel._order_switch.button_pressed = true
+	check(not panel._fire_switch.button_pressed, "Unordered mortar shows the switch off")
+	panel._fire_switch.button_pressed = true
 	check(bm.mortar_squad_fire_ordered(mortar), "Flipping the switch issues the order")
-	panel._order_switch.button_pressed = false
+	panel._fire_switch.button_pressed = false
 	check(not bm.mortar_squad_fire_ordered(mortar), "Flipping it back countermands it")
 	bm.set_mortar_squad_fire_order(mortar, true)
 	panel._refresh()
-	check(panel._order_switch.button_pressed, "An order set elsewhere shows as on")
+	check(panel._fire_switch.button_pressed, "An order set elsewhere shows as on")
 	check(bm.mortar_squad_fire_ordered(mortar), "Refreshing the card must not disturb the order")
 
 	# Any click outside the card dismisses it, and the order stands.
 	panel.hide_panel()
 	bm.handle_click(mortar.global_position)
-	check(panel.visible and panel._order_switch.button_pressed, "Reopening shows the standing order")
+	check(panel.visible and panel._fire_switch.button_pressed, "Reopening shows the standing order")
 	panel._input(click_at(panel.position + panel.size / 2.0))
 	check(panel.visible, "A click inside the card leaves it open")
 	panel._input(click_at(Vector2(900, 650)))
@@ -360,8 +360,8 @@ func test_panel_reflects_and_sets_the_order() -> void:
 			buttons += 1
 		elif n is Label:
 			labels.append(n.text)
-	check(buttons == 1, "The card holds just the one order switch (found %d buttons)" % buttons)
-	check(labels.size() == 2, "Only a heading and the order's name (found %s)" % str(labels))
+	check(buttons == 2, "The mortar's card holds just its two order switches: expend ammo, fall back (found %d buttons)" % buttons)
+	check(labels.size() == 3, "Only a heading and the two orders' names (found %s)" % str(labels))
 
 	bm.battle_over = true
 	panel._refresh()

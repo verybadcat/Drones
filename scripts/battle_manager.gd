@@ -17,9 +17,9 @@ class_name BattleManager
 ## separate visual is needed at the real moment of impact.
 
 signal battle_ended(report_text: String)
-## Emitted by handle_click when the player clicks a friendly mortar - main.gd
-## opens the mortar orders panel for it.
-signal mortar_selected(mortar: Unit)
+## Emitted by handle_click when the player clicks a friendly unit that can take
+## orders - main.gd opens the orders card for it.
+signal unit_selected(unit: Unit)
 
 ## Printed at the top of every after-action report.
 const AFTER_ACTION_REPORT_DISCLAIMER := "This report details higher command's assessment of enemy casualties. It may or may not match reality."
@@ -217,6 +217,7 @@ func _update_ground_risk_orders() -> void:
 		if unit.state != Unit.State.ACTIVE or unit.kind == Unit.Kind.DRONE: continue
 		var risk: String = unit_doctrine_for(unit).risk
 		if risk == "inherit": continue
+		if _fall_back_orders.has(unit): continue # the commander's order outranks the unit's own risk policy
 		if _risk_holds.has(unit) and unit.has_move_target:
 			continue # Finish the chosen safety move before reconsidering.
 		_risk_holds.erase(unit)
@@ -235,19 +236,37 @@ func _update_ground_risk_orders() -> void:
 		_relocate_for_risk(unit)
 
 
+## The places worth considering to be safer than where `unit` stands: where it
+## stands now, the nearest point out of sight of every known enemy (the ring search
+## in GameConfig.nearest_hidden_point — see its own doc comment on danger_range: a
+## mortar crew's own 750m overrun standoff is far tighter than any other unit
+## kind's relevant "don't walk toward a known threat" scale, so everyone else uses
+## SQUAD_DANGER_RANGE, 1200m, the same mortar-vs-everyone-else split
+## _retreat_avoidance_offset's own range_m already uses), and the nearest cover.
+## Shared by _relocate_for_risk (a unit whose own risk policy rejected its exposure)
+## and _fall_back_destination (the commander's fall-back order), so the two can
+## never disagree about what a candidate is.
+func _shelter_candidates(unit: Unit, known: Array[Vector2]) -> Array[Vector2]:
+	return [unit.global_position, _hidden_point_for(unit, known), _cover_point_for(unit, known, _ally_positions_for(unit))]
+
+
+## GameConfig.nearest_hidden_point as _relocate_for_risk has always called it (its
+## pick among the best candidates is deliberately randomised, so two calls can differ).
+func _hidden_point_for(unit: Unit, known: Array[Vector2]) -> Vector2:
+	var danger_range: float = GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE if unit.kind == Unit.Kind.MORTAR else GameConfig.SQUAD_DANGER_RANGE
+	return GameConfig.nearest_hidden_point(unit.global_position, known, unit.kind == Unit.Kind.MORTAR, false, [], Vector2.INF, INF, 0.0, [], [], Vector2.ZERO, Vector2.INF, danger_range)
+
+
+## GameConfig.nearest_cover_point, skipping any cover zone that contains one of `avoid`.
+func _cover_point_for(unit: Unit, known: Array[Vector2], avoid: Array[Vector2]) -> Vector2:
+	return GameConfig.nearest_cover_point(unit.global_position, 0.0, unit.kind == Unit.Kind.MORTAR, avoid, known)
+
+
 func _relocate_for_risk(unit: Unit) -> void:
 	_risk_holds[unit] = true
 	unit.last_order_reason = "Self-risk policy rejected the current exposure; moving to safer cover or withholding fire."
 	var known := _known_enemy_positions(unit.team)
-	# See nearest_hidden_point's own doc comment on danger_range — a mortar
-	# crew's own 750m overrun standoff is far tighter than any other unit
-	# kind's relevant "don't walk toward a known threat" scale, so anything
-	# else here uses SQUAD_DANGER_RANGE (1200m) instead, same mortar-vs-
-	# everyone-else split _retreat_avoidance_offset's own range_m already uses.
-	var danger_range: float = GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE if unit.kind == Unit.Kind.MORTAR else GameConfig.SQUAD_DANGER_RANGE
-	var choices: Array[Vector2] = [unit.global_position,
-		GameConfig.nearest_hidden_point(unit.global_position, known, unit.kind == Unit.Kind.MORTAR, false, [], Vector2.INF, INF, 0.0, [], [], Vector2.ZERO, Vector2.INF, danger_range),
-		GameConfig.nearest_cover_point(unit.global_position, 0.0, unit.kind == Unit.Kind.MORTAR, _ally_positions_for(unit), known)]
+	var choices: Array[Vector2] = _shelter_candidates(unit, known)
 	var best: Vector2 = unit.global_position
 	var best_risk := INF
 	for point in choices:
@@ -839,6 +858,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	enemy_mortar_isolated_retreat_ordered = false
 	_last_detected_mortar_fire.clear()
 	_mortar_squad_fire_orders.clear()
+	_fall_back_orders.clear()
 	_mortar_tick_shot.clear()
 	_mortar_move_intent.clear()
 	_mortar_reasoning.clear()
@@ -1441,6 +1461,174 @@ func _scheduled_retreat_ammo_discount(mortar: Unit) -> float:
 	return clamp(time_remaining / time_needed_to_expend, 0.0, 1.0)
 
 
+## ---------------------------------------------------------------------------
+## The "fall back" order. Direct user request: "I want to be able to give any unit
+## an order to 'fall back'. This does NOT have to mean to leave the map. It means the
+## unit should evaluate where it might be safer than its current location, and move
+## there. The orders can work similarly to the way they already work with the
+## mortar." And: "The 'falling back' could even go forward if it thinks that is the
+## safest direction." So this is not a retreat and has no rear bias: candidates are
+## considered in every direction, judged only on safety.
+##
+## A one-shot order the commander can also countermand: while it stands, the unit
+## walks to the position chosen when the order was given (the same choice
+## _fall_back_destination would make now), the systems that would otherwise steer
+## it stand back (_update_fall_back_orders re-asserts the walk after them every
+## tick), and on arrival the order ends and the unit's ordinary behaviour resumes. A
+## unit that finds nowhere safer than where it is refuses the order (and says so).
+## Player units only: squads, the mortar, the spotter, the drone team.
+## ---------------------------------------------------------------------------
+var _fall_back_orders: Dictionary = {} # Unit -> {"destination": Vector2, "ordered_at": float}
+
+## Candidate distances (metres) for the direction-agnostic ring search, 8 bearings each.
+const FALL_BACK_RING_DISTANCES_M: Array[float] = [100.0, 250.0, 450.0]
+## Extra samples of the shelter searches (see _fall_back_destination).
+const FALL_BACK_COVER_SAMPLES: int = 6
+const FALL_BACK_HIDDEN_SAMPLES: int = 4
+## How much better (score, see _fall_back_score) a place must be than the current one to be worth moving to.
+const FALL_BACK_MIN_IMPROVEMENT: float = 0.25
+
+
+func set_fall_back_order(unit: Unit, enabled: bool) -> bool:
+	if battle_over or unit == null or unit.team != Unit.Team.PLAYER or not (unit.kind in ORDERABLE_KINDS):
+		return false
+	if not enabled:
+		if not _fall_back_orders.has(unit):
+			return false
+		_fall_back_orders.erase(unit)
+		if unit.kind == Unit.Kind.MORTAR:
+			_clear_mortar_move(unit)
+		else:
+			unit.has_move_target = false
+			unit.move_queue.clear()
+			unit.activity = Unit.Activity.STATIONARY
+		combat_log.add_entry("--- %s: order to fall back cancelled ---" % unit.display_name())
+		return true
+	if unit.state != Unit.State.ACTIVE:
+		return false
+	if _fall_back_orders.has(unit):
+		return true
+	var destination: Vector2 = _fall_back_destination(unit)
+	if is_inf(destination.x):
+		combat_log.add_entry("--- %s ordered to fall back, but can find nowhere safer than where it is ---" % unit.display_name())
+		return false
+	_fall_back_orders[unit] = {"destination": destination, "ordered_at": scenario_elapsed_time}
+	_issue_fall_back_move(unit, destination)
+	unit.last_order_reason = "Ordered to fall back to a safer position."
+	combat_log.add_entry("--- %s ordered to fall back ---" % unit.display_name())
+	return true
+
+
+func fall_back_ordered(unit: Unit) -> bool:
+	return _fall_back_orders.has(unit)
+
+
+func _issue_fall_back_move(unit: Unit, destination: Vector2) -> void:
+	if unit.kind == Unit.Kind.MORTAR:
+		_issue_mortar_move(unit, destination, GameConfig.MORTAR_RELOCATE_SPEED_URGENT, "fall_back")
+		return
+	unit.move_target = destination
+	unit.has_move_target = true
+	unit.move_queue.clear()
+	unit.move_speed = unit.retreat_speed if unit.retreat_speed > 0.0 else GameConfig.REPOSITION_SPEED
+	unit.movement_predictable = false
+
+
+## Where `unit` would be safer than it is now, or Vector2.INF if nowhere is. The
+## mortar uses its own relocation planner (concealment, its leash to its home
+## position, its siblings ...) searched as far out as an urgent move; everyone
+## else scores the shared shelter candidates plus a ring of points around it in
+## every direction (no bias toward the rear) with _fall_back_score.
+func _fall_back_destination(unit: Unit) -> Vector2:
+	if unit.kind == Unit.Kind.MORTAR:
+		var plan: Dictionary = _mortar_relocation_plan(unit, true)
+		return Vector2.INF if plan.is_empty() else plan.destination
+	var known: Array[Vector2] = _known_enemy_positions(unit.team)
+	var candidates: Array[Vector2] = _shelter_candidates(unit, known)
+	# More than one sample of each kind: the hidden-point search picks among its best
+	# candidates at random, and the nearest cover zone alone may be exposed to the
+	# very enemy that prompted the order — so the several nearest DISTINCT cover
+	# zones and a few more hidden-point draws are all scored, and the safest wins.
+	var taken: Array[Vector2] = _ally_positions_for(unit)
+	for i in FALL_BACK_COVER_SAMPLES:
+		var cover: Vector2 = _cover_point_for(unit, known, taken)
+		if cover == unit.global_position or taken.has(cover):
+			break
+		candidates.append(cover)
+		taken.append(cover)
+	for i in FALL_BACK_HIDDEN_SAMPLES:
+		candidates.append(_hidden_point_for(unit, known))
+	for distance_m in FALL_BACK_RING_DISTANCES_M:
+		for i in 8:
+			candidates.append(unit.global_position + Vector2.from_angle(TAU * float(i) / 8.0) * distance_m * GameConfig.PIXELS_PER_METER)
+	var here: float = _fall_back_score(unit, unit.global_position, known)
+	var best := Vector2.INF
+	var best_score := here
+	for point in candidates:
+		if point.distance_to(unit.global_position) <= Unit.MOVE_ARRIVE_RADIUS:
+			continue
+		if point.x < -GameConfig.WEST_FLANK_WIDTH_PX or point.x > GameConfig.MAP_WIDTH_PX or point.y < 0.0 or point.y > GameConfig.MAP_HEIGHT_PX:
+			continue
+		if GameConfig.is_river_at(point):
+			continue
+		var score: float = _fall_back_score(unit, point, known)
+		if score < best_score:
+			best_score = score
+			best = point
+	if here - best_score < FALL_BACK_MIN_IMPROVEMENT:
+		return Vector2.INF
+	return best
+
+
+## How exposed `unit` would be at `point`; lower is safer. Safety only — no
+## direction is preferred. Dominant: the forecast chance of being hit or lost from
+## the enemies it can see or has heard (_risk_forecast, x100). Then, since most
+## threats are not currently visible: each KNOWN enemy position (last seen) that
+## could see the point in range counts a little, standing in the open counts
+## something, and being nearer the closest known enemy counts a little; a longer
+## walk costs a very little.
+func _fall_back_score(unit: Unit, point: Vector2, known: Array[Vector2]) -> float:
+	var forecast: Dictionary = _risk_forecast(unit, null, point)
+	var score: float = (forecast.loss_probability + forecast.hit_probability) * 100.0
+	var nearest_known := INF
+	for p in known:
+		var d: float = point.distance_to(p)
+		nearest_known = minf(nearest_known, d)
+		if d <= GameConfig.SQUAD_ENGAGEMENT_RANGE and GameConfig.has_direct_los(p, point):
+			score += 0.5
+	if not GameConfig.is_in_cover(GameConfig.get_terrain_type_at(point)):
+		score += 0.3
+	if not is_inf(nearest_known):
+		score += 0.2 * (1.0 - clampf(nearest_known / GameConfig.SQUAD_DANGER_RANGE, 0.0, 1.0))
+	score += 0.1 * point.distance_to(unit.global_position) / (500.0 * GameConfig.PIXELS_PER_METER)
+	return score
+
+
+## Run after every system that can steer a unit (so what the next tick's movement
+## acts on is this): ends an order whose unit has arrived, is no longer ACTIVE (a
+## retreat, a loss) or was called off, and puts the unit back on its way if
+## something else re-aimed it in the meantime.
+func _update_fall_back_orders() -> void:
+	for unit in _fall_back_orders.keys():
+		if not is_instance_valid(unit) or unit.state != Unit.State.ACTIVE:
+			_fall_back_orders.erase(unit)
+			continue
+		var destination: Vector2 = _fall_back_orders[unit].destination
+		if unit.global_position.distance_to(destination) <= Unit.MOVE_ARRIVE_RADIUS * 1.5:
+			_fall_back_orders.erase(unit)
+			if unit.kind == Unit.Kind.MORTAR:
+				_clear_mortar_move(unit)
+			else:
+				unit.has_move_target = false
+				unit.move_queue.clear()
+			combat_log.add_entry("--- %s has fallen back ---" % unit.display_name())
+			continue
+		var on_its_way: bool = unit.has_move_target and (unit.move_target.distance_to(destination) < 1.0 \
+			or (not unit.move_queue.is_empty() and unit.move_queue[-1].distance_to(destination) < 1.0))
+		if not on_its_way:
+			_issue_fall_back_move(unit, destination)
+
+
 ## The commander's "expend ammo on enemy squads" order for one friendly
 ## mortar. It changes ONE thing: when the mortar's only candidates are
 ## squads, every hold-fire probability that would leave it doing nothing is
@@ -1477,32 +1665,36 @@ func _mortar_squad_order_hold_factor(mortar: Unit, squads_only: bool = true) -> 
 	return 1.0
 
 
-const MORTAR_CLICK_RADIUS: float = 18.0
+const UNIT_CLICK_RADIUS: float = 18.0
+## The friendly unit kinds a commander can give orders to: everything on the ground.
+## (Drones fly a mission of their own and a resupply run is not one of ours to steer.)
+const ORDERABLE_KINDS: Array = [Unit.Kind.SQUAD, Unit.Kind.MORTAR, Unit.Kind.SPOTTER, Unit.Kind.DRONE_TEAM]
 
 
 ## The friendly mortar (ACTIVE, player) within a small click radius of
 ## `world_pos`, or null.
-func mortar_at(world_pos: Vector2) -> Unit:
+func unit_at(world_pos: Vector2) -> Unit:
 	var best: Unit = null
-	var best_d := MORTAR_CLICK_RADIUS
-	for m in player_units:
-		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
+	var best_d := UNIT_CLICK_RADIUS
+	for u in player_units:
+		if u.state != Unit.State.ACTIVE or not (u.kind in ORDERABLE_KINDS):
 			continue
-		var d: float = m.global_position.distance_to(world_pos)
+		var d: float = u.global_position.distance_to(world_pos)
 		if d <= best_d:
 			best_d = d
-			best = m
+			best = u
 	return best
 
 
-## A left click on a friendly mortar opens its orders panel.
+## A left click on a friendly unit that can take orders (a squad, the mortar,
+## the spotter, the drone team) opens its orders card.
 func handle_click(world_pos: Vector2) -> Unit:
 	if battle_over:
 		return null
-	var m: Unit = mortar_at(world_pos)
-	if m != null:
-		mortar_selected.emit(m)
-	return m
+	var u: Unit = unit_at(world_pos)
+	if u != null:
+		unit_selected.emit(u)
+	return u
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -5018,6 +5210,9 @@ func _decide_mortar_action(m: Unit) -> void:
 	# actually fire regardless of what _pick_target returns, hence the
 	# ammo conjunct here).
 	var target: Unit = _mortar_shot_this_tick(m, opposing)
+	if _fall_back_orders.has(m):
+		_mortar_reasoning[m] = {"tier": "Commander's order", "detail": "Falling back to a safer position, as ordered."}
+		return
 	if _risk_holds.has(m):
 		_mortar_reasoning[m] = {"tier": "Self-risk policy", "detail": m.last_order_reason}
 		return
@@ -5487,7 +5682,7 @@ func mortar_decision_debug_snapshot() -> Dictionary:
 			"rounds_remaining": m.mortar_rounds_remaining,
 			"state": Unit.State.keys()[m.state],
 			"move_intent": _mortar_move_intent.get(m, "none"),
-			"orders": {"fire_on_squads": _mortar_squad_fire_orders.has(m)},
+			"orders": {"fire_on_squads": _mortar_squad_fire_orders.has(m), "fall_back": _fall_back_orders.has(m)},
 			"reasoning": reasoning,
 			"recent_history": _mortar_debug_history.get(m, []),
 		}
@@ -5516,6 +5711,7 @@ func general_unit_debug_snapshot() -> Dictionary:
 			"last_order_reason": u.last_order_reason,
 			"pips": u.pips,
 			"max_pips": u.max_pips,
+			"fall_back_ordered": _fall_back_orders.has(u),
 		}
 		var combat_row: Dictionary = unit_combat_stats.rows.get(u.get_instance_id(), {})
 		if not combat_row.is_empty():
@@ -5593,6 +5789,7 @@ func _process(delta: float) -> void:
 	_check_enemy_commander_retreat()
 	_check_enemy_mortar_isolated_retreat()
 	_check_scheduled_retreat()
+	_update_fall_back_orders()
 	_prune_fire_flashes()
 	_record_unit_decisions()
 	_check_battle_end()
@@ -6799,6 +6996,8 @@ func _update_friendly_squad_positioning() -> void:
 	for u in player_units:
 		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or u.has_move_target:
 			continue
+		if _fall_back_orders.has(u):
+			continue # ordered to fall back: not this loop's to steer
 		if _pick_target(u, enemy_units) != null or _risk_holds.has(u):
 			continue # something to shoot at right now — stand and fight
 		var encirclement_dest := _reposition_for_encirclement(u, known_enemies, _ally_positions_for(u) + claimed)
@@ -7779,7 +7978,7 @@ func _resolve_pending_mortar_displacement() -> void:
 		if scenario_elapsed_time < pending.ready_time:
 			continue
 		_pending_mortar_displacement.erase(mortar)
-		if mortar.state != Unit.State.ACTIVE:
+		if mortar.state != Unit.State.ACTIVE or _fall_back_orders.has(mortar):
 			continue
 		if mortar.has_move_target and _mortar_move_intent.get(mortar, "") in ["evade", "conceal", "out_of_ammo", "linkup"]:
 			continue
