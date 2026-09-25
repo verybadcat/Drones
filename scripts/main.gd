@@ -752,6 +752,17 @@ func _score_tab_text() -> String:
 	return BattleScore.breakdown_text(battle_manager.battle_result.inputs, _scenario_average_line)
 
 
+## Where the end-of-battle report sits. Its top is below the strip along the top of
+## the screen (elevation and location labels, the clock, "Inspect AI", the retreat
+## slider) so it no longer covers them (user: "move the end-of-battle panel a bit
+## further down in the UI so it doesn't overlap elements at the top. The buttons
+## below it then also have to move down"). The three buttons stack under it.
+const REPORT_PANEL_TOP: float = 64.0
+const REPORT_PANEL_SIZE := Vector2(560, 500)
+const REPORT_BUTTONS_GAP: float = 20.0
+const REPORT_BUTTON_ROW_HEIGHT: float = 41.0 # a button is 31 px tall, plus spacing
+
+
 func _on_battle_ended(report_text: String) -> void:
 	report_text = _record_score_and_annotate(report_text)
 	if retreat_button:
@@ -763,8 +774,8 @@ func _on_battle_ended(report_text: String) -> void:
 
 	report_background = ColorRect.new()
 	report_background.color = Color(0.05, 0.05, 0.05, 0.85)
-	report_background.position = Vector2(20, 20)
-	report_background.size = Vector2(560, 500)
+	report_background.position = Vector2(20, REPORT_PANEL_TOP)
+	report_background.size = REPORT_PANEL_SIZE
 	add_child(report_background)
 	if decision_inspector:
 		move_child(decision_inspector, -1)
@@ -824,13 +835,14 @@ func _on_battle_ended(report_text: String) -> void:
 
 	restart_button = Button.new()
 	restart_button.text = "Choose new setup and try again"
-	restart_button.position = Vector2(20, 540)
+	var buttons_top: float = REPORT_PANEL_TOP + REPORT_PANEL_SIZE.y + REPORT_BUTTONS_GAP
+	restart_button.position = Vector2(20, buttons_top)
 	restart_button.pressed.connect(_show_level_select)
 	add_child(restart_button)
 
 	review_history_button = Button.new()
 	review_history_button.text = "Review Battle History"
-	review_history_button.position = Vector2(20, 581) # below restart_button (measured 31px tall)
+	review_history_button.position = Vector2(20, buttons_top + REPORT_BUTTON_ROW_HEIGHT) # below restart_button
 	review_history_button.pressed.connect(_on_review_history_pressed)
 	add_child(review_history_button)
 
@@ -841,7 +853,7 @@ func _on_battle_ended(report_text: String) -> void:
 	# tearing the report down the way Review Battle History does.
 	hide_report_button = Button.new()
 	hide_report_button.text = "Hide Report"
-	hide_report_button.position = Vector2(20, 622) # below review_history_button
+	hide_report_button.position = Vector2(20, buttons_top + 2.0 * REPORT_BUTTON_ROW_HEIGHT) # below review_history_button
 	hide_report_button.pressed.connect(_on_hide_report_pressed)
 	add_child(hide_report_button)
 
