@@ -1,7 +1,7 @@
 class_name BattleReport
 extends GameScreen
-## The end-of-battle report and everything that goes with it: the three tabs (Score, Damage
-## by unit, After Action Report), the buttons under it (choose a new setup, review the
+## The end-of-battle report and everything that goes with it: the four tabs (Score, Damage
+## by unit, Seed, After Action Report), the buttons under it (choose a new setup, review the
 ## battle's history, hide the report) and the history-review mode with its scrubbable
 ## timeline. Opened by the battle screen when the battle ends; it records the battle's
 ## score to the durable history (see BattleScoreLog) and asks main.gd, by signal, for a new
@@ -26,6 +26,7 @@ var report_background: Control
 var restart_button: Button
 var review_history_button: Button
 var hide_report_button: Button
+var copy_seed_button: Button
 
 # Post-battle "drag through time" replay — see battle_history_viewer.gd. history_viewer is
 # untyped for the brand-new-class_name reason, and lives in map_viewport (map-space
@@ -88,6 +89,20 @@ func _score_tab_text() -> String:
 	return BattleScore.breakdown_text(battle_manager.battle_result.inputs, _scenario_average_line)
 
 
+## The Seed tab: the seed this battle ran on, and what using it again does and does not do.
+func seed_tab_text() -> String:
+	var seed_value: int = battle_manager.battle_seed if battle_manager != null else -1
+	if seed_value < 0:
+		return "This battle had no seed (it was not started from the setup screens)."
+	return "Battle seed: %d\n\n%s" % [seed_value, LevelSelectScreen.SEED_NOTE]
+
+
+## "Copy seed": puts the number on the clipboard, ready to paste on the first screen.
+func copy_seed() -> void:
+	if battle_manager != null and battle_manager.battle_seed >= 0 and DisplayServer.has_feature(DisplayServer.FEATURE_CLIPBOARD):
+		DisplayServer.clipboard_set(str(battle_manager.battle_seed))
+
+
 func open(report_text: String) -> void:
 	report_text = _record_score_and_annotate(report_text)
 
@@ -137,6 +152,10 @@ func open(report_text: String) -> void:
 	damage_tab.name = "DamageByUnit"
 	damage_tab.text = "Damage by unit"
 	damage_tab.pressed.connect(func(): report_label.text = "\n".join(battle_manager.unit_combat_stats.report_lines()); report_scroll.scroll_vertical = 0)
+	var seed_tab := Button.new()
+	seed_tab.name = "SeedTab"
+	seed_tab.text = "Seed"
+	seed_tab.pressed.connect(func(): report_label.text = seed_tab_text(); report_scroll.scroll_vertical = 0)
 	var report_tab := Button.new()
 	report_tab.name = "AfterActionReportTab"
 	report_tab.text = "After Action Report"
@@ -144,10 +163,22 @@ func open(report_text: String) -> void:
 	# Laid out left to right by each button's own measured width, so no tab
 	# ever overlaps its neighbor whatever the font.
 	var tab_x := 10.0
-	for tab in [score_tab, damage_tab, report_tab]:
+	for tab in [score_tab, damage_tab, seed_tab, report_tab]:
 		report_background.add_child(tab)
 		tab.position = Vector2(tab_x, 10)
 		tab_x += tab.get_combined_minimum_size().x + 6.0
+
+	# The Seed tab's button: copies the seed to the clipboard. Shown only while that tab is.
+	copy_seed_button = Button.new()
+	copy_seed_button.name = "CopySeed"
+	copy_seed_button.text = "Copy seed"
+	copy_seed_button.position = Vector2(10, REPORT_PANEL_SIZE.y - 40.0)
+	copy_seed_button.visible = false
+	copy_seed_button.pressed.connect(copy_seed)
+	report_background.add_child(copy_seed_button)
+	for tab in [score_tab, damage_tab, report_tab]:
+		tab.pressed.connect(func(): copy_seed_button.visible = false)
+	seed_tab.pressed.connect(func(): copy_seed_button.visible = true)
 
 	restart_button = Button.new()
 	restart_button.text = "Choose new setup and try again"

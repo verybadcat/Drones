@@ -21,6 +21,10 @@ const RainAmbience = preload("res://scripts/rain_ambience.gd")
 ## The screen showing right now (null only before _ready finishes).
 var current_screen: GameScreen
 var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
+## The seed the player typed on the first screen (-1: random), and the one the coming battle actually
+## uses (drawn from it, or at random, when deployment starts; always 0 or more). The battle report shows it.
+var chosen_seed: int = -1
+var battle_seed: int = -1
 
 # The map (deployment, the battle) lives inside this SubViewport rather than directly under root
 # so it can have its own Camera2D, kept permanently fixed at GameConfig.CAMERA_CENTER_X showing
@@ -237,14 +241,20 @@ func _show_level_select() -> void:
 
 func _on_recon_mode_chosen(mode: GameConfig.ReconMode) -> void:
 	recon_mode = mode
+	if current_screen is LevelSelectScreen:
+		chosen_seed = current_screen.chosen_seed()
 	_show_deployment()
 
 
 func _show_deployment() -> void:
-	# A fresh March draw for this battle — shown on the map from the moment
+	# The battle's seed: the one typed on the first screen, or a random one — always a real number, so
+	# the report can show it and it can be used again. The March weather is drawn from it (the
+	# offset is the one BattleManager has always used), shown on the map from the moment
 	# deployment starts, and used as-is by BattleManager.start_battle.
-	Weather.current = Weather.roll()
+	battle_seed = chosen_seed if chosen_seed >= 0 else randi_range(0, LevelSelectScreen.MAX_SEED - 8000)
+	Weather.current = Weather.roll(battle_seed + 7919)
 	var screen := DeploymentPhase.new()
+	screen.battle_seed = battle_seed
 	screen.recon_mode = recon_mode
 	screen.map_viewport = map_viewport
 	screen.start_requested.connect(_on_start_requested)

@@ -3827,8 +3827,17 @@ func _nearest_active_friendly_distance(pos: Vector2, team: Unit.Team = Unit.Team
 		# the drone was itself hovering over read as at contact with a friendly (danger 10/10), so the
 		# drone kept tracking whichever squad it was over, however far from our positions.
 		if f.state == Unit.State.ACTIVE and f.kind != Unit.Kind.DRONE:
-			nearest = min(nearest, pos.distance_to(f.global_position))
+			var d: float = pos.distance_to(f.global_position)
+			if f.kind == Unit.Kind.SPOTTER:
+				d *= SPOTTER_NEARNESS_DISCOUNT # "the spotter should have only a very minor affect on what to track"
+			nearest = min(nearest, d)
 	return nearest
+
+
+## A squad near the spotter counts as this many times farther from our forces than it is, so the
+## spotter barely raises a squad's danger (no scenario has both a spotter and a drone team, so this is
+## only the light touch the user asked for). JUDGMENT.
+const SPOTTER_NEARNESS_DISCOUNT: float = 10.0
 
 
 ## "Approaching" means heading within 60 degrees of straight at the unit (a squad crossing our front

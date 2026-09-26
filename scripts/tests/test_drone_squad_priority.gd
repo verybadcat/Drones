@@ -79,6 +79,7 @@ func run() -> void:
 	test_squads_threatening_the_mortar_come_first()
 	test_approaching_our_squads_beats_merely_being_near()
 	test_a_threat_to_the_drone_team_counts_like_one_to_a_squad()
+	test_the_spotter_barely_matters()
 	print("Drone squad priority tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
@@ -148,3 +149,20 @@ func test_a_threat_to_the_drone_team_counts_like_one_to_a_squad() -> void:
 	check(not ("approaching" in str(bm2._drone_squad_to_track().get("why", ""))), "...and is not 'approaching our squads' because of the drone")
 	cleanup(bm)
 	cleanup(bm2)
+
+
+## "The spotter should have only a very minor affect on what to track." A squad next to the spotter is
+## a little more dangerous than one far from everything, but far less than one the same distance from a squad.
+func test_the_spotter_barely_matters() -> void:
+	var bm = make_battle(Vector2(2500, 300), false)
+	var spotter: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, m(300, 300))
+	bm.player_units.append(spotter)
+	var by_spotter := add_enemy(bm, Vector2(400, 300)) # 100 m from the spotter only
+	var by_squad := add_enemy(bm, Vector2(1500, 1800)) # 100 m from a friendly squad
+	var far := add_enemy(bm, Vector2(3800, 300)) # far from everything
+	var d_spotter: float = bm._squad_danger_priority(by_spotter)
+	var d_squad: float = bm._squad_danger_priority(by_squad)
+	var d_far: float = bm._squad_danger_priority(far)
+	check(d_spotter > d_far, "A squad by the spotter is still a touch more dangerous than one far from everything (%.1f vs %.1f)" % [d_spotter, d_far])
+	check(d_spotter < d_squad * 0.3, "...but under a third as much as one the same distance from a squad (%.1f vs %.1f)" % [d_spotter, d_squad])
+	cleanup(bm)

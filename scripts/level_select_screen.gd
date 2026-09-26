@@ -57,6 +57,7 @@ func _ready() -> void:
 	columns.add_child(root)
 
 	root.add_child(_build_map_picker())
+	root.add_child(_build_seed_box())
 
 	var title := GameConfig.make_selectable_label("Choose your reconnaissance setup")
 	title.add_theme_font_size_override("normal_font_size", 22)
@@ -283,6 +284,39 @@ func _build_map_picker() -> Control:
 	box.add_child(picker)
 
 	return box
+
+
+## The battle seed, chosen here with the scenario ("I want to move the seed to the first screen where
+## the user picks a scenario"). -1 (the default) means a random one, which the battle report shows
+## afterwards so it can be copied and used again. See main.gd, which draws it for the battle.
+var seed_box: SpinBox
+
+func _build_seed_box() -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	box.add_child(GameConfig.make_selectable_label("Battle seed (-1 = random)"))
+	seed_box = SpinBox.new()
+	seed_box.min_value = -1
+	seed_box.max_value = MAX_SEED
+	seed_box.value = -1
+	seed_box.custom_minimum_size = Vector2(200, 0)
+	box.add_child(seed_box)
+	var note := GameConfig.make_selectable_label(SEED_NOTE)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.custom_minimum_size = Vector2(780, 0)
+	box.add_child(note)
+	return box
+
+
+## The seed as typed: -1 for random, else 0 and up.
+func chosen_seed() -> int:
+	return int(seed_box.value) if seed_box != null else -1
+
+
+const MAX_SEED: int = 2147483647
+## What a seed does and does not do (measured: see the design doc's 2026-09-26 entry). Shared with the
+## report's Seed tab (BattleReport), which repeats it beside the seed the battle used.
+const SEED_NOTE: String = "Using the same seed again, on the same location and reconnaissance setup, gives you the same weather and the same enemy force (how many squads and mortars, and where they start), and the game's dice start from the same place. It does not replay the battle: what happens after that depends on what you do and on the exact timing of the game's frames, so the fight will still go its own way."
 
 
 func _build_option(title_text: String, body_text: String, mode: GameConfig.ReconMode) -> Control:

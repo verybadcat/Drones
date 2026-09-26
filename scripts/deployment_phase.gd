@@ -1,8 +1,7 @@
 class_name DeploymentPhase
 extends GameScreen
 ## The deployment screen: the player drags the units into position on the map
-## (DeploymentScreen, in the map's SubViewport), optionally sets the battle seed (DoctrinePanel, in
-## the sidebar) and presses "Start Battle", which hands the whole thing on as one doctrine
+## (DeploymentScreen, in the map's SubViewport), and presses "Start Battle", which hands the whole thing on as one doctrine
 ## dictionary (start_requested) — this screen builds it, the battle screen acts on it. A
 ## loupe (deployment_magnifier.gd) shows the placement being dragged.
 ##
@@ -12,6 +11,8 @@ signal start_requested(doctrine: Dictionary)
 
 var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
 var map_viewport: SubViewport
+## The battle's seed (chosen on the first screen, see main.gd): goes into the doctrine.
+var battle_seed: int = -1
 
 var deployment_screen: DeploymentScreen
 var doctrine_panel: DoctrinePanel
@@ -112,4 +113,5 @@ func build_doctrine() -> Dictionary:
 	}
 
 	doctrine.merge(doctrine_panel.get_commander_doctrine())
+	doctrine["seed"] = battle_seed
 	return doctrine

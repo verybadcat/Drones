@@ -1,6 +1,6 @@
 extends Control
 class_name DoctrinePanel
-## The setup screen's sidebar: the one line of instruction and the battle seed. It used to hold
+## The setup screen's sidebar: the one line of instruction (the battle seed moved to the first screen). It used to hold
 ## every preference (orders by unit type, the standing retreat threshold, the mortar's shoot and
 ## scoot, both commanders' profiles); the user asked to get rid of most of it ("During the setup, I
 ## want to get rid of most of the part at the right of the screen (the preferences). I do want to
@@ -12,10 +12,9 @@ class_name DoctrinePanel
 
 const CommanderProfile = preload("res://scripts/commander_profile.gd")
 const UnitDoctrine = preload("res://scripts/unit_doctrine.gd")
-var _seed: SpinBox
 
 ## The panel's height: what it holds, and the Start Battle button sits just under it.
-const PANEL_HEIGHT: float = 150.0
+const PANEL_HEIGHT: float = 70.0
 
 
 func _ready() -> void:
@@ -31,13 +30,6 @@ func _ready() -> void:
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(title)
 
-	root.add_child(GameConfig.make_selectable_label("Battle seed (-1 = random)"))
-	_seed = SpinBox.new()
-	_seed.min_value = -1
-	_seed.max_value = 2147483647
-	_seed.value = -1
-	root.add_child(_seed)
-
 
 ## The standing retreat order for the whole force: the baseline profile's, 50% casualties.
 func get_retreat_threshold() -> float:
@@ -52,5 +44,4 @@ func get_commander_doctrine() -> Dictionary:
 	return {"player_profile": CommanderProfile.preset("baseline"),
 		"enemy_profile": CommanderProfile.preset("baseline"),
 		"player_unit_types": UnitDoctrine.sanitize({}),
-		"enemy_unit_types": UnitDoctrine.sanitize({}),
-		"seed": int(_seed.value)}
+		"enemy_unit_types": UnitDoctrine.sanitize({})}

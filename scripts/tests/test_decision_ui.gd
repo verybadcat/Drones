@@ -13,7 +13,7 @@ func run():
 	# the doctrine is built from what it does produce and the rest is filled in here, then handed to
 	# the battle exactly as Start Battle would.
 	var phase: DeploymentPhase = main.current_screen
-	phase.doctrine_panel._seed.value = 731
+	phase.battle_seed = 731 # (chosen on the first screen now)
 	var doctrine: Dictionary = phase.build_doctrine()
 	assert(doctrine.seed == 731)
 	doctrine.player_profile = load("res://scripts/commander_profile.gd").preset("deliberate")
