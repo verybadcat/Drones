@@ -1,8 +1,8 @@
 class_name BattleScreen
 extends GameScreen
 ## The battle: the battle manager (in the map's SubViewport) with everything that watches
-## or commands it — the casualty dashboard and combat log in the sidebar, the retreat,
-## pause and scheduled-retreat controls in the strip above the map, the orders card, the
+## or commands it — the casualty dashboard and combat log in the sidebar, the fall back, retreat
+## and pause controls in the strip above the map, the orders card, the
 ## AI inspector and the developer overlays — and, once the battle ends, the end-of-battle
 ## report (BattleReport). main.gd sets `doctrine`, `recon_mode`, `map_viewport`, `map_area`
 ## and `score_log` BEFORE adding this to the tree; the battle starts as soon as it is there.
@@ -64,12 +64,7 @@ var pause_button: Button
 var drone_debug_panel
 var decision_inspector
 var inspect_button: Button
-var schedule_retreat_label: Label
-var scheduled_retreat_slider: HSlider
-var scheduled_retreat_value_label: Label
-var schedule_retreat_button: Button
-var scheduled_retreat_status_label: Label
-var cancel_scheduled_retreat_button: Button
+var fall_back_button: Button
 # Untyped for the same class-cache reason. Lives in the map's SubViewport (NOT screen space,
 # unlike drone_debug_panel): it draws in MAP space so its heat cells and contact markers line
 # up with real world positions.
@@ -88,7 +83,7 @@ func _ready() -> void:
 	casualty_dashboard = CasualtyDashboard.new()
 	# retreat_button/pause_button used to share a button row here; both now
 	# live in the open strip above the map instead (see their own creation
-	# below, next to schedule_retreat_button) — the sidebar no longer has
+	# below, next to fall_back_button) — the sidebar no longer has
 	# any buttons of its own, but this fixed y is kept as-is rather than
 	# reclaiming the now-empty space above it.
 	casualty_dashboard.position = Vector2(GameConfig.SIDEBAR_X, 65)
@@ -143,43 +138,20 @@ func _ready() -> void:
 	inspect_button.pressed.connect(func(): decision_inspector.visible = not decision_inspector.visible)
 	add_child(inspect_button)
 
-	# Plan a retreat for a later time, distinct from retreat_button's own
-	# immediate order — see BattleManager.order_scheduled_retreat. A
-	# slider rather than a fixed choice, per direct request, so the delay
-	# can be dialed in and re-confirmed (re-pressing the button just
-	# reschedules) rather than picked from a short fixed list. Placed in
-	# the same open strip as inspect_button, further right, since the
-	# sidebar's own button row has no spare width left (see retreat_
-	# button/pause_button's own doc comments).
-	schedule_retreat_label = Label.new()
-	schedule_retreat_label.text = "Retreat in:"
-	schedule_retreat_label.position = Vector2(430, 12)
-	add_child(schedule_retreat_label)
+	# Fall back: every unit that can be ordered to (see BattleManager.order_all_fall_back) moves
+	# back toward the edge of the map and holds there — a step short of retreat_button's own
+	# withdrawal, which takes everyone off the map. It replaced the delayed-retreat controls
+	# (a delay slider and its button): "get rid of ... the slider. Instead have a 'fall back'
+	# button. That orders all units to fall back."
+	fall_back_button = Button.new()
+	fall_back_button.text = "Fall Back"
+	fall_back_button.position = Vector2(700, 4)
+	fall_back_button.tooltip_text = "Orders every unit to fall back toward your edge of the map — usually 500 to 1000 m — and hold there. Not a retreat off the map."
+	fall_back_button.pressed.connect(_on_fall_back_pressed)
+	add_child(fall_back_button)
 
-	scheduled_retreat_slider = HSlider.new()
-	scheduled_retreat_slider.min_value = 5
-	scheduled_retreat_slider.max_value = 30
-	scheduled_retreat_slider.step = 5
-	scheduled_retreat_slider.value = 10
-	scheduled_retreat_slider.custom_minimum_size = Vector2(120, 0)
-	scheduled_retreat_slider.position = Vector2(500, 12)
-	scheduled_retreat_slider.value_changed.connect(func(v): scheduled_retreat_value_label.text = "%d min" % int(v))
-	add_child(scheduled_retreat_slider)
-
-	scheduled_retreat_value_label = Label.new()
-	scheduled_retreat_value_label.text = "10 min"
-	scheduled_retreat_value_label.position = Vector2(628, 12)
-	add_child(scheduled_retreat_value_label)
-
-	schedule_retreat_button = Button.new()
-	schedule_retreat_button.text = "Schedule Retreat"
-	schedule_retreat_button.position = Vector2(680, 4)
-	schedule_retreat_button.pressed.connect(_on_schedule_retreat_pressed)
-	add_child(schedule_retreat_button)
-
-	# The immediate order, right next to the option to schedule one for
-	# later instead — same top row, not the sidebar (see casualty_
-	# dashboard's own comment on why that row is empty now).
+	# The full withdrawal, next to fall_back_button — same top row, not the sidebar (see
+	# casualty_dashboard's own comment on why that row is empty now).
 	retreat_button = Button.new()
 	retreat_button.text = "Retreat Now"
 	retreat_button.position = Vector2(850, 4)
@@ -191,23 +163,6 @@ func _ready() -> void:
 	pause_button.position = Vector2(990, 4)
 	pause_button.pressed.connect(_on_pause_pressed)
 	add_child(pause_button)
-
-	# Second row: once a retreat is actually scheduled, show when (kept in
-	# sync every frame from _process, since the underlying time never
-	# changes except by rescheduling/cancelling) and let the commander
-	# countermand it. Both start hidden — nothing is scheduled yet at
-	# battle start — and _process toggles their visibility together.
-	scheduled_retreat_status_label = Label.new()
-	scheduled_retreat_status_label.position = Vector2(430, 40)
-	scheduled_retreat_status_label.visible = false
-	add_child(scheduled_retreat_status_label)
-
-	cancel_scheduled_retreat_button = Button.new()
-	cancel_scheduled_retreat_button.text = "Cancel Scheduled Retreat"
-	cancel_scheduled_retreat_button.position = Vector2(680, 36)
-	cancel_scheduled_retreat_button.visible = false
-	cancel_scheduled_retreat_button.pressed.connect(_on_cancel_scheduled_retreat_pressed)
-	add_child(cancel_scheduled_retreat_button)
 
 
 func clock_text() -> String:
@@ -225,13 +180,6 @@ func battle_is_over() -> bool:
 func _process(_delta: float) -> void:
 	if battle_manager == null:
 		return
-	if scheduled_retreat_status_label and cancel_scheduled_retreat_button:
-		var has_schedule: bool = not is_inf(battle_manager.scheduled_retreat_time) and not battle_manager.player_general_retreat_ordered
-		scheduled_retreat_status_label.visible = has_schedule
-		cancel_scheduled_retreat_button.visible = has_schedule
-		if has_schedule:
-			scheduled_retreat_status_label.text = "Retreat scheduled for %s" % battle_manager.clock_string(battle_manager.scheduled_retreat_time)
-
 	# Deliberately NOT gated on drone_debug_enabled (the human-facing visual
 	# overlay) or battle_manager.is_paused — these files are how an outside
 	# investigator (reading them directly, not watching the screen) gets
@@ -285,14 +233,9 @@ func _write_debug_snapshot(path: String, snap: Dictionary) -> void:
 		f.store_string(JSON.stringify(snap, "\t"))
 
 
-func _on_schedule_retreat_pressed() -> void:
+func _on_fall_back_pressed() -> void:
 	if battle_manager:
-		battle_manager.order_scheduled_retreat(scheduled_retreat_slider.value * 60.0)
-
-
-func _on_cancel_scheduled_retreat_pressed() -> void:
-	if battle_manager:
-		battle_manager.cancel_scheduled_retreat()
+		battle_manager.order_all_fall_back()
 
 
 func _on_retreat_pressed() -> void:
@@ -310,6 +253,9 @@ func _on_pause_pressed() -> void:
 ## The battle is over: the retreat and pause controls have nothing left to do, and the
 ## report takes the screen (see BattleReport), with the AI inspector kept above it.
 func _on_battle_ended(report_text: String) -> void:
+	if fall_back_button:
+		fall_back_button.queue_free()
+		fall_back_button = null
 	if retreat_button:
 		retreat_button.queue_free()
 		retreat_button = null

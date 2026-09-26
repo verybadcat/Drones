@@ -10,8 +10,6 @@ extends SceneTree
 ## - Resupply expected soon: reads like having more ammo (reuses the exact
 ##   same scarcity/urgency composite _pick_target's own hold-fire chance
 ##   already computes).
-## - A scheduled retreat coming up soon: worth burning ammo now rather than
-##   carrying it off unused (reuses _scheduled_retreat_ammo_discount).
 ## Direct user requirement, verbatim: "cap it at 3 shots if under 1000
 ## meters" — a hard ceiling below GameConfig.MORTAR_BURST_CLOSE_RANGE,
 ## below the normal GameConfig.MORTAR_BURST_MAX_SHOTS (4) ceiling.
@@ -87,7 +85,6 @@ func test_close_range_is_hard_capped_at_three() -> void:
 	mortar.mortar_rounds_remaining = GameConfig.MORTAR_STARTING_AMMO # full ammo
 	bm.player_units.append(mortar)
 	_attach_in_transit_run(bm, mortar) # + resupply imminent
-	bm.scheduled_retreat_time = bm.scenario_elapsed_time # + retreat imminent — maximize every OTHER factor
 	var target: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(meters(500.0), 0)) # under the 1000m cap
 	var result := _average_burst(bm, mortar, target, 300)
 
@@ -120,32 +117,12 @@ func test_resupply_expected_soon_reads_like_more_ammo() -> void:
 	bm.free()
 
 
-func test_imminent_scheduled_retreat_raises_burst_size() -> void:
-	var bm = make_battle()
-	var mortar_no_retreat: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2.ZERO)
-	mortar_no_retreat.mortar_rounds_remaining = 1
-	var target_a: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(meters(4400.0), 0))
-	var without_retreat := _average_burst(bm, mortar_no_retreat, target_a, 300)
-
-	bm.scheduled_retreat_time = bm.scenario_elapsed_time # due right now — maximally imminent
-	var mortar_retreat: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2.ZERO)
-	mortar_retreat.mortar_rounds_remaining = 1 # same low ammo, still no resupply
-	var target_b: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(meters(4400.0), 0))
-	var with_retreat := _average_burst(bm, mortar_retreat, target_b, 300)
-
-	check(with_retreat.avg > without_retreat.avg + 1.0,
-		"An imminent scheduled retreat should raise the average burst size, willing to expend ammo rather than carry it off unused (without: %.2f, with: %.2f)" % [without_retreat.avg, with_retreat.avg])
-	bm.combat_log.free()
-	bm.free()
-
-
 func test_burst_size_never_exceeds_the_global_maximum() -> void:
 	var bm = make_battle()
 	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2.ZERO)
 	mortar.mortar_rounds_remaining = GameConfig.MORTAR_STARTING_AMMO
 	bm.player_units.append(mortar)
 	_attach_in_transit_run(bm, mortar)
-	bm.scheduled_retreat_time = bm.scenario_elapsed_time
 	# Just outside the close-range cap, so the real GameConfig.MORTAR_BURST_
 	# MAX_SHOTS ceiling (4) is the one actually being tested here, not the
 	# separate close-range-cap-of-3 from test_close_range_is_hard_capped_
@@ -242,47 +219,14 @@ func test_enemy_mortars_fire_bursts_too() -> void:
 	bm.free()
 
 
-## The player's scheduled retreat is the PLAYER's plan — an enemy mortar
-## must neither know about it nor change its behavior because of it. It
-## used to: _scheduled_retreat_ammo_discount never checked whose mortar was
-## asking, so an imminent player retreat made enemy mortars stop
-## conserving ammo (and, once bursts existed, fire bigger ones).
-func test_enemy_mortars_ignore_the_players_scheduled_retreat() -> void:
-	var bm = make_battle()
-	var player_mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2.ZERO)
-	var enemy_mortar: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, Vector2.ZERO)
-	player_mortar.mortar_rounds_remaining = 10
-	enemy_mortar.mortar_rounds_remaining = 10
-	bm.player_units.append(player_mortar)
-	bm.enemy_units.append(enemy_mortar)
-	bm.scheduled_retreat_time = bm.scenario_elapsed_time # the player's retreat is due right now
-	check(bm._scheduled_retreat_ammo_discount(player_mortar) < 0.01,
-		"Setup check: the player's own mortar must see its own imminent retreat (discount near 0)")
-	check(bm._scheduled_retreat_ammo_discount(enemy_mortar) == 1.0,
-		"An enemy mortar must read NO retreat discount — the scheduled retreat isn't its side's plan (got %.3f)" % bm._scheduled_retreat_ammo_discount(enemy_mortar))
-
-	# And through the burst count: same far range, low ammo, retreat imminent.
-	var enemy_target: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, Vector2(meters(5800.0), 0)) # far for the enemy's 6000m reach
-	enemy_mortar.mortar_rounds_remaining = 1
-	var with_schedule := _average_burst(bm, enemy_mortar, enemy_target, 300)
-	bm.scheduled_retreat_time = INF
-	var without_schedule := _average_burst(bm, enemy_mortar, enemy_target, 300)
-	check(is_equal_approx(with_schedule.avg, without_schedule.avg),
-		"The player's scheduled retreat must not change an enemy mortar's burst size (with %.2f, without %.2f)" % [with_schedule.avg, without_schedule.avg])
-	bm.combat_log.free()
-	bm.free()
-
-
 func run() -> void:
 	test_closer_range_favors_a_bigger_burst()
 	test_close_range_is_hard_capped_at_three()
 	test_resupply_expected_soon_reads_like_more_ammo()
-	test_imminent_scheduled_retreat_raises_burst_size()
 	test_burst_size_never_exceeds_the_global_maximum()
 	test_tick_fire_stops_early_when_ammo_runs_out_mid_burst()
 	test_tick_fire_fires_more_than_one_shot_for_a_generous_burst()
 	test_enemy_mortars_fire_bursts_too()
-	test_enemy_mortars_ignore_the_players_scheduled_retreat()
 	if failures == 0:
 		print("Mortar burst fire tests: 0 failures")
 	else:

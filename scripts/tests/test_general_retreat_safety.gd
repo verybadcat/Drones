@@ -242,7 +242,10 @@ func test_mixed_squads_only_the_threatened_one_detours() -> void:
 	var safe_squads: Array[Unit] = []
 	for p in safe_positions:
 		safe_squads.append(_make_retreating_squad(bm, p))
-	var threatened_squad: Unit = _make_retreating_squad(bm, Vector2(-800, 0))
+	# On real ground with cover on the retreat side: (-300, 1900) m, 330 m east of the west flank's
+	# zone at (-630, 1870) m. (It used to sit at (-800, 0) px, off the map, where the only cover is
+	# BEHIND it; a retreat's cover detour no longer goes backward - see Unit.retreat_detour_is_allowed.)
+	var threatened_squad: Unit = _make_retreating_squad(bm, Vector2(-300, 1900) * GameConfig.PIXELS_PER_METER)
 	threatened_squad.is_visible = true
 
 	for s in safe_squads:

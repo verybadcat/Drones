@@ -461,14 +461,6 @@ var battle_result: Dictionary = {}
 # everything is driven centrally from here), so this one early return is
 # sufficient to pause the whole battle.
 var is_paused: bool = false
-# scenario_elapsed_time at which order_general_retreat() should fire on
-# its own, or Vector2.INF's scalar equivalent (INF) if none is scheduled.
-# See order_scheduled_retreat/_check_scheduled_retreat — the player's own
-# "plan a retreat for later" order (BattleScreen's slider), distinct from
-# order_general_retreat's own immediate button. Re-callable: scheduling a
-# new one just overwrites this, so adjusting the slider and re-confirming
-# simply reschedules rather than stacking multiple pending retreats.
-var scheduled_retreat_time: float = INF
 var _fire_flashes: Array[Dictionary] = []
 ## Real HE impacts — a mortar shell actually landing, whether it hit
 ## anything or not, distinct from _fire_flashes' own tracer-at-firing-
@@ -1377,96 +1369,6 @@ func toggle_pause() -> void:
 	is_paused = not is_paused
 
 
-## The player's "plan a retreat for later" order (BattleScreen's delay slider),
-## distinct from order_general_retreat's own immediate button. Doesn't
-## move anyone by itself — it only sets the clock order_general_retreat
-## eventually fires from on its own (_check_scheduled_retreat), the same
-## way as if the player had pressed the immediate button at that moment.
-## What DOES change right away: the mortar's own ammo-conservation math
-## (see _scheduled_retreat_ammo_discount) starts weighing whether ammo
-## held back "for later" will actually get a chance to be spent before
-## that later arrives, and squads read as more willing to pull back from
-## a position that's turning bad (see _scheduled_retreat_urgency, used by
-## _reposition_for_encirclement) — both scaling up as the scheduled time
-## gets closer, not switching on all at once the instant this is called.
-## Re-callable: adjusting the slider and confirming again just overwrites
-## the pending time rather than stacking a second one.
-func order_scheduled_retreat(delay_seconds: float) -> void:
-	if battle_over:
-		return
-	# Rounded to the nearest whole minute — the slider's own delay is
-	# already whole minutes, but scenario_elapsed_time it's added to
-	# generally isn't, so the raw sum would otherwise land on some odd
-	# :MM:SS a player has no reason to care about.
-	scheduled_retreat_time = round((scenario_elapsed_time + delay_seconds) / 60.0) * 60.0
-	combat_log.add_entry("--- Retreat scheduled for %s ---" % clock_string(scheduled_retreat_time))
-
-
-## Countermands a pending order_scheduled_retreat — the commander changed
-## their mind before the clock ran out. A no-op if nothing is scheduled, or
-## if the scheduled retreat already fired (order_general_retreat's own
-## player_general_retreat_ordered flag is what actually matters at that
-## point; there's no "undoing" an already-ordered withdrawal).
-func cancel_scheduled_retreat() -> void:
-	if is_inf(scheduled_retreat_time):
-		return
-	combat_log.add_entry("--- Scheduled retreat (was set for %s) cancelled ---" % clock_string(scheduled_retreat_time))
-	scheduled_retreat_time = INF
-
-
-## Checked every tick (see _process) — fires the exact same order the
-## player's own immediate retreat button does, the instant the scheduled
-## time actually arrives. `player_general_retreat_ordered` itself is
-## order_general_retreat's own guard against firing twice, so this can
-## check plainly on time alone without its own separate one-shot flag.
-func _check_scheduled_retreat() -> void:
-	if is_inf(scheduled_retreat_time) or player_general_retreat_ordered or battle_over:
-		return
-	if scenario_elapsed_time >= scheduled_retreat_time:
-		order_general_retreat()
-
-
-## 0.0 (no scheduled retreat, or one still comfortably far off) to 1.0
-## (imminent or already due) — how much MORE willing a squad should be to
-## pull back from a position that's starting to look bad, now that an
-## overall withdrawal is already planned rather than being reacted to
-## from scratch. See _reposition_for_encirclement's own use of this to
-## relax its trigger thresholds — a real unit that knows the whole line
-## is pulling out soon doesn't hold a marginal position as stubbornly as
-## one with no such order at all.
-func _scheduled_retreat_urgency() -> float:
-	if is_inf(scheduled_retreat_time):
-		return 0.0
-	var time_remaining: float = scheduled_retreat_time - scenario_elapsed_time
-	if time_remaining <= 0.0:
-		return 1.0
-	return clamp(1.0 - time_remaining / GameConfig.SCHEDULED_RETREAT_URGENCY_WINDOW_S, 0.0, 1.0)
-
-
-## 1.0 (no discount — conserve ammo normally) down to 0.0 (spend freely,
-## nothing held back) depending on whether this mortar's OWN remaining
-## stock could realistically even be fired off, at its own natural reload
-## rate, before the scheduled retreat time arrives. Ammo saved "for
-## later" that later never comes to use is simply wasted — carried off or
-## abandoned at the exact same cost as if it had been fired — so once
-## there plainly isn't enough time left to get through what's on hand
-## anyway, conservation stops making sense. Comfortably ahead of that
-## point (or with no scheduled retreat at all), reads as 1.0: no change
-## to ordinary ammo-conservation behavior.
-func _scheduled_retreat_ammo_discount(mortar: Unit) -> float:
-	# scheduled_retreat_time is the PLAYER's plan (order_scheduled_retreat);
-	# the enemy has no such schedule, so an enemy mortar must not read it —
-	# it used to, which made enemy mortars stop conserving ammo (and, once
-	# bursts existed, fire bigger ones) as the player's own retreat neared.
-	if mortar.team != Unit.Team.PLAYER or is_inf(scheduled_retreat_time):
-		return 1.0
-	var time_remaining: float = max(scheduled_retreat_time - scenario_elapsed_time, 0.0)
-	var time_needed_to_expend: float = float(mortar.mortar_rounds_remaining) * mortar.reload_time
-	if time_needed_to_expend <= 0.0:
-		return 1.0
-	return clamp(time_remaining / time_needed_to_expend, 0.0, 1.0)
-
-
 ## ---------------------------------------------------------------------------
 ## The "fall back" order. Direct user request: "I want to be able to give any unit
 ## an order to 'fall back'. This does NOT have to mean to leave the map. It means the
@@ -1569,6 +1471,16 @@ func set_fall_back_order(unit: Unit, enabled: bool) -> bool:
 	unit.last_order_reason = "Ordered to fall back toward the map edge."
 	combat_log.add_entry("--- %s ordered to fall back ---" % unit.display_name())
 	return true
+
+
+## The "Fall Back" button: every player unit that can be ordered to (see set_fall_back_order) is.
+## Returns how many now have the order (including any that already did).
+func order_all_fall_back() -> int:
+	var ordered := 0
+	for unit in player_units:
+		if unit.state == Unit.State.ACTIVE and unit.kind in ORDERABLE_KINDS and set_fall_back_order(unit, true):
+			ordered += 1
+	return ordered
 
 
 func fall_back_ordered(unit: Unit) -> bool:
@@ -5982,7 +5894,6 @@ func _process(delta: float) -> void:
 	_update_enemy_intel()
 	_check_enemy_commander_retreat()
 	_check_enemy_mortar_isolated_retreat()
-	_check_scheduled_retreat()
 	_update_fall_back_orders()
 	_enforce_fall_back_hold()
 	_prune_fire_flashes()
@@ -7131,7 +7042,29 @@ func _enemy_advance_objective(u: Unit = null) -> Vector2:
 		var last_known := _last_known_friendly_mortar_position()
 		if not is_inf(last_known.x):
 			return last_known
-	return GameConfig.CURRENT_MAP.village_center
+	# Direct user request: "Yes, push West" — when asked whether squads that have closed on the
+	# village (300 m out, GameConfig.ENEMY_SURROUND_STANDOFF_RADIUS) with the friendly force fallen back
+	# and unseen should then go looking for it, rather than stop there for good. The village is only
+	# the first objective: a squad that has reached it (a latch, like flanking_route_active's) goes on
+	# west, on its own line, toward the defenders' side of the map (GameConfig.PLAYER_SAFE_X, the line
+	# they fall back to), bound by bound, until something is seen — after which the tiers above and
+	# in _update_enemy_squad_advance (a mortar fix, a shot, contact) take over as they always do.
+	var village: Vector2 = GameConfig.CURRENT_MAP.village_center
+	if u != null:
+		if not u.village_reached and u.global_position.distance_to(village) <= GameConfig.ENEMY_SURROUND_STANDOFF_RADIUS * ENEMY_VILLAGE_REACHED_SLACK:
+			u.village_reached = true
+		if u.village_reached and _friendly_force_still_in_the_field():
+			return Vector2(GameConfig.PLAYER_SAFE_X, u.global_position.y)
+	return village
+
+
+## Slack on "reached the village": squads stop at the standoff ring, so allow a little beyond it.
+const ENEMY_VILLAGE_REACHED_SLACK: float = 1.25
+
+
+## Anything of the friendly side still active that is worth pushing on after (a squad, or the mortar).
+func _friendly_force_still_in_the_field() -> bool:
+	return _friendly_squads_in_action() > 0 or _friendly_mortar_is_active()
 
 
 ## The freshest place the enemy has any fix on the friendly mortar — where it
@@ -7356,14 +7289,9 @@ func _update_friendly_squad_positioning() -> void:
 ## order_general_retreat and the cover-seeking tier above already use for
 ## the identical multiple-squads-same-tick problem.
 func _reposition_for_encirclement(u: Unit, known_enemies: Array[Vector2], claimed: Array[Vector2]) -> Vector2:
-	# All three thresholds relax together toward their own _URGENT values
-	# as a scheduled retreat gets closer (see _scheduled_retreat_urgency's
-	# own doc comment) — with none scheduled, urgency is 0 and every one
-	# of these lerps back to exactly its normal value, unchanged.
-	var urgency: float = _scheduled_retreat_urgency()
-	var detect_radius: float = lerp(GameConfig.FRIENDLY_ENCIRCLEMENT_DETECT_RADIUS, GameConfig.FRIENDLY_ENCIRCLEMENT_DETECT_RADIUS_URGENT, urgency)
-	var min_covered_fraction: float = lerp(GameConfig.FRIENDLY_ENCIRCLEMENT_MIN_COVERED_FRACTION, GameConfig.FRIENDLY_ENCIRCLEMENT_MIN_COVERED_FRACTION_URGENT, urgency)
-	var angle_threshold_deg: float = lerp(GameConfig.FRIENDLY_ENCIRCLEMENT_ANGLE_THRESHOLD_DEG, GameConfig.FRIENDLY_ENCIRCLEMENT_ANGLE_THRESHOLD_URGENT_DEG, urgency)
+	var detect_radius: float = GameConfig.FRIENDLY_ENCIRCLEMENT_DETECT_RADIUS
+	var min_covered_fraction: float = GameConfig.FRIENDLY_ENCIRCLEMENT_MIN_COVERED_FRACTION
+	var angle_threshold_deg: float = GameConfig.FRIENDLY_ENCIRCLEMENT_ANGLE_THRESHOLD_DEG
 
 	var nearby: Array[Vector2] = []
 	for p in known_enemies:
@@ -8493,13 +8421,7 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 			for c in candidates:
 				best_available_value = max(best_available_value, _enemy_target_value(unit, c))
 			var hold_for_pursuit_chance: float = known_target_value / (known_target_value + best_available_value)
-			# A scheduled retreat (BattleManager.order_scheduled_retreat)
-			# means the ammo being preserved here might never get its
-			# chance at all — no point holding a shot to wait on an
-			# opportunity that likely won't arrive before the crew pulls
-			# out. Reads as 1.0 (no change) with no scheduled retreat, or
-			# comfortably ahead of one.
-			hold_for_pursuit_chance *= _scheduled_retreat_ammo_discount(unit) * _mortar_squad_order_hold_factor(unit)
+			hold_for_pursuit_chance *= _mortar_squad_order_hold_factor(unit)
 			var pursuit_roll: float = 0.5 if profile_for(unit.team).deterministic else randf()
 			gate_evidence["pursuit"] = {"hold_probability": hold_for_pursuit_chance, "roll_or_cutoff": pursuit_roll}
 			if pursuit_roll < hold_for_pursuit_chance:
@@ -8522,13 +8444,7 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# rather than a flat timer, and why it's player-only for now.
 		if unit.team == Unit.Team.PLAYER and mortar_candidates.is_empty() and not any_overrun:
 			var unknown_mortar_hold_chance: float = GameConfig.MORTAR_UNKNOWN_ENEMY_HOLD_FIRE_CHANCE * _mortar_existence_confidence()
-			# Ammo held back to stay quiet for a mortar that may not exist is
-			# ammo that never gets used if a scheduled retreat means there is no
-			# "later" — the same reasoning the pursuit hold and the ordinary
-			# conservation hold already apply, which this hold alone skipped.
-			# Direct user report from a live battle: "Conserving for a potential
-			# mortar shot is one thing. But here we have 26 rounds and 4 minutes."
-			unknown_mortar_hold_chance *= _scheduled_retreat_ammo_discount(unit) * _mortar_squad_order_hold_factor(unit)
+			unknown_mortar_hold_chance *= _mortar_squad_order_hold_factor(unit)
 			var unknown_mortar_roll: float = 0.5 if profile_for(unit.team).deterministic else randf()
 			gate_evidence["unknown_enemy_mortar"] = {"hold_probability": unknown_mortar_hold_chance, "roll_or_cutoff": unknown_mortar_roll, "mortar_existence_confidence": _mortar_existence_confidence()}
 			if unknown_mortar_roll < unknown_mortar_hold_chance:
@@ -8573,10 +8489,6 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# fire regardless of what this function returns.
 		if hold_fire_chance > 0.0 and unit.mortar_rounds_remaining > 0 and any_overrun:
 			hold_fire_chance = 0.0
-		# Same "ammo saved for a later that may not come is just wasted"
-		# reasoning as the pursuit-hold discount above, applied to
-		# ordinary ammo conservation too.
-		hold_fire_chance *= _scheduled_retreat_ammo_discount(unit)
 		# The commander's squad-fire order (set_mortar_squad_fire_order) - only
 		# when this shot would be at squads; an enemy mortar candidate is never
 		# ammo-gated by the order.
@@ -8639,16 +8551,8 @@ func _mortar_ammo_scarcity(mortar: Unit) -> float:
 ##   "resupply expected soon should read like having more ammo" is already
 ##   precisely what that composite means, so this reuses it rather than
 ##   inventing a second, parallel notion of the same thing.
-## - Scheduled-retreat willingness: reuses _scheduled_retreat_ammo_discount
-##   the same way _pick_target's own pursuit-hold does — ammo held back for
-##   a "later" a scheduled retreat won't leave time to spend is better
-##   burned now, "especially as the time gets close."
-## Ammo willingness and retreat willingness are combined with max(), not an
-## average: either alone is real grounds for a bigger burst — a mortar
-## about to retreat with poor resupply prospects should still empty its
-## tube, not get held back by ordinary ammo-conservation math, and a
-## mortar with full ammo shouldn't fire small bursts just because no
-## retreat happens to be scheduled.
+## Range and ammo willingness are averaged: a mortar with full ammo at long
+## range fires a middling burst, one with little ammo up close likewise.
 ## Mapped to an integer via probabilistic rounding (this project's own
 ## "no magic thresholds" convention — see MORTAR_RESUPPLY_DELAY's sampled
 ## distribution for the same idea) rather than a hard round(), so a score
@@ -8657,9 +8561,7 @@ func _mortar_burst_shot_count(mortar: Unit, target: Unit) -> int:
 	var range_to_target: float = mortar.global_position.distance_to(target.global_position)
 	var range_score: float = clamp(1.0 - range_to_target / GameConfig.mortar_max_range(mortar.team), 0.0, 1.0)
 	var ammo_willingness: float = 1.0 - _mortar_ammo_scarcity(mortar) * (1.0 - _mortar_resupply_urgency(mortar))
-	var retreat_willingness: float = 1.0 - _scheduled_retreat_ammo_discount(mortar)
-	var willingness: float = max(ammo_willingness, retreat_willingness)
-	var score: float = clamp((range_score + willingness) / 2.0, 0.0, 1.0)
+	var score: float = clamp((range_score + ammo_willingness) / 2.0, 0.0, 1.0)
 
 	var max_shots: int = GameConfig.MORTAR_BURST_CLOSE_RANGE_MAX_SHOTS if range_to_target < GameConfig.MORTAR_BURST_CLOSE_RANGE else GameConfig.MORTAR_BURST_MAX_SHOTS
 	var raw: float = 1.0 + score * float(max_shots - 1)

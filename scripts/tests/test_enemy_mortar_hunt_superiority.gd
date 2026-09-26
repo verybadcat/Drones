@@ -209,8 +209,9 @@ func test_the_current_battle_shape() -> void:
 				if s.move_target.distance_to(objective) < s.global_position.distance_to(objective):
 					closing += 1
 		if trial == 0:
-			# Control (once): with a friendly squad still in action they hold the
-			# village — squads already standing on it have nothing to advance to.
+			# Control (once): with a friendly squad still in action they no longer just hold
+			# the village: squads on it push west after the defenders ("Yes, push West"), so
+			# the mortar-hunting objective above is what sets this case apart, not idleness.
 			var f: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, Vector2(-m(900), m(1900)))
 			bm.player_units.append(f)
 			for s in squads:
@@ -222,7 +223,9 @@ func test_the_current_battle_shape() -> void:
 			for s in squads:
 				if s.has_move_target:
 					moving += 1
-			check(moving == 0, "Control: with a friendly squad in action they hold the village, as before (%d moved)" % moving)
+			check(moving == squads.size(), "Control: with a friendly squad in action, every squad on the village pushes west (%d of %d moved)" % [moving, squads.size()])
+			for s in squads:
+				check(not s.has_move_target or s.move_target.x < village.x, "...toward the west, away from the village")
 		cleanup(bm)
 	check(ordered == total, "Every enemy squad is given an advance order (%d of %d)" % [ordered, total])
 	check(float(closing) / float(total) >= 0.85, "The great majority of the orders close on the mortar's last known position (%d of %d)" % [closing, total])

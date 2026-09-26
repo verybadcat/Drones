@@ -158,6 +158,12 @@ var movement_predictable: bool = false
 var sought_cover: bool = false
 var sought_cover_logged: bool = false
 
+# ENEMY SQUAD only: true once it has closed on the village (the objective it advances on when it has
+# no fix on the friendly mortar) — from then on its objective is to push west after the defenders
+# rather than to sit at the village. One-way, like flanking_route_active flipping false. See
+# BattleManager._enemy_advance_objective.
+var village_reached: bool = false
+
 # ENEMY SQUAD only: rolled once at spawn (see GameConfig.ENEMY_FLANK_CHANCE)
 # — a real assault doesn't send every element on the same axis. Only takes
 # effect once the squad breaks from its scripted road march (see
@@ -792,7 +798,13 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 			if GameConfig.has_direct_los(p, move_target):
 				actually_hidden = false
 				break
-		if actually_hidden:
+		# Direct user report: "I hit 'retreat now.' The drone team could have easily gone offmap.
+		# Instead it is going forwards and down." The cover searches above only PREFER cover on the
+		# retreat side (GameConfig._prefer_retreat_direction), and when none qualifies they fall back
+		# to the least-wrong zone: the west flank has almost no cover (4 of the map's 263 zones lie
+		# west of x = -300 m), so a unit out there can be handed a zone back toward the enemy.
+		# Cover is a means to reaching the edge, never a reason to walk away from it.
+		if actually_hidden and retreat_detour_is_allowed(global_position, move_target, retreat_dir):
 			has_move_target = true
 			move_queue.clear()
 			move_speed = GameConfig.REPOSITION_SPEED * speed_multiplier
@@ -801,6 +813,14 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 	else:
 		has_move_target = false
 	state_changed.emit(self)
+
+
+## A retreat's cover detour is only taken if it does not lead back toward the enemy: `retreat_dir`
+## is -1 for the player (west is away) and +1 for the enemy, as in order_retreat. A little backward
+## travel is allowed (GameConfig.RETREAT_DETOUR_MAX_BACKWARD_M): a cover patch straight to one side
+## has points a few tens of meters either way, and that is not "going back".
+static func retreat_detour_is_allowed(from: Vector2, detour: Vector2, retreat_dir: float) -> bool:
+	return (detour.x - from.x) * retreat_dir >= -GameConfig.RETREAT_DETOUR_MAX_BACKWARD_M * GameConfig.PIXELS_PER_METER
 
 
 ## Whether an untouched MORTAR crew (never hit this battle) ordered to

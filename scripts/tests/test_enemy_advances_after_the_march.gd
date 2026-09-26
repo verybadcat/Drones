@@ -28,6 +28,7 @@ func run() -> void:
 	test_a_squad_that_finished_its_march_advances()
 	test_a_squad_still_marching_is_left_alone()
 	test_the_whole_force_parked_at_the_road_end_moves_on()
+	test_squads_at_the_village_push_west()
 	print("Enemy advance after march tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
@@ -94,5 +95,38 @@ func test_the_whole_force_parked_at_the_road_end_moves_on() -> void:
 		if s.has_move_target:
 			moving += 1
 	check(moving >= 5, "Nearly all of them move on (%d of 6)" % moving)
+	bm.combat_log.free()
+	bm.free()
+
+
+## Direct user decision: "Yes, push West" — a squad that has closed on the village, with the friendly
+## force fallen back and unseen, goes on west after it instead of stopping at the village.
+func test_squads_at_the_village_push_west() -> void:
+	var bm = make_battle()
+	var mine: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, meters(-1000.0, 1500.0)) # fallen back, unseen
+	bm.player_units.append(mine)
+	var village: Vector2 = GameConfig.CURRENT_MAP.village_center
+	# Standing on the standoff ring east of the village, as a squad that has closed on it does.
+	var squad: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, village + Vector2(GameConfig.ENEMY_SURROUND_STANDOFF_RADIUS, 0.0))
+	squad.sought_cover = true
+	bm.enemy_units.append(squad)
+	var objective: Vector2 = bm._enemy_advance_objective(squad)
+	check(squad.village_reached, "Reaching the village is noted")
+	check(objective.x < village.x - 1000.0 * GameConfig.PIXELS_PER_METER, "Its objective is now far to the west, not the village (%.0f m)" % (objective.x / GameConfig.PIXELS_PER_METER))
+	seed(6)
+	bm._update_enemy_squad_advance()
+	check(squad.has_move_target and squad.move_target.x < squad.global_position.x, "It is ordered west")
+	# The latch holds once it has moved off the ring (the village is now BEHIND it, farther than the ring).
+	squad.global_position = village + Vector2(-600.0 * GameConfig.PIXELS_PER_METER, 0.0)
+	check(bm._enemy_advance_objective(squad).x < village.x - 1000.0 * GameConfig.PIXELS_PER_METER, "...and it does not turn back to the village")
+	# A squad that has not reached the village still heads for it.
+	var far_squad: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, village + Vector2(2000.0 * GameConfig.PIXELS_PER_METER, 0.0))
+	bm.enemy_units.append(far_squad)
+	check(bm._enemy_advance_objective(far_squad) == village and not far_squad.village_reached, "A squad still short of the village heads for the village")
+	# With nothing of the friendly side left in the field, there is nobody to push on after.
+	mine.state = Unit.State.DESTROYED
+	var last_squad: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, village + Vector2(GameConfig.ENEMY_SURROUND_STANDOFF_RADIUS, 0.0))
+	bm.enemy_units.append(last_squad)
+	check(bm._enemy_advance_objective(last_squad) == village, "With no friendly force left in the field it stays at the village")
 	bm.combat_log.free()
 	bm.free()
