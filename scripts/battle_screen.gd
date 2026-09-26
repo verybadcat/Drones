@@ -65,6 +65,7 @@ var drone_debug_panel
 var decision_inspector
 var inspect_button: Button
 var fall_back_button: Button
+var clear_orders_button: Button
 # Untyped for the same class-cache reason. Lives in the map's SubViewport (NOT screen space,
 # unlike drone_debug_panel): it draws in MAP space so its heat cells and contact markers line
 # up with real world positions.
@@ -150,6 +151,16 @@ func _ready() -> void:
 	fall_back_button.pressed.connect(_on_fall_back_pressed)
 	add_child(fall_back_button)
 
+	# Clear Orders: cancels every order given (falling back and holding, the general retreat, a
+	# mortar's squad-fire order). Grayed out while there is nothing to clear (see _process).
+	clear_orders_button = Button.new()
+	clear_orders_button.text = "Clear Orders"
+	clear_orders_button.position = Vector2(580, 4)
+	clear_orders_button.tooltip_text = "Cancels every order you have given: units falling back are free to advance again, a general retreat is called off (units may still decide to retreat on their own), and a mortar's order to expend ammunition on squads is dropped."
+	clear_orders_button.disabled = true
+	clear_orders_button.pressed.connect(_on_clear_orders_pressed)
+	add_child(clear_orders_button)
+
 	# The full withdrawal, next to fall_back_button — same top row, not the sidebar (see
 	# casualty_dashboard's own comment on why that row is empty now).
 	retreat_button = Button.new()
@@ -180,6 +191,8 @@ func battle_is_over() -> bool:
 func _process(_delta: float) -> void:
 	if battle_manager == null:
 		return
+	if clear_orders_button:
+		clear_orders_button.disabled = not battle_manager.has_orders_to_clear()
 	# Deliberately NOT gated on drone_debug_enabled (the human-facing visual
 	# overlay) or battle_manager.is_paused — these files are how an outside
 	# investigator (reading them directly, not watching the screen) gets
@@ -233,6 +246,11 @@ func _write_debug_snapshot(path: String, snap: Dictionary) -> void:
 		f.store_string(JSON.stringify(snap, "\t"))
 
 
+func _on_clear_orders_pressed() -> void:
+	if battle_manager:
+		battle_manager.clear_all_orders()
+
+
 func _on_fall_back_pressed() -> void:
 	if battle_manager:
 		battle_manager.order_all_fall_back()
@@ -256,6 +274,9 @@ func _on_battle_ended(report_text: String) -> void:
 	if fall_back_button:
 		fall_back_button.queue_free()
 		fall_back_button = null
+	if clear_orders_button:
+		clear_orders_button.queue_free()
+		clear_orders_button = null
 	if retreat_button:
 		retreat_button.queue_free()
 		retreat_button = null

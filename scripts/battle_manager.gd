@@ -855,6 +855,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_mortar_squad_fire_orders.clear()
 	_fall_back_orders.clear()
 	_fallen_back.clear()
+	_retreat_orders.clear()
 	_mortar_tick_shot.clear()
 	_mortar_move_intent.clear()
 	_mortar_reasoning.clear()
@@ -1400,6 +1401,10 @@ var _fall_back_orders: Dictionary = {} # Unit -> {"destination": Vector2, "order
 ## to FALL_BACK_HOLD_TOLERANCE_M is allowed); sideways and further back are free ("if it
 ## wants to fall back further, that is ok"). See _advances_past_fall_back_line.
 var _fallen_back: Dictionary = {}
+## Player units that are retreating BECAUSE the commander ordered a general retreat (as opposed to
+## having broken off on their own casualties): Unit -> {"gun_abandoned": bool, "retreat_speed":
+## float}, what the unit had before the order changed it, so "Clear Orders" can put it back.
+var _retreat_orders: Dictionary = {}
 const FALL_BACK_HOLD_TOLERANCE_M: float = 40.0
 
 ## "Fall back" candidates (see _fall_back_destination): points this far (metres) out along
@@ -1471,6 +1476,63 @@ func set_fall_back_order(unit: Unit, enabled: bool) -> bool:
 	unit.last_order_reason = "Ordered to fall back toward the map edge."
 	combat_log.add_entry("--- %s ordered to fall back ---" % unit.display_name())
 	return true
+
+
+## Player units that are still under an order the commander gave: falling back (on the way or held
+## where it fell back to), retreating on the general-retreat order, or a mortar under the squad-fire
+## order. "Clear Orders" cancels exactly these; it is grayed out when there are none.
+func units_under_orders() -> Array[Unit]:
+	var out: Array[Unit] = []
+	for unit in player_units:
+		if unit.state == Unit.State.ACTIVE and (_fall_back_orders.has(unit) or _fallen_back.has(unit) or _mortar_squad_fire_orders.has(unit)):
+			out.append(unit)
+		elif unit.state == Unit.State.RETREATING and _retreat_orders.has(unit):
+			out.append(unit)
+	return out
+
+
+func has_orders_to_clear() -> bool:
+	return not battle_over and not units_under_orders().is_empty()
+
+
+## The "Clear Orders" button: every order the commander has given is cancelled. A unit that was falling
+## back stops where it is and is free to advance again; one that fell back is no longer held; a unit
+## retreating on the general-retreat order is back in the fight, with its own decisions its own again
+## (it may well decide to retreat anyway, on its casualties or under fire); a mortar's squad-fire order
+## is dropped. Units that have already left the field (withdrawn, lost, surrendered) stay gone.
+## Returns how many units had an order cleared.
+func clear_all_orders() -> int:
+	if battle_over:
+		return 0
+	var cleared: Array[Unit] = units_under_orders()
+	for unit in cleared:
+		var stops_moving: bool = _fall_back_orders.has(unit)
+		var reason_ends: bool = stops_moving or _fallen_back.has(unit)
+		if unit.state == Unit.State.RETREATING:
+			var before: Dictionary = _retreat_orders[unit]
+			unit.state = Unit.State.ACTIVE
+			unit.mortar_gun_abandoned = before.gun_abandoned
+			unit.retreat_speed = before.retreat_speed
+			unit.state_changed.emit(unit)
+			stops_moving = true
+			reason_ends = true
+		if stops_moving:
+			if unit.kind == Unit.Kind.MORTAR:
+				_clear_mortar_move(unit)
+			else:
+				unit.has_move_target = false
+				unit.move_queue.clear()
+				unit.activity = Unit.Activity.STATIONARY
+		if reason_ends:
+			unit.last_order_reason = "Orders cleared."
+	_fall_back_orders.clear()
+	_fallen_back.clear()
+	_retreat_orders.clear()
+	_mortar_squad_fire_orders.clear()
+	player_general_retreat_ordered = false
+	if not cleared.is_empty():
+		combat_log.add_entry("--- Orders cleared (%d unit%s) ---" % [cleared.size(), "" if cleared.size() == 1 else "s"])
+	return cleared.size()
 
 
 ## The "Fall Back" button: every player unit that can be ordered to (see set_fall_back_order) is.
@@ -1784,7 +1846,10 @@ func order_general_retreat() -> void:
 				combat_log.log_squad_surrendered(unit)
 				any_ordered = true
 				continue
+			var before := {"gun_abandoned": unit.mortar_gun_abandoned, "retreat_speed": unit.retreat_speed}
 			unit.order_retreat(known_enemy_positions, _ally_positions_for(unit) + claimed, "The commander ordered a general retreat.")
+			if unit.state == Unit.State.RETREATING:
+				_retreat_orders[unit] = before
 			claimed.append(unit.move_target if unit.has_move_target else unit.global_position)
 			combat_log.log_ordered_retreat(unit)
 			_log_wounded_evacuation_outcome(unit)
