@@ -50,11 +50,12 @@ func test_every_rubric_value() -> void:
 		"player_captured": -8.0, "enemy_captured": 8.0,
 		"player_heavily_wounded": -4.0, "enemy_heavily_wounded": 2.0,
 		"player_walking_wounded": -1.0, "enemy_walking_wounded": 0.5,
-		"player_mortar_lost": -5.0, "enemy_mortar_out": 2.5,
+		"player_mortar_lost": -10.0, "enemy_mortar_out": 5.0, # both doubled on 2026-09-25 (user: "double the score value of mortars on both sides")
 	}
 	for key in expected:
 		check(is_equal_approx(term(key, 1), expected[key]), "%s: one should score %s, got %s" % [key, expected[key], term(key, 1)])
 		check(is_equal_approx(term(key, 3), expected[key] * 3.0), "%s: scores must scale with the count" % key)
+	check(BattleScore.RUBRIC_VERSION == 2, "The rubric version was bumped with the mortar change, so old records stay identifiable")
 	check(term("player_killed", 1) < -term("enemy_killed", 1), "A friendly death must cost more than an enemy death is worth (the user's deliberate asymmetry)")
 	check(is_equal_approx(term("player_captured", 1), -term("enemy_captured", 1)), "Captures are symmetric")
 
@@ -68,7 +69,7 @@ func test_position_terms_and_the_stalemate_rule() -> void:
 	# A worked battle: held, 2 of ours killed, 1 heavily + 2 walking wounded; 6 of theirs killed, 1 captured, 3 walking wounded, their mortar out.
 	var worked := {"position": "held", "player_killed": 2, "player_heavily_wounded": 1, "player_walking_wounded": 2,
 		"enemy_killed": 6, "enemy_captured": 1, "enemy_walking_wounded": 3, "enemy_mortar_out": 1}
-	check(is_equal_approx(BattleScore.score(worked), 20.0 - 20.0 - 4.0 - 2.0 + 30.0 + 8.0 + 1.5 + 2.5), "A worked example must add up term by term, got %s" % BattleScore.score(worked))
+	check(is_equal_approx(BattleScore.score(worked), 20.0 - 20.0 - 4.0 - 2.0 + 30.0 + 8.0 + 1.5 + 5.0), "A worked example must add up term by term, got %s" % BattleScore.score(worked))
 	check(BattleScore.format(42.5) == "+42.5" and BattleScore.format(-17.0) == "-17.0" and BattleScore.format(0.0) == "+0.0", "Scores display signed, one decimal")
 
 
@@ -269,7 +270,7 @@ func test_breakdown_text_lists_what_happened() -> void:
 	check("  Our personnel killed: 2 \u00d7 -10 = -20.0" in lines, "A friendly loss shows count x points-each = points, got %s" % [lines])
 	check("  Enemy killed: 6 \u00d7 5 = 30.0" in lines, "An enemy loss the same way")
 	check("  Enemy walking wounded: 3 \u00d7 0.5 = 1.5" in lines, "Fractional values keep their precision, with no plus sign")
-	check("  Enemy mortar destroyed or abandoned: 1 \u00d7 2.5 = 2.5" in lines, "The mortar term too")
+	check("  Enemy mortar destroyed or abandoned: 1 \u00d7 5 = 5.0" in lines, "The mortar term too")
 	for line in lines:
 		if line.begins_with("  "):
 			check(not ("+" in line), "No plus signs in the line items (user's request), got '%s'" % line)

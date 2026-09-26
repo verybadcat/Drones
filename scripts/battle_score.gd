@@ -31,7 +31,7 @@ class_name BattleScore
 ## (bump RUBRIC_VERSION when it is, so old records stay identifiable).
 
 ## Bump whenever any value below (or the meaning of an input) changes.
-const RUBRIC_VERSION: int = 1
+const RUBRIC_VERSION: int = 2 # 2: both mortar terms doubled (user, 2026-09-25)
 
 const POSITION_HELD := 20.0
 const POSITION_LOST := -20.0
@@ -48,8 +48,8 @@ const FRIENDLY_HEAVILY_WOUNDED := -4.0
 const ENEMY_HEAVILY_WOUNDED := 2.0
 const FRIENDLY_WALKING_WOUNDED := -1.0
 const ENEMY_WALKING_WOUNDED := 0.5
-const FRIENDLY_MORTAR_LOST := -5.0 # the gun itself, on top of whatever its crew already cost above
-const ENEMY_MORTAR_OUT := 2.5 # destroyed, or abandoned on ground the player ends up holding
+const FRIENDLY_MORTAR_LOST := -10.0 # the gun itself, on top of whatever its crew already cost above (was -5; doubled 2026-09-25)
+const ENEMY_MORTAR_OUT := 5.0 # destroyed, or abandoned on ground the player ends up holding (was 2.5; doubled 2026-09-25)
 
 const POSITION_HELD_KEY := "held"
 const POSITION_LOST_KEY := "lost"
