@@ -6798,13 +6798,33 @@ func _friendly_squads_in_action() -> int:
 	return n
 
 
+## True once an enemy squad has walked its whole scripted march (Unit.set_path): nothing left to
+## walk to and nothing queued. A squad that has not yet broken from the march and is in this state
+## has simply arrived.
+func _march_route_is_finished(u: Unit) -> bool:
+	return not u.has_move_target and u.move_queue.is_empty()
+
+
 func _update_enemy_squad_advance() -> void:
 	var hunt_assignments := _mortar_hunt_assignments()
 	for u in enemy_units:
 		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE:
 			continue
 		if not u.sought_cover:
-			continue
+			if not _march_route_is_finished(u):
+				continue # still on the scripted road march
+			# Direct user report: "the enemy is not advancing, for no good reason that I can see."
+			# Traced to the live battle's own snapshot: 14 enemy squads sat in a line at the end of the
+			# road (its last waypoint) with no move order, all reading "Following the assigned march
+			# route", 1400 m from the friendly squads, which had fallen back. This tier only ran for a
+			# squad that had broken from the march, and the ONLY thing that breaks a squad from it is
+			# contact (fire given or taken, see _alert_enemy_squads / Unit.take_hit) — so a march that
+			# finished with nobody in range was a dead end: nothing ever ordered the assault on. A march
+			# that has run its course is the same decision, made without a shot: press on toward the
+			# objective by bounds, exactly as a squad that broke from the road does.
+			u.sought_cover = true
+			u.sought_cover_logged = true # nothing to log: it did not break for cover, it finished its march
+			u.last_order_reason = "Reached the end of the march route without contact: press on toward the objective."
 		if _risk_holds.has(u):
 			continue # an explicit risk-avoidance hold outranks everything below
 		# Direct user correction: "Mortar should be a primary target for
