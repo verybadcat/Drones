@@ -66,6 +66,9 @@ var decision_inspector
 var inspect_button: Button
 var fall_back_button: Button
 var clear_orders_button: Button
+var top_buttons: HBoxContainer
+const TOP_BUTTONS_X: float = 580.0
+const TOP_BUTTONS_GAP: int = 12
 # Untyped for the same class-cache reason. Lives in the map's SubViewport (NOT screen space,
 # unlike drone_debug_panel): it draws in MAP space so its heat cells and contact markers line
 # up with real world positions.
@@ -146,34 +149,36 @@ func _ready() -> void:
 	# button. That orders all units to fall back."
 	fall_back_button = Button.new()
 	fall_back_button.text = "Fall Back"
-	fall_back_button.position = Vector2(700, 4)
 	fall_back_button.tooltip_text = "Orders every unit to fall back toward your edge of the map — usually 500 to 1000 m — and hold there. Not a retreat off the map."
 	fall_back_button.pressed.connect(_on_fall_back_pressed)
-	add_child(fall_back_button)
 
 	# Clear Orders: cancels every order given (falling back and holding, the general retreat, a
 	# mortar's squad-fire order). Grayed out while there is nothing to clear (see _process).
 	clear_orders_button = Button.new()
 	clear_orders_button.text = "Clear Orders"
-	clear_orders_button.position = Vector2(580, 4)
 	clear_orders_button.tooltip_text = "Cancels every order you have given: units falling back are free to advance again, a general retreat is called off (units may still decide to retreat on their own), and a mortar's order to expend ammunition on squads is dropped."
 	clear_orders_button.disabled = true
 	clear_orders_button.pressed.connect(_on_clear_orders_pressed)
-	add_child(clear_orders_button)
 
 	# The full withdrawal, next to fall_back_button — same top row, not the sidebar (see
 	# casualty_dashboard's own comment on why that row is empty now).
 	retreat_button = Button.new()
 	retreat_button.text = "Retreat Now"
-	retreat_button.position = Vector2(850, 4)
 	retreat_button.pressed.connect(_on_retreat_pressed)
-	add_child(retreat_button)
 
 	pause_button = Button.new()
 	pause_button.text = "Pause"
-	pause_button.position = Vector2(990, 4)
 	pause_button.pressed.connect(_on_pause_pressed)
-	add_child(pause_button)
+
+	# The four order buttons in one row, laid out by a container so the gaps between them are the
+	# same whatever each label's width ("Let's make the spacing among the top buttons uniform"), and
+	# stay so when Pause becomes Resume.
+	top_buttons = HBoxContainer.new()
+	top_buttons.position = Vector2(TOP_BUTTONS_X, 4)
+	top_buttons.add_theme_constant_override("separation", TOP_BUTTONS_GAP)
+	add_child(top_buttons)
+	for button in [clear_orders_button, fall_back_button, retreat_button, pause_button]:
+		top_buttons.add_child(button)
 
 
 func clock_text() -> String:
