@@ -20,7 +20,7 @@ func _initialize() -> void:
 
 func heard(p: Dictionary) -> Array:
 	var out := []
-	for id in ["gentle", "drizzle", "heavy"]:
+	for id in ["midnight", "gentle", "drizzle", "heavy"]:
 		if p[id] > RainAmbience.SILENT_DB:
 			out.append(id)
 	return out
@@ -40,7 +40,7 @@ func test_which_recording_for_which_rain() -> void:
 	var rain: int = Weather.Precip.RAIN
 	check(heard(RainAmbience.plan(Weather.Intensity.NONE, rain)).is_empty(), "Not raining: no sound")
 	check(heard(RainAmbience.plan(Weather.Intensity.NONE, Weather.Precip.NONE)).is_empty(), "No precipitation at all: no sound")
-	check(heard(RainAmbience.plan(Weather.Intensity.DRIZZLE, rain)).is_empty(), "Drizzle: no sound")
+	check(heard(RainAmbience.plan(Weather.Intensity.DRIZZLE, rain)) == ["midnight"], "Drizzle: the midnight rain")
 	check(heard(RainAmbience.plan(Weather.Intensity.LIGHT, rain)) == ["gentle"], "Light rain: the gentle rain")
 	check(heard(RainAmbience.plan(Weather.Intensity.MODERATE, rain)) == ["drizzle"], "Moderate rain: the drizzle")
 	check(heard(RainAmbience.plan(Weather.Intensity.HEAVY, rain)) == ["heavy"], "Heavy rain: the rain sound")
@@ -50,9 +50,9 @@ func test_which_recording_for_which_rain() -> void:
 ## across every class boundary, though the three recordings differ by up to 15 LU in
 ## their own loudness.
 func test_the_level_rises_with_the_rain() -> void:
-	check(RainAmbience.heard_loudness(Weather.Intensity.NONE, Weather.Precip.RAIN) == -INF and RainAmbience.heard_loudness(Weather.Intensity.DRIZZLE, Weather.Precip.RAIN) == -INF, "Silence for drizzle")
+	check(RainAmbience.heard_loudness(Weather.Intensity.NONE, Weather.Precip.RAIN) == -INF, "Silence when it is not raining")
 	var previous := -INF
-	for intensity in [Weather.Intensity.LIGHT, Weather.Intensity.MODERATE, Weather.Intensity.HEAVY]:
+	for intensity in [Weather.Intensity.DRIZZLE, Weather.Intensity.LIGHT, Weather.Intensity.MODERATE, Weather.Intensity.HEAVY]:
 		var level: float = RainAmbience.heard_loudness(intensity, Weather.Precip.RAIN)
 		check(level > previous, "Heard level must rise with the class: %s is %.1f LUFS after %.1f" % [Weather.Intensity.keys()[intensity], level, previous])
 		previous = level
@@ -62,6 +62,15 @@ func test_quieter_than_supplied() -> void:
 	var rain: int = Weather.Precip.RAIN
 	var light: float = RainAmbience.plan(Weather.Intensity.LIGHT, rain).gentle
 	check(light < 0.0, "The gentle rain is quieter than the file (%.1f dB)" % light)
+	# Drizzle: quieter than its own file, and quieter than the quietest of the other rain sounds
+	# ("even quieter ... it needs to be quieter than the quietest current rain sound").
+	var drizzle_gain: float = RainAmbience.plan(Weather.Intensity.DRIZZLE, rain).midnight
+	check(drizzle_gain < -6.0, "The midnight rain is played well under its own level (%.1f dB)" % drizzle_gain)
+	var quietest_other: float = INF
+	for intensity in [Weather.Intensity.LIGHT, Weather.Intensity.MODERATE, Weather.Intensity.HEAVY]:
+		quietest_other = minf(quietest_other, RainAmbience.heard_loudness(intensity, rain))
+	var drizzle_heard: float = RainAmbience.heard_loudness(Weather.Intensity.DRIZZLE, rain)
+	check(drizzle_heard < quietest_other - 3.0, "Drizzle is clearly quieter than the quietest other rain sound (%.1f vs %.1f LUFS)" % [drizzle_heard, quietest_other])
 	var heavy: float = RainAmbience.plan(Weather.Intensity.HEAVY, rain).heavy
 	check(heavy < 0.0, "Even the 'rain sound' is played quieter than supplied (%.1f dB)" % heavy)
 	check(heavy <= -3.0, "...clearly quieter, not a rounding error (%.1f dB)" % heavy)
@@ -96,10 +105,13 @@ func test_the_node_fades_and_switches() -> void:
 	rain.set_rain(Weather.Intensity.LIGHT, Weather.Precip.RAIN)
 	step(rain, 30.0)
 	check(mixer.is_playing("gentle") and not mixer.is_playing("heavy"), "Lighter rain switches back to the gentle rain")
+	rain.set_rain(Weather.Intensity.DRIZZLE, Weather.Precip.RAIN)
+	step(rain, 30.0)
+	check(mixer.is_playing("midnight") and not mixer.is_playing("gentle"), "Drizzle switches to the midnight rain")
 	rain.set_rain(Weather.Intensity.NONE, Weather.Precip.NONE)
 	step(rain, 30.0)
-	check(not mixer.is_playing("gentle") and not mixer.is_playing("drizzle") and not mixer.is_playing("heavy"), "No rain: silence, everything stopped")
-	check(mixer.loops("gentle") and mixer.loops("drizzle") and mixer.loops("heavy"), "All three recordings loop")
+	check(not mixer.is_playing("midnight") and not mixer.is_playing("gentle") and not mixer.is_playing("drizzle") and not mixer.is_playing("heavy"), "No rain: silence, everything stopped")
+	check(mixer.loops("midnight") and mixer.loops("gentle") and mixer.loops("drizzle") and mixer.loops("heavy"), "All four recordings loop")
 	rain.free()
 
 
@@ -112,10 +124,11 @@ func test_the_project_only_holds_the_first_thirty_seconds_and_says_where_they_ca
 	for f in dir.get_files():
 		if f.ends_with(".mp3"):
 			mp3s += 1
-			check("first30s" in f, "Only trimmed clips are in the project (found %s)" % f)
-	check(mp3s == 3, "Exactly the three trimmed clips (found %d)" % mp3s)
+			check("first30s" in f or f == "dragon-studio-cozy-midnight-rain-04-448568.mp3", "Only trimmed clips (or the one file that is 30 s whole) are in the project (found %s)" % f)
+	check(mp3s == 4, "Exactly the four clips (found %d)" % mp3s)
+	check(RainAmbience.MIDNIGHT_STREAM.get_length() > 29.0 and RainAmbience.MIDNIGHT_STREAM.get_length() <= 30.5, "The drizzle clip is a complete 30-second file (%.2f s)" % RainAmbience.MIDNIGHT_STREAM.get_length())
 	var note := FileAccess.get_file_as_string("res://assets/audio/rain/SOURCES.md")
 	check("Pixabay" in note and "same site as the wind" in note, "The note says they came from the same site as the wind recordings (Pixabay)")
-	for name in ["eryliaa-gentle-rain-for-relaxation-and-sleep-337279", "freesound_community-drizzle-4perspectives-23254", "boons_freak-rain-sound-188158"]:
+	for name in ["eryliaa-gentle-rain-for-relaxation-and-sleep-337279", "freesound_community-drizzle-4perspectives-23254", "boons_freak-rain-sound-188158", "dragon-studio-cozy-midnight-rain-04-448568"]:
 		check(name in note, "The note names %s" % name)
 	check("first 30 seconds" in note, "...and says only the first 30 seconds were kept")
