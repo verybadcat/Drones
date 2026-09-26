@@ -889,6 +889,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_empty_sweep_arrivals = 0
 	_empty_sweep_evidence_stamp = -INF
 	_recent_enemy_contacts.clear()
+	_lost_contact_checked.clear()
 	_contact_watch_since.clear()
 	_tree_sight_lost_for.clear()
 	GameConfig.prepare_canopy() # pay the one-off raster build before the fight, not mid-tick
@@ -3942,6 +3943,7 @@ func _squad_danger_priority(u: Unit, threatened_team: Unit.Team = Unit.Team.PLAY
 ## {"position", "time"} in exactly the shape _recent_enemy_contacts uses,
 ## so this is a direct merge, not a parallel mechanism.
 func _update_recent_enemy_contacts() -> void:
+	_note_lost_contacts_checked()
 	for u in enemy_units:
 		if u.state == Unit.State.ACTIVE and u.is_visible:
 			_recent_enemy_contacts[u] = {"position": u.global_position, "time": scenario_elapsed_time}
@@ -3953,6 +3955,83 @@ func _update_recent_enemy_contacts() -> void:
 			var info: Dictionary = _last_detected_mortar_fire.get(u, {})
 			if not info.is_empty():
 				_recent_enemy_contacts[u] = info
+
+
+## Enemy squads the player knew of, that went out of sight and where nothing was seen when the drone
+## went to look: Unit -> scenario time it was checked. Such a squad is not chased again for
+## LOST_CONTACT_RECHECK_S (or until it is seen again).
+var _lost_contact_checked: Dictionary = {}
+## A sighting stops being worth flying to when enough time has passed that the squad could be in a
+## different part of the map ("Too old would be if enough time has elapsed that the enemy could be in a
+## different part of the map"): a third of the map's width, at the enemy's advance pace. The age it comes
+## to depends on the map (about 20 minutes on a 5 km one).
+const LOST_CONTACT_DIFFERENT_PART_FRACTION: float = 1.0 / 3.0
+
+
+func _lost_contact_expiry_s() -> float:
+	return GameConfig.MAP_WIDTH_PX * LOST_CONTACT_DIFFERENT_PART_FRACTION / GameConfig.ENEMY_ADVANCE_SPEED
+const LOST_CONTACT_RECHECK_S: float = 300.0
+## What a place we lost a squad at is worth among the routine-recon candidates (the sweep cells run from
+## about 0.3 to 1.1 with a contact bonus): from LOST_CONTACT_VALUE_MIN for a sighting about to expire to
+## LOST_CONTACT_VALUE_MAX for a fresh one, plus up to LOST_CONTACT_THREAT_VALUE for one close to our
+## forces (nothing beyond LOST_CONTACT_THREAT_RANGE).
+const LOST_CONTACT_VALUE_MIN: float = 1.2
+const LOST_CONTACT_VALUE_MAX: float = 2.5
+const LOST_CONTACT_THREAT_VALUE: float = 1.5
+const LOST_CONTACT_THREAT_RANGE: float = 3000.0 * GameConfig.PIXELS_PER_METER
+
+
+## The lost contacts the drone has now reached and found nothing at: the squad is not where it was.
+func _note_lost_contacts_checked() -> void:
+	if active_drone == null or not is_instance_valid(active_drone):
+		return
+	for u in enemy_units:
+		if u.kind != Unit.Kind.SQUAD:
+			continue
+		if u.is_visible:
+			_lost_contact_checked.erase(u)
+			continue
+		if not u.player_has_been_sighted or _lost_contact_checked.has(u):
+			continue
+		if active_drone.global_position.distance_to(u.player_known_position) <= _drone_detection_range() * 0.5:
+			_lost_contact_checked[u] = scenario_elapsed_time
+
+
+## "We know the area the enemy is in. The drone is not going there. That's wrong." The enemy squads the
+## player has seen and lost sight of, still believed active, last seen recently enough (see
+## _lost_contact_expiry_s) that they are probably still near where they were: what the drone should go
+## and look at. Only what the player knows: the last known position and state, never the squad's true
+## one. Not a squad the drone has already been to and found nothing at (_note_lost_contacts_checked)
+## until LOST_CONTACT_RECHECK_S has passed. Each entry: {"unit", "position", "age", "freshness" (1 just
+## seen, 0 at the expiry)}.
+func _lost_squad_contacts() -> Array:
+	var out: Array = []
+	for u in enemy_units:
+		if u.kind != Unit.Kind.SQUAD or u.is_visible or not u.player_has_been_sighted:
+			continue
+		if u.player_known_state != Unit.State.ACTIVE:
+			continue
+		var age: float = scenario_elapsed_time - u.player_known_position_time
+		var expiry: float = _lost_contact_expiry_s()
+		if age > expiry:
+			continue
+		if _lost_contact_checked.has(u) and scenario_elapsed_time - _lost_contact_checked[u] < LOST_CONTACT_RECHECK_S:
+			continue
+		out.append({"unit": u, "position": u.player_known_position, "age": age, "freshness": clampf(1.0 - age / expiry, 0.0, 1.0)})
+	return out
+
+
+## The lost squads as candidates in the drone's routine-recon pool (with the sweep cells and flank gaps),
+## so that however the routine search is weighed against the other tiers (it can be worth a lot when a
+## mortar is suspected), the places the enemy was last seen are among what it chooses from — and the best
+## of them. Worth more than any grid cell, more for a fresher sighting and for one near our forces.
+func _lost_contact_candidates() -> Array:
+	var out: Array = []
+	for c in _lost_squad_contacts():
+		var threat: float = clampf(1.0 - _nearest_active_friendly_distance(c.position) / LOST_CONTACT_THREAT_RANGE, 0.0, 1.0)
+		out.append({"key": "lost:%d" % c.unit.get_instance_id(), "point": c.position, "unit": c.unit, "age": c.age,
+			"value": lerpf(LOST_CONTACT_VALUE_MIN, LOST_CONTACT_VALUE_MAX, c.freshness) + LOST_CONTACT_THREAT_VALUE * threat})
+	return out
 
 
 ## How much extra value a routine-recon candidate at `point` gets for being
@@ -4326,6 +4405,8 @@ func _drone_search_target() -> Vector2:
 			best_pos = routine_pick.point
 			var kind: String = "an unwatched gap toward our mortar's flank" if routine_pick.key.begins_with("flank:") else "a general-area sweep cell"
 			_drone_pilot_reasoning = {"tier": "Routine background recon", "detail": "No urgent lead — checking %s (candidate value %.2f, mortar-existence confidence %.2f)." % [kind, routine_pick.value, _mortar_existence_confidence()], "target": best_pos}
+			if routine_pick.key.begins_with("lost:"):
+				_drone_pilot_reasoning = {"tier": "Regaining contact with a lost squad", "detail": "%s was last seen %.0f s ago near here and has not been found since: going to look." % [routine_pick.unit.display_name(), routine_pick.age], "target": best_pos}
 
 	# Routine recon had places to go but the battery can't afford any of them
 	# (each too far, or too far upwind, to reach AND get home from), and
@@ -5257,7 +5338,7 @@ func _drone_mortar_search_weight() -> float:
 ## tier is worth entering in the first place) rather than recomputing them.
 func _drone_routine_recon_target(flank_candidates: Array) -> Dictionary:
 	_drone_routine_pool_unaffordable = false
-	var candidates: Array = _sweep_candidates(_drone_current_destination_key) + flank_candidates
+	var candidates: Array = _sweep_candidates(_drone_current_destination_key) + flank_candidates + _lost_contact_candidates()
 	if candidates.is_empty():
 		return {}
 	# Only places the drone can actually reach AND get home from, on the

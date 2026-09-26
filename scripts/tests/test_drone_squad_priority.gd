@@ -80,6 +80,10 @@ func run() -> void:
 	test_approaching_our_squads_beats_merely_being_near()
 	test_a_threat_to_the_drone_team_counts_like_one_to_a_squad()
 	test_the_spotter_barely_matters()
+	test_the_drone_goes_to_where_a_lost_squad_was()
+	test_a_lost_squad_is_not_chased_again_once_the_drone_has_looked()
+	test_which_lost_squad_and_the_battery()
+	test_a_suspected_mortar_does_not_send_the_drone_away_from_the_lost_squad()
 	print("Drone squad priority tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
@@ -165,4 +169,104 @@ func test_the_spotter_barely_matters() -> void:
 	var d_far: float = bm._squad_danger_priority(far)
 	check(d_spotter > d_far, "A squad by the spotter is still a touch more dangerous than one far from everything (%.1f vs %.1f)" % [d_spotter, d_far])
 	check(d_spotter < d_squad * 0.3, "...but under a third as much as one the same distance from a squad (%.1f vs %.1f)" % [d_spotter, d_squad])
+	cleanup(bm)
+
+
+## Direct user report: "We know the area the enemy is in. The drone is not going there. That's wrong."
+## The live snapshot: an enemy squad last seen 271 s ago at (2787, 624), not in sight, the drone at
+## (3033, 1910) on "routine background recon" toward a flank gap at (1340, 2571).
+func test_the_drone_goes_to_where_a_lost_squad_was() -> void:
+	var bm = make_battle(Vector2(3033, 1910), false)
+	bm.scenario_elapsed_time = 2000.0
+	var lost := add_enemy(bm, Vector2(2419, 530)) # where it really is (not known to the player)
+	lost.is_visible = false
+	lost.player_known_position = m(2787, 624)
+	lost.player_known_position_time = bm.scenario_elapsed_time - 271.0
+	var target: Vector2 = picked(bm)
+	check(bm._drone_pilot_reasoning.get("tier", "") == "Regaining contact with a lost squad", "The drone goes to look for the squad it lost (%s)" % str(bm._drone_pilot_reasoning))
+	check(target.distance_to(m(2787, 624)) < 1.0, "...at where it was last seen, not the truth it cannot know (target %s)" % (target / GameConfig.PIXELS_PER_METER))
+	# A sighting that has gone stale is not worth the trip.
+	# "Too old" is when the squad could be in a different part of the map: a third of the map's width at
+	# the enemy's advance pace (about 20 minutes here), not a fixed number of seconds.
+	var expiry: float = bm._lost_contact_expiry_s()
+	var reach_m: float = expiry * GameConfig.ENEMY_ADVANCE_SPEED / GameConfig.PIXELS_PER_METER
+	check(is_equal_approx(reach_m, GameConfig.MAP_WIDTH_M / 3.0), "The expiry is the time to cross a third of the map at the advance pace (%.0f s, %.0f m)" % [expiry, reach_m])
+	check(expiry > 600.0 and expiry < 2400.0, "...which is a sensible number of minutes (%.0f s)" % expiry)
+	lost.player_known_position_time = bm.scenario_elapsed_time - expiry + 60.0
+	picked(bm)
+	check(bm._drone_pilot_reasoning.get("tier", "") == "Regaining contact with a lost squad", "A sighting just inside that is still chased (%s)" % str(bm._drone_pilot_reasoning))
+	lost.player_known_position_time = bm.scenario_elapsed_time - expiry - 10.0
+	picked(bm)
+	check(bm._drone_pilot_reasoning.get("tier", "") != "Regaining contact with a lost squad", "A sighting older than that is not chased: the squad could be anywhere by now (%s)" % str(bm._drone_pilot_reasoning.get("tier", "")))
+	lost.player_known_position_time = bm.scenario_elapsed_time - 271.0
+	# Something the player believes destroyed or gone is not.
+	lost.player_known_state = Unit.State.DESTROYED
+	picked(bm)
+	check(bm._drone_pilot_reasoning.get("tier", "") != "Regaining contact with a lost squad", "A squad known to be out of the fight is not chased")
+	lost.player_known_state = Unit.State.ACTIVE
+	# A squad in sight is tracked as before, over a lost one.
+	var seen := add_enemy(bm, Vector2(2000, 1700), Vector2(1400, 1800))
+	picked(bm)
+	check(bm._drone_pilot_reasoning.get("tier", "") == "Tracking dangerous squad", "A squad in sight outranks one that was lost (%s)" % str(bm._drone_pilot_reasoning.get("tier", "")))
+	cleanup(bm)
+
+
+## Once the drone has been there and found nothing, it does not stay.
+func test_a_lost_squad_is_not_chased_again_once_the_drone_has_looked() -> void:
+	var bm = make_battle(Vector2(2787, 700), false) # the drone is already at the last known position
+	bm.scenario_elapsed_time = 2000.0
+	var lost := add_enemy(bm, Vector2(2419, 530))
+	lost.is_visible = false
+	lost.player_known_position = m(2787, 624)
+	lost.player_known_position_time = bm.scenario_elapsed_time - 100.0
+	picked(bm)
+	check(bm._drone_pilot_reasoning.get("tier", "") != "Regaining contact with a lost squad", "Having reached the spot and found nothing, the drone moves on (%s)" % str(bm._drone_pilot_reasoning.get("tier", "")))
+	check(bm._lost_contact_checked.has(lost), "...and the squad is marked as checked")
+	# It is chased again after the recheck time, or as soon as it is seen and lost again.
+	bm.scenario_elapsed_time += BattleManager.LOST_CONTACT_RECHECK_S + 1.0
+	bm.active_drone.global_position = m(3033, 1910)
+	lost.player_known_position_time = bm.scenario_elapsed_time - 100.0
+	picked(bm)
+	check(bm._drone_pilot_reasoning.get("tier", "") == "Regaining contact with a lost squad", "After the recheck time it is worth another look")
+	cleanup(bm)
+
+
+## Of several lost squads, the one nearest our forces first; the battery must afford the trip.
+func test_which_lost_squad_and_the_battery() -> void:
+	var bm = make_battle(Vector2(3500, 1000), false)
+	bm.scenario_elapsed_time = 2000.0
+	var far := add_enemy(bm, Vector2(4600, 700))
+	far.is_visible = false
+	far.player_known_position = m(4600, 700)
+	far.player_known_position_time = bm.scenario_elapsed_time - 60.0 # fresher, but far from us
+	var near := add_enemy(bm, Vector2(2200, 1500))
+	near.is_visible = false
+	near.player_known_position = m(2200, 1500)
+	near.player_known_position_time = bm.scenario_elapsed_time - 500.0 # older, but near our squads
+	var target: Vector2 = picked(bm)
+	check(target.distance_to(m(2200, 1500)) < 1.0, "Of two lost squads, the one nearer our forces is gone to first (%s)" % (target / GameConfig.PIXELS_PER_METER))
+	bm.active_drone.drone_battery_charge = 0.02
+	picked(bm)
+	check(bm._drone_pilot_reasoning.get("tier", "") != "Regaining contact with a lost squad", "A drone that cannot afford the trip does not go")
+	cleanup(bm)
+
+
+## The live battle had a suspected mortar (mortar-existence confidence 0.48), which makes routine recon
+## worth far more than any squad tier (its score is 100 x the confidence): the drone took a flank gap
+## 1800 m away instead of the area a squad was last seen in. The lost squad's area is now one of the
+## routine search's own candidates, so it is still what the drone goes to.
+func test_a_suspected_mortar_does_not_send_the_drone_away_from_the_lost_squad() -> void:
+	var bm = make_battle(Vector2(3033, 1910), true)
+	bm.scenario_elapsed_time = 2000.0
+	var em: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, m(4800, 1000))
+	bm.enemy_units.append(em)
+	em.is_visible = false
+	bm._last_detected_mortar_fire[em] = {"position": m(4859, 1017), "time": bm.scenario_elapsed_time - 700.0} # too old for the fresh-lead tier
+	check(bm._mortar_existence_confidence() > 0.3, "Set-up: a mortar is suspected (confidence %.2f)" % bm._mortar_existence_confidence())
+	var lost := add_enemy(bm, Vector2(2419, 530))
+	lost.is_visible = false
+	lost.player_known_position = m(2787, 624)
+	lost.player_known_position_time = bm.scenario_elapsed_time - 271.0
+	var target: Vector2 = picked(bm)
+	check(bm._drone_pilot_reasoning.get("tier", "") == "Regaining contact with a lost squad" and target.distance_to(m(2787, 624)) < 1.0, "Even with routine recon worth a lot, the drone goes to where the squad was lost (%s)" % str(bm._drone_pilot_reasoning))
 	cleanup(bm)
