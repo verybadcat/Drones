@@ -49,6 +49,8 @@ func _ready() -> void:
 	doctrine_panel.position = Vector2(GameConfig.SIDEBAR_X, 20)
 	add_child(doctrine_panel)
 
+	add_child(KeysHelp.new()) # "?" lists the keys
+
 	start_button = Button.new()
 	start_button.text = "Start Battle"
 	start_button.position = Vector2(GameConfig.SIDEBAR_X, 20.0 + DoctrinePanel.PANEL_HEIGHT + 10.0) # just under the panel

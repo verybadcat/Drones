@@ -63,7 +63,7 @@ var pause_button: Button
 # triggers on its own; the panels are constructed via preload() instead.
 var drone_debug_panel
 var decision_inspector
-var inspect_button: Button
+var keys_help: KeysHelp
 var fall_back_button: Button
 var clear_orders_button: Button
 var top_buttons: HBoxContainer
@@ -136,11 +136,11 @@ func _ready() -> void:
 	decision_inspector.position = Vector2(12, 50)
 	decision_inspector.visible = false
 	add_child(decision_inspector)
-	inspect_button = Button.new()
-	inspect_button.text = "Inspect AI (i)"
-	inspect_button.position = Vector2(140, 8)
-	inspect_button.pressed.connect(func(): decision_inspector.visible = not decision_inspector.visible)
-	add_child(inspect_button)
+	# (No button for the AI inspector: it is on the "i" key, and the list of keys (keys_help, "?") says so.)
+
+	# The list of keys, "?" or the small note in the corner; not a battle order, so not in the top row.
+	keys_help = KeysHelp.new()
+	add_child(keys_help)
 
 	# Fall back: every unit that can be ordered to (see BattleManager.order_all_fall_back) moves
 	# back toward the edge of the map and holds there — a step short of retreat_button's own
@@ -300,4 +300,4 @@ func _on_battle_ended(report_text: String) -> void:
 	report.open(report_text)
 	if decision_inspector:
 		move_child(decision_inspector, -1)
-		move_child(inspect_button, -1)
+	move_child(keys_help, -1) # the list of keys stays above the report
