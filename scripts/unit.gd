@@ -298,6 +298,8 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 	team = p_team
 	kind = p_kind
 	position = p_position
+	if kind == Kind.DRONE:
+		z_index = DRONE_Z_INDEX # always drawn over every ground unit, never under one
 	match kind:
 		Kind.MORTAR:
 			crew_size = GameConfig.mortar_crew_size(p_team)
@@ -957,6 +959,18 @@ func terrain_type() -> GameConfig.TerrainType:
 	return GameConfig.get_terrain_type_at(global_position)
 
 
+## A drone flies over everything on the ground: drawn above every other unit, whatever order
+## they were created in ("The drone should be drawn on top of all squads. The drone should cover
+## up part of the squad, not the reverse.").
+const DRONE_Z_INDEX: int = 10
+
+
+## Where the unit's name is drawn: below it, except a drone's, which goes above so that a drone
+## hovering over a ground unit (the squad it is tracking) does not print its name over that unit's.
+func label_position() -> Vector2:
+	return Vector2(-24, -24) if kind == Kind.DRONE else Vector2(-24, 29)
+
+
 func _draw() -> void:
 	var color := Color(0.25, 0.55, 1.0) if team == Team.PLAYER else Color(1.0, 0.35, 0.25)
 	if kind == Kind.SPOTTER or kind == Kind.DRONE_TEAM:
@@ -983,7 +997,7 @@ func _draw() -> void:
 	if color.a <= 0.0:
 		return
 
-	draw_string(ThemeDB.fallback_font, Vector2(-24, 29), unit_label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, color.lightened(0.3))
+	draw_string(ThemeDB.fallback_font, label_position(), unit_label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, color.lightened(0.3))
 
 	var radius := 14.0 if kind == Kind.SQUAD else (8.0 if (kind == Kind.SPOTTER or kind == Kind.DRONE_TEAM) else (6.0 if kind == Kind.RESUPPLY_RUN else (5.0 if kind == Kind.DRONE else 10.0)))
 	if kind == Kind.RESUPPLY_RUN:
@@ -992,6 +1006,10 @@ func _draw() -> void:
 		# fighting-unit marker.
 		draw_rect(Rect2(-radius, -radius, radius * 2.0, radius * 2.0), color)
 	else:
+		if kind == Kind.DRONE:
+			# A dark rim: a drone tracking an enemy squad hovers right over it, and a small pale disc on
+			# a red one is easy to lose ("it says we have a drone airborne, but I can't see it anywhere").
+			draw_circle(Vector2.ZERO, radius + 2.0, Color(0.05, 0.05, 0.05, color.a))
 		draw_circle(Vector2.ZERO, radius, color)
 
 	if kind == Kind.MORTAR:
