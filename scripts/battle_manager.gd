@@ -3823,9 +3823,68 @@ func _nearest_active_friendly_distance(pos: Vector2, team: Unit.Team = Unit.Team
 	var units: Array[Unit] = player_units if team == Unit.Team.PLAYER else enemy_units
 	var nearest := INF
 	for f in units:
-		if f.state == Unit.State.ACTIVE:
+		# A drone is not a force an enemy squad "threatens" by being near it: counting it made a squad
+		# the drone was itself hovering over read as at contact with a friendly (danger 10/10), so the
+		# drone kept tracking whichever squad it was over, however far from our positions.
+		if f.state == Unit.State.ACTIVE and f.kind != Unit.Kind.DRONE:
 			nearest = min(nearest, pos.distance_to(f.global_position))
 	return nearest
+
+
+## Which visible enemy squad the drone should track, in the user's order of priority: "enemy squads
+## that are threatening the mortar would have higher priority than ones that are not. If nothing is
+## threatening the mortar, next would be enemy squads that are approaching our squads." (Prompted by
+## a live battle: no enemy mortars left, every enemy squad advancing on us, and the drone tracking a
+## far-off one instead of the near ones.) Three classes, best first:
+##   2  threatens a friendly mortar: within SQUAD_DANGER_RANGE of it and not moving away from it
+##   1  approaching our squads: heading toward the nearest friendly squad, or already within
+##      SQUAD_ENGAGEMENT_RANGE of one
+##   0  any other visible squad
+## Within a class the squad closest to what it threatens wins (to the mortar for class 2, else to our
+## ground forces, see _squad_danger_priority). Returns {"unit", "score", "why"}, or {} with no visible
+## squad. The score is the ordinary danger score (0 to TARGET_PRIORITY_SQUAD_MAX), raised to the squad's
+## nearness to the mortar for class 2, so comparing it with the other tiers is unchanged in kind.
+func _drone_squad_to_track() -> Dictionary:
+	var mortars: Array[Unit] = []
+	var squads: Array[Unit] = []
+	for f in player_units:
+		if f.state != Unit.State.ACTIVE:
+			continue
+		if f.kind == Unit.Kind.MORTAR:
+			mortars.append(f)
+		elif f.kind == Unit.Kind.SQUAD:
+			squads.append(f)
+	var best: Dictionary = {}
+	var best_rank := [-1, -1.0]
+	for u in enemy_units:
+		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or not u.is_visible:
+			continue
+		var velocity: Vector2 = _estimate_unit_velocity(u)
+		var score: float = _squad_danger_priority(u)
+		var klass := 0
+		var why := "The most dangerous currently-visible enemy squad (closer to our units = higher)"
+		var threat_proximity := score
+		for m in mortars:
+			var to_mortar: Vector2 = m.global_position - u.global_position
+			var dist: float = to_mortar.length()
+			if dist <= GameConfig.SQUAD_DANGER_RANGE and (velocity == Vector2.ZERO or velocity.dot(to_mortar) >= 0.0):
+				var proximity: float = GameConfig.TARGET_PRIORITY_SQUAD_MAX * clampf(1.0 - dist / GameConfig.SQUAD_DANGER_RANGE, 0.0, 1.0)
+				if klass < 2 or proximity > threat_proximity:
+					klass = 2
+					threat_proximity = proximity
+					why = "An enemy squad threatening the mortar (%.0f m from it)" % (dist / GameConfig.PIXELS_PER_METER)
+		if klass < 2:
+			for f in squads:
+				var to_squad: Vector2 = f.global_position - u.global_position
+				if to_squad.length() <= GameConfig.SQUAD_ENGAGEMENT_RANGE or (velocity != Vector2.ZERO and velocity.dot(to_squad) > 0.0):
+					klass = 1
+					why = "An enemy squad approaching our squads"
+					break
+		var rank := [klass, threat_proximity]
+		if rank[0] > best_rank[0] or (rank[0] == best_rank[0] and rank[1] > best_rank[1]):
+			best_rank = rank
+			best = {"unit": u, "score": maxf(score, threat_proximity) if klass == 2 else score, "why": why}
+	return best
 
 
 ## A visible, ACTIVE enemy squad's own target-priority score — see
@@ -4145,18 +4204,13 @@ func _drone_search_target() -> Vector2:
 		best_pos = retreat_scout.position
 		_drone_pilot_reasoning = {"tier": "Screening the retreat route", "detail": "General retreat ordered — scouting ahead of %s along its own withdrawal route for anything not yet spotted." % retreat_scout.unit.display_name(), "target": best_pos}
 
-	var best_squad: Unit = null
-	var best_squad_score := -1.0
-	for u in enemy_units:
-		if u.kind == Unit.Kind.SQUAD and u.state == Unit.State.ACTIVE and u.is_visible:
-			var score: float = _squad_danger_priority(u)
-			if score > best_squad_score:
-				best_squad_score = score
-				best_squad = u
+	var squad_pick: Dictionary = _drone_squad_to_track()
+	var best_squad: Unit = squad_pick.get("unit", null)
+	var best_squad_score: float = squad_pick.get("score", -1.0)
 	if best_squad != null and best_squad_score > best_score:
 		best_score = best_squad_score
 		best_pos = best_squad.global_position
-		_drone_pilot_reasoning = {"tier": "Tracking dangerous squad", "detail": "The most dangerous currently-visible enemy squad, danger score %.1f/%.1f (closer to a friendly unit = higher)." % [best_squad_score, GameConfig.TARGET_PRIORITY_SQUAD_MAX], "target": best_pos}
+		_drone_pilot_reasoning = {"tier": "Tracking dangerous squad", "detail": "%s, danger score %.1f/%.1f." % [squad_pick.why, best_squad_score, GameConfig.TARGET_PRIORITY_SQUAD_MAX], "target": best_pos}
 
 	# The commander's "expend ammo on enemy squads" order for the mortar
 	# (set_mortar_squad_fire_order): the drone backs it up by watching the
