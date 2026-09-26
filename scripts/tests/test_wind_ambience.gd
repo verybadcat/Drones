@@ -36,6 +36,9 @@ func run() -> void:
 	test_significantly_less_then_slightly_less()
 	test_rounding_and_gusts()
 	test_the_node_fades_in_and_out()
+	test_the_sound_holds_its_recording_near_a_rounding_edge()
+	test_the_real_wind_near_the_edge_rarely_switches()
+	test_a_handover_between_recordings_does_not_dip()
 	test_the_recordings_and_their_source_are_documented()
 	print("Wind ambience tests: %d failures" % failures)
 	quit(1 if failures else 0)
@@ -107,20 +110,124 @@ func test_the_node_fades_in_and_out() -> void:
 	wind.free()
 
 
+## Hovering near 7.5 m/s used to flip soft <-> blowing about 46 times a real minute ("we need
+## a fix to keep it from switching back and forth too much like we did with rain"). The whole-m/s
+## figure the sound follows is held until the wind is 0.25 m/s beyond the rounding edge.
+func test_the_sound_holds_its_recording_near_a_rounding_edge() -> void:
+	check(WindAmbience.held_mps(-1, 7.4) == 7 and WindAmbience.held_mps(-1, 7.6) == 8, "With nothing held yet it simply rounds")
+	check(WindAmbience.held_mps(7, 7.6) == 7 and WindAmbience.held_mps(7, 7.74) == 7, "Held at 7: 7.6 is past the edge but not by the margin, so it stays")
+	check(WindAmbience.held_mps(7, 7.8) == 8, "...and 7.8 (0.3 past the edge) moves it to 8")
+	check(WindAmbience.held_mps(8, 7.4) == 8 and WindAmbience.held_mps(8, 7.26) == 8, "Held at 8: 7.4 is under the edge but not by the margin, so it stays")
+	check(WindAmbience.held_mps(8, 7.2) == 7, "...and 7.2 moves it back to 7")
+	check(WindAmbience.held_mps(7, 12.0) == 12 and WindAmbience.held_mps(12, 3.0) == 3, "A real change of wind follows at once, either way")
+	# Through the node: dither across 7.5 does not touch the recording; a real move does.
+	var wind := WindAmbience.new()
+	root.add_child(wind)
+	var mixer = wind._mixer
+	wind.set_wind(7.2)
+	step(wind, 30.0)
+	check(mixer.is_playing("soft") and not mixer.is_playing("blowing"), "7.2 m/s: the soft recording")
+	var switches := 0
+	var last_heard := "soft"
+	for wind_mps in [7.55, 7.45, 7.6, 7.4, 7.7, 7.35, 7.65, 7.5, 7.7, 7.3]:
+		wind.set_wind(wind_mps)
+		step(wind, 1.0)
+		var now := "soft" if mixer.is_playing("soft") and mixer.level_db("soft") > WindAmbience.SILENT_DB + 3.0 else "blowing"
+		if now != last_heard:
+			switches += 1
+			last_heard = now
+	check(switches == 0, "Dithering 7.3 to 7.7 m/s never leaves the soft recording (%d switches)" % switches)
+	check(not mixer.is_playing("blowing"), "...and never starts the blowing one")
+	wind.set_wind(8.0)
+	step(wind, 30.0)
+	check(mixer.is_playing("blowing") and not mixer.is_playing("soft"), "A genuine 8.0 m/s does switch to the blowing recording")
+	for wind_mps in [7.7, 7.55, 7.45, 7.6, 7.3]:
+		wind.set_wind(wind_mps)
+		step(wind, 30.0)
+		check(mixer.is_playing("blowing") and not mixer.is_playing("soft"), "Held at 8: %.2f m/s stays on the blowing recording" % wind_mps)
+	wind.set_wind(-1.0)
+	step(wind, 30.0)
+	wind.set_wind(7.6)
+	check(WindAmbience.plan(float(wind._held_mps)) == WindAmbience.plan(8.0), "After silence the hold is forgotten: 7.6 rounds to 8")
+	wind.free()
+
+
+## The real weather model, started at 7.5 m/s (the worst place to be), a real minute at normal
+## speed (about one tactical second a frame at 60 frames a second): following the wind's whole-m/s
+## figure directly flips soft <-> blowing dozens of times (measured mean 40, worst 140); the held
+## figure a handful at most (measured mean 1.2, worst 4).
+func test_the_real_wind_near_the_edge_rarely_switches() -> void:
+	var lo := -3.0
+	var hi := 5.0
+	for i in 60:
+		var mid := (lo + hi) / 2.0
+		if Weather._speed_from_z(mid) < 7.5:
+			lo = mid
+		else:
+			hi = mid
+	var raw_switches := 0
+	var held_switches := 0
+	var trials := 30
+	for trial in trials:
+		var weather := Weather.roll(trial + 1)
+		weather._wind_z = lo
+		weather.wind_speed_10m = Weather._speed_from_z(lo)
+		var held := -1
+		var raw_soft := true
+		var held_soft := true
+		for frame in 3600:
+			weather.advance(1.0)
+			held = WindAmbience.held_mps(held, weather.wind_speed_10m)
+			var now_raw := roundi(weather.wind_speed_10m) < WindAmbience.BLOWING_MIN_MPS
+			var now_held := held < WindAmbience.BLOWING_MIN_MPS
+			if frame > 0 and now_raw != raw_soft:
+				raw_switches += 1
+			if frame > 0 and now_held != held_soft:
+				held_switches += 1
+			raw_soft = now_raw
+			held_soft = now_held
+	check(float(raw_switches) / trials > 10.0, "The scenario really is a wind hovering at the edge (unheld: %.1f switches a minute)" % (float(raw_switches) / trials))
+	check(float(held_switches) / trials < 3.0, "Held: fewer than 3 soft/blowing switches a real minute (%.2f)" % (float(held_switches) / trials))
+
+
+## The two recordings hand over with equal power: while one fades out and the other in, the summed
+## power stays near the steady level (it used to sag ~13 dB halfway, since both ramped in dB).
+func test_a_handover_between_recordings_does_not_dip() -> void:
+	var wind := WindAmbience.new()
+	root.add_child(wind)
+	var mixer = wind._mixer
+	wind.set_wind(7.0)
+	step(wind, 30.0)
+	var soft_level: float = WindAmbience.plan(7.0).soft_db
+	var blowing_level: float = WindAmbience.plan(8.0).blowing_db
+	wind.set_wind(8.0)
+	# Compare against the steadier of the two ends' powers (the levels differ by design):
+	# the sum must never fall below the quieter end by more than 1.5 dB.
+	var floor_db: float = minf(soft_level, blowing_level) - 1.5
+	var worst := INF
+	for i in 80:
+		step(wind, 0.05)
+		var power: float = pow(10.0, mixer.level_db("soft") / 10.0) + pow(10.0, mixer.level_db("blowing") / 10.0)
+		worst = minf(worst, 10.0 * log(power) / log(10.0))
+	check(worst >= floor_db, "Mid-handover the summed level stays within 1.5 dB of the quieter end (worst %.1f dB, floor %.1f)" % [worst, floor_db])
+	wind.free()
+
+
 func test_the_recordings_and_their_source_are_documented() -> void:
 	check(WindAmbience.SOFT_STREAM.get_length() > 10.0 and WindAmbience.BLOWING_STREAM.get_length() > 30.0, "Both recordings load")
 	var note := FileAccess.get_file_as_string("res://assets/audio/wind/SOURCES.md")
 	check("https://pixabay.com/sound-effects/search/wind/" in note, "The sourcing note gives the Pixabay page the recordings came from")
-	check("storegraphic-soft-wind-318856.mp3" in note and "soundreality-wind-blowing-457954-minus-last-second.mp3" in note, "...and names both files")
-	# Direct user request: the blowing recording's fade-out was annoying at 9 m/s —
-	# "Let's try shortening the file by removing the last second." The original was
-	# 42.74 s; the committed file is that minus a second (and the note says so).
+	check("storegraphic-soft-wind-318856.mp3" in note and "soundreality-wind-blowing-457954-seamless-loop.ogg" in note, "...and names both files")
+	# The blowing recording started in silence, swelled for seconds and faded at the end, so every
+	# loop had a break ("the break in the wind sound at 8 m/s is distracting"). It is now a seamless
+	# loop: the swell cut off, the end crossfaded onto the start (41.75 s file -> about 33.75 s).
 	var blowing_length: float = WindAmbience.BLOWING_STREAM.get_length()
-	check(blowing_length > 41.4 and blowing_length < 42.0, "The blowing recording has had its last second removed (%.2f s; the download was 42.74 s)" % blowing_length)
-	check("last second" in note and "42.7 s -> 41.7 s" in note, "The note records the trim")
+	check(blowing_length > 33.0 and blowing_length < 34.5, "The blowing recording is the rebuilt loop (%.2f s; the download was 42.74 s)" % blowing_length)
+	check("seamless" in note and "swell" in note and "crossfade" in note, "The note records how the loop was made")
 	var dir := DirAccess.open("res://assets/audio/wind")
-	var mp3s: Array = []
+	var files: Array = []
 	for f in dir.get_files():
-		if f.ends_with(".mp3"):
-			mp3s.append(f)
-	check(mp3s.size() == 2 and not mp3s.has("soundreality-wind-blowing-457954.mp3"), "The untrimmed download is not in the project (found %s)" % str(mp3s))
+		if f.ends_with(".mp3") or f.ends_with(".ogg"):
+			files.append(f)
+	files.sort()
+	check(files == ["soundreality-wind-blowing-457954-seamless-loop.ogg", "storegraphic-soft-wind-318856.mp3"], "Only the soft download and the rebuilt loop are in the project (found %s)" % str(files))

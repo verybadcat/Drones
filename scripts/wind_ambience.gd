@@ -23,18 +23,25 @@ extends Node
 ## sit (about 7-13 dB, then about 1-3 dB).
 ##
 ## Loops: each recording simply loops (AmbientMixer, shared with RainAmbience). The
-## soft one is used exactly as downloaded. The blowing one had a fade-out to
-## silence over its last ~1.3 s, which the user found annoying at 9 m/s ("Let's try
-## shortening the file by removing the last second"), so the committed file is the
-## download with its last second cut (see assets/audio/wind/SOURCES.md); it still
-## fades in over its first quarter-second and dips slightly over its final quarter-
-## second, a lull every 42 s the user has said is fine ("it's ok to have some
-## silence interspersed with the wind sound. Wind is not constant").
+## soft one is used exactly as downloaded. The blowing one was rebuilt as a SEAMLESS
+## loop (see assets/audio/wind/SOURCES.md): the download starts in digital silence and
+## swells for seconds, and it used to wrap from loud back into that swell every 42 s —
+## "the break in the wind sound at 8 m/s is distracting" (8 m/s being the quietest the
+## blowing recording is ever played). Now the swell is cut off and the end is crossfaded
+## onto the start, so the wrap cannot be heard.
+##
+## Switching: the recording changes only when the wind has really moved on. The sound follows
+## the whole-m/s figure the HUD shows, and a wind that sits near a rounding edge wanders
+## across it many times (about 46 soft<->blowing switches a real minute in a simulation
+## starting at 7.5 m/s), so the whole-m/s figure the sound follows is HELD until the wind is
+## WIND_HYSTERESIS_MPS beyond the edge (held_mps) — "we need a fix to keep it from switching
+## back and forth too much like we did with rain" — and the switch itself is an equal-power
+## crossfade (AmbientMixer), not a dip.
 
 const AmbientMixer = preload("res://scripts/ambient_mixer.gd")
 
 const SOFT_STREAM: AudioStreamMP3 = preload("res://assets/audio/wind/storegraphic-soft-wind-318856.mp3")
-const BLOWING_STREAM: AudioStreamMP3 = preload("res://assets/audio/wind/soundreality-wind-blowing-457954-minus-last-second.mp3")
+const BLOWING_STREAM: AudioStreamOggVorbis = preload("res://assets/audio/wind/soundreality-wind-blowing-457954-seamless-loop.ogg")
 
 ## Measured with ffmpeg's ebur128 filter (integrated loudness) on the committed files
 ## (the blowing one's figure is the same before and after its last second was cut).
@@ -48,6 +55,9 @@ const BLOWING_FILE_LUFS: float = -30.2
 const MASTER_TRIM_DB: float = -4.0
 
 const SILENT_DB: float = AmbientMixer.SILENT_DB
+
+## How far past a whole-m/s rounding edge the wind must go before the sound follows it. JUDGMENT.
+const WIND_HYSTERESIS_MPS: float = 0.25
 
 const SOFT_MIN_MPS: int = 5
 const BLOWING_MIN_MPS: int = 8
@@ -65,6 +75,8 @@ const LOUDNESS_LUFS_CEILING_MPS: int = 15
 
 var _mixer: AmbientMixer
 var _target: Dictionary = {"soft_db": SILENT_DB, "blowing_db": SILENT_DB}
+## The whole-m/s figure the sound is following (-1: no wind sound); see held_mps.
+var _held_mps: int = -1
 
 
 ## What the two recordings should be doing at `wind_mps` (ground-level wind,
@@ -81,6 +93,15 @@ static func plan(wind_mps: float) -> Dictionary:
 	if mps < BLOWING_MIN_MPS:
 		return {"soft_db": loudness - SOFT_FILE_LUFS + MASTER_TRIM_DB, "blowing_db": SILENT_DB}
 	return {"soft_db": SILENT_DB, "blowing_db": loudness - BLOWING_FILE_LUFS + MASTER_TRIM_DB}
+
+
+## The whole-m/s figure to follow given the one already being followed: unchanged until the
+## wind is more than WIND_HYSTERESIS_MPS past the rounding edge on either side (half a m/s from
+## the held figure, plus the margin), then whatever it now rounds to. `previous` < 0 means none yet.
+static func held_mps(previous: int, wind_mps: float) -> int:
+	if previous < 0 or absf(wind_mps - float(previous)) > 0.5 + WIND_HYSTERESIS_MPS:
+		return roundi(wind_mps)
+	return previous
 
 
 ## The loudness actually heard at `wind_mps` (LUFS, after the trim), or -INF for
@@ -101,9 +122,15 @@ func _ready() -> void:
 	_mixer.add_layer("blowing", BLOWING_STREAM)
 
 
-## Sets the wind to sound like (m/s at ground level; negative = none).
+## Sets the wind to sound like (m/s at ground level; negative = none). Follows the wind with
+## hysteresis (see held_mps): a wind hovering at a rounding edge does not switch the sound.
 func set_wind(wind_mps: float) -> void:
-	_target = plan(wind_mps)
+	if is_nan(wind_mps) or wind_mps < 0.0:
+		_held_mps = -1
+		_target = plan(-1.0)
+		return
+	_held_mps = held_mps(_held_mps, wind_mps)
+	_target = plan(float(_held_mps))
 
 
 func _process(_delta: float) -> void:
