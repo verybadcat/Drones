@@ -9,26 +9,20 @@ func run():
 	main._on_recon_mode_chosen(GameConfig.ReconMode.DRONE_TEAM)
 	await process_frame
 	await process_frame
-	var panel = main.current_screen.doctrine_panel
-	panel._player_profile.select(3)
-	panel._on_profile_selected(3)
-	panel._enemy_profile.select(2)
-	panel._unit_type.select(1)
-	panel._load_unit_orders()
-	panel._type_target.select(4)
-	panel._type_risk.select(2)
-	panel._save_unit_orders()
-	panel._unit_type.select(0)
-	panel._load_unit_orders()
-	assert(panel._type_target.selected == 0)
-	panel._type_side.select(1)
-	panel._load_unit_orders()
-	panel._type_target.select(1)
-	panel._save_unit_orders()
-	panel._seed.value = 731
-	panel.get_child(0).scroll_vertical = 340
+	# The setup screen no longer has controls for profiles or per-type orders (only the seed), so
+	# the doctrine is built from what it does produce and the rest is filled in here, then handed to
+	# the battle exactly as Start Battle would.
+	var phase: DeploymentPhase = main.current_screen
+	phase.doctrine_panel._seed.value = 731
+	var doctrine: Dictionary = phase.build_doctrine()
+	assert(doctrine.seed == 731)
+	doctrine.player_profile = load("res://scripts/commander_profile.gd").preset("deliberate")
+	doctrine.enemy_profile = load("res://scripts/commander_profile.gd").preset("aggressive")
+	var unit_doctrine = load("res://scripts/unit_doctrine.gd")
+	doctrine.player_unit_types["mortar"] = {"targeting": unit_doctrine.TARGET_IDS[4], "risk": unit_doctrine.RISK_IDS[2]}
+	doctrine.enemy_unit_types["squad"] = {"targeting": unit_doctrine.TARGET_IDS[1], "risk": doctrine.enemy_unit_types["squad"].risk}
 	await process_frame
-	main.current_screen.request_start()
+	phase.start_requested.emit(doctrine)
 	var battle: BattleScreen = main.current_screen
 	battle.battle_manager.set_process(false)
 	for i in 100:

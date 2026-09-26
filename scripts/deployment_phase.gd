@@ -1,8 +1,8 @@
 class_name DeploymentPhase
 extends GameScreen
 ## The deployment screen: the player drags the units into position on the map
-## (DeploymentScreen, in the map's SubViewport), sets doctrine (DoctrinePanel, in the
-## sidebar) and presses "Start Battle", which hands the whole thing on as one doctrine
+## (DeploymentScreen, in the map's SubViewport), optionally sets the battle seed (DoctrinePanel, in
+## the sidebar) and presses "Start Battle", which hands the whole thing on as one doctrine
 ## dictionary (start_requested) — this screen builds it, the battle screen acts on it. A
 ## loupe (deployment_magnifier.gd) shows the placement being dragged.
 ##
@@ -50,7 +50,7 @@ func _ready() -> void:
 
 	start_button = Button.new()
 	start_button.text = "Start Battle"
-	start_button.position = Vector2(GameConfig.SIDEBAR_X, 540)
+	start_button.position = Vector2(GameConfig.SIDEBAR_X, 20.0 + DoctrinePanel.PANEL_HEIGHT + 10.0) # just under the panel
 	start_button.pressed.connect(request_start)
 	add_child(start_button)
 
@@ -82,6 +82,12 @@ func _process(_delta: float) -> void:
 ## "Start Battle": gathers the placements and the doctrine into the one dictionary the
 ## battle is started from, and hands it on.
 func request_start() -> void:
+	start_requested.emit(build_doctrine())
+
+
+## The dictionary the battle is started from (see request_start). Separate so a test can start
+## a battle from a doctrine the setup screen has no controls for any more.
+func build_doctrine() -> Dictionary:
 	var positions := deployment_screen.get_positions()
 	# One standing order for the whole force, not a separately dialed-in
 	# threshold per squad — see DoctrinePanel.get_retreat_threshold's own
@@ -106,4 +112,4 @@ func request_start() -> void:
 	}
 
 	doctrine.merge(doctrine_panel.get_commander_doctrine())
-	start_requested.emit(doctrine)
+	return doctrine

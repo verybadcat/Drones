@@ -4,7 +4,7 @@ extends Node2D
 ## bar, compass and weather block in MapHudOverlay, the tactical clock, the elevation and
 ## location readouts), the wind and rain sound, the durable score history and the chosen recon
 ## setup — and shows exactly one screen at a time (a GameScreen): level select, then
-## deployment (drag units + set doctrine), then the battle (with a general retreat order the
+## deployment (drag units into position, optionally set the seed), then the battle (with a general retreat order the
 ## player can give at any time) and its after-action report, whose "choose a new setup" goes
 ## back to level select — so trying again can change the reconnaissance setup itself, not just
 ## doctrine.
