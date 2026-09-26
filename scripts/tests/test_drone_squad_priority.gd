@@ -78,6 +78,7 @@ func run() -> void:
 	test_the_live_case_near_squads_beat_the_far_one_under_the_drone()
 	test_squads_threatening_the_mortar_come_first()
 	test_approaching_our_squads_beats_merely_being_near()
+	test_a_threat_to_the_drone_team_counts_like_one_to_a_squad()
 	print("Drone squad priority tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
@@ -125,3 +126,25 @@ func test_approaching_our_squads_beats_merely_being_near() -> void:
 	var target: Vector2 = picked(bm)
 	check(target.distance_to(approaching.global_position) < 1.0, "The squad approaching ours is tracked over one that is merely nearer (%s)" % str(bm._drone_pilot_reasoning))
 	cleanup(bm)
+
+
+## "The drone should never count as one of our units for purposes of deciding what is threatening. A
+## threat to the drone team would however count. It would be similar to a threat to a squad."
+func test_a_threat_to_the_drone_team_counts_like_one_to_a_squad() -> void:
+	var bm = make_battle(Vector2(2500, 300), false)
+	# Our squads far from the action; the drone team out in front at (900, 500).
+	bm.drone_team.global_position = m(900, 500)
+	var near_team := add_enemy(bm, Vector2(1400, 600), Vector2(900, 500)) # 500 m from the drone team, coming at it
+	var loiterer := add_enemy(bm, Vector2(3600, 1500)) # far from everything, standing still
+	var target: Vector2 = picked(bm)
+	check(target.distance_to(near_team.global_position) < 1.0, "A squad approaching the drone team is tracked (%s)" % str(bm._drone_pilot_reasoning))
+	check("drone team" in str(bm._drone_pilot_reasoning.get("detail", "")), "...and the reasoning names the drone team")
+	# The airborne drone, though, is never the thing being threatened: hovering over a squad or beside one
+	# it neither raises the danger nor makes a squad 'approaching our squads'.
+	var bm2 = make_battle(Vector2(3600, 1500), false)
+	bm2.drone_team.global_position = m(-800, 1500)
+	var under_drone := add_enemy(bm2, Vector2(3600, 1500), Vector2(3600, 1400)) # advancing, but nowhere near our squads or the team
+	check(bm2._drone_squad_to_track().get("score", 99.0) < 1.0, "A squad under the airborne drone is not dangerous for it (score %.1f)" % bm2._drone_squad_to_track().get("score", 99.0))
+	check(not ("approaching" in str(bm2._drone_squad_to_track().get("why", ""))), "...and is not 'approaching our squads' because of the drone")
+	cleanup(bm)
+	cleanup(bm2)

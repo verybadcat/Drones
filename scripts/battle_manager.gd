@@ -3831,14 +3831,21 @@ func _nearest_active_friendly_distance(pos: Vector2, team: Unit.Team = Unit.Team
 	return nearest
 
 
+## "Approaching" means heading within 60 degrees of straight at the unit (a squad crossing our front
+## at right angles is not approaching it, though its heading has a small component toward it).
+const DRONE_APPROACH_MIN_COSINE: float = 0.5
+
+
 ## Which visible enemy squad the drone should track, in the user's order of priority: "enemy squads
 ## that are threatening the mortar would have higher priority than ones that are not. If nothing is
 ## threatening the mortar, next would be enemy squads that are approaching our squads." (Prompted by
 ## a live battle: no enemy mortars left, every enemy squad advancing on us, and the drone tracking a
 ## far-off one instead of the near ones.) Three classes, best first:
 ##   2  threatens a friendly mortar: within SQUAD_DANGER_RANGE of it and not moving away from it
-##   1  approaching our squads: heading toward the nearest friendly squad, or already within
-##      SQUAD_ENGAGEMENT_RANGE of one
+##   1  approaching our squads: heading toward a friendly squad, or already within
+##      SQUAD_ENGAGEMENT_RANGE of one. The drone team counts as a squad here ("a threat to the drone
+##      team would however count. It would be similar to a threat to a squad"); an airborne drone
+##      never counts as one of our units for judging what threatens what.
 ##   0  any other visible squad
 ## Within a class the squad closest to what it threatens wins (to the mortar for class 2, else to our
 ## ground forces, see _squad_danger_priority). Returns {"unit", "score", "why"}, or {} with no visible
@@ -3846,13 +3853,13 @@ func _nearest_active_friendly_distance(pos: Vector2, team: Unit.Team = Unit.Team
 ## nearness to the mortar for class 2, so comparing it with the other tiers is unchanged in kind.
 func _drone_squad_to_track() -> Dictionary:
 	var mortars: Array[Unit] = []
-	var squads: Array[Unit] = []
+	var squads: Array[Unit] = [] # our squads, and the drone team: a threat to it counts like a threat to a squad
 	for f in player_units:
 		if f.state != Unit.State.ACTIVE:
 			continue
 		if f.kind == Unit.Kind.MORTAR:
 			mortars.append(f)
-		elif f.kind == Unit.Kind.SQUAD:
+		elif f.kind == Unit.Kind.SQUAD or f.kind == Unit.Kind.DRONE_TEAM:
 			squads.append(f)
 	var best: Dictionary = {}
 	var best_rank := [-1, -1.0]
@@ -3876,9 +3883,9 @@ func _drone_squad_to_track() -> Dictionary:
 		if klass < 2:
 			for f in squads:
 				var to_squad: Vector2 = f.global_position - u.global_position
-				if to_squad.length() <= GameConfig.SQUAD_ENGAGEMENT_RANGE or (velocity != Vector2.ZERO and velocity.dot(to_squad) > 0.0):
+				if to_squad.length() <= GameConfig.SQUAD_ENGAGEMENT_RANGE or (velocity != Vector2.ZERO and velocity.normalized().dot(to_squad.normalized()) > DRONE_APPROACH_MIN_COSINE):
 					klass = 1
-					why = "An enemy squad approaching our squads"
+					why = "An enemy squad approaching our squads" if f.kind == Unit.Kind.SQUAD else "An enemy squad approaching the drone team"
 					break
 		var rank := [klass, threat_proximity]
 		if rank[0] > best_rank[0] or (rank[0] == best_rank[0] and rank[1] > best_rank[1]):
