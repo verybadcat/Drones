@@ -77,6 +77,8 @@ const MORTAR_FIRE_SOUNDS: Array[AudioStream] = [
 const MORTAR_FIRE_SOUND_POOL_SIZE: int = 12
 var _mortar_fire_sound_players: Array[AudioStreamPlayer] = []
 var _mortar_fire_sound_pool_index: int = 0
+## The quiet sound of squads firing (see GunfireAmbience): one recording, told of every direct-fire shot.
+var _gunfire_ambience: GunfireAmbience = null
 
 ## A bounded, JSON-native trace of every _play_mortar_fire_sound call — direct
 ## user request after a real, inconsistent report ("sometimes I hear the
@@ -1129,6 +1131,8 @@ func _ready() -> void:
 	add_child(_terrain_layer)
 	move_child(_terrain_layer, 0)
 	_build_mortar_fire_sound_pool()
+	_gunfire_ambience = GunfireAmbience.new()
+	add_child(_gunfire_ambience)
 
 
 func _build_mortar_fire_sound_pool() -> void:
@@ -6424,6 +6428,8 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		"time": scenario_elapsed_time, "is_mortar": false,
 	})
 	_seconds_since_last_shot = 0.0
+	if _gunfire_ambience != null:
+		_gunfire_ambience.report_shot(unit.team)
 	_resolve_fire_and_check_bunching(unit, target, target.global_position)
 	unit.fire_timer = unit.fire_interval
 
