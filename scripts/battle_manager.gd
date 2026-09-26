@@ -1934,7 +1934,6 @@ func _check_enemy_commander_retreat() -> void:
 		return
 	enemy_general_retreat_ordered = true
 	var known_player_positions := _known_enemy_positions(Unit.Team.ENEMY)
-	var any_ordered := false
 	var claimed: Array[Vector2] = []
 	for unit in enemy_units:
 		if unit.kind == Unit.Kind.SQUAD and unit.state == Unit.State.ACTIVE:
@@ -1942,16 +1941,13 @@ func _check_enemy_commander_retreat() -> void:
 				unit.state = Unit.State.SURRENDERED
 				unit.state_changed.emit(unit)
 				combat_log.log_squad_surrendered(unit)
-				any_ordered = true
 				continue
 			unit.order_retreat(known_player_positions, _ally_positions_for(unit) + claimed, "The enemy commander ordered a general retreat.")
 			claimed.append(unit.move_target if unit.has_move_target else unit.global_position)
 			combat_log.log_ordered_retreat(unit)
 			_log_wounded_evacuation_outcome(unit)
-			any_ordered = true
-	if any_ordered:
-		var casualty_percent: float = _compute_side_stats(enemy_units).casualty_percent
-		combat_log.add_entry("--- Enemy commander orders a general retreat: the attack has failed (%.0f%% casualties) — mortars continue the fire mission ---" % casualty_percent)
+	# No banner for the enemy commander's decision: the player cannot see it. Squads that are
+	# seen pulling back are logged one by one above (CombatLog only logs enemies that are seen).
 
 
 ## The companion this function's own doc comment refers to: the squads-
@@ -2010,7 +2006,7 @@ func _check_enemy_mortar_isolated_retreat() -> void:
 			unit.order_retreat(known_player_positions, _ally_positions_for(unit) + claimed, "No enemy squad left fighting — the mortar pulls back too.")
 			claimed.append(unit.move_target if unit.has_move_target else unit.global_position)
 			combat_log.log_ordered_retreat(unit)
-	combat_log.add_entry("--- With no squads left fighting, the enemy mortar(s) pull back too ---")
+	# (No banner: the player cannot see the enemy's decision, only mortars it happens to see moving.)
 
 
 ## Whether a squad just ordered to retreat surrenders in place instead —
@@ -6703,7 +6699,6 @@ func _resolve_pending_mortar_shots() -> void:
 ## leaving the other two goals to some later tick that may never come once
 ## a squad's already settled in.
 func _alert_enemy_squads() -> void:
-	var alerted_any := false
 	var claimed_bearings: Array[float] = []
 	var pivot: Vector2 = _encirclement_pivot()
 	for u in enemy_units:
@@ -6722,9 +6717,7 @@ func _alert_enemy_squads() -> void:
 			if not is_inf(pivot.x):
 				claimed_bearings.append(rad_to_deg((target - pivot).angle()))
 		combat_log.log_seeking_cover(u)
-		alerted_any = true
-	if alerted_any:
-		combat_log.add_entry("--- Enemy is alerted: squads moving carefully, using cover ---")
+	# (No banner for the enemy being alerted: the player cannot see that, only squads it sees seeking cover.)
 
 
 ## An enemy squad that's broken off to cover doesn't just sit there for the
