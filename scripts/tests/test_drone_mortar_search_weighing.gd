@@ -59,16 +59,51 @@ func test_unchanged_early_in_a_battle() -> void:
 	check(bm._drone_mortar_search_weight() > 0.9, "Setup check: confidence should be near its peak this early")
 
 
-func test_never_a_certain_zero() -> void:
+## Direct user corrections to _mortar_existence_confidence, made the same day: "It should be based on
+## what friendly units know... a friendly unit would have to know that the mortar is destroyed. The info
+## will not magically appear from some other channel." "'Seen withdrawing' would be good enough. Do not
+## require 'seen withdrawn'." "'Seen gun abandoned' would also be good enough. For example, if we see the
+## enemy team without the gun, or the gun without the team."
+func test_a_mortar_never_actually_seen_out_of_action_is_not_a_certain_zero() -> void:
+	var bm = make_battle()
+	friendly(bm, Unit.Kind.SQUAD, Vector2.ZERO)
+	var mortar: Unit = enemy(bm, Unit.Kind.MORTAR, Vector2(3000, 0), false) # never seen at all
+	mortar.state = Unit.State.WITHDRAWN # true in ground truth; the player has no way to know it
+	check(bm._mortar_existence_confidence() > 0.9, "A mortar that left without ever being seen is not known gone — confidence must not drop (got %.3f)" % bm._mortar_existence_confidence())
+
+
+## Seen RETREATING is enough on its own — the player does not need to also witness it reach WITHDRAWN.
+func test_seen_retreating_is_enough() -> void:
 	var bm = make_battle()
 	friendly(bm, Unit.Kind.SQUAD, Vector2.ZERO)
 	var mortar: Unit = enemy(bm, Unit.Kind.MORTAR, Vector2(3000, 0), false)
-	mortar.state = Unit.State.WITHDRAWN
-	check(bm._mortar_existence_confidence() == 0.0, "Setup check: every enemy mortar out of action reads a hard 0.0 in the existing function")
+	mortar.state = Unit.State.RETREATING
+	mortar.is_visible = true
+	bm._update_player_intel() # the player actually sees it retreating
+	check(bm._mortar_existence_confidence() == 0.0, "Seen retreating is good enough on its own (got %.3f)" % bm._mortar_existence_confidence())
 	check(is_equal_approx(bm._drone_mortar_search_weight(), GameConfig.DRONE_UNKNOWN_MORTAR_RESIDUAL_CONFIDENCE),
 		"A real recon element can't be certain no mortar (or reinforcement) remains — the weight must sit at the small residual, not zero (got %.3f)" % bm._drone_mortar_search_weight())
 	check(GameConfig.TARGET_PRIORITY_UNDISCOVERED_MORTAR_SWEEP * GameConfig.DRONE_UNKNOWN_MORTAR_RESIDUAL_CONFIDENCE < GameConfig.TARGET_PRIORITY_SQUAD_MAX * 0.25,
 		"The residual must stay below a squad even modestly close to a friendly (it must never outrank real tracking)")
+
+
+## Seen with its gun abandoned is enough on its own too, even while the ground truth (and the player's own
+## last known reading of it) would otherwise still call it ACTIVE.
+func test_seen_gun_abandoned_is_enough() -> void:
+	var bm = make_battle()
+	friendly(bm, Unit.Kind.SQUAD, Vector2.ZERO)
+	var mortar: Unit = enemy(bm, Unit.Kind.MORTAR, Vector2(3000, 0), false)
+	mortar.is_visible = true
+	bm._update_player_intel() # first seen looking perfectly active
+	check(bm._mortar_existence_confidence() > 0.9, "Set-up: seen active, so still a live concern")
+	mortar.mortar_gun_abandoned = true # the crew has since left the tube (ground truth)
+	check(bm._mortar_existence_confidence() > 0.9, "Not yet witnessed: the abandoned gun alone changes nothing until actually seen")
+	bm._update_player_intel() # the player now sees the crew without the gun, or the gun without the crew
+	check(bm._mortar_existence_confidence() == 0.0, "Once actually seen abandoned, it no longer counts, whatever its known state otherwise reads")
+	mortar.is_visible = false
+	mortar.player_known_state = Unit.State.ACTIVE # even if some other sighting later re-reads it as active-looking
+	check(mortar.player_known_gun_abandoned, "The abandoned-gun sighting, once made, is never un-known")
+	check(bm._mortar_existence_confidence() == 0.0, "...so confidence still reads a hard zero")
 
 
 func test_known_squad_danger_discounts_the_search() -> void:
@@ -200,7 +235,9 @@ func test_drone_tracks_a_dangerous_squad_over_a_speculative_mortar_sweep() -> vo
 
 func run() -> void:
 	test_unchanged_early_in_a_battle()
-	test_never_a_certain_zero()
+	test_a_mortar_never_actually_seen_out_of_action_is_not_a_certain_zero()
+	test_seen_retreating_is_enough()
+	test_seen_gun_abandoned_is_enough()
 	test_known_squad_danger_discounts_the_search()
 	test_last_seen_squad_still_counts_and_fades_with_age()
 	test_squad_near_mortar_or_drone_team_counts_extra()

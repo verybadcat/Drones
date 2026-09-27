@@ -73,6 +73,11 @@ var player_known_state: State = State.ACTIVE
 # trusted one.
 var player_known_position: Vector2 = Vector2.INF
 var player_known_position_time: float = -INF
+## Whether the player has actually SEEN this (enemy) mortar's gun abandoned — "the enemy team without
+## the gun, or the gun without the team" — as opposed to it merely being true in ground truth
+## (mortar_gun_abandoned) with nobody having witnessed it. Direct user correction to
+## BattleManager._mortar_existence_confidence: "'Seen gun abandoned' would also be good enough."
+var player_known_gun_abandoned: bool = false
 
 # The mirror image of the player_known_* block above: the ENEMY side's own
 # knowledge of THIS unit — meaningless for the enemy's own units, populated

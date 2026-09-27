@@ -59,6 +59,7 @@ func make_battle(mortar_state: Unit.State, squad_state = null, squad_visible: bo
 		sq.is_visible = squad_visible
 		sq.state = squad_state
 	bm._mortar_move_intent[mortar] = "hunt" # the friendly mortar has committed to closing on it
+	bm._update_player_intel() # real play always runs this the same tick anything becomes visible; _mortar_existence_confidence now depends on it
 	return bm
 
 func tier(bm) -> String:

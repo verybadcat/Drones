@@ -3828,27 +3828,38 @@ func _update_returning_drones(scenario_delta: float) -> void:
 ## How worried the drone team should still be that an as-yet-undiscovered
 ## enemy mortar exists — see GameConfig.MORTAR_CONFIDENCE_DECAY_TAU/_FLOOR
 ## for the full reasoning. Two cases: a hard, certain 0.0 once every enemy
-## mortar (by kind, regardless of whether it's ever been spotted — the
-## same omniscient state read _visible_engageable_mortar and everything
-## else here already relies on) is confirmed out of action, matching a
-## real commander eventually being told "the enemy mortars are destroyed";
-## short of that certainty, a smooth decay from ~1.0 toward FLOOR as real
+## mortar is KNOWN out of action — player_known_state, not ground truth;
+## direct user correction, reversing this function's own earlier
+## reasoning: "It should be based on what friendly units know, not just
+## what the drone knows. But a friendly unit would have to know that the
+## mortar is destroyed. The info will not magically appear from some other
+## channel" — there is no higher-echelon briefing in this game, only what
+## the player's own units have actually seen. "Seen withdrawing" (RETREATING)
+## is good enough on its own — this does not require having gone on to see
+## it actually reach WITHDRAWN. "Seen gun abandoned" also counts on its own,
+## independent of state — "if we see the enemy team without the gun, or the
+## gun without the team" (player_known_gun_abandoned). A mortar never
+## sighted at all defaults to player_known_state ACTIVE and player_known_
+## gun_abandoned false (Unit.gd's own defaults), which is exactly right
+## here: an undiscovered mortar IS the residual risk this function exists
+## to estimate, not something already ruled out. Short of every mortar
+## being known out of action, a smooth decay from ~1.0 toward FLOOR as real
 ## tactical time passes with no mortar fire detected anywhere at all
 ## (_last_detected_mortar_fire — muzzle-flash/trajectory detection, not
 ## visual spotting, so this already covers a mortar that's never been seen
-## even once).
+## even once — itself already knowledge-based, unchanged).
 func _mortar_existence_confidence() -> float:
-	var any_active_enemy_mortar := false
+	var any_known_active_enemy_mortar := false
 	var last_fire_time := 0.0 # battle start, if nothing's fired yet at all
 	for u in enemy_units:
 		if u.kind != Unit.Kind.MORTAR:
 			continue
-		if u.state == Unit.State.ACTIVE:
-			any_active_enemy_mortar = true
+		if u.player_known_state == Unit.State.ACTIVE and not u.player_known_gun_abandoned:
+			any_known_active_enemy_mortar = true
 		var info: Dictionary = _last_detected_mortar_fire.get(u, {})
 		if not info.is_empty():
 			last_fire_time = max(last_fire_time, info.time)
-	if not any_active_enemy_mortar:
+	if not any_known_active_enemy_mortar:
 		return 0.0
 	var elapsed: float = scenario_elapsed_time - last_fire_time
 	return GameConfig.MORTAR_CONFIDENCE_FLOOR + (1.0 - GameConfig.MORTAR_CONFIDENCE_FLOOR) * exp(-elapsed / GameConfig.MORTAR_CONFIDENCE_DECAY_TAU)
@@ -6544,6 +6555,8 @@ func _update_player_intel() -> void:
 			u.player_known_state = u.state
 			u.player_known_position = u.global_position
 			u.player_known_position_time = scenario_elapsed_time
+			if u.kind == Unit.Kind.MORTAR and u.mortar_gun_abandoned:
+				u.player_known_gun_abandoned = true # once actually seen abandoned, never un-known again
 
 
 ## The exact mirror of _update_player_intel above, for the enemy's own
