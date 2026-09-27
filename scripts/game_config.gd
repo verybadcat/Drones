@@ -5514,6 +5514,26 @@ const DRONE_REAR_ASSET_THREAT_WEIGHT: float = 1.5
 ## number covering for the same gap.
 const MORTAR_UNKNOWN_ENEMY_HOLD_FIRE_CHANCE: float = 0.9
 
+## Direct user report: "Even a mortar that has been spotted would have some willingness to fire if there
+## is no indication of an opposing unit that can fire at it, such as an opposing mortar, or a nearby
+## opposing squad. This should apply to both sides. The mortar's willingness to fire might be less than
+## normal if it thinks there MIGHT be an opposing unit that can fire at it." Being merely SEEN used to be
+## treated as an unconditional order to abandon the position (BattleManager._decide_mortar_action's tier
+## 1), regardless of whether anything capable of actually answering was anywhere near — a drone loitering
+## overhead (unarmed, cannot itself fire back) triggered the exact same flee-for-cover response as a
+## squad closing in with a clear shot. Now that response is reserved for an actual, concrete indication
+## (BattleManager._known_opposing_mortar_in_range / _unwatched_threat_closing — a known-ACTIVE opposing
+## mortar within ITS OWN range, or a known opposing unit within genuine overrun-danger range). Short of
+## that, a spotted crew still has SOME residual reason for caution — an opposing mortar that simply
+## hasn't been located yet is still possible — scaled by the same decaying suspicion
+## (_mortar_existence_confidence, now team-parameterized) the ammo-conservation hold above already uses
+## for exactly this "might still be one out there" case. This is the PEAK of that scaled chance (right at
+## first contact, no enemy mortar ever ruled out) — deliberately well below MORTAR_UNKNOWN_ENEMY_HOLD_
+## FIRE_CHANCE's own peak, since holding one shot to avoid revealing a position is a much smaller
+## sacrifice than abandoning a fully set-up firing position over a threat that, by definition, has not
+## actually been seen anywhere near this one.
+const MORTAR_SPOTTED_UNKNOWN_THREAT_RELOCATE_CHANCE: float = 0.35
+
 # The commander's optional "expend ammo on enemy squads" order for a friendly
 # mortar (BattleManager.set_mortar_squad_fire_order). Multiplies every
 # hold-fire probability in _pick_target that would otherwise leave the

@@ -55,6 +55,17 @@ func make_battle(script = BattleManager):
 ## safety net forced to reject every real candidate (home set absurdly far
 ## away — a clean, controllable way to force a genuine "no reasonable
 ## alternative" without needing to exhaustively box in the real map).
+##
+## Also gives it a real, nearby enemy squad (within overrun-danger range,
+## live this same tick) — the feature's own stated motivating scenario ("an
+## enemy squad may be chasing it") — so it reads as a genuine, concrete
+## _mortar_spotted_danger indication, not just bare visibility. Direct user
+## instruction, from a later, separate fix: "Even a mortar that has been
+## spotted would have some willingness to fire if there is no indication of
+## an opposing unit that can fire at it" — mere visibility with nothing
+## actually nearby is no longer enough on its own to read as urgent; this
+## helper's whole premise ("cornered") always meant an actual chaser, so this
+## just makes that explicit instead of relying on visibility as a proxy for it.
 func _make_cornered_mortar(bm, edge_x: float) -> Unit:
 	bm._friendly_mortar_home_position = Vector2(1e6, 1e6)
 	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2(0, 0))
@@ -63,6 +74,9 @@ func _make_cornered_mortar(bm, edge_x: float) -> Unit:
 	mortar.retreat_target_x = edge_x
 	mortar.retreat_speed = GameConfig.PLAYER_RETREAT_SPEED
 	mortar.is_visible = true # spotted -- the urgent "conceal" tier
+	var chaser: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE * 0.2, 0))
+	bm.enemy_units.append(chaser)
+	chaser.is_visible = true
 	return mortar
 
 
@@ -118,7 +132,9 @@ func test_fall_back_is_one_continuous_run_at_retreat_speed() -> void:
 		bm._step_toward_target(mortar, 10.0)
 	check(not mortar.has_move_target and is_equal_approx(mortar.global_position.x, x),
 		"The run must carry the mortar all the way to the end of the chain without stopping partway")
-	# Still chased on arrival: NOW it commits.
+	# Still chased on arrival: the chaser (stationary throughout the walk above, unlike a real pursuing
+	# squad) is brought along to represent that — NOW it commits.
+	bm.enemy_units[0].global_position = mortar.global_position + Vector2(GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE * 0.2, 0)
 	bm._decide_mortar_action(mortar)
 	check(mortar.state == Unit.State.RETREATING,
 		"Arriving at the edge zone still cornered, it must commit to the off-map retreat")
@@ -180,6 +196,9 @@ func test_mortar_does_not_flee_when_a_relocation_option_exists() -> void:
 	mortar.mortar_rounds_remaining = 10
 	mortar.retreat_target_x = -5000.0
 	mortar.is_visible = true # spotted -- the urgent "conceal" tier
+	var chaser: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, start + Vector2(GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE * 0.2, 0))
+	bm.enemy_units.append(chaser)
+	chaser.is_visible = true # a real, concrete _mortar_spotted_danger indication -- see _make_cornered_mortar's own doc comment
 
 	bm._decide_mortar_action(mortar)
 	check(mortar.state == Unit.State.ACTIVE,

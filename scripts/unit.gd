@@ -98,6 +98,11 @@ var enemy_known_pips: int = 0
 var enemy_known_state: State = State.ACTIVE
 var enemy_known_position: Vector2 = Vector2.INF
 var enemy_known_position_time: float = -INF
+## The enemy's own mirror of player_known_gun_abandoned above — added once
+## BattleManager._mortar_existence_confidence became team-parameterized (direct user instruction: "This
+## should apply to both sides", re a spotted mortar's willingness to fire). Same "actually witnessed, not
+## just ground truth" bar.
+var enemy_known_gun_abandoned: bool = false
 
 var fire_interval: float = 2.0 # seconds between fire attempts
 var fire_timer: float = 0.0

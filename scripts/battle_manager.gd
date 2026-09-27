@@ -3825,41 +3825,54 @@ func _update_returning_drones(scenario_delta: float) -> void:
 		_drones_swapping.append({"time_left": GameConfig.DRONE_BATTERY_SWAP_DURATION, "charge": _pop_best_battery(_battery_pool)})
 
 
-## How worried the drone team should still be that an as-yet-undiscovered
-## enemy mortar exists — see GameConfig.MORTAR_CONFIDENCE_DECAY_TAU/_FLOOR
-## for the full reasoning. Two cases: a hard, certain 0.0 once every enemy
-## mortar is KNOWN out of action — player_known_state, not ground truth;
-## direct user correction, reversing this function's own earlier
+## How worried `team`'s side should still be that an as-yet-undiscovered
+## OPPOSING mortar exists — see GameConfig.MORTAR_CONFIDENCE_DECAY_TAU/_FLOOR
+## for the full reasoning. Two cases: a hard, certain 0.0 once every opposing
+## mortar is KNOWN out of action — player_known_state/enemy_known_state, not
+## ground truth; direct user correction, reversing this function's own earlier
 ## reasoning: "It should be based on what friendly units know, not just
 ## what the drone knows. But a friendly unit would have to know that the
 ## mortar is destroyed. The info will not magically appear from some other
 ## channel" — there is no higher-echelon briefing in this game, only what
-## the player's own units have actually seen. "Seen withdrawing" (RETREATING)
+## a side's own units have actually seen. "Seen withdrawing" (RETREATING)
 ## is good enough on its own — this does not require having gone on to see
 ## it actually reach WITHDRAWN. "Seen gun abandoned" also counts on its own,
 ## independent of state — "if we see the enemy team without the gun, or the
-## gun without the team" (player_known_gun_abandoned). A mortar never
-## sighted at all defaults to player_known_state ACTIVE and player_known_
-## gun_abandoned false (Unit.gd's own defaults), which is exactly right
-## here: an undiscovered mortar IS the residual risk this function exists
-## to estimate, not something already ruled out. Short of every mortar
+## gun without the team" (player_known_gun_abandoned/enemy_known_gun_abandoned).
+## A mortar never sighted at all defaults to *_known_state ACTIVE and
+## *_known_gun_abandoned false (Unit.gd's own defaults), which is exactly
+## right here: an undiscovered mortar IS the residual risk this function
+## exists to estimate, not something already ruled out. Short of every mortar
 ## being known out of action, a smooth decay from ~1.0 toward FLOOR as real
 ## tactical time passes with no mortar fire detected anywhere at all
 ## (_last_detected_mortar_fire — muzzle-flash/trajectory detection, not
 ## visual spotting, so this already covers a mortar that's never been seen
 ## even once — itself already knowledge-based, unchanged).
-func _mortar_existence_confidence() -> float:
-	var any_known_active_enemy_mortar := false
+##
+## `team` defaults to PLAYER (every pre-existing call site — the drone's own
+## routine-recon weighting and the player mortar's own ammo-conservation
+## hold — asks about the player's knowledge of the enemy, unchanged).
+## Team-parameterized (direct user instruction, re a spotted mortar's
+## willingness to fire: "This should apply to both sides") so a mortar's own
+## spotted-but-otherwise-unthreatened decision (_decide_mortar_action) can
+## ask the same "might an opposing mortar still be out there" question on
+## behalf of EITHER side, symmetrically — enemy_known_state/enemy_known_
+## gun_abandoned mirror the player-side fields exactly (_update_enemy_intel).
+func _mortar_existence_confidence(team: Unit.Team = Unit.Team.PLAYER) -> float:
+	var opposing: Array[Unit] = enemy_units if team == Unit.Team.PLAYER else player_units
+	var any_known_active_opposing_mortar := false
 	var last_fire_time := 0.0 # battle start, if nothing's fired yet at all
-	for u in enemy_units:
+	for u in opposing:
 		if u.kind != Unit.Kind.MORTAR:
 			continue
-		if u.player_known_state == Unit.State.ACTIVE and not u.player_known_gun_abandoned:
-			any_known_active_enemy_mortar = true
+		var known_state: Unit.State = u.player_known_state if team == Unit.Team.PLAYER else u.enemy_known_state
+		var known_gun_abandoned: bool = u.player_known_gun_abandoned if team == Unit.Team.PLAYER else u.enemy_known_gun_abandoned
+		if known_state == Unit.State.ACTIVE and not known_gun_abandoned:
+			any_known_active_opposing_mortar = true
 		var info: Dictionary = _last_detected_mortar_fire.get(u, {})
 		if not info.is_empty():
 			last_fire_time = max(last_fire_time, info.time)
-	if not any_known_active_enemy_mortar:
+	if not any_known_active_opposing_mortar:
 		return 0.0
 	var elapsed: float = scenario_elapsed_time - last_fire_time
 	return GameConfig.MORTAR_CONFIDENCE_FLOOR + (1.0 - GameConfig.MORTAR_CONFIDENCE_FLOOR) * exp(-elapsed / GameConfig.MORTAR_CONFIDENCE_DECAY_TAU)
@@ -5599,6 +5612,43 @@ func _mortar_advance_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 	return best
 
 
+## Whether `m`'s own side already has good reason to think an OPPOSING mortar
+## could actually reach this exact position with counter-battery fire right
+## now — a known-ACTIVE (or RETREATING; still armed and in place until it's
+## actually seen abandoned/withdrawn — same bar _known_enemy_mortars_in_range
+## already uses) opposing mortar whose best-known position (a live sighting,
+## the last confirmed sighting, or a muzzle-flash/trajectory detection) is
+## within ITS OWN mortar_max_range of `m`. Team-symmetric mirror of
+## _known_enemy_mortars_in_range's own logic (that one only ever answers for
+## the player, feeding a different, density-based relocation urgency) — used
+## here as the concrete, long-range half of "is there actually an opposing
+## unit that could answer a sighting of `m`," alongside _unwatched_threat_
+## closing's own close-range check just below, for BOTH sides now (direct
+## user instruction, re a spotted mortar's willingness to fire: "This should
+## apply to both sides"). See GameConfig.MORTAR_SPOTTED_UNKNOWN_THREAT_
+## RELOCATE_CHANCE's own doc comment for what happens when this is false.
+func _known_opposing_mortar_in_range(m: Unit) -> bool:
+	var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
+	for u in opposing:
+		if u.kind != Unit.Kind.MORTAR:
+			continue
+		var known_state: Unit.State = u.player_known_state if m.team == Unit.Team.PLAYER else u.enemy_known_state
+		if known_state != Unit.State.ACTIVE and known_state != Unit.State.RETREATING:
+			continue
+		var known_pos: Vector2
+		if u.is_visible:
+			known_pos = u.global_position
+		elif (u.player_has_been_sighted if m.team == Unit.Team.PLAYER else u.enemy_has_been_sighted):
+			known_pos = u.player_known_position if m.team == Unit.Team.PLAYER else u.enemy_known_position
+		elif mortar_ever_detected_firing(u):
+			known_pos = _last_detected_mortar_fire[u].position
+		else:
+			continue
+		if known_pos.distance_to(m.global_position) <= GameConfig.mortar_max_range(u.team):
+			return true
+	return false
+
+
 ## Whether an UNWATCHED (not currently is_visible — that's its own,
 ## separate "spotted" trigger, checked before this is even called) known
 ## enemy has actually closed to genuine overrun danger of `m`'s crew.
@@ -5620,10 +5670,36 @@ func _mortar_advance_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 ## truth) is enough on its own now: a real crew doesn't need to physically
 ## see a closing threat to justify displacing before it arrives.
 func _unwatched_threat_closing(m: Unit) -> bool:
-	# Not a drone: it cannot overrun a crew (it has no weapon), so one flying
-	# nearby is no reason for an unspotted crew to run.
+	return _nearby_opposing_unit_within(m, GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE, false)
+
+
+## Shared by _unwatched_threat_closing above (known positions only — its own
+## doc comment explains why that's enough for the not-yet-spotted case) and
+## _decide_mortar_action's own spotted-but-otherwise-unthreatened check
+## (`include_live = true`), which cannot afford the same one-tick lag: a
+## squad that becomes visible and closes to danger range on the very same
+## tick the mortar itself is first spotted must count immediately, not only
+## once _update_player_intel/_update_enemy_intel catch up later that same
+## _process() call (they run AFTER _update_mortar_decisions — see that
+## function's own doc comment). A live sighting is not omniscience, it's
+## exactly what this side can see this instant — the same "while a unit is
+## currently is_visible, ground truth IS knowledge" exception the rest of
+## this file's knowledge-locality work already carves out everywhere else.
+## Not a drone either way: it cannot overrun a crew (it has no weapon), so
+## one flying nearby is no reason to run.
+func _nearby_opposing_unit_within(m: Unit, danger_range: float, include_live: bool) -> bool:
 	for pos in _known_enemy_positions(m.team, false):
-		if m.global_position.distance_to(pos) <= GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE:
+		if m.global_position.distance_to(pos) <= danger_range:
+			return true
+	if not include_live:
+		return false
+	var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
+	for u in opposing:
+		if u.kind == Unit.Kind.DRONE or not u.is_visible:
+			continue
+		if u.state != Unit.State.ACTIVE and u.state != Unit.State.RETREATING:
+			continue
+		if m.global_position.distance_to(u.global_position) <= danger_range:
 			return true
 	return false
 
@@ -5704,6 +5780,33 @@ func _mortar_aware_of_being_spotted(m: Unit) -> bool:
 ## `has_shot` below is correctly false and this tier's own movement logic
 ## picks up the pursuit, exactly as if nothing had been available to
 ## shoot at all.
+## Direct user report: "Even a mortar that has been spotted would have some willingness to fire if there
+## is no indication of an opposing unit that can fire at it, such as an opposing mortar, or a nearby
+## opposing squad. This should apply to both sides. The mortar's willingness to fire might be less than
+## normal if it thinks there MIGHT be an opposing unit that can fire at it." Being merely SEEN used to be
+## treated as danger on its own — a drone loitering overhead (unarmed, cannot itself fire back) produced
+## the exact same flee-for-cover response as a squad closing in with a clear shot. This splits that: a
+## CONCRETE indication (a known-ACTIVE opposing mortar within ITS OWN range — _known_opposing_mortar_in_
+## range — or an opposing unit within genuine overrun-danger range, live or previously known —
+## _nearby_opposing_unit_within, the same bar _unwatched_threat_closing already uses for the not-yet-
+## spotted case) still returns true unconditionally, exactly as before; short of that, only a residual,
+## decaying SUSPICION that an opposing mortar simply hasn't been located yet (_mortar_existence_confidence,
+## team-parameterized) gives any reason at all to still seek cover, and at well below the concrete case's
+## certainty (see GameConfig.MORTAR_SPOTTED_UNKNOWN_THREAT_RELOCATE_CHANCE's own doc comment). Neither
+## indication at all returns false: a spotted crew with nothing suggesting anyone can hit it stays and
+## keeps working the gun. False outright, with no roll at all, when `m` isn't actually visible — this is
+## specifically about being SEEN, not about a threat closing unseen (that's `threat_closing`, computed
+## separately by the caller from the same `_nearby_opposing_unit_within`/`_unwatched_threat_closing` pair).
+func _mortar_spotted_danger(m: Unit) -> bool:
+	if not m.is_visible:
+		return false
+	if _known_opposing_mortar_in_range(m) or _nearby_opposing_unit_within(m, GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE, true):
+		return true
+	var caution: float = GameConfig.MORTAR_SPOTTED_UNKNOWN_THREAT_RELOCATE_CHANCE * _mortar_existence_confidence(m.team)
+	var caution_roll: float = 0.5 if profile_for(m.team).deterministic else randf()
+	return caution_roll < caution
+
+
 func _decide_mortar_action(m: Unit) -> void:
 	_record_mortar_debug_history(m)
 	var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
@@ -5743,6 +5846,7 @@ func _decide_mortar_action(m: Unit) -> void:
 	# reuses this same computation rather than re-deriving it.
 	var spotted: bool = m.is_visible
 	var threat_closing: bool = not spotted and _unwatched_threat_closing(m)
+	var spotted_danger: bool = _mortar_spotted_danger(m)
 	# Direct, live-reported bug: "Mortar just let an enemy squad get
 	# adjacent to it. It should not." Root cause: has_shot used to return
 	# early UNCONDITIONALLY once any target was selected, with no check at
@@ -5751,11 +5855,11 @@ func _decide_mortar_action(m: Unit) -> void:
 	# crew locked into "just keep firing" for the rest of the engagement,
 	# with no self-preservation check ever run again, backwards from this
 	# function's own stated priority order (preserve self outranks
-	# destroying squads, not the other way around). `spotted`/
+	# destroying squads, not the other way around). `spotted_danger`/
 	# `threat_closing` are exactly the same real-danger signals tier 1
 	# already uses below to decide whether to flee; `overrun_danger` lets
 	# has_shot defer to that same logic instead of silently overriding it.
-	var overrun_danger: bool = (spotted or threat_closing) and unit_doctrine_for(m).risk == "inherit"
+	var overrun_danger: bool = (spotted_danger or threat_closing) and unit_doctrine_for(m).risk == "inherit"
 	if has_shot and not overrun_danger:
 		# Even with a valid shot lined up, a crew sitting critically close
 		# to a sibling is one HE round away from losing both tubes (see
@@ -5882,15 +5986,18 @@ func _decide_mortar_action(m: Unit) -> void:
 			_mortar_flee_as_last_resort(m)
 		return
 
-	if (spotted or threat_closing) and unit_doctrine_for(m).risk == "inherit":
+	if (spotted_danger or threat_closing) and unit_doctrine_for(m).risk == "inherit":
 		# By this point _pick_target has already had every chance to
 		# engage (including its own ammo-conservation override for this
 		# exact range), so "nothing to shoot" here genuinely means out of
 		# ammo, reload not up, or no real target — not one being ignored.
 		# Always urgent: reaching this branch at all already means
-		# "spotted or a threat has a clear shot from overrun range," the
-		# same "current position is compromised" situation counter-
-		# battery evasion treats as urgent above.
+		# "an opposing unit is known to be able to hit this position, or
+		# one is closing in from overrun range," the same "current
+		# position is compromised" situation counter-battery evasion
+		# treats as urgent above — not merely having been seen by
+		# something with no way to answer (see `spotted_danger`'s own
+		# doc comment above).
 		if _relocate_mortar(m, "conceal" if spotted else "evade", true) and _mortar_relocation_actually_helps(m):
 			if _should_narrate_mortar_logistics(m):
 				if spotted:
@@ -6595,6 +6702,8 @@ func _update_enemy_intel() -> void:
 			u.enemy_known_state = u.state
 			u.enemy_known_position = u.global_position
 			u.enemy_known_position_time = scenario_elapsed_time
+			if u.kind == Unit.Kind.MORTAR and u.mortar_gun_abandoned:
+				u.enemy_known_gun_abandoned = true # once actually seen abandoned, never un-known again
 
 
 ## `scenario_delta` (tactical seconds) drives a MORTAR's reload timer — a
