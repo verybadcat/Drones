@@ -859,6 +859,9 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_fall_back_orders.clear()
 	_fallen_back.clear()
 	_retreat_orders.clear()
+	_enemy_attacking = true
+	_enemy_stance_decided = false
+	_enemy_consolidation = Vector2.INF
 	_mortar_tick_shot.clear()
 	_mortar_move_intent.clear()
 	_mortar_reasoning.clear()
@@ -7012,6 +7015,7 @@ func _march_route_is_finished(u: Unit) -> bool:
 
 
 func _update_enemy_squad_advance() -> void:
+	_update_enemy_attack_stance()
 	var hunt_assignments := _mortar_hunt_assignments()
 	for u in enemy_units:
 		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE:
@@ -7122,10 +7126,13 @@ func _update_enemy_squad_advance() -> void:
 			continue # something to shoot at right now, and not mid-chase on a known mortar — stay and fight
 		if u.has_move_target:
 			continue
-		var rush_target := _next_advance_point(u)
+		var consolidating: bool = not _friendly_mortar_is_active() and not _enemy_attack_stance() and not _known_friendly_squad_positions().is_empty()
+		var rush_target := _consolidation_step(u) if consolidating else _next_advance_point(u)
 		if rush_target == u.global_position:
+			if consolidating:
+				u.last_order_reason = "Gathered: not enough of an advantage to attack, so waiting clear of the friendly squads."
 			continue
-		u.last_order_reason = "No target available: advance another bound toward the current objective."
+		u.last_order_reason = "Falling back to the gathering point, clear of the friendly squads." if consolidating else "No target available: advance another bound toward the current objective."
 		u.move_target = rush_target
 		u.has_move_target = true
 		u.move_queue.clear()
@@ -7344,10 +7351,17 @@ func _enemy_advance_objective(u: Unit = null) -> Vector2:
 	# With no friendly mortar left in action, our squads are what is left to fight, and the enemy squads
 	# go for the ones they know of, by where they were last seen. While the mortar is in action it stays
 	# the objective, as before.
+	# ... but only with a real numerical advantage ("I am realizing that's not true if the enemy squads don't
+	# think they have a significant numerical advantage. If numbers are less than 2:1 in their favor, it
+	# would be reasonable for them to consolidate somewhere on the map, avoiding the friendly squads, and
+	# allowing a stalemate to happen."): see _enemy_attack_stance. Without it they gather at the
+	# consolidation point (_enemy_consolidation_point).
 	if not _friendly_mortar_is_active():
 		var squad_pos: Vector2 = _known_friendly_squad_objective(u)
 		if not is_inf(squad_pos.x):
-			return squad_pos
+			if _enemy_attack_stance():
+				return squad_pos
+			return _enemy_consolidation_point()
 	# Direct user request: "Yes, push West" — when asked whether squads that have closed on the
 	# village (300 m out, GameConfig.ENEMY_SURROUND_STANDOFF_RADIUS) with the friendly force fallen back
 	# and unseen should then go looking for it, rather than stop there for good. The village is only
@@ -7362,6 +7376,164 @@ func _enemy_advance_objective(u: Unit = null) -> Vector2:
 		if u.village_reached and _friendly_force_still_in_the_field():
 			return Vector2(GameConfig.PLAYER_SAFE_X, u.global_position.y)
 	return village
+
+
+## Whether the enemy squads, with our mortar gone, have the numbers to attack our squads: their strength
+## (the pips of their ACTIVE squads) against what they know of ours (the pips they last saw on the
+## friendly squads they know of, still believed active), at least ENEMY_ATTACK_ADVANTAGE_RATIO (2:1). With
+## hysteresis, so a ratio hovering at 2 does not flip them between attacking and gathering every tick: an
+## attack that has begun is kept up until the ratio falls below ENEMY_ATTACK_KEEP_RATIO. True with no
+## friendly squad known (nothing to be outnumbered by: the objective logic then falls through to the
+## village and the push west). The stance is recomputed once per tick (see _update_enemy_squad_advance).
+func _enemy_attack_stance() -> bool:
+	return _enemy_attacking
+
+
+func _update_enemy_attack_stance() -> void:
+	var mine := 0.0
+	for e in enemy_units:
+		if e.kind == Unit.Kind.SQUAD and e.state == Unit.State.ACTIVE:
+			mine += float(e.pips)
+	var theirs := 0.0
+	var known := 0
+	for f in player_units:
+		if f.kind == Unit.Kind.SQUAD and f.state == Unit.State.ACTIVE and f.enemy_has_been_sighted and f.enemy_known_state == Unit.State.ACTIVE:
+			theirs += float(f.enemy_known_pips if f.enemy_known_pips > 0 else f.max_pips)
+			known += 1
+	if known == 0:
+		_enemy_attacking = true
+		_enemy_stance_decided = false
+		return
+	var ratio: float = mine / maxf(theirs, 1.0)
+	# The first decision is made at the full 2:1; the lower keep ratio only holds an attack already begun.
+	_enemy_attacking = ratio >= (ENEMY_ATTACK_KEEP_RATIO if _enemy_attacking and _enemy_stance_decided else ENEMY_ATTACK_ADVANTAGE_RATIO)
+	_enemy_stance_decided = true
+
+
+var _enemy_attacking: bool = true
+var _enemy_stance_decided: bool = false
+var _enemy_consolidation: Vector2 = Vector2.INF
+## "Less than 2:1 in their favor": below this they gather instead of attacking.
+const ENEMY_ATTACK_ADVANTAGE_RATIO: float = 2.0
+const ENEMY_ATTACK_KEEP_RATIO: float = 1.6
+## How far from every friendly squad they know of the enemy gathers (beyond SQUAD_DANGER_RANGE, so out of
+## the reach of a squad's own fire and the range they react to). JUDGMENT.
+const ENEMY_CONSOLIDATION_STANDOFF: float = 1500.0 * GameConfig.PIXELS_PER_METER
+## How close to the point counts as gathered.
+const ENEMY_CONSOLIDATION_ARRIVE_RADIUS: float = 300.0 * GameConfig.PIXELS_PER_METER
+
+
+## Where the enemy squads gather when they will not attack: the centre of their own squads, moved away from
+## the friendly squads they know of if that is within ENEMY_CONSOLIDATION_STANDOFF of any, and kept once
+## chosen (it is only moved if our squads come to within the standoff of it). A place to wait, not to
+## fight from: nothing here makes it a defensive position.
+func _enemy_consolidation_point() -> Vector2:
+	var known: Array[Vector2] = _known_friendly_squad_positions()
+	if not is_inf(_enemy_consolidation.x):
+		var still_clear := true
+		for p in known:
+			if p.distance_to(_enemy_consolidation) < ENEMY_CONSOLIDATION_STANDOFF:
+				still_clear = false
+				break
+		if still_clear:
+			return _enemy_consolidation
+	var sum := Vector2.ZERO
+	var n := 0
+	for e in enemy_units:
+		if e.kind == Unit.Kind.SQUAD and e.state == Unit.State.ACTIVE:
+			sum += e.global_position
+			n += 1
+	var point: Vector2 = sum / float(n) if n > 0 else Vector2(GameConfig.ENEMY_SAFE_X, GameConfig.MAP_HEIGHT_PX * 0.5)
+	if not known.is_empty():
+		var centre: Vector2 = _known_position_centroid(known)
+		for i in 6:
+			var nearest := INF
+			for p in known:
+				nearest = minf(nearest, point.distance_to(p))
+			if nearest >= ENEMY_CONSOLIDATION_STANDOFF:
+				break
+			var away: Vector2 = (point - centre).normalized() if point.distance_to(centre) > 1.0 else Vector2.RIGHT
+			point = GameConfig.clamp_to_operating_area(point + away * (ENEMY_CONSOLIDATION_STANDOFF - nearest + 100.0 * GameConfig.PIXELS_PER_METER))
+	_enemy_consolidation = point
+	return point
+
+
+## The friendly squads the enemy knows of, where it last saw them.
+func _known_friendly_squad_positions() -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for f in player_units:
+		if f.kind == Unit.Kind.SQUAD and f.state == Unit.State.ACTIVE and f.enemy_has_been_sighted and f.enemy_known_state == Unit.State.ACTIVE:
+			out.append(f.enemy_known_position)
+	return out
+
+
+## One bound of an enemy squad toward the consolidation point that keeps clear of the friendly squads it
+## knows of ("far-advanced enemies would try to navigate back ... avoiding the friendly squads"): among
+## bounds at a spread of angles off the straight line, the one that leaves it nearest the point once the
+## nearness of each known friendly squad (inside ENEMY_CONSOLIDATION_STANDOFF) is counted against it.
+## Returns the squad's own position when it is gathered, or no bound improves on staying.
+func _consolidation_step(u: Unit) -> Vector2:
+	var target: Vector2 = _enemy_consolidation_point()
+	var to_target: Vector2 = target - u.global_position
+	var dist: float = to_target.length()
+	if dist <= ENEMY_CONSOLIDATION_ARRIVE_RADIUS:
+		return u.global_position
+	var known: Array[Vector2] = _known_friendly_squad_positions()
+	var goal: Vector2 = _consolidation_goal(u.global_position, target, known)
+	var to_goal: Vector2 = goal - u.global_position
+	var step: float = minf(to_goal.length(), GameConfig.ENEMY_ADVANCE_RUSH_DISTANCE)
+	var best: Vector2 = u.global_position
+	var best_score: float = _consolidation_score(u.global_position, goal, known)
+	for angle_deg in GameConfig.ENEMY_ADVANCE_ANGLES_DEG:
+		var p: Vector2 = GameConfig.clamp_to_operating_area(u.global_position + to_goal.normalized().rotated(deg_to_rad(angle_deg)) * step)
+		var score: float = _consolidation_score(p, goal, known)
+		if score < best_score:
+			best_score = score
+			best = p
+	return best
+
+
+## Where a bound toward the consolidation point is really aimed: the point itself, unless the straight line
+## there runs within the standoff of a friendly squad the enemy knows of. Then a way point around them, on
+## whichever side (across the line) is shorter, out beyond the group by the standoff — a squad that has
+## advanced past our squads has to go round them, and a step-by-step choice alone cannot (walking round
+## costs it distance to the point before it gains any). Recomputed each bound, so it drops out once the
+## way round is clear.
+func _consolidation_goal(from: Vector2, target: Vector2, known: Array[Vector2]) -> Vector2:
+	if known.is_empty():
+		return target
+	var blocked := false
+	for k in known:
+		if Geometry2D.get_closest_point_to_segment(k, from, target).distance_to(k) < ENEMY_CONSOLIDATION_STANDOFF:
+			blocked = true
+			break
+	if not blocked:
+		return target
+	var centre: Vector2 = _known_position_centroid(known)
+	var radius := 0.0
+	for k in known:
+		radius = maxf(radius, k.distance_to(centre))
+	var line: Vector2 = (target - from).normalized()
+	var perp: Vector2 = line.orthogonal()
+	var reach: float = radius + ENEMY_CONSOLIDATION_STANDOFF + 100.0 * GameConfig.PIXELS_PER_METER
+	var best: Vector2 = target
+	var best_len := INF
+	for side in [-1.0, 1.0]:
+		var wp: Vector2 = GameConfig.clamp_to_operating_area(centre + perp * side * reach)
+		var length: float = from.distance_to(wp) + wp.distance_to(target)
+		if length < best_len:
+			best_len = length
+			best = wp
+	return best
+
+
+## Lower is better: the distance still to go, plus the nearness of the friendly squads (a full
+## ENEMY_ADVANCE_RUSH_DISTANCE-worth for standing on one, fading to nothing at the standoff).
+func _consolidation_score(p: Vector2, target: Vector2, known: Array[Vector2]) -> float:
+	var score: float = p.distance_to(target)
+	for k in known:
+		score += 2.0 * GameConfig.ENEMY_ADVANCE_RUSH_DISTANCE * clampf(1.0 - p.distance_to(k) / ENEMY_CONSOLIDATION_STANDOFF, 0.0, 1.0)
+	return score
 
 
 ## Where the enemy last saw the friendly squads it knows of (still believed ACTIVE): the one nearest `u`,

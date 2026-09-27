@@ -153,6 +153,11 @@ func test_with_no_mortar_left_the_enemy_attacks_the_squads_it_knows() -> void:
 	enemy.sought_cover = true
 	enemy.village_reached = true # it had pushed west past the village
 	bm.enemy_units.append(enemy)
+	# With the numbers to attack (2:1 or better: see test_enemy_consolidation.gd for what less does).
+	for i in 3:
+		var extra: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, meters(-1000.0, 1300.0 + 60.0 * i))
+		bm.enemy_units.append(extra)
+	bm._update_enemy_attack_stance()
 	var objective: Vector2 = bm._enemy_advance_objective(enemy)
 	check(objective.distance_to(ours_a.global_position) < 1.0, "Its objective is the nearest of our squads it knows of, not the map edge (%s)" % (objective / GameConfig.PIXELS_PER_METER))
 	seed(3)
