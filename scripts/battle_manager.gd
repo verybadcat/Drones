@@ -4050,6 +4050,49 @@ func _lost_squad_contacts() -> Array:
 	return out
 
 
+## Direct user report: "Current drone behavior is crazy. We have seen a lot of enemies in the North. It
+## should track them." (The live battle: ten enemy squads in sight, a mortar suspected, and the drone
+## flying to a sweep cell at the far south-east because it had committed to it, and because a squad far from
+## our units is worth nothing to the tracking tier while routine recon, weighted by the suspected mortar,
+## is worth dozens.) The enemy force we can see, as candidates in the routine-recon pool: the visible
+## ACTIVE squads grouped into clusters (squads within FORCE_CLUSTER_RADIUS of a group's centre), each at
+## its centre (only those of at least FORCE_MIN_SQUADS: "a lot of enemies"), worth FORCE_VALUE_BASE plus FORCE_VALUE_PER_SQUAD for each squad in it (at most
+## FORCE_VALUE_MAX): well above any grid cell, so the drone watches a force it can see before it goes
+## looking anywhere else. Keyed by its lowest squad id, so the choice is stable as the squads move.
+func _visible_force_candidates() -> Array:
+	var clusters: Array = [] # each: {"units": [Unit], "sum": Vector2}
+	for u in enemy_units:
+		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or not u.is_visible:
+			continue
+		var placed := false
+		for c in clusters:
+			if u.global_position.distance_to(c.sum / c.units.size()) <= FORCE_CLUSTER_RADIUS:
+				c.units.append(u)
+				c.sum += u.global_position
+				placed = true
+				break
+		if not placed:
+			clusters.append({"units": [u], "sum": u.global_position})
+	var out: Array = []
+	for c in clusters:
+		if c.units.size() < FORCE_MIN_SQUADS:
+			continue # one or two squads in sight, far from anyone, do not outweigh the search for a mortar
+		var lowest: int = c.units[0].get_instance_id()
+		for u in c.units:
+			lowest = mini(lowest, u.get_instance_id())
+		out.append({"key": "force:%d" % lowest, "point": c.sum / c.units.size(), "count": c.units.size(),
+			"value": minf(FORCE_VALUE_BASE + FORCE_VALUE_PER_SQUAD * c.units.size(), FORCE_VALUE_MAX)})
+	return out
+
+
+const FORCE_CLUSTER_RADIUS: float = 800.0 * GameConfig.PIXELS_PER_METER
+## "A lot of enemies": fewer squads than this are not a force worth leaving the mortar search for.
+const FORCE_MIN_SQUADS: int = 4
+const FORCE_VALUE_BASE: float = 1.5
+const FORCE_VALUE_PER_SQUAD: float = 0.25
+const FORCE_VALUE_MAX: float = 4.0
+
+
 ## The lost squads as candidates in the drone's routine-recon pool (with the sweep cells and flank gaps),
 ## so that however the routine search is weighed against the other tiers (it can be worth a lot when a
 ## mortar is suspected), the places the enemy was last seen are among what it chooses from — and the best
@@ -4434,6 +4477,8 @@ func _drone_search_target() -> Vector2:
 			best_pos = routine_pick.point
 			var kind: String = "an unwatched gap toward our mortar's flank" if routine_pick.key.begins_with("flank:") else "a general-area sweep cell"
 			_drone_pilot_reasoning = {"tier": "Routine background recon", "detail": "No urgent lead — checking %s (candidate value %.2f, mortar-existence confidence %.2f)." % [kind, routine_pick.value, _mortar_existence_confidence()], "target": best_pos}
+			if routine_pick.key.begins_with("force:"):
+				_drone_pilot_reasoning = {"tier": "Watching the enemy force", "detail": "%d enemy squad%s in sight here: tracking them rather than searching elsewhere." % [routine_pick.count, "" if routine_pick.count == 1 else "s"], "target": best_pos}
 			if routine_pick.key.begins_with("lost:"):
 				_drone_pilot_reasoning = {"tier": "Regaining contact with a lost squad", "detail": "%s was last seen %.0f s ago near here and has not been found since: going to look." % [routine_pick.unit.display_name(), routine_pick.age], "target": best_pos}
 
@@ -5367,7 +5412,7 @@ func _drone_mortar_search_weight() -> float:
 ## tier is worth entering in the first place) rather than recomputing them.
 func _drone_routine_recon_target(flank_candidates: Array) -> Dictionary:
 	_drone_routine_pool_unaffordable = false
-	var candidates: Array = _sweep_candidates(_drone_current_destination_key) + flank_candidates + _lost_contact_candidates()
+	var candidates: Array = _sweep_candidates(_drone_current_destination_key) + flank_candidates + _lost_contact_candidates() + _visible_force_candidates()
 	if candidates.is_empty():
 		return {}
 	# Only places the drone can actually reach AND get home from, on the
@@ -5386,6 +5431,11 @@ func _drone_routine_recon_target(flank_candidates: Array) -> Dictionary:
 		if c.key == _drone_current_destination_key:
 			current = c
 			break
+
+	# Watching a force in sight: stay with it (and follow it as it moves) for as long as it is in sight,
+	# rather than treating arriving as a visit and leaving for the next cell.
+	if not current.is_empty() and current.key.begins_with("force:"):
+		return current
 
 	if not current.is_empty():
 		var arrived: bool = active_drone.global_position.distance_to(current.point) <= _drone_destination_arrival_radius(current.key)

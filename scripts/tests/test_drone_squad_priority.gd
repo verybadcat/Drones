@@ -84,6 +84,7 @@ func run() -> void:
 	test_a_lost_squad_is_not_chased_again_once_the_drone_has_looked()
 	test_which_lost_squad_and_the_battery()
 	test_a_suspected_mortar_does_not_send_the_drone_away_from_the_lost_squad()
+	test_the_drone_watches_a_force_it_can_see()
 	print("Drone squad priority tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
@@ -269,4 +270,49 @@ func test_a_suspected_mortar_does_not_send_the_drone_away_from_the_lost_squad() 
 	lost.player_known_position_time = bm.scenario_elapsed_time - 271.0
 	var target: Vector2 = picked(bm)
 	check(bm._drone_pilot_reasoning.get("tier", "") == "Regaining contact with a lost squad" and target.distance_to(m(2787, 624)) < 1.0, "Even with routine recon worth a lot, the drone goes to where the squad was lost (%s)" % str(bm._drone_pilot_reasoning))
+	cleanup(bm)
+
+
+## Direct user report: "Current drone behavior is crazy. We have seen a lot of enemies in the North. It should
+## track them." Ten enemy squads in sight around (4090, 700) m, a suspected mortar making routine recon worth
+## dozens, and the drone committed to a sweep cell at the far south-east (4950, 2450): it stayed committed,
+## and a force 2500 m from our units scored nothing in the tracking tier.
+func test_the_drone_watches_a_force_it_can_see() -> void:
+	var bm = make_battle(Vector2(3877, 1919), true)
+	bm.scenario_elapsed_time = 2000.0
+	var em: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, m(4715, 837))
+	bm.enemy_units.append(em)
+	em.is_visible = false
+	bm._last_detected_mortar_fire[em] = {"position": m(4715, 837), "time": bm.scenario_elapsed_time - 700.0}
+	# The drone had committed to a far sweep cell.
+	bm._drone_current_destination_key = "sweep:15"
+	var squads: Array[Unit] = []
+	for p in [Vector2(4098, 945), Vector2(4153, 1062), Vector2(4082, 998), Vector2(4082, 536), Vector2(4098, 714), Vector2(4082, 709), Vector2(4088, 721), Vector2(4082, 825), Vector2(4084, 567), Vector2(4098, 541)]:
+		squads.append(add_enemy(bm, p, Vector2(1500, 1500)))
+	var target: Vector2 = picked(bm)
+	check(bm._drone_pilot_reasoning.get("tier", "") == "Watching the enemy force", "The drone goes to the force it can see, not the sweep cell it had committed to (%s)" % str(bm._drone_pilot_reasoning))
+	check(target.x > m(3900, 0).x and target.y < m(0, 1200).y, "...in the north-east, where the squads are (%s)" % (target / GameConfig.PIXELS_PER_METER))
+	check(int(str(bm._drone_pilot_reasoning.get("detail", "")).split(" ")[0]) >= 8, "...and the reasoning counts them (%s)" % str(bm._drone_pilot_reasoning.get("detail", "")))
+	# It stays with them as they move, rather than leaving once it has arrived.
+	bm.active_drone.global_position = target
+	for s in squads:
+		s.global_position += m(-150, 30)
+	var again: Vector2 = picked(bm)
+	check(bm._drone_pilot_reasoning.get("tier", "") == "Watching the enemy force" and again.distance_to(target) > 1.0, "Arrived, it stays with the force and follows it (%s)" % str(bm._drone_pilot_reasoning.get("tier", "")))
+	# Squads not in sight do not count.
+	for s in squads:
+		s.is_visible = false
+	picked(bm)
+	check(bm._drone_pilot_reasoning.get("tier", "") != "Watching the enemy force", "With the force out of sight there is nothing to watch")
+	# A bigger force is worth more; a couple of squads are not "a lot of enemies".
+	check(bm._visible_force_candidates().is_empty(), "Set-up: none in sight")
+	for i in 3:
+		squads[i].is_visible = true
+	check(bm._visible_force_candidates().is_empty(), "Three squads in sight are not a force worth leaving the mortar search for")
+	squads[3].is_visible = true
+	var small: float = bm._visible_force_candidates()[0].value
+	for s in squads:
+		s.is_visible = true
+	var large: float = bm._visible_force_candidates()[0].value
+	check(large > small and small > 1.2, "A larger force is worth more (%.2f for four, %.2f for ten), each above any grid cell" % [small, large])
 	cleanup(bm)
