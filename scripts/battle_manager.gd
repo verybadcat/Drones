@@ -4032,6 +4032,30 @@ var _lost_contact_checked: Dictionary = {}
 ## different part of the map"): a third of the map's width, at the enemy's advance pace. The age it comes
 ## to depends on the map (about 20 minutes on a 5 km one).
 const LOST_CONTACT_DIFFERENT_PART_FRACTION: float = 1.0 / 3.0
+## Direct user report, live: the drone flying a real, committed leg (routine sweep or flank watch) would
+## abruptly reverse toward a squad's last-known position, then reverse right back again seconds later,
+## without the squad ever having actually stayed lost — a genuine "going back and forth" the user
+## specifically warned might be an old bug resurfacing under a new tier. Root cause, confirmed directly
+## against a live, running battle (this codebase's own established diagnostic method): a squad that is
+## merely visible for a single tick (a momentary LOS blink through a tree edge, a building corner, or the
+## edge of detection range — real, ordinary occurrences, not a malfunction) makes `_lost_squad_contacts`
+## stop listing it entirely THAT tick (it is, technically, not lost right then), which in turn makes its
+## "lost:%d" key vanish from `_drone_routine_recon_target`'s own candidate pool for that one tick — and
+## since `_drone_commitment_has_collapsed`'s sticky-until-arrival protection only ever runs when the
+## CURRENT key is still present to compare against, a vanished key skips that whole check and forces a
+## completely fresh, unprotected pick, discarding a real, already-committed leg for whatever wins that one
+## tick. The instant the squad drops out of sight again (often the very next tick), `player_known_position_
+## time` resets to that instant, so it reappears in the pool as if freshly lost all over again — at
+## LOST_CONTACT_VALUE_MAX, well above an ordinary sweep cell — legitimately winning the fresh pick outright
+## and sending the drone chasing a lead that was never actually a sustained loss of contact to begin with.
+## The fix does not try to patch the key-vanishing mechanism itself (a real, working design elsewhere — see
+## _drone_routine_recon_target's own doc comment on a flank bearing correctly dropping out once genuinely
+## screened) — it addresses the actual, narrower defect: a bare, momentary loss should not be able to
+## generate a maximum-value lead in the first place. A real "lost contact" report presumes the observer has
+## had a moment to confirm the squad is actually gone, not merely obscured for an instant — the same
+## reasoning TREE_SIGHT_LOSS_GRACE_S already applies to a target flickering in and out of trees, generalized
+## here to the drone's own reaction to any loss, not just what counts as still "seeing" it.
+const LOST_CONTACT_MIN_AGE_S: float = 8.0
 
 
 func _lost_contact_expiry_s() -> float:
@@ -4078,6 +4102,8 @@ func _lost_squad_contacts() -> Array:
 		if u.player_known_state != Unit.State.ACTIVE:
 			continue
 		var age: float = scenario_elapsed_time - u.player_known_position_time
+		if age < LOST_CONTACT_MIN_AGE_S:
+			continue
 		var expiry: float = _lost_contact_expiry_s()
 		if age > expiry:
 			continue
@@ -4536,7 +4562,22 @@ func _drone_search_target() -> Vector2:
 		var pick_score: float = routine_score
 		if not routine_pick.is_empty() and not routine_pick.key.begins_with("flank:"):
 			pick_score = sweep_only_score
-		if not routine_pick.is_empty() and (pick_score > best_score or is_inf(best_pos.x)):
+		# Direct user report, live: the drone "going back and forth" between actively tracking a squad and
+		# routine recon with no visibility change involved at all — confirmed directly: _drone_mortar_
+		# search_weight's own squad-danger discount (_known_squad_danger_pressure) shares the EXACT same
+		# "how close to a friendly" ratio _squad_danger_priority itself uses, so as a tracked squad's own
+		# danger score drifts down (moving away from a friendly), that very same movement pushes recon's
+		# competing score UP (less danger left to discount it for) — a real, mathematically-coupled seesaw
+		# around the crossover point between the two, with nothing to stop an ordinary few meters of drift
+		# from flipping the choice back and forth. The same "small changes... should not cause the drone to
+		# oscillate" principle already established for mortar-target selection, applied here via the same
+		# margin _drone_commitment_has_collapsed already uses for its own cross-candidate handoffs — scoped
+		# to this one coupled pair; acquiring a newly-dangerous squad to track in the first place is a
+		# genuinely valuable event and stays immediate, unchanged.
+		var required_score: float = best_score
+		if _drone_pilot_reasoning.get("tier", "") == "Tracking dangerous squad":
+			required_score = best_score / GameConfig.DRONE_COMMITMENT_ABANDON_FRACTION
+		if not routine_pick.is_empty() and (pick_score > required_score or is_inf(best_pos.x)):
 			best_pos = routine_pick.point
 			var kind: String = "an unwatched gap toward our mortar's flank" if routine_pick.key.begins_with("flank:") else "a general-area sweep cell"
 			_drone_pilot_reasoning = {"tier": "Routine background recon", "detail": "No urgent lead — checking %s (candidate value %.2f, mortar-existence confidence %.2f)." % [kind, routine_pick.value, _mortar_existence_confidence()], "target": best_pos}
