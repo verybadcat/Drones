@@ -8085,6 +8085,26 @@ func _resolve_pending_counter_battery() -> void:
 			var responder: Unit = strike.attacker
 			if not is_instance_valid(responder) or responder.state != Unit.State.ACTIVE:
 				continue # the responding crew was knocked out before it could actually fire — mission aborted, nothing lands
+			# Direct user report: "I think enemy mortars are firing while moving... They should have the
+			# same restrictions as friendly mortars in this regard." Then, on "spotted": "'not spotted'
+			# should be 'not aware that it has been spotted'. If a drone sees it, it may not be aware of
+			# that." react_delay above already accounts for a crew still finishing setup WHEN THE STRIKE
+			# WAS CALLED IN (setup_remaining), but that is only a one-time snapshot — if the crew is
+			# ordered to relocate again for some other reason before fire_time actually arrives, it used
+			# to fire anyway, exactly on schedule, moving or not. Held to the same standard ordinary fire
+			# uses (_mortar_shot_this_tick): stationary long enough to have a round laid, and — the same
+			# team-agnostic tier-1 danger signals _decide_mortar_action itself uses, not the player-only
+			# _mortar_should_relocate_for_safety — not aware of being spotted (is_visible, but excluding
+			# the case a drone alone has it in sight — see _mortar_troubled_only_by_drones: a crew doesn't
+			# necessarily know an aircraft overhead is watching it the way it knows a nearby squad has
+			# eyes on it) or facing an unwatched threat closing in right now. Simply waits, tick after
+			# tick, rather than cancelling the mission or resetting the delay — a real crew that's
+			# mid-relocation when the moment comes fires the instant it actually stops.
+			var aware_of_being_spotted: bool = responder.is_visible and not _mortar_troubled_only_by_drones(responder)
+			var responder_endangered: bool = aware_of_being_spotted or _unwatched_threat_closing(responder)
+			if responder.seconds_stationary < GameConfig.MORTAR_SETUP_TEARDOWN_TIME or responder_endangered:
+				still_pending.append(strike)
+				continue
 			strike.fired = true
 			_announce_mortar_shot(responder, strike.impact_position)
 			combat_log.log_counter_battery_incoming(strike.target)
