@@ -40,6 +40,7 @@ func run() -> void:
 	test_an_enemy_mortar_hunt_is_held_to_its_leash()
 	test_an_enemy_mortar_hiding_stays_within_its_leash()
 	test_both_sides_share_the_firing_rules()
+	test_a_mortar_already_ahead_may_not_be_sent_further_ahead()
 	print("Enemy mortar constraint tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
@@ -122,6 +123,33 @@ func test_an_enemy_mortar_hiding_stays_within_its_leash() -> void:
 		cleanup(bm)
 	check(plans > 5, "Set-up: the search does produce relocation plans (%d of 30)" % plans)
 	check(beyond == 0, "No enemy relocation plan ends beyond the leash from where it was deployed (%d of %d did)" % [beyond, plans])
+
+
+## Direct user report, live: "Enemy mortar is advancing in front of their squads. It should not." Once a
+## crew found itself already ahead of its own line — for any reason, squads fell back, died, or just
+## hadn't caught up — the old "never NEWLY ahead" check became a dead letter: with `already_ahead` true,
+## the whole condition was unconditionally false, so nothing capped how much FURTHER a hunt could push it.
+## Confirmed live: `move_intent: "conceal"` slowly walking a spotted mortar east, a squad line further
+## west, so the reckless check must still hold once the crew is already out front — never a NEW violation,
+## and never a WORSE one, but recovery (holding ground, or coming back toward the line) must stay allowed.
+func test_a_mortar_already_ahead_may_not_be_sent_further_ahead() -> void:
+	var bm = make_battle()
+	var mortar: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, m(1000, 1200)) # already well ahead (west) of its own line
+	bm.enemy_units.append(mortar)
+	var squad: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, m(3000, 1200)) # the westmost enemy squad
+	bm.enemy_units.append(squad)
+	check(mortar.global_position.x < squad.global_position.x, "Setup: the mortar really is already ahead (further west) of its own line")
+	# The whole point of the old bug: a destination even further out than where it already is.
+	check(bm._friendly_mortar_hunt_destination_is_reckless(mortar, m(500, 1200)), "A destination further ahead than the crew already is remains reckless, however exposed it already was")
+	check(not bm._friendly_mortar_hunt_destination_is_reckless(mortar, m(1000, 1200)), "...holding at the exact same distance out is not a NEW or WORSE exposure, so it stays allowed")
+	# Recovery must stay allowed: holding closer to the line, or coming back behind it, is never reckless.
+	check(not bm._friendly_mortar_hunt_destination_is_reckless(mortar, m(1500, 1200)), "A destination that comes back toward the line is not reckless")
+	check(not bm._friendly_mortar_hunt_destination_is_reckless(mortar, m(3500, 1200)), "...nor one that comes all the way back behind its own squads")
+	# The same ratchet, for the y-band: already outside it must not license going further outside.
+	mortar.global_position = m(3500, 300) # already well outside the band its one squad (y=1200) holds
+	check(bm._friendly_mortar_hunt_destination_is_reckless(mortar, m(3500, 100)), "Further outside the band than it already is remains reckless")
+	check(not bm._friendly_mortar_hunt_destination_is_reckless(mortar, m(3500, 800)), "...but coming back toward the band is not")
+	cleanup(bm)
 
 
 ## Firing is not different for the enemy: same code.

@@ -3013,11 +3013,23 @@ func _friendly_mortar_hunt_destination_is_reckless(mortar: Unit, dest: Vector2) 
 			max_y = max(max_y, u.global_position.y)
 	if not found:
 		return false
-	var already_ahead: bool = mortar.global_position.x * forward > frontmost
-	var already_outside_band: bool = mortar.global_position.y < min_y or mortar.global_position.y > max_y
-	if dest.x * forward > frontmost and not already_ahead:
+	# Direct user report: "Enemy mortar is advancing in front of their squads. It should not." Before, once
+	# the crew found itself ALREADY ahead of its own line (or already outside the band it holds) for any
+	# reason at all — its squads fell back, died, or simply hadn't caught up yet — the checks below
+	# (guarded by `not already_ahead`/`not already_outside_band`) fell through unconditionally, with
+	# nothing left to stop a hunt from sending it even FURTHER out, tick after tick, arbitrarily deep past
+	# its own infantry. The narrower, actually-intended tolerance (implied by "NEWLY", never a documented
+	# "no limit once exposed") was to let an already-exposed crew keep working — including holding its own
+	# ground, or heading back toward the line — not to lift the limit entirely. Folding the mortar's own
+	# current position into the same bound it is judged against does exactly that: a destination is
+	# reckless if it is more exposed, in either dimension, than the crew already is right now — never a new
+	# violation, and never a WORSE one, but no cap at all on recovering.
+	var frontier: float = max(frontmost, mortar.global_position.x * forward)
+	var band_min: float = min(min_y, mortar.global_position.y)
+	var band_max: float = max(max_y, mortar.global_position.y)
+	if dest.x * forward > frontier:
 		return true
-	if (dest.y < min_y or dest.y > max_y) and not already_outside_band:
+	if dest.y < band_min or dest.y > band_max:
 		return true
 	return false
 
