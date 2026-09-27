@@ -39,4 +39,13 @@ own measured loudness, from `ebur128` as for the others). The class names it by 
 "midnight" in the code; the layer called "drizzle" there is the older `freesound_community`
 clip, which plays for MODERATE rain.
 
+**`freesound_community-snow_rain-35637.mp3`** was supplied by the user on 2026-09-26 from their Downloads
+folder, for sleet. It is a complete 39.02-second file (mono, 48 kHz), so nothing was trimmed and it has no
+`-first30s` in its name. Its name (contributor handle `freesound_community`, ID `35637`) is in the same style as
+the Pixabay files above, but where it came from was not checked and its license terms were not looked up.
+Measured with `ebur128`: **-32.7 LUFS** integrated (`RainAmbience.SLEET_FILE_LUFS`), peak -1.4 dBFS. It is
+steady throughout (about 1.5 dB from end to end, no fade in or out), so it loops without a seam. Sleet plays it
+at the same target loudness per class as rain (-50, -44, -40, -34 LUFS from drizzle to heavy), so slow sleet is
+barely there and it rises with more.
+
 How the game uses them: `scripts/rain_ambience.gd`.

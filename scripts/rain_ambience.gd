@@ -19,7 +19,10 @@ extends Node
 ## rain is". Plays during deployment as well as the battle, like the wind (main.gd
 ## drives it), and is silent on the level-select screen and once the battle is over.
 ##
-## Only RAIN sounds like rain: sleet and snow (Weather.precip_type) make none.
+## Rain and SLEET make a sound (Weather.precip_type); snow makes none. Sleet has its own recording and
+## follows the same class table as rain ("Let's use this sound file for sleet. As usual, it should start at
+## a low volume if the sleet is slow, and increase if there is more"): the same target loudness at each
+## class, so slow sleet is barely there and heavy sleet is a bed under the fight like heavy rain.
 ##
 ## Same approach as WindAmbience, for the same reason: the recordings differ hugely
 ## in native loudness (the "rain sound" is 15 LU louder than the other two), so each
@@ -37,6 +40,9 @@ const DRIZZLE_STREAM: AudioStreamMP3 = preload("res://assets/audio/rain/freesoun
 const HEAVY_STREAM: AudioStreamMP3 = preload("res://assets/audio/rain/boons_freak-rain-sound-188158-first30s.mp3")
 ## For drizzle. A complete 30-second file as supplied (nothing to trim), so no "-first30s".
 const MIDNIGHT_STREAM: AudioStreamMP3 = preload("res://assets/audio/rain/dragon-studio-cozy-midnight-rain-04-448568.mp3")
+## For sleet: a complete 39-second file as supplied, steady all the way through (its level varies
+## by about 1.5 dB from end to end and it neither fades in nor out), so it loops without a seam.
+const SLEET_STREAM: AudioStreamMP3 = preload("res://assets/audio/rain/freesound_community-snow_rain-35637.mp3")
 
 ## Measured with ffmpeg's ebur128 filter (integrated loudness) on the 30-second
 ## clips as committed.
@@ -44,6 +50,7 @@ const GENTLE_FILE_LUFS: float = -36.7
 const DRIZZLE_FILE_LUFS: float = -37.3
 const HEAVY_FILE_LUFS: float = -21.4
 const MIDNIGHT_FILE_LUFS: float = -39.5
+const SLEET_FILE_LUFS: float = -32.7
 
 const SILENT_DB: float = AmbientMixer.SILENT_DB
 
@@ -65,22 +72,31 @@ var _mixer: AmbientMixer
 var _target: Dictionary = {}
 
 
-## The gain (dB) each recording should have for this rain, SILENT_DB where it
-## should not be heard: {"midnight", "gentle", "drizzle", "heavy"}. `intensity` is a Weather.
+## The gain (dB) each recording should have for this rain or sleet, SILENT_DB where it
+## should not be heard: {"midnight", "gentle", "drizzle", "heavy", "sleet"}. `intensity` is a Weather.
 ## Intensity, `precip_type` a Weather.Precip.
 static func plan(intensity: int, precip_type: int) -> Dictionary:
-	var off := {"midnight": SILENT_DB, "gentle": SILENT_DB, "drizzle": SILENT_DB, "heavy": SILENT_DB}
-	if precip_type != Weather.Precip.RAIN or not LOUDNESS_LUFS.has(intensity):
+	var off := {"midnight": SILENT_DB, "gentle": SILENT_DB, "drizzle": SILENT_DB, "heavy": SILENT_DB, "sleet": SILENT_DB}
+	if not LOUDNESS_LUFS.has(intensity):
+		return off
+	if precip_type == Weather.Precip.SLEET:
+		off.sleet = LOUDNESS_LUFS[intensity] - SLEET_FILE_LUFS
+		return off
+	if precip_type != Weather.Precip.RAIN:
 		return off
 	var loudness: float = LOUDNESS_LUFS[intensity]
 	match intensity:
 		Weather.Intensity.DRIZZLE:
-			return {"midnight": loudness - MIDNIGHT_FILE_LUFS, "gentle": SILENT_DB, "drizzle": SILENT_DB, "heavy": SILENT_DB}
+			off.midnight = loudness - MIDNIGHT_FILE_LUFS
+			return off
 		Weather.Intensity.LIGHT:
-			return {"midnight": SILENT_DB, "gentle": loudness - GENTLE_FILE_LUFS, "drizzle": SILENT_DB, "heavy": SILENT_DB}
+			off.gentle = loudness - GENTLE_FILE_LUFS
+			return off
 		Weather.Intensity.MODERATE:
-			return {"midnight": SILENT_DB, "gentle": SILENT_DB, "drizzle": loudness - DRIZZLE_FILE_LUFS, "heavy": SILENT_DB}
-	return {"midnight": SILENT_DB, "gentle": SILENT_DB, "drizzle": SILENT_DB, "heavy": loudness - HEAVY_FILE_LUFS}
+			off.drizzle = loudness - DRIZZLE_FILE_LUFS
+			return off
+	off.heavy = loudness - HEAVY_FILE_LUFS
+	return off
 
 
 ## The loudness actually heard for this rain (LUFS), or -INF for silence.
@@ -94,6 +110,8 @@ static func heard_loudness(intensity: int, precip_type: int) -> float:
 		return p.drizzle + DRIZZLE_FILE_LUFS
 	if p.heavy > SILENT_DB:
 		return p.heavy + HEAVY_FILE_LUFS
+	if p.sleet > SILENT_DB:
+		return p.sleet + SLEET_FILE_LUFS
 	return -INF
 
 
@@ -104,9 +122,10 @@ func _ready() -> void:
 	_mixer.add_layer("gentle", GENTLE_STREAM)
 	_mixer.add_layer("drizzle", DRIZZLE_STREAM)
 	_mixer.add_layer("heavy", HEAVY_STREAM)
+	_mixer.add_layer("sleet", SLEET_STREAM)
 
 
-## Sets the rain to sound like: a Weather.Intensity and Weather.Precip.
+## Sets the rain (or sleet) to sound like: a Weather.Intensity and Weather.Precip.
 func set_rain(intensity: int, precip_type: int) -> void:
 	_target = plan(intensity, precip_type)
 
