@@ -46,7 +46,7 @@ func cleanup(bm) -> void:
 func run() -> void:
 	test_a_moving_responder_waits_to_fire()
 	test_a_spotted_or_endangered_responder_waits_too()
-	test_a_drone_alone_does_not_count_as_aware_of_being_spotted()
+	test_a_drone_alone_counts_only_if_the_crew_has_seen_it()
 	test_ordinary_fire_is_already_gated_the_same_for_both_sides()
 	print("Counter-battery movement tests: %d failures" % failures)
 	quit(1 if failures else 0)
@@ -116,9 +116,11 @@ func test_a_spotted_or_endangered_responder_waits_too() -> void:
 
 
 ## Direct user correction: "'not spotted' should be 'not aware that it has been spotted'. If a drone sees
-## it, it may not be aware of that." Same setup CombatResolver.has_live_observer/_mortar_troubled_only_by_
-## drones already use elsewhere (test_mortar_ignores_drone.gd): a drone 4 m away, nothing else watching.
-func test_a_drone_alone_does_not_count_as_aware_of_being_spotted() -> void:
+## it, it may not be aware of that." — then refined again: "It might be aware of drone-only sighting. It
+## depends if it has seen the drone or not." Same drone-alone set-up test_mortar_ignores_drone.gd already
+## uses (4 m away, nothing else watching), tried both ways: the drone unseen by the crew's own side, and
+## the drone spotted right back.
+func test_a_drone_alone_counts_only_if_the_crew_has_seen_it() -> void:
 	var bm = make_battle()
 	var responder: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, m(4700, 637))
 	bm.enemy_units.append(responder)
@@ -129,12 +131,24 @@ func test_a_drone_alone_does_not_count_as_aware_of_being_spotted() -> void:
 	responder.seconds_stationary = GameConfig.MORTAR_SETUP_TEARDOWN_TIME
 	var target: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, m(500, 1200))
 	bm.player_units.append(target)
-	bm._pending_counter_battery.append({
+	var strike := {
 		"attacker": responder, "target": target, "impact_position": target.global_position,
 		"fire_time": bm.scenario_elapsed_time, "impact_time": bm.scenario_elapsed_time + GameConfig.MORTAR_FLIGHT_TIME, "fired": false,
-	})
+	}
+
+	drone.is_visible = false # the crew's own side has not spotted this drone
+	check(not bm._mortar_has_seen_the_drone(responder) and not bm._mortar_aware_of_being_spotted(responder), "Not having seen the drone, the crew is not aware of the sighting")
+	bm._pending_counter_battery.clear()
+	bm._pending_counter_battery.append(strike.duplicate())
 	bm._resolve_pending_counter_battery()
-	check(bm._pending_counter_battery[0].fired, "Seen only by a drone, the crew isn't necessarily aware of it, so it still fires")
+	check(bm._pending_counter_battery[0].fired, "...so it still fires")
+
+	drone.is_visible = true # the crew's own side HAS spotted this drone
+	check(bm._mortar_has_seen_the_drone(responder) and bm._mortar_aware_of_being_spotted(responder), "Having seen the drone, the crew is aware it may have been seen too")
+	bm._pending_counter_battery.clear()
+	bm._pending_counter_battery.append(strike.duplicate())
+	bm._resolve_pending_counter_battery()
+	check(not bm._pending_counter_battery[0].fired, "...so now it waits, the same as if a squad had it in sight")
 	cleanup(bm)
 
 

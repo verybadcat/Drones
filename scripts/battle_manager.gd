@@ -5575,6 +5575,35 @@ func _mortar_troubled_only_by_drones(m: Unit) -> bool:
 	return CombatResolver.has_live_observer(m, drones) and not CombatResolver.has_live_observer(m, others)
 
 
+## Whether `m`'s own side has, in turn, spotted the drone that has them in sight — "It might be aware of
+## drone-only sighting. It depends if it has seen the drone or not." A drone belongs to the OTHER team, so
+## its own is_visible flag already means exactly this: the side watching `m` can see the drone back. The
+## same live, fog-of-war-correct fact every other spotted/unspotted check in this file already reads, not
+## a fresh detection roll — and, like every other piece of shared battlefield knowledge in this game
+## (_known_enemy_positions and the like), one team member spotting the drone is the whole side knowing
+## about it, not a private fact only the exact unit that saw it gets to act on. Only meaningful when
+## _mortar_troubled_only_by_drones(m) is already true (nothing else has `m` in sight); undefined otherwise.
+func _mortar_has_seen_the_drone(m: Unit) -> bool:
+	var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
+	for u in opposing:
+		if u.kind == Unit.Kind.DRONE and u.is_visible:
+			return true
+	return false
+
+
+## Whether `m`'s crew is aware, right now, that it has been seen: spotted by anything other than a drone
+## always counts; spotted only by a drone counts only if the crew's own side has seen that drone too (see
+## _mortar_has_seen_the_drone's own doc comment) — a real crew doesn't necessarily know an aircraft
+## overhead is watching it the way it knows a nearby squad has eyes on it, but if it HAS clocked the
+## drone, it has every reason to assume it's been made.
+func _mortar_aware_of_being_spotted(m: Unit) -> bool:
+	if not m.is_visible:
+		return false
+	if not _mortar_troubled_only_by_drones(m):
+		return true
+	return _mortar_has_seen_the_drone(m)
+
+
 ## The single authoritative per-mortar-per-tick decision, replacing what
 ## used to be five independent functions racing to claim a mortar's move
 ## order via an informal has_move_target mutex (_update_resupply_linkup,
@@ -8088,20 +8117,18 @@ func _resolve_pending_counter_battery() -> void:
 			# Direct user report: "I think enemy mortars are firing while moving... They should have the
 			# same restrictions as friendly mortars in this regard." Then, on "spotted": "'not spotted'
 			# should be 'not aware that it has been spotted'. If a drone sees it, it may not be aware of
-			# that." react_delay above already accounts for a crew still finishing setup WHEN THE STRIKE
-			# WAS CALLED IN (setup_remaining), but that is only a one-time snapshot — if the crew is
-			# ordered to relocate again for some other reason before fire_time actually arrives, it used
-			# to fire anyway, exactly on schedule, moving or not. Held to the same standard ordinary fire
-			# uses (_mortar_shot_this_tick): stationary long enough to have a round laid, and — the same
-			# team-agnostic tier-1 danger signals _decide_mortar_action itself uses, not the player-only
-			# _mortar_should_relocate_for_safety — not aware of being spotted (is_visible, but excluding
-			# the case a drone alone has it in sight — see _mortar_troubled_only_by_drones: a crew doesn't
-			# necessarily know an aircraft overhead is watching it the way it knows a nearby squad has
-			# eyes on it) or facing an unwatched threat closing in right now. Simply waits, tick after
-			# tick, rather than cancelling the mission or resetting the delay — a real crew that's
-			# mid-relocation when the moment comes fires the instant it actually stops.
-			var aware_of_being_spotted: bool = responder.is_visible and not _mortar_troubled_only_by_drones(responder)
-			var responder_endangered: bool = aware_of_being_spotted or _unwatched_threat_closing(responder)
+			# that." — refined once more: "It might be aware of drone-only sighting. It depends if it has
+			# seen the drone or not." (see _mortar_aware_of_being_spotted). react_delay above already
+			# accounts for a crew still finishing setup WHEN THE STRIKE WAS CALLED IN (setup_remaining),
+			# but that is only a one-time snapshot — if the crew is ordered to relocate again for some
+			# other reason before fire_time actually arrives, it used to fire anyway, exactly on schedule,
+			# moving or not. Held to the same standard ordinary fire uses (_mortar_shot_this_tick):
+			# stationary long enough to have a round laid, aware of being spotted, or facing an unwatched
+			# threat closing in right now — the same team-agnostic tier-1 danger signals
+			# _decide_mortar_action itself uses, not the player-only _mortar_should_relocate_for_safety.
+			# Simply waits, tick after tick, rather than cancelling the mission or resetting the delay —
+			# a real crew that's mid-relocation when the moment comes fires the instant it actually stops.
+			var responder_endangered: bool = _mortar_aware_of_being_spotted(responder) or _unwatched_threat_closing(responder)
 			if responder.seconds_stationary < GameConfig.MORTAR_SETUP_TEARDOWN_TIME or responder_endangered:
 				still_pending.append(strike)
 				continue
