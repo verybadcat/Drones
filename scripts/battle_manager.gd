@@ -4571,10 +4571,19 @@ func _enemy_force_is_fleeing() -> bool:
 ## destroyed or never-seen squad does not count.
 func _enemy_squads_still_in_the_fight() -> bool:
 	for u in enemy_units:
-		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE:
+		if u.kind != Unit.Kind.SQUAD:
 			continue
+		# Currently visible is its own, unconditional fast path — real, current truth, no different from
+		# every other live-sighting check in this file.
 		if u.is_visible:
-			return true
+			if u.state == Unit.State.ACTIVE:
+				return true
+			continue
+		# Knowledge audit (2026-09-27): this used to fall through to u.state (ground truth) despite the
+		# doc comment above already promising "as far as the drone team knows" — a squad the player last
+		# actually observed active and in contact (_recent_enemy_contacts, itself only ever recorded while
+		# genuinely state == ACTIVE and is_visible — see _update_recent_enemy_contacts — never omniscient)
+		# must still count even if it has since been destroyed or withdrawn unseen.
 		var info: Dictionary = _recent_enemy_contacts.get(u, {})
 		if not info.is_empty() and scenario_elapsed_time - info.time <= GameConfig.DRONE_CONTACT_BONUS_EXPIRY:
 			return true
@@ -4600,18 +4609,24 @@ func _squad_fire_order_watch_target() -> Dictionary:
 			continue
 		var reach: float = GameConfig.mortar_max_range(m.team)
 		for u in enemy_units:
-			if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE:
+			if u.kind != Unit.Kind.SQUAD:
 				continue
 			var score := -1.0
 			var pos := Vector2.INF
 			var detail := ""
 			if u.is_visible:
+				# Currently visible is its own, unconditional fast path — see _enemy_squads_still_in_the_
+				# fight's own comment on why this can't wait on player_has_been_sighted/player_known_state.
+				if u.state != Unit.State.ACTIVE:
+					continue
 				if m.global_position.distance_to(u.global_position) > reach:
 					continue
 				score = max(_squad_danger_priority(u), GameConfig.DRONE_SQUAD_FIRE_ORDER_WATCH_PRIORITY)
 				pos = u.global_position
 				detail = "%s is ordered to expend ammunition on enemy squads - watching %s, inside its range." % [m.display_name(), u.display_name()]
 			else:
+				# Knowledge audit (2026-09-27): the same gap _enemy_squads_still_in_the_fight had — see its
+				# own comment on why _recent_enemy_contacts alone (never omniscient) is enough here.
 				var info: Dictionary = _recent_enemy_contacts.get(u, {})
 				if info.is_empty() or scenario_elapsed_time - info.time > GameConfig.DRONE_CONTACT_BONUS_EXPIRY:
 					continue
@@ -4961,7 +4976,10 @@ func _flank_watch_standing_priority() -> float:
 		return GameConfig.DRONE_FLANK_WATCH_STANDING_PRIORITY
 	var nearest := INF
 	for u in enemy_units:
-		if u.kind == Unit.Kind.SQUAD and u.state == Unit.State.ACTIVE and u.player_has_been_sighted:
+		# Knowledge audit (2026-09-27): u.state was ground truth alongside player_has_been_sighted — a
+		# squad last known ACTIVE must keep counting as a reason to watch the flank even if it has since
+		# been destroyed or withdrawn unseen.
+		if u.kind == Unit.Kind.SQUAD and u.player_has_been_sighted and u.player_known_state == Unit.State.ACTIVE:
 			nearest = min(nearest, mortar.global_position.distance_to(u.player_known_position))
 	if is_inf(nearest):
 		return GameConfig.DRONE_FLANK_WATCH_STANDING_PRIORITY
@@ -5124,7 +5142,11 @@ const DRONE_SWEEP_WAYPOINT_RADIUS: float = 200.0 * GameConfig.PIXELS_PER_METER
 func _area_confirmed_clear(point: Vector2) -> bool:
 	var radius: float = GameConfig.DRONE_SWEEP_CLEARED_RADIUS_M * GameConfig.PIXELS_PER_METER
 	for u in enemy_units:
-		if u.state != Unit.State.ACTIVE and u.state != Unit.State.RETREATING:
+		# Knowledge audit (2026-09-27): "the enemy is already known not to be there" (see
+		# _sweep_candidates' own doc comment on this function) has to mean player_known_state — a unit
+		# that died or pulled out unseen must not silently mark the ground around it as cleared. A
+		# never-sighted unit's player_known_state defaults to ACTIVE, so it correctly never qualifies here.
+		if u.player_known_state != Unit.State.ACTIVE and u.player_known_state != Unit.State.RETREATING:
 			if point.distance_to(u.global_position) <= radius:
 				return true
 	return false
@@ -5378,7 +5400,9 @@ func _known_squad_danger_pressure() -> float:
 			rear_assets.append(u)
 	var pressure := 0.0
 	for e in enemy_units:
-		if e.kind != Unit.Kind.SQUAD or e.state != Unit.State.ACTIVE or not e.player_has_been_sighted:
+		# Knowledge audit (2026-09-27): the function's own name is "known" pressure; e.state was ground
+		# truth. Same fix as the others.
+		if e.kind != Unit.Kind.SQUAD or not e.player_has_been_sighted or e.player_known_state != Unit.State.ACTIVE:
 			continue
 		var pos: Vector2 = e.global_position
 		var fade := 1.0
@@ -9210,7 +9234,12 @@ func _known_enemy_mortars_in_range(pos: Vector2) -> int:
 	for u in enemy_units:
 		if u.kind != Unit.Kind.MORTAR:
 			continue
-		if u.state != Unit.State.ACTIVE and u.state != Unit.State.RETREATING:
+		# Knowledge audit (2026-09-27): this function's own doc comment already promises "never omniscient
+		# ground truth" — u.state was exactly that. A mortar the player still believes ACTIVE or RETREATING
+		# must keep counting even if it has since been destroyed unseen; a never-known one is excluded by
+		# the branches below regardless (player_known_state defaults to ACTIVE, but none of is_visible /
+		# player_has_been_sighted / mortar_ever_detected_firing will be true for it).
+		if u.player_known_state != Unit.State.ACTIVE and u.player_known_state != Unit.State.RETREATING:
 			continue
 		var known_pos: Vector2
 		if u.is_visible:
