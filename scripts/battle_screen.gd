@@ -156,7 +156,7 @@ func _ready() -> void:
 	# mortar's squad-fire order). Grayed out while there is nothing to clear (see _process).
 	clear_orders_button = Button.new()
 	clear_orders_button.text = "Clear Orders"
-	clear_orders_button.tooltip_text = "Cancels every order you have given: units falling back are free to advance again, a general retreat is called off (units may still decide to retreat on their own), and a mortar's order to expend ammunition on squads is dropped."
+	clear_orders_button.tooltip_text = "Cancel every order you have given."
 	clear_orders_button.disabled = true
 	clear_orders_button.pressed.connect(_on_clear_orders_pressed)
 
