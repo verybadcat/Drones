@@ -940,6 +940,18 @@ func is_targetable() -> bool:
 	return is_targetable_state() and is_visible
 
 
+## The same ACTIVE-or-RETREATING predicate, but against what the PLAYER side currently believes about
+## this (necessarily enemy) unit — player_known_state, last updated the tick it was actually visible —
+## rather than its real, possibly more current ground truth. For reasoning from a stale lead (a
+## last-known position, a fire-detection trace) instead of a live sighting: direct user correction, "the
+## drone team should not have known that we hit the enemy mortar. No one saw it ... Every unit should act
+## based on what it knows. It cannot act on information that it is not aware of." Meaningless for one of
+## the player's own units (a side always has ground truth about itself) — only ever asked of the opposing
+## side.
+func is_targetable_state_known_to_player() -> bool:
+	return player_known_state == State.ACTIVE or player_known_state == State.RETREATING
+
+
 func display_name() -> String:
 	var side := "Player" if team == Team.PLAYER else "Enemy"
 	return "%s %s" % [side, unit_label]

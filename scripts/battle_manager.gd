@@ -2766,7 +2766,11 @@ func _known_friendly_mortar_position() -> Vector2:
 	var best_pos := Vector2.INF
 	var best_time := -INF
 	for u in player_units:
-		if u.kind != Unit.Kind.MORTAR or u.state == Unit.State.DESTROYED:
+		# The mirror of the drone's own fire-detection-lead fix: a stale lead has to go by what the
+		# ENEMY last found out (enemy_known_state), not this mortar's real, possibly more current ground
+		# truth (u.state) — an enemy hunting a lead on our mortar has no more business knowing about an
+		# unseen kill than our own drone did about theirs.
+		if u.kind != Unit.Kind.MORTAR or u.enemy_known_state == Unit.State.DESTROYED:
 			continue
 		var info: Dictionary = _last_detected_mortar_fire.get(u, {})
 		if info.is_empty():
@@ -2850,7 +2854,13 @@ func _known_enemy_mortar_lead() -> Dictionary:
 	var best_time := -INF
 	var best_unit: Unit = null
 	for u in enemy_units:
-		if u.kind != Unit.Kind.MORTAR or not u.is_targetable_state():
+		# Direct user report: the drone was hunting a mortar off a fire-detection lead; our own mortar
+		# killed it with an unseen shot; the drone dropped the lead and went for a squad instead — "the
+		# drone team should not have known that we hit the enemy mortar. No one saw it." Ground truth
+		# (u.is_targetable_state()) belongs to the LIVE branch above, where is_visible means the player
+		# genuinely does know right now; a stale lead has to go by what the player last found out, not
+		# what has happened since. See Unit.is_targetable_state_known_to_player's own doc comment.
+		if u.kind != Unit.Kind.MORTAR or not u.is_targetable_state_known_to_player():
 			continue
 		var info: Dictionary = _last_detected_mortar_fire.get(u, {})
 		if info.is_empty():
@@ -2874,7 +2884,7 @@ func _known_enemy_mortar_lead() -> Dictionary:
 	var seen_time := -INF
 	var seen_unit: Unit = null
 	for u in enemy_units:
-		if u.kind != Unit.Kind.MORTAR or not u.is_targetable_state() or is_inf(u.player_known_position.x):
+		if u.kind != Unit.Kind.MORTAR or not u.is_targetable_state_known_to_player() or is_inf(u.player_known_position.x):
 			continue
 		if u.player_known_position_time > seen_time:
 			seen_time = u.player_known_position_time
@@ -4281,7 +4291,11 @@ func _drone_search_target() -> Vector2:
 	var lead_pos := Vector2.INF
 	var best_fire_time := -INF
 	for u in enemy_units:
-		if u.kind != Unit.Kind.MORTAR or u.state != Unit.State.ACTIVE:
+		# A second, independent occurrence of the same unseen-kill bug (see _known_enemy_mortar_lead's
+		# own fix): this tier re-derives its own fire-detection lead straight from enemy_units instead of
+		# going through that function, with the identical ground-truth mistake — player_known_state, not
+		# the mortar's real, possibly more current state, is what the player actually has to go on.
+		if u.kind != Unit.Kind.MORTAR or u.player_known_state != Unit.State.ACTIVE:
 			continue
 		var info: Dictionary = _last_detected_mortar_fire.get(u, {})
 		if info.is_empty():
