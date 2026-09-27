@@ -29,6 +29,7 @@ func run() -> void:
 	test_a_squad_still_marching_is_left_alone()
 	test_the_whole_force_parked_at_the_road_end_moves_on()
 	test_squads_at_the_village_push_west()
+	test_with_no_mortar_left_the_enemy_attacks_the_squads_it_knows()
 	print("Enemy advance after march tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
@@ -128,5 +129,50 @@ func test_squads_at_the_village_push_west() -> void:
 	var last_squad: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, village + Vector2(GameConfig.ENEMY_SURROUND_STANDOFF_RADIUS, 0.0))
 	bm.enemy_units.append(last_squad)
 	check(bm._enemy_advance_objective(last_squad) == village, "With no friendly force left in the field it stays at the village")
+	bm.combat_log.free()
+	bm.free()
+
+
+## Direct user report: "At this point, the enemy has chased our mortar off of the map. They now know the
+## approximate location of our squads. With no more mortar for our side, I would expect them to attack our
+## squads." Three enemy squads stood at the west edge (where the mortar fled), pushing on that edge, with our
+## squads 1300 m behind them and known.
+func test_with_no_mortar_left_the_enemy_attacks_the_squads_it_knows() -> void:
+	var bm = make_battle()
+	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, meters(-1400.0, 2100.0))
+	mortar.state = Unit.State.WITHDRAWN # fled off the map
+	bm.player_units.append(mortar)
+	var ours_a: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, meters(210.0, 1940.0))
+	var ours_b: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, meters(560.0, 2050.0))
+	for s in [ours_a, ours_b]:
+		bm.player_units.append(s)
+		s.enemy_has_been_sighted = true # the enemy has seen them
+		s.enemy_known_position = s.global_position
+		s.enemy_known_state = Unit.State.ACTIVE
+	var enemy: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, meters(-1100.0, 1190.0))
+	enemy.sought_cover = true
+	enemy.village_reached = true # it had pushed west past the village
+	bm.enemy_units.append(enemy)
+	var objective: Vector2 = bm._enemy_advance_objective(enemy)
+	check(objective.distance_to(ours_a.global_position) < 1.0, "Its objective is the nearest of our squads it knows of, not the map edge (%s)" % (objective / GameConfig.PIXELS_PER_METER))
+	seed(3)
+	bm._update_enemy_squad_advance()
+	check(enemy.has_move_target and enemy.move_target.x > enemy.global_position.x, "It is ordered east, toward our squads")
+	# Nothing known: the push west (or the village) as before.
+	for s in [ours_a, ours_b]:
+		s.enemy_has_been_sighted = false
+	check(bm._enemy_advance_objective(enemy).x < meters(-1000.0, 0.0).x, "With no squad known, it still pushes west")
+	# A destroyed squad is not an objective (the enemy's own information is that it is out of the fight).
+	ours_a.enemy_has_been_sighted = true
+	ours_a.enemy_known_state = Unit.State.DESTROYED
+	check(bm._known_friendly_squad_objective(enemy) == Vector2.INF, "A squad the enemy knows is out of the fight is not an objective")
+	ours_a.enemy_known_state = Unit.State.ACTIVE
+	# While our mortar is in action it stays the objective.
+	mortar.state = Unit.State.ACTIVE
+	mortar.enemy_has_been_sighted = true
+	mortar.enemy_known_position = meters(-800.0, 1500.0)
+	mortar.enemy_known_position_time = bm.scenario_elapsed_time
+	check(bm._friendly_mortar_is_active(), "Set-up: the mortar is back in action")
+	check(bm._enemy_advance_objective(enemy) != ours_a.global_position, "While the mortar is in action the squads are not its objective")
 	bm.combat_log.free()
 	bm.free()

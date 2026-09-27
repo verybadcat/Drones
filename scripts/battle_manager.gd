@@ -7258,6 +7258,17 @@ func _enemy_advance_objective(u: Unit = null) -> Vector2:
 		var last_known := _last_known_friendly_mortar_position()
 		if not is_inf(last_known.x):
 			return last_known
+	# Direct user report: "At this point, the enemy has chased our mortar off of the map. They now know
+	# the approximate location of our squads. With no more mortar for our side, I would expect them to
+	# attack our squads." (The live battle: three enemy squads stood at the west edge of the map, where
+	# the mortar had fled, "advancing" on that edge, while our squads were 1300 m behind them and known.)
+	# With no friendly mortar left in action, our squads are what is left to fight, and the enemy squads
+	# go for the ones they know of, by where they were last seen. While the mortar is in action it stays
+	# the objective, as before.
+	if not _friendly_mortar_is_active():
+		var squad_pos: Vector2 = _known_friendly_squad_objective(u)
+		if not is_inf(squad_pos.x):
+			return squad_pos
 	# Direct user request: "Yes, push West" — when asked whether squads that have closed on the
 	# village (300 m out, GameConfig.ENEMY_SURROUND_STANDOFF_RADIUS) with the friendly force fallen back
 	# and unseen should then go looking for it, rather than stop there for good. The village is only
@@ -7272,6 +7283,25 @@ func _enemy_advance_objective(u: Unit = null) -> Vector2:
 		if u.village_reached and _friendly_force_still_in_the_field():
 			return Vector2(GameConfig.PLAYER_SAFE_X, u.global_position.y)
 	return village
+
+
+## Where the enemy last saw the friendly squads it knows of (still believed ACTIVE): the one nearest `u`,
+## or, with no `u` (the shared pivot), their centroid; Vector2.INF if it knows of none. What the enemy
+## knows, not where they are: enemy_known_position, from an actual sighting.
+func _known_friendly_squad_objective(u: Unit = null) -> Vector2:
+	var positions: Array[Vector2] = []
+	for s in player_units:
+		if s.kind == Unit.Kind.SQUAD and s.enemy_has_been_sighted and s.enemy_known_state == Unit.State.ACTIVE and s.state == Unit.State.ACTIVE:
+			positions.append(s.enemy_known_position)
+	if positions.is_empty():
+		return Vector2.INF
+	if u == null:
+		return _known_position_centroid(positions)
+	var best: Vector2 = positions[0]
+	for p in positions:
+		if u.global_position.distance_to(p) < u.global_position.distance_to(best):
+			best = p
+	return best
 
 
 ## Slack on "reached the village": squads stop at the standoff ring, so allow a little beyond it.
