@@ -4868,6 +4868,15 @@ static func mortar_max_range(team: Unit.Team) -> float:
 	return MORTAR_MAX_RANGE_PLAYER if team == Unit.Team.PLAYER else MORTAR_MAX_RANGE_ENEMY
 
 
+## How far from where it was deployed a mortar crew of `team` will go on its own account (a hunt, a
+## relocation): the same fractions of its own weapon's range for both sides ("It should have the same
+## constraints as the friendly mortar"). `extended` is the allowance for a confirmed target (see
+## MORTAR_HUNT_EXTENDED_RANGE_FROM_HOME): the whole range; otherwise half of it. The player's are exactly
+## MORTAR_HUNT_MAX_RANGE_FROM_HOME and MORTAR_HUNT_EXTENDED_RANGE_FROM_HOME.
+static func mortar_home_leash(team: Unit.Team, extended: bool = false) -> float:
+	return mortar_max_range(team) * (1.0 if extended else 0.5)
+
+
 ## Where the DRONE TEAM (the ground crew that launches and recovers the
 ## drones — see Unit.Kind.DRONE_TEAM) may deploy: the map's ordinary
 ## spotter zone, extended west across the whole rear area (the west flank).

@@ -692,6 +692,9 @@ var _drone_fallback_mortar_watch_unit: Unit = null
 # set up, no matter how good the intel on a target is or how far away
 # known enemy squads happen to be.
 var _friendly_mortar_home_position: Vector2 = Vector2.ZERO
+## Where each enemy mortar was deployed (Unit -> Vector2): its "home" for the same leash the friendly
+## mortar has (see _mortar_home_position). Set when the enemy force is spawned.
+var _enemy_mortar_homes: Dictionary = {}
 
 # Which reconnaissance setup this battle is using (see GameConfig.ReconMode)
 # — set from the doctrine dict in start_battle. DRONE_TEAM fields below are
@@ -1209,6 +1212,7 @@ func mortar_audio_debug_snapshot() -> Dictionary:
 
 
 func _spawn_enemy_units() -> void:
+	_enemy_mortar_homes.clear()
 	var road_px: Array[Vector2] = GameConfig.road_waypoints_px()
 	var force_size: Dictionary = roll_enemy_force_size()
 	var squad_y_offsets_m: Array[float] = GameConfig.enemy_squad_y_offsets_m(force_size.squads)
@@ -1243,6 +1247,7 @@ func _spawn_enemy_units() -> void:
 	for mortar_pos_m in GameConfig.enemy_mortar_positions_m(force_size.mortars):
 		var em := _make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, mortar_pos_m * GameConfig.PIXELS_PER_METER)
 		em.shoot_and_scoot = false
+		_enemy_mortar_homes[em] = em.global_position
 		_set_retreat_profile(em, Unit.Team.ENEMY)
 		enemy_units.append(em)
 
@@ -2705,7 +2710,19 @@ func _mortar_hunt_fix_for(m: Unit) -> Dictionary:
 ##   drone coverage backing an uncovered gamble.
 func _mortar_hunt_destination_for(m: Unit, target_pos: Vector2, trusted: bool) -> Vector2:
 	if m.team == Unit.Team.ENEMY:
-		return _mortar_advance_point(m, target_pos)
+		# Direct user report: "Enemy mortar just charged into our rear area. That's crazy." / "It should
+		# have the same constraints as the friendly mortar." The enemy's advance had none: only the walk
+		# to a point just inside range of the fix. It now keeps the same two the friendly crew does: within
+		# the leash of where it was deployed (the extended one: the enemy's fixes are always trusted) and
+		# never newly ahead of, or outside the band held by, its own infantry screen.
+		var enemy_dest := _mortar_advance_point(m, target_pos)
+		if enemy_dest == m.global_position:
+			return enemy_dest
+		if enemy_dest.distance_to(_mortar_home_position(m)) > GameConfig.mortar_home_leash(m.team, true):
+			return m.global_position
+		if _friendly_mortar_hunt_destination_is_reckless(m, enemy_dest):
+			return m.global_position
+		return enemy_dest
 	var dest := _friendly_mortar_hunt_point(m, target_pos)
 	if dest == m.global_position:
 		return m.global_position # no safe route found this tick — try again next tick
@@ -2967,25 +2984,37 @@ func _friendly_mortar() -> Unit:
 ## — the home-radius cap is left to do the only judging left possible in
 ## that case.
 func _friendly_mortar_hunt_destination_is_reckless(mortar: Unit, dest: Vector2) -> bool:
-	var frontmost_x := -INF
+	# Both sides' crews are held to this (the name is the player's, from when only they were): "ahead" is
+	# toward the enemy, east for the player and west for the enemy.
+	var forward: float = 1.0 if mortar.team == Unit.Team.PLAYER else -1.0
+	var frontmost := -INF # in the forward direction (x * forward)
 	var min_y := INF
 	var max_y := -INF
 	var found := false
-	for u in player_units:
+	var own_units: Array[Unit] = player_units if mortar.team == Unit.Team.PLAYER else enemy_units
+	for u in own_units:
 		if u.kind == Unit.Kind.SQUAD and u.state == Unit.State.ACTIVE:
 			found = true
-			frontmost_x = max(frontmost_x, u.global_position.x)
+			frontmost = max(frontmost, u.global_position.x * forward)
 			min_y = min(min_y, u.global_position.y)
 			max_y = max(max_y, u.global_position.y)
 	if not found:
 		return false
-	var already_ahead: bool = mortar.global_position.x > frontmost_x
+	var already_ahead: bool = mortar.global_position.x * forward > frontmost
 	var already_outside_band: bool = mortar.global_position.y < min_y or mortar.global_position.y > max_y
-	if dest.x > frontmost_x and not already_ahead:
+	if dest.x * forward > frontmost and not already_ahead:
 		return true
 	if (dest.y < min_y or dest.y > max_y) and not already_outside_band:
 		return true
 	return false
+
+
+## Where `m` was deployed: the leash for anything it does on its own account (a hunt, a relocation) is
+## measured from here. INF for an enemy mortar this battle has no record of (then nothing is measured).
+func _mortar_home_position(m: Unit) -> Vector2:
+	if m.team == Unit.Team.PLAYER:
+		return _friendly_mortar_home_position
+	return _enemy_mortar_homes.get(m, Vector2.INF)
 
 
 ## Forms and maintains the mortar/drone team's SHARED commitment to
@@ -8212,8 +8241,12 @@ func _mortar_relocation_plan(mortar: Unit, urgent: bool) -> Dictionary:
 	# later settle for whatever different, often much closer, candidate a
 	# later tick happened to find instead. Enemy has no tracked home
 	# position at all, so it gets no cap here, same as before.
-	var home_position: Vector2 = _friendly_mortar_home_position if mortar.team == Unit.Team.PLAYER else Vector2.INF
-	var home_leash: float = GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME if mortar.team == Unit.Team.PLAYER else INF
+	# Enemy mortars used to get no leash here ("Enemy has no tracked home position at all"), and one
+	# hiding from our fire wandered clear across the map into our rear: "Enemy mortar just charged into
+	# our rear area. That's crazy." ("It should have the same constraints as the friendly mortar.") Each
+	# is now held to the same leash from where it was deployed (_enemy_mortar_homes).
+	var home_position: Vector2 = _mortar_home_position(mortar)
+	var home_leash: float = GameConfig.mortar_home_leash(mortar.team) if not is_inf(home_position.x) else INF
 	# See _mortar_max_distance_from_home's own doc comment — a floor, not
 	# just a ceiling: whatever the best distance from home a PRIOR
 	# relocation this same danger episode already achieved, don't let a
@@ -8297,7 +8330,7 @@ func _mortar_relocation_plan(mortar: Unit, urgent: bool) -> Dictionary:
 	# the search itself respects the leash, but nearest_cover_point's own
 	# path (the no-known-threats branch above) has no leash awareness at
 	# all, so this still matters for that case.
-	if mortar.team == Unit.Team.PLAYER and destination.distance_to(_friendly_mortar_home_position) > GameConfig.MORTAR_HUNT_MAX_RANGE_FROM_HOME:
+	if not is_inf(home_position.x) and destination.distance_to(home_position) > home_leash:
 		return {}
 	var speed: float = GameConfig.MORTAR_RELOCATE_SPEED_URGENT if urgent else GameConfig.MORTAR_RELOCATE_SPEED
 	if GameConfig.get_terrain_type_at(destination) == GameConfig.TerrainType.TREES:
