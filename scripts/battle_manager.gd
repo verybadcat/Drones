@@ -4300,7 +4300,8 @@ func _drone_search_target() -> Vector2:
 			_drone_pilot_reasoning = {"tier": "Live mortar contact (no near-term plan)", "detail": "Watching a visible enemy mortar, but nothing's currently oriented to actually engage it — discounted so a real squad threat can compete for attention.", "target": best_pos}
 
 	var lead_pos := Vector2.INF
-	var best_fire_time := -INF
+	var best_lead_time := -INF
+	var lead_is_fire_detection := false
 	for u in enemy_units:
 		# A second, independent occurrence of the same unseen-kill bug (see _known_enemy_mortar_lead's
 		# own fix): this tier re-derives its own fire-detection lead straight from enemy_units instead of
@@ -4308,23 +4309,44 @@ func _drone_search_target() -> Vector2:
 		# the mortar's real, possibly more current state, is what the player actually has to go on.
 		if u.kind != Unit.Kind.MORTAR or u.player_known_state != Unit.State.ACTIVE:
 			continue
+		var candidate_pos := Vector2.INF
+		var candidate_time := -INF
+		var candidate_is_fire := false
 		var info: Dictionary = _last_detected_mortar_fire.get(u, {})
-		if info.is_empty():
+		if not info.is_empty() and scenario_elapsed_time - info.time <= GameConfig.DRONE_MORTAR_FIRE_LEAD_EXPIRY:
+			candidate_pos = info.position
+			candidate_time = info.time
+			candidate_is_fire = true
+		# Direct user report: "The drone just briefly saw an enemy mortar. Said mortar then disappeared
+		# from view. But even this brief sighting should be enough to cause the drone team to be aware of
+		# the mortar's existence and approximate location." A mortar that is merely SEEN, never fired
+		# while visible, left no _last_detected_mortar_fire trace at all — this tier used to have nothing
+		# to say about it once it went out of sight, even though _known_enemy_mortar_lead's own third
+		# fallback (player_known_position, no expiry — "a real crew doesn't forget where a gun was last
+		# seen") already exists for exactly this. Only overrides a fire-detection candidate if it is
+		# actually fresher; a real muzzle flash is still better evidence than an old sighting.
+		if u.player_has_been_sighted and not is_inf(u.player_known_position.x) and u.player_known_position_time > candidate_time:
+			candidate_pos = u.player_known_position
+			candidate_time = u.player_known_position_time
+			candidate_is_fire = false
+		if is_inf(candidate_pos.x):
 			continue
-		if scenario_elapsed_time - info.time > GameConfig.DRONE_MORTAR_FIRE_LEAD_EXPIRY:
+		if not _in_friendly_mortar_range(candidate_pos) or not _squad_order_permits_mortar_watch(candidate_pos):
 			continue
-		if not _in_friendly_mortar_range(info.position) or not _squad_order_permits_mortar_watch(info.position):
-			continue
-		if info.time > best_fire_time:
-			best_fire_time = info.time
-			lead_pos = info.position
+		if candidate_time > best_lead_time:
+			best_lead_time = candidate_time
+			lead_pos = candidate_pos
+			lead_is_fire_detection = candidate_is_fire
 	if not is_inf(lead_pos.x):
 		var lead_score: float = GameConfig.TARGET_PRIORITY_MORTAR * GameConfig.TARGET_PRIORITY_MORTAR_LEAD_DISCOUNT
 		if lead_score > best_score:
 			best_score = lead_score
 			best_pos = lead_pos
-			var lead_age: float = scenario_elapsed_time - best_fire_time
-			_drone_pilot_reasoning = {"tier": "Fresh mortar fire-detection lead", "detail": "Muzzle-flash/trajectory fix on an enemy mortar, %.0fs old, still in friendly mortar range." % lead_age, "target": best_pos}
+			var lead_age: float = scenario_elapsed_time - best_lead_time
+			if lead_is_fire_detection:
+				_drone_pilot_reasoning = {"tier": "Fresh mortar fire-detection lead", "detail": "Muzzle-flash/trajectory fix on an enemy mortar, %.0fs old, still in friendly mortar range." % lead_age, "target": best_pos}
+			else:
+				_drone_pilot_reasoning = {"tier": "Last-seen mortar position", "detail": "Not currently visible, but was seen %.0fs ago and hasn't been ruled out since — still in friendly mortar range." % lead_age, "target": best_pos}
 
 	# The team's shared joint commitment (_update_joint_mortar_hunt, run
 	# earlier this same tick) — full mortar priority, and deliberately NOT
