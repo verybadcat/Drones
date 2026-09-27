@@ -55,6 +55,22 @@ func setup_battle(friendly: int, enemy: int, at_m: Vector2 = Vector2(3500, 1500)
 func enemy_squads(bm) -> Array:
 	return bm.enemy_units.filter(func(u): return u.kind == Unit.Kind.SQUAD)
 
+## The largest real BUILDING zone on the actual loaded map, so cover-preference tests mean something
+## against real map data rather than a hand-picked coordinate that could silently stop meaning anything if
+## the map ever changes. {center, half_size}.
+func _largest_building() -> Dictionary:
+	var best_area := -1.0
+	var best := {"center": Vector2.INF, "half_size": Vector2.ZERO}
+	for zone in GameConfig.CURRENT_MAP.terrain_zones:
+		if zone.type != GameConfig.TerrainType.BUILDING:
+			continue
+		var area: float = zone.rect.size.x * zone.rect.size.y
+		if area > best_area:
+			best_area = area
+			best = {"center": zone.rect.get_center(), "half_size": zone.rect.size * 0.5}
+	return best
+
+
 func run() -> void:
 	test_two_to_one_attacks()
 	test_less_than_that_gathers_clear_of_our_squads()
@@ -62,8 +78,104 @@ func run() -> void:
 	test_far_advanced_squads_go_back_avoiding_our_squads()
 	test_the_way_round_and_the_nearness_penalty()
 	test_the_mortar_still_comes_first_and_nothing_known_changes_nothing()
+	test_squads_separate_from_each_other_when_gathered()
+	test_consolidation_score_costs_standing_on_a_sibling()
+	test_consolidation_point_seeking_cover_finds_real_nearby_cover()
+	test_consolidation_point_seeking_cover_leaves_a_covered_point_alone()
+	test_enemy_consolidation_point_itself_lands_in_cover_when_available()
 	print("Enemy consolidation tests: %d failures" % failures)
 	quit(1 if failures else 0)
+
+
+## Direct user report: "When the enemy squads consolidate around a position, they should have a bit more
+## separation from each other than what they are currently doing." Several squads start bunched together
+## (setup_battle's own `80 * i` spacing — 80m apart, essentially on top of one another) well under the 2:1
+## attack threshold; walked bound-by-bound (same idiom as test_far_advanced_squads_go_back_avoiding_our_
+## squads' own settling loop) until every squad stops moving, they must end up markedly more spread out
+## than the 80m they started at.
+func test_squads_separate_from_each_other_when_gathered() -> void:
+	var bm = setup_battle(3, 5, Vector2(3500, 1500)) # bunched only 80m apart at spawn
+	var squads: Array = enemy_squads(bm)
+	var starting_min_pairwise := INF
+	for i in squads.size():
+		for j in range(i + 1, squads.size()):
+			starting_min_pairwise = minf(starting_min_pairwise, squads[i].global_position.distance_to(squads[j].global_position))
+	check(starting_min_pairwise < m(100, 0).x, "Setup: the squads really do start bunched close together (%.0f m)" % (starting_min_pairwise / GameConfig.PIXELS_PER_METER))
+	for round in 60:
+		var moved := false
+		for e in squads:
+			var next: Vector2 = bm._consolidation_step(e)
+			if next != e.global_position:
+				moved = true
+			e.global_position = next
+		if not moved:
+			break
+	var settled_min_pairwise := INF
+	for i in squads.size():
+		for j in range(i + 1, squads.size()):
+			settled_min_pairwise = minf(settled_min_pairwise, squads[i].global_position.distance_to(squads[j].global_position))
+	check(settled_min_pairwise > BattleManager.ENEMY_CONSOLIDATION_SQUAD_SPACING * 0.5, "Settled squads keep meaningfully more than their 80m starting separation (got %.0f m)" % (settled_min_pairwise / GameConfig.PIXELS_PER_METER))
+	check(settled_min_pairwise > starting_min_pairwise * 2.0, "...a real improvement over the bunched starting point, not just noise (%.0f m -> %.0f m)" % [starting_min_pairwise / GameConfig.PIXELS_PER_METER, settled_min_pairwise / GameConfig.PIXELS_PER_METER])
+	cleanup(bm)
+
+
+## The separation term in isolation: standing exactly on a sibling costs more than standing clear of one,
+## same shape as the existing friendly-squad nearness check just below this in the file.
+func test_consolidation_score_costs_standing_on_a_sibling() -> void:
+	var bm = make_battle()
+	var target: Vector2 = m(3000, 1500)
+	var sibling: Vector2 = m(1500, 1500)
+	var on_sibling: float = bm._consolidation_score(sibling, target, [], [sibling])
+	var clear: float = bm._consolidation_score(sibling, target, [], [])
+	check(on_sibling > clear + BattleManager.ENEMY_CONSOLIDATION_SPACING_WEIGHT * 0.9, "Standing right on a sibling is costed against a bound (%.0f m worse)" % ((on_sibling - clear) / GameConfig.PIXELS_PER_METER))
+	var far_from_sibling: Vector2 = sibling + Vector2(BattleManager.ENEMY_CONSOLIDATION_SQUAD_SPACING * 2.0, 0)
+	var far_score: float = bm._consolidation_score(far_from_sibling, target, [], [sibling])
+	check(is_equal_approx(far_score, bm._consolidation_score(far_from_sibling, target, [], [])), "Well beyond the spacing distance, a sibling costs nothing")
+	cleanup(bm)
+
+
+## Direct user follow-up: "Also, they should prefer to consolidate where there is cover." Starting from a
+## real OPEN point a short, controlled distance from the largest actual BUILDING zone on the loaded map, the
+## search must find real cover instead of settling for open ground.
+func test_consolidation_point_seeking_cover_finds_real_nearby_cover() -> void:
+	var building: Dictionary = _largest_building()
+	check(not is_inf(building.center.x), "Setup: the map has at least one real BUILDING zone")
+	# Half the building's own half-width inside its near edge, along the search's own angle-0 axis (a
+	# radius-only, 30-degree-step ring search — see _consolidation_point_seeking_cover — always tries 180
+	# degrees, i.e. straight back the way it came), so at least one search radius lands solidly inside it
+	# regardless of the zone's exact real-world size.
+	var offset: float = building.half_size.x + 300.0 * GameConfig.PIXELS_PER_METER
+	var open_point: Vector2 = building.center + Vector2(offset, 0)
+	check(not GameConfig.is_in_cover(GameConfig.get_terrain_type_at(open_point)), "Setup: the starting point is open ground, not itself inside another zone")
+	var bm = make_battle()
+	var result: Vector2 = bm._consolidation_point_seeking_cover(open_point, [])
+	check(GameConfig.is_in_cover(GameConfig.get_terrain_type_at(result)), "The search finds real nearby cover instead of settling for open ground (result %s)" % (result / GameConfig.PIXELS_PER_METER))
+	cleanup(bm)
+
+
+## A point already in cover is left exactly alone — no reason to search at all.
+func test_consolidation_point_seeking_cover_leaves_a_covered_point_alone() -> void:
+	var building: Dictionary = _largest_building()
+	var bm = make_battle()
+	var result: Vector2 = bm._consolidation_point_seeking_cover(building.center, [])
+	check(result == building.center, "A point already in cover is returned unchanged")
+	cleanup(bm)
+
+
+## End-to-end through _enemy_consolidation_point() itself: enemy squads centred right next to real cover
+## (and no known friendly squads to push the point away at all) must have their shared gathering point
+## actually land in that cover, not just next to it.
+func test_enemy_consolidation_point_itself_lands_in_cover_when_available() -> void:
+	var building: Dictionary = _largest_building()
+	var offset: float = building.half_size.x + 300.0 * GameConfig.PIXELS_PER_METER
+	var open_point: Vector2 = building.center + Vector2(offset, 0)
+	var bm = make_battle()
+	for i in 3:
+		var e: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, open_point + m(0, 20.0 * i))
+		bm.enemy_units.append(e)
+	var point: Vector2 = bm._enemy_consolidation_point()
+	check(GameConfig.is_in_cover(GameConfig.get_terrain_type_at(point)), "The shared gathering point itself lands in real cover when there is some nearby (result %s)" % (point / GameConfig.PIXELS_PER_METER))
+	cleanup(bm)
 
 
 func test_two_to_one_attacks() -> void:
@@ -107,10 +219,23 @@ func test_less_than_that_gathers_clear_of_our_squads() -> void:
 				if f.kind == Unit.Kind.SQUAD:
 					nearest_before = minf(nearest_before, e.global_position.distance_to(f.global_position))
 					nearest_after = minf(nearest_after, e.move_target.distance_to(f.global_position))
-			check(nearest_after >= nearest_before - 1.0, "No squad's bound takes it toward ours (%.0f m to %.0f m)" % [nearest_before / GameConfig.PIXELS_PER_METER, nearest_after / GameConfig.PIXELS_PER_METER])
-	# Once gathered they wait: nothing to do, which is what lets a stalemate happen.
-	for e in enemy_squads(bm):
-		e.global_position = point + m(0, 40 * e.get_index() % 200)
+			# The real safety requirement ("avoiding the friendly squads") is staying clear of the standoff,
+			# not literally maximizing distance on every single bound: since squads now also step aside from
+			# a crowded sibling (direct user report: "they should have a bit more separation from each
+			# other"), and that side-step is unrelated to the friendly-avoidance direction, a bound can, in
+			# principle, trade a few meters of friendly clearance for real separation while both squads start
+			# and stay WAY beyond the standoff (nearest_before here is over 2000m against a 1500m standoff) —
+			# harmless, and no longer literally monotonic once two independent concerns are both in play.
+			check(nearest_after >= BattleManager.ENEMY_CONSOLIDATION_STANDOFF - 1.0, "No squad's bound brings it within the standoff of ours (%.0f m to %.0f m)" % [nearest_before / GameConfig.PIXELS_PER_METER, nearest_after / GameConfig.PIXELS_PER_METER])
+	# Once gathered AND properly separated from each other they wait: nothing to do, which is what lets a
+	# stalemate happen. (Bunched together, even right at the point, is no longer "gathered" on its own — see
+	# the dedicated separation tests below; this checks the true settled end state.) Placed evenly around a
+	# circle comfortably inside ARRIVE_RADIUS (so every one of them still reads as "arrived" at the shared
+	# point) with an adjacent-pair chord distance comfortably beyond SQUAD_SPACING.
+	var squads_here: Array = enemy_squads(bm)
+	for e in squads_here:
+		var angle: float = TAU * float(e.get_index()) / float(squads_here.size())
+		e.global_position = point + Vector2(250.0 * GameConfig.PIXELS_PER_METER, 0).rotated(angle)
 		e.has_move_target = false
 		e.move_queue.clear()
 	bm._update_enemy_squad_advance()
@@ -118,7 +243,7 @@ func test_less_than_that_gathers_clear_of_our_squads() -> void:
 	for e in enemy_squads(bm):
 		if not e.has_move_target:
 			still += 1
-	check(still == enemy_squads(bm).size(), "Gathered, they stand still (%d of %d)" % [still, enemy_squads(bm).size()])
+	check(still == enemy_squads(bm).size(), "Gathered and properly spread out, they stand still (%d of %d)" % [still, enemy_squads(bm).size()])
 	cleanup(bm)
 
 

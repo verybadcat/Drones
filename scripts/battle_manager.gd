@@ -7632,6 +7632,26 @@ const ENEMY_ATTACK_KEEP_RATIO: float = 1.6
 const ENEMY_CONSOLIDATION_STANDOFF: float = 1500.0 * GameConfig.PIXELS_PER_METER
 ## How close to the point counts as gathered.
 const ENEMY_CONSOLIDATION_ARRIVE_RADIUS: float = 300.0 * GameConfig.PIXELS_PER_METER
+## Direct user report: "When the enemy squads consolidate around a position, they should have a bit more
+## separation from each other than what they are currently doing." Before this, _consolidation_score had no
+## term at all for another consolidating squad — only for the friendly squads being avoided — so every
+## squad steered toward the exact same shared point with nothing pushing them apart, and ended up standing
+## on top of one another. How far apart consolidated squads try to stay from each other. Deliberately much
+## tighter than ENEMY_CONSOLIDATION_STANDOFF (which is about staying clear of an armed friendly squad's own
+## fire) — this is just "don't stand on top of each other while waiting," not a defensive dispersal against
+## a specific weapon; up to ENEMY_SQUAD_COUNT_MAX (10) squads still have to fit within a reasonably sized
+## gathering area around one shared point. JUDGMENT.
+const ENEMY_CONSOLIDATION_SQUAD_SPACING: float = 200.0 * GameConfig.PIXELS_PER_METER
+## The max penalty (at zero separation, decaying to none at ENEMY_CONSOLIDATION_SQUAD_SPACING) for standing
+## close to another consolidating squad — half of the friendly-squad-avoidance term's own weight just below
+## in _consolidation_score: real separation from a fellow squad matters less than staying clear of an armed
+## threat, but should still be a genuine, felt preference, not a token nudge.
+const ENEMY_CONSOLIDATION_SPACING_WEIGHT: float = GameConfig.ENEMY_ADVANCE_RUSH_DISTANCE
+## Direct user follow-up: "Also, they should prefer to consolidate where there is cover." A flat,
+## distance-equivalent bonus (comparable to a single advance bound) for a candidate settling spot that's
+## actually in cover terrain — see GameConfig.ENEMY_ADVANCE_COVER_BONUS for the equivalent, differently-
+## scaled preference already applied to the ordinary advance-by-bounds.
+const ENEMY_CONSOLIDATION_COVER_BONUS: float = GameConfig.ENEMY_ADVANCE_RUSH_DISTANCE * 0.75
 
 
 ## Where the enemy squads gather when they will not attack: the centre of their own squads, moved away from
@@ -7665,8 +7685,36 @@ func _enemy_consolidation_point() -> Vector2:
 				break
 			var away: Vector2 = (point - centre).normalized() if point.distance_to(centre) > 1.0 else Vector2.RIGHT
 			point = GameConfig.clamp_to_operating_area(point + away * (ENEMY_CONSOLIDATION_STANDOFF - nearest + 100.0 * GameConfig.PIXELS_PER_METER))
+	point = _consolidation_point_seeking_cover(point, known)
 	_enemy_consolidation = point
 	return point
+
+
+## Direct user follow-up: "Also, they should prefer to consolidate where there is cover." A ring search
+## (same idiom as GameConfig's own concealment searches) around the raw computed point for the nearest spot
+## that's actually in cover terrain, still kept clear of every known friendly squad by ENEMY_CONSOLIDATION_
+## STANDOFF — reusing _consolidation_score's own distance-plus-friendly-avoidance shape (siblings omitted:
+## nothing has actually converged on this exact point yet the first time it's chosen) so "how far from the
+## raw point" and "how close to a friendly squad" are weighed the same way here as everywhere else this
+## point is used. Falls back to the raw point unchanged if nothing in cover turns up nearby, or if it's
+## already in cover — a real gathering spot doesn't NEED cover to exist, this is a preference, not a
+## requirement. Only ever runs when the point is first chosen or re-chosen (see _enemy_consolidation's own
+## "kept once chosen" caching above), not every tick.
+func _consolidation_point_seeking_cover(point: Vector2, known: Array[Vector2]) -> Vector2:
+	if GameConfig.is_in_cover(GameConfig.get_terrain_type_at(point)):
+		return point
+	var best: Vector2 = point
+	var best_score: float = _consolidation_score(point, point, known)
+	for radius_m in [300.0, 600.0, 900.0, 1200.0]:
+		for angle_deg in range(0, 360, 30):
+			var candidate: Vector2 = GameConfig.clamp_to_operating_area(point + Vector2.RIGHT.rotated(deg_to_rad(angle_deg)) * radius_m * GameConfig.PIXELS_PER_METER)
+			if not GameConfig.is_in_cover(GameConfig.get_terrain_type_at(candidate)):
+				continue
+			var score: float = _consolidation_score(candidate, point, known)
+			if score < best_score:
+				best_score = score
+				best = candidate
+	return best
 
 
 ## The friendly squads the enemy knows of, where it last saw them.
@@ -7678,30 +7726,98 @@ func _known_friendly_squad_positions() -> Array[Vector2]:
 	return out
 
 
+## Other ACTIVE enemy squads' own positions — or their pending destination, if `_update_enemy_squad_advance`
+## already decided one for them earlier this same tick (same reasoning as _sibling_mortar_positions: that
+## function processes every squad in a fixed order each tick, so without this, two squads consolidating the
+## same tick would each only see the other's stale pre-decision position and could still converge on nearby
+## spots despite each individually "avoiding" the other's old one). Fed into _consolidation_score so squads
+## settling near the shared gathering point spread out from EACH OTHER, not just from the friendly squads
+## they're keeping clear of. Direct user report: "When the enemy squads consolidate around a position, they
+## should have a bit more separation from each other than what they are currently doing."
+func _sibling_consolidating_squad_positions(u: Unit) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for o in enemy_units:
+		if o == u or o.kind != Unit.Kind.SQUAD or o.state != Unit.State.ACTIVE:
+			continue
+		out.append(o.move_target if o.has_move_target else o.global_position)
+	return out
+
+
 ## One bound of an enemy squad toward the consolidation point that keeps clear of the friendly squads it
 ## knows of ("far-advanced enemies would try to navigate back ... avoiding the friendly squads"): among
 ## bounds at a spread of angles off the straight line, the one that leaves it nearest the point once the
-## nearness of each known friendly squad (inside ENEMY_CONSOLIDATION_STANDOFF) is counted against it.
+## nearness of each known friendly squad (inside ENEMY_CONSOLIDATION_STANDOFF) and each other consolidating
+## squad (inside ENEMY_CONSOLIDATION_SQUAD_SPACING) is counted against it, and cover is credited toward it.
 ## Returns the squad's own position when it is gathered, or no bound improves on staying.
+##
+## Direct user report: "When the enemy squads consolidate around a position, they should have a bit more
+## separation from each other than what they are currently doing." A squad already within ARRIVE_RADIUS of
+## the shared point used to stop unconditionally right there, with no separation check at all — the common
+## case for a group that was already bunched together BEFORE deciding to consolidate at all (their own
+## centroid, where _enemy_consolidation_point starts from, sits right among them). Now "arrived" also
+## requires not still crowding a sibling; if it is, one more bound is taken to step clear. `to_goal` is
+## degenerate in exactly that case (already essentially at the goal), so the bound direction falls back to
+## straight away from the nearest sibling instead of toward a goal there's no real distance left to aim at.
 func _consolidation_step(u: Unit) -> Vector2:
 	var target: Vector2 = _enemy_consolidation_point()
-	var to_target: Vector2 = target - u.global_position
-	var dist: float = to_target.length()
-	if dist <= ENEMY_CONSOLIDATION_ARRIVE_RADIUS:
+	var dist: float = target.distance_to(u.global_position)
+	var siblings: Array[Vector2] = _sibling_consolidating_squad_positions(u)
+	if dist <= ENEMY_CONSOLIDATION_ARRIVE_RADIUS and not _too_close_to_a_sibling(u.global_position, siblings):
 		return u.global_position
 	var known: Array[Vector2] = _known_friendly_squad_positions()
 	var goal: Vector2 = _consolidation_goal(u.global_position, target, known)
 	var to_goal: Vector2 = goal - u.global_position
-	var step: float = minf(to_goal.length(), GameConfig.ENEMY_ADVANCE_RUSH_DISTANCE)
+	var to_goal_len: float = to_goal.length()
+	var has_real_goal: bool = to_goal_len > 1.0
+	var bound_dir: Vector2 = to_goal.normalized() if has_real_goal else _direction_away_from_nearest(u.global_position, siblings)
+	var step: float = minf(to_goal_len, GameConfig.ENEMY_ADVANCE_RUSH_DISTANCE) if has_real_goal else GameConfig.ENEMY_ADVANCE_RUSH_DISTANCE
+	# The normal ±120-degree sweep off `to_goal` (below) is meaningless once there's no real goal distance
+	# left to aim it from — `bound_dir` there is only "away from the nearest sibling," a direction with no
+	# relationship to where any known friendly squad is, so a narrow sweep around it could easily miss every
+	# candidate that's actually clear of them. A real, previously-reported failure, caught by this project's
+	# own test suite: a squad already gathered but still crowding a sibling could end up moving MEASURABLY
+	# closer to a friendly squad while only trying to create separation. The full circle lets the scoring
+	# (which already penalizes both) actually find a direction that's good on both counts.
+	var angles_deg: Array[float] = GameConfig.ENEMY_ADVANCE_ANGLES_DEG
+	if not has_real_goal:
+		angles_deg = []
+		for a in range(0, 360, 30):
+			angles_deg.append(float(a))
 	var best: Vector2 = u.global_position
-	var best_score: float = _consolidation_score(u.global_position, goal, known)
-	for angle_deg in GameConfig.ENEMY_ADVANCE_ANGLES_DEG:
-		var p: Vector2 = GameConfig.clamp_to_operating_area(u.global_position + to_goal.normalized().rotated(deg_to_rad(angle_deg)) * step)
-		var score: float = _consolidation_score(p, goal, known)
+	var best_score: float = _consolidation_score(u.global_position, goal, known, siblings)
+	for angle_deg in angles_deg:
+		var p: Vector2 = GameConfig.clamp_to_operating_area(u.global_position + bound_dir.rotated(deg_to_rad(angle_deg)) * step)
+		var score: float = _consolidation_score(p, goal, known, siblings)
 		if score < best_score:
 			best_score = score
 			best = p
 	return best
+
+
+## True if `pos` is closer than ENEMY_CONSOLIDATION_SQUAD_SPACING to any position in `siblings`.
+func _too_close_to_a_sibling(pos: Vector2, siblings: Array[Vector2]) -> bool:
+	for s in siblings:
+		if pos.distance_to(s) < ENEMY_CONSOLIDATION_SQUAD_SPACING:
+			return true
+	return false
+
+
+## Straight away from whichever of `positions` is nearest to `from` — the natural bound direction for
+## stepping clear of a crowded neighbor when there's no remaining goal distance left to aim a bound at (see
+## _consolidation_step's own doc comment). Vector2.RIGHT if `positions` is empty or `from` already coincides
+## exactly with the nearest one (a real, if arbitrary, direction beats a zero vector, which would leave
+## `.rotated()` unable to spread the search across any angle at all).
+func _direction_away_from_nearest(from: Vector2, positions: Array[Vector2]) -> Vector2:
+	var nearest := Vector2.INF
+	var nearest_dist := INF
+	for p in positions:
+		var d: float = from.distance_to(p)
+		if d < nearest_dist:
+			nearest_dist = d
+			nearest = p
+	if is_inf(nearest.x) or nearest_dist < 1.0:
+		return Vector2.RIGHT
+	return (from - nearest).normalized()
 
 
 ## Where a bound toward the consolidation point is really aimed: the point itself, unless the straight line
@@ -7739,11 +7855,20 @@ func _consolidation_goal(from: Vector2, target: Vector2, known: Array[Vector2]) 
 
 
 ## Lower is better: the distance still to go, plus the nearness of the friendly squads (a full
-## ENEMY_ADVANCE_RUSH_DISTANCE-worth for standing on one, fading to nothing at the standoff).
-func _consolidation_score(p: Vector2, target: Vector2, known: Array[Vector2]) -> float:
+## ENEMY_ADVANCE_RUSH_DISTANCE-worth for standing on one, fading to nothing at the standoff), plus the
+## nearness of another consolidating squad (ENEMY_CONSOLIDATION_SPACING_WEIGHT's worth for standing right
+## on one, fading to nothing at ENEMY_CONSOLIDATION_SQUAD_SPACING — a real but gentler preference than the
+## friendly-squad term, since this is about not crowding a friend, not staying clear of an armed threat),
+## minus a flat bonus for actually landing in cover (direct user follow-up: "they should prefer to
+## consolidate where there is cover").
+func _consolidation_score(p: Vector2, target: Vector2, known: Array[Vector2], siblings: Array[Vector2] = []) -> float:
 	var score: float = p.distance_to(target)
 	for k in known:
 		score += 2.0 * GameConfig.ENEMY_ADVANCE_RUSH_DISTANCE * clampf(1.0 - p.distance_to(k) / ENEMY_CONSOLIDATION_STANDOFF, 0.0, 1.0)
+	for s in siblings:
+		score += ENEMY_CONSOLIDATION_SPACING_WEIGHT * clampf(1.0 - p.distance_to(s) / ENEMY_CONSOLIDATION_SQUAD_SPACING, 0.0, 1.0)
+	if GameConfig.is_in_cover(GameConfig.get_terrain_type_at(p)):
+		score -= ENEMY_CONSOLIDATION_COVER_BONUS
 	return score
 
 
