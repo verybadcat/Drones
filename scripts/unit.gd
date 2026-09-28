@@ -775,7 +775,14 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 			var resupply_reference := Vector2(edge_x, global_position.y)
 			move_target = GameConfig.retreat_cover_point_toward(global_position, resupply_reference, known_enemy_positions, retreat_dir, avoid_buildings)
 		elif (kind == Kind.SPOTTER or kind == Kind.DRONE_TEAM) and not known_enemy_positions.is_empty():
-			move_target = GameConfig.safest_cover_point(global_position, known_enemy_positions, retreat_dir, avoid_buildings)
+			# Direct user report: "Spotter retreated off the top of the map last battle. That should not be
+			# allowed. Has to go to the friendly map edge." Same "cover is a MEANS to reaching the edge, not
+			# a competing goal" reference-point fix as the plain-squad branch just below (and
+			# retreat_cover_point_toward's own, for the mortar) — safest_cover_point's own "nearest few,
+			# then safest of those" cut had nothing at all bounding how far the DETOUR itself could run
+			# north or south, only which side of the map it stayed on.
+			var reference_point := Vector2(retreat_target_x, global_position.y)
+			move_target = GameConfig.safest_cover_point(global_position, known_enemy_positions, retreat_dir, avoid_buildings, reference_point)
 		else:
 			# Same "cover is a MEANS to reaching the edge, not a competing
 			# goal" principle as retreat_cover_point_toward's own doc

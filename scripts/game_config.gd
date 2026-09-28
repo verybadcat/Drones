@@ -6950,16 +6950,41 @@ static func _prefer_clear_path(candidates: Array[Dictionary], from: Vector2, avo
 ## nearest currently-known enemy position. With no known enemies, behaves
 ## like nearest_cover_point.
 ##
-## `retreat_dir` / `avoid_buildings` — see nearest_cover_point.
-static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vector2], retreat_dir: float = 0.0, avoid_buildings: bool = false) -> Vector2:
+## Direct user report: "Spotter retreated off the top of the map last battle.
+## That should not be allowed. Has to go to the friendly map edge." `retreat_dir`
+## already keeps this on the correct SIDE (never back toward the enemy), but
+## did nothing at all about how far north or south a detour could run — the
+## exact gap `retreat_cover_point_toward`'s own doc comment already
+## identified and fixed for the mortar's retreat, never carried over here for
+## the spotter's. "Nearest few, then safest of those" alone doesn't prevent
+## it either: raw Euclidean distance doesn't penalize a large Y excursion
+## any more than an equal X one, so a cover zone far to the north can still
+## be among the "nearest few" purely by being close in X. `reference_point`
+## (see nearest_cover_point's own doc comment for the identical mechanism)
+## folds the zone's own distance to the real destination (the friendly edge,
+## at this unit's OWN current y) into the same figure the "nearest few" cut
+## is made on — a zone that requires a real detour north or south now costs
+## for it TWICE (once getting there, once getting from there back to the
+## edge's own y), so it has to buy that detour with a real safety gain to
+## survive the initial cut, not just happen to be close enough by X alone.
+## Safety among the survivors is still the tie-break, unchanged — this
+## bounds how far it may reach for that safety, not what it optimizes for.
+##
+## `retreat_dir` / `avoid_buildings` — see nearest_cover_point. `reference_point`
+## — see nearest_cover_point's own identical parameter; Vector2.INF (the
+## default) leaves every non-retreat caller exactly as before.
+static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vector2], retreat_dir: float = 0.0, avoid_buildings: bool = false, reference_point: Vector2 = Vector2.INF) -> Vector2:
 	if known_enemy_positions.is_empty():
-		return nearest_cover_point(from, retreat_dir, avoid_buildings)
+		return nearest_cover_point(from, retreat_dir, avoid_buildings, [], [], [], [], Vector2.ZERO, Vector2.INF, reference_point)
 
 	var candidates: Array[Dictionary] = []
 	for zone in _all_cover_zones():
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
 			continue
-		candidates.append({"zone": zone, "dist_from_self": from.distance_to(zone.center)})
+		var d: float = from.distance_to(zone.center)
+		if reference_point != Vector2.INF:
+			d += zone.center.distance_to(reference_point)
+		candidates.append({"zone": zone, "dist_from_self": d})
 	if candidates.is_empty():
 		return from
 
