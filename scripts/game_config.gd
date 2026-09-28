@@ -7987,6 +7987,23 @@ const TREE_CANOPY_HEIGHT_M: float = 15.0
 const TREE_SIGHT_ATTENUATION_LENGTH_M: float = 80.0
 const TREE_SIGHT_KEEP_TRANSMISSION: float = 0.08
 const TREE_SIGHT_LOSS_GRACE_S: float = 15.0 # tactical seconds
+
+## Direct user report: "Enemy squads were just flashing visibility at our retreating squads when the
+## enemies fired." Confirmed there is no firing-specific reveal for a squad (that's a mortar-only
+## mechanic, its muzzle-flash/trajectory detection) — ordinary squad visibility is pure range + line of
+## sight, recomputed every tick, and BattleManager._refresh_visibility already gives trees a real grace
+## period against exactly this kind of flicker (TREE_SIGHT_LOSS_GRACE_S above) but drops a target at once
+## for every other reason, RANGE included: "Building or hill should drop it at once. But in the case of
+## range, once a unit has been spotted, let's have it stay spotted up to 150% of the range to spot it in
+## the first place. Once you've seen someone, it is easier to track them, even if they get further away."
+## Two units maneuvering near each other during a firefight (a retreating squad and the one engaging it)
+## will naturally hover right around the plain spotting range — the same range firing itself needs LOS
+## and proximity for — so without hysteresis here, ordinary closing/opening drift snaps visibility on and
+## off in step with it. Used only by CombatResolver.has_live_observer's own `retained` argument, which
+## multiplies the ordinary effective_detection_range by this fraction — the hard geometric LOS block
+## (has_direct_los/has_aerial_los) is completely unaffected and still drops a target at once behind a
+## building or a hill, exactly as before.
+const VISIBILITY_RETAIN_RANGE_FRACTION: float = 1.5
 const _CANOPY_CELL_M: float = 10.0
 const _CANOPY_MAX_SAMPLES: int = 140
 ## A cached pair's transmission is reused until either end has moved this far.

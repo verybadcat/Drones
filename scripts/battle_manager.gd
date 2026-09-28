@@ -6688,15 +6688,22 @@ func _refresh_visibility(observers: Array[Unit], targets: Array[Unit], scenario_
 		if target.state == Unit.State.DESTROYED or target.state == Unit.State.SURRENDERED:
 			continue
 		if target.is_visible:
-			if CombatResolver.has_live_observer(target, observers):
+			# `retained` (true here — see has_live_observer's own doc comment): a target already in view
+			# doesn't lose that the instant it drifts a few meters past the range it took to first notice
+			# it — real tracking has more inertia than first acquisition. Direct user report: "Enemy
+			# squads were just flashing visibility at our retreating squads when the enemies fired... once
+			# a unit has been spotted, let's have it stay spotted up to 150% of the range." Building/hill
+			# LOS is untouched by this and still drops a target at once, per that same instruction.
+			if CombatResolver.has_live_observer(target, observers, false, true):
 				_tree_sight_lost_for.erase(target)
 			else:
 				# Someone would still see it but for the woods in between:
 				# give that TREE_SIGHT_LOSS_GRACE_S of continuous failure
 				# first, so a squad slipping in and out of a tree line
 				# doesn't flash in and out of view. Any other reason to
-				# lose it (building, hill, range) drops it at once.
-				var lost_to_trees: bool = CombatResolver.has_live_observer(target, observers, true)
+				# lose it (building, hill, range) drops it at once, range
+				# already widened by `retained` above.
+				var lost_to_trees: bool = CombatResolver.has_live_observer(target, observers, true, true)
 				var failing_for: float = _tree_sight_lost_for.get(target, 0.0) + scenario_delta
 				if lost_to_trees and failing_for < GameConfig.TREE_SIGHT_LOSS_GRACE_S:
 					_tree_sight_lost_for[target] = failing_for

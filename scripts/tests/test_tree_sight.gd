@@ -171,7 +171,50 @@ func run() -> void:
 	test_woods_cut_the_spotting_rate()
 	test_keeping_sight_is_easier_and_has_a_grace()
 	test_pair_cache()
+	test_retained_visibility_extends_range_but_not_a_building_block()
 	if _saved_map_id != "":
 		GameConfig.set_active_map(_saved_map_id)
 	print("Tree sight tests: %d failures" % failures)
 	quit(1 if failures else 0)
+
+
+## Direct user report: "Enemy squads were just flashing visibility at our retreating squads when the
+## enemies fired... once a unit has been spotted, let's have it stay spotted up to 150% of the range to
+## spot it in the first place. Once you've seen someone, it is easier to track them, even if they get
+## further away." Away from the test map's own wood (y=1200, same "open control" row the spotting-rate
+## test above uses), so range is the only thing in play.
+func test_retained_visibility_extends_range_but_not_a_building_block() -> void:
+	use_test_map(false)
+	var bm = make_battle()
+	var obs: Unit = unit(bm, Unit.Team.PLAYER, Unit.Kind.SQUAD, Vector2(2350, 1200))
+	var base_range_m: float = GameConfig.DETECTION_BASE_RANGE / GameConfig.PIXELS_PER_METER
+	check(is_equal_approx(base_range_m, 900.0), "Setup: the plain ground detection range is the expected 900 m")
+
+	# Just past the plain range, but well inside 150% of it: a freshly-spotted target here would NOT be
+	# acquired by roll_spot (over range), but an ALREADY-visible one must not be dropped for drifting here.
+	var retained: Unit = unit(bm, Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(2350 + base_range_m * 1.2, 1200))
+	retained.is_visible = true
+	check(not CombatResolver.has_live_observer(retained, [obs]), "Setup: 120% of range is genuinely beyond the plain (unretained) range")
+	check(CombatResolver.has_live_observer(retained, [obs], false, true), "...but within the retained (150%) range, so an already-visible target stays live")
+	bm._refresh_visibility(bm.player_units, bm.enemy_units, 1.0)
+	check(retained.is_visible, "An already-spotted target at 120% of the base range must stay visible")
+
+	# Beyond even 150%: it must actually drop, and drop AT ONCE (no woods-style grace — there are no
+	# woods anywhere near this row).
+	var too_far: Unit = unit(bm, Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(2350 + base_range_m * 1.6, 1200))
+	too_far.is_visible = true
+	bm._refresh_visibility(bm.player_units, bm.enemy_units, 1.0)
+	check(not too_far.is_visible, "Beyond even the retained 150% range, a target must actually drop")
+
+	# The user's own explicit distinction: a building blocking LOS must still drop a target AT ONCE, even
+	# well within the retained range — "Building or hill should drop it at once."
+	var behind_building: Unit = unit(bm, Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(2350 + base_range_m * 0.3, 1200))
+	behind_building.is_visible = true
+	var building_center_m := Vector2(2350.0 + base_range_m * 0.15, 1200.0) # midway along the sightline
+	var building_rect := Rect2((building_center_m - Vector2(20.0, 50.0)) * GameConfig.PIXELS_PER_METER, Vector2(40.0, 100.0) * GameConfig.PIXELS_PER_METER)
+	var map_copy: Dictionary = GameConfig.CURRENT_MAP
+	map_copy.terrain_zones = [{"rect": building_rect, "type": GameConfig.TerrainType.BUILDING}]
+	GameConfig._recompute_map_derived_state()
+	check(not GameConfig.has_direct_los(obs.global_position, behind_building.global_position), "Setup: the building really does sit between observer and target")
+	bm._refresh_visibility(bm.player_units, bm.enemy_units, 1.0)
+	check(not behind_building.is_visible, "A building blocking line of sight drops a target at once, retained range or not")

@@ -243,11 +243,12 @@ static func _roll_ground_notices_drone(observer: Unit, target: Unit, scenario_de
 
 ## True if ANY unit in `observers` currently has clear, in-range line of
 ## sight to `target` right now. This is what keeps a currently-visible
-## target visible (or makes it visible instantly, e.g. when it fires) — the
-## moment nobody qualifies any more, the target stops being visible. Uses
-## the exact same range rule as roll_spot (effective_detection_range) but
-## with no concealment-based chance roll — this asks "could someone be
-## watching it right now," not "did anyone just now notice it."
+## target visible — the moment nobody qualifies any more, the target stops
+## being visible. Uses the exact same range rule as roll_spot (effective_
+## detection_range), optionally widened by `retained` — see its own doc
+## comment below — but with no concealment-based chance roll — this asks
+## "could someone be watching it right now," not "did anyone just now
+## notice it."
 ##
 ## A ground observer's view also has to get through the woods between them
 ## (GameConfig.tree_sight_transmission) — but only to TREE_SIGHT_KEEP_TRANSMISSION,
@@ -255,12 +256,29 @@ static func _roll_ground_notices_drone(observer: Unit, target: Unit, scenario_de
 ## drops that one test, so BattleManager can tell "lost only because of
 ## woods" (which gets a grace period before the target really drops) apart
 ## from "lost to a building, a hill or range" (which is immediate).
-static func has_live_observer(target: Unit, observers: Array[Unit], ignore_trees: bool = false) -> bool:
+##
+## `retained` — true only when checking whether an ALREADY-visible target
+## should stay that way (BattleManager._refresh_visibility's own "is_visible"
+## branch). Direct user report: "Enemy squads were just flashing visibility
+## at our retreating squads when the enemies fired... once a unit has been
+## spotted, let's have it stay spotted up to 150% of the range to spot it in
+## the first place. Once you've seen someone, it is easier to track them,
+## even if they get further away." Widens the pure RANGE test by
+## GameConfig.VISIBILITY_RETAIN_RANGE_FRACTION; never touches the hard
+## geometric LOS block (has_direct_los/has_aerial_los), which still drops a
+## target at once behind a building or a hill either way, exactly as before.
+## Every other caller here is asking a different, present-tense question
+## ("is anyone watching RIGHT NOW," for fire-adjustment quality or a
+## drone-only-sighting check) rather than "has this contact been kept," and
+## leaves this false, unaffected.
+static func has_live_observer(target: Unit, observers: Array[Unit], ignore_trees: bool = false, retained: bool = false) -> bool:
 	for observer in observers:
 		if observer.state != Unit.State.ACTIVE:
 			continue
 		var distance: float = observer.global_position.distance_to(target.global_position)
 		var live_range: float = effective_detection_range(observer, target)
+		if retained:
+			live_range *= GameConfig.VISIBILITY_RETAIN_RANGE_FRACTION
 		if distance > live_range or live_range <= 0.0:
 			continue
 		var has_los: bool = GameConfig.has_aerial_los(observer.global_position, target.global_position) if observer.kind == Unit.Kind.DRONE \
