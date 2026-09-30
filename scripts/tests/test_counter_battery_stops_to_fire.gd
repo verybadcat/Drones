@@ -48,6 +48,10 @@ func run() -> void:
 	test_a_spotted_or_endangered_responder_waits_too()
 	test_a_drone_alone_counts_only_if_the_crew_has_seen_it()
 	test_ordinary_fire_is_already_gated_the_same_for_both_sides()
+	test_counter_battery_fire_spends_ammo()
+	test_a_responder_that_runs_dry_before_firing_aborts_the_mission()
+	test_a_dry_responder_never_takes_on_a_counter_battery_mission()
+	test_a_responder_already_committed_does_not_take_on_a_second_mission()
 	print("Counter-battery movement tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
@@ -179,3 +183,87 @@ func test_ordinary_fire_is_already_gated_the_same_for_both_sides() -> void:
 			if not mortar.has_move_target:
 				break
 		cleanup(bm)
+
+
+## Direct user report: "In the history, it is not showing expenditure of ammunition for friendly counter
+## battery fire." Root cause: a counter-battery reply never went through _launch_mortar_shot (the only
+## other place mortar_rounds_remaining was ever decremented) — it fired through its own separate scheduling
+## path that never touched ammo at all.
+func test_counter_battery_fire_spends_ammo() -> void:
+	var bm = make_battle()
+	var responder: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, m(4700, 1200))
+	bm.enemy_units.append(responder)
+	var target: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, m(500, 1200))
+	bm.player_units.append(target)
+	var starting_ammo: int = responder.mortar_rounds_remaining
+	check(starting_ammo > 0, "Setup: the responder starts with real ammunition on hand")
+	responder.seconds_stationary = GameConfig.MORTAR_SETUP_TEARDOWN_TIME
+	bm._pending_counter_battery.append({
+		"attacker": responder, "target": target, "impact_position": target.global_position,
+		"fire_time": bm.scenario_elapsed_time, "impact_time": bm.scenario_elapsed_time + GameConfig.MORTAR_FLIGHT_TIME, "fired": false,
+	})
+	bm._resolve_pending_counter_battery()
+	check(bm._pending_counter_battery[0].fired, "Setup: it actually fires this tick")
+	check(responder.mortar_rounds_remaining == starting_ammo - 1, "Firing the counter-battery reply spends exactly one round (%d -> %d)" % [starting_ammo, responder.mortar_rounds_remaining])
+	cleanup(bm)
+
+
+## A crew that ran dry (most plausibly by firing an ordinary shot) in the gap between the mission being
+## called in and its own fire_time arriving cannot conjure a round from nowhere — the mission is dropped,
+## nothing lands, exactly like a crew knocked out before it could fire.
+func test_a_responder_that_runs_dry_before_firing_aborts_the_mission() -> void:
+	var bm = make_battle()
+	var responder: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, m(4700, 1200))
+	bm.enemy_units.append(responder)
+	var target: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, m(500, 1200))
+	bm.player_units.append(target)
+	responder.seconds_stationary = GameConfig.MORTAR_SETUP_TEARDOWN_TIME
+	responder.mortar_rounds_remaining = 0
+	bm._pending_counter_battery.append({
+		"attacker": responder, "target": target, "impact_position": target.global_position,
+		"fire_time": bm.scenario_elapsed_time, "impact_time": bm.scenario_elapsed_time + GameConfig.MORTAR_FLIGHT_TIME, "fired": false,
+	})
+	bm._resolve_pending_counter_battery()
+	check(bm._pending_counter_battery.is_empty(), "No rounds left to fire the reply with: the mission is dropped, nothing lands")
+	cleanup(bm)
+
+
+## Direct user report: "It also shows counter battery fire at two mortars at the same time." Root cause:
+## nothing stopped a dry-of-ammo (or already-committed) responder from being newly tasked. Both new checks
+## in _resolve_mortar_counter_battery run BEFORE its own randf() roll, so these are deterministic regardless
+## of GameConfig.MORTAR_COUNTER_BATTERY_CHANCE.
+func test_a_dry_responder_never_takes_on_a_counter_battery_mission() -> void:
+	var bm = make_battle()
+	var responder: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, m(4700, 1200))
+	bm.enemy_units.append(responder)
+	responder.mortar_rounds_remaining = 0
+	var firing: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, m(500, 1200))
+	bm.player_units.append(firing)
+	bm._resolve_mortar_counter_battery(firing)
+	check(bm._pending_counter_battery.is_empty(), "A dry responder cannot credibly commit to counter-battery fire")
+	cleanup(bm)
+
+
+## A single tube can only ever be mid-mission for one call for fire at a time — the same "one incoming
+## strike per shot" idea this function's own existing comment already states, from the other direction:
+## a responder already committed to an earlier call cannot ALSO pick up a second, independent one before
+## the first is resolved.
+func test_a_responder_already_committed_does_not_take_on_a_second_mission() -> void:
+	var bm = make_battle()
+	var responder: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, m(4700, 1200))
+	bm.enemy_units.append(responder)
+	var target_a: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, m(500, 1200))
+	bm.player_units.append(target_a)
+	var target_b: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, m(600, 1200))
+	bm.player_units.append(target_b)
+	bm._pending_counter_battery.append({
+		"attacker": responder, "target": target_a, "impact_position": target_a.global_position,
+		"fire_time": bm.scenario_elapsed_time + 100.0, "impact_time": bm.scenario_elapsed_time + 200.0, "fired": false,
+	})
+	check(bm._pending_counter_battery.size() == 1, "Setup: one mission already pending")
+	seed(13) # makes the responder's own chance roll succeed on the very first draw — without the
+	# already-committed guard this is checking for, that would otherwise schedule a second strike;
+	# unseeded, an unlucky roll could pass this check for the wrong reason (never rolling at all)
+	bm._resolve_mortar_counter_battery(target_b) # a second, independent originating shot
+	check(bm._pending_counter_battery.size() == 1, "Already committed to one mission: does not take on a second")
+	cleanup(bm)

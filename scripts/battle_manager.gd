@@ -8567,9 +8567,23 @@ func _weighted_advance_point_pick(candidates: Array[Vector2], angles_deg: Array[
 func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 	var opposing: Array[Unit] = player_units if firing_mortar.team == Unit.Team.ENEMY else enemy_units
 	var chance: float = GameConfig.MORTAR_COUNTER_BATTERY_CHANCE
+	# Direct user report: the history showed counter-battery fire landing on two mortars "at the same
+	# time." Root cause: nothing here ever checked whether a candidate responder was already mid-mission —
+	# a single tube can be committed to at most one fire mission at once, the same way ordinary fire is
+	# already gated (a crew can't lay a fresh round while another is still in flight from an earlier call
+	# for fire). One real tube, once already tasked, cannot ALSO pick up a second, independent call for
+	# fire before the first is resolved (fired and landed) — see _resolve_pending_counter_battery for where
+	# a committed strike actually leaves this set.
+	var already_committed: Dictionary = {}
+	for strike in _pending_counter_battery:
+		already_committed[strike.attacker.get_instance_id()] = true
 	for m in opposing:
 		if m.kind != Unit.Kind.MORTAR or m.state != Unit.State.ACTIVE:
 			continue
+		if already_committed.has(m.get_instance_id()):
+			continue # already answering an earlier call for fire — one mission at a time, same as ordinary fire
+		if m.mortar_rounds_remaining <= 0:
+			continue # nothing left to trade for a reply — a dry tube cannot credibly commit to counter-battery either
 		if m.global_position.distance_to(firing_mortar.global_position) > GameConfig.mortar_max_range(m.team):
 			continue # out of range — this mortar physically cannot reach back
 		if randf() < chance:
@@ -8623,6 +8637,8 @@ func _resolve_pending_counter_battery() -> void:
 			var responder: Unit = strike.attacker
 			if not is_instance_valid(responder) or responder.state != Unit.State.ACTIVE:
 				continue # the responding crew was knocked out before it could actually fire — mission aborted, nothing lands
+			if responder.mortar_rounds_remaining <= 0:
+				continue # ran dry (an ordinary shot, most likely) before this call for fire came due — mission aborted, nothing lands
 			# Direct user report: "I think enemy mortars are firing while moving... They should have the
 			# same restrictions as friendly mortars in this regard." Then, on "spotted": "'not spotted'
 			# should be 'not aware that it has been spotted'. If a drone sees it, it may not be aware of
@@ -8642,6 +8658,13 @@ func _resolve_pending_counter_battery() -> void:
 				still_pending.append(strike)
 				continue
 			strike.fired = true
+			# Direct user report: the history showed no ammunition expenditure for friendly counter-battery
+			# fire. Root cause: a counter-battery reply never went through _launch_mortar_shot (the only
+			# other place mortar_rounds_remaining is ever decremented) — it built and fired its own strike
+			# entirely outside the ordinary ammo bookkeeping. Spent here, at the moment it actually fires
+			# (not when the mission was first called in at _resolve_mortar_counter_battery) — matching
+			# ordinary fire's own "spent the instant it's fired, hit or miss" rule exactly.
+			responder.mortar_rounds_remaining -= 1
 			_announce_mortar_shot(responder, strike.impact_position)
 			combat_log.log_counter_battery_incoming(strike.target)
 			# The responder's own muzzle blast/trajectory gives ITS position
