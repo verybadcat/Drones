@@ -291,20 +291,40 @@ func _build_map_picker() -> Control:
 ## afterwards so it can be copied and used again. See main.gd, which draws it for the battle.
 var seed_box: SpinBox
 
+## Direct user request: the seed's explanatory paragraph (SEED_NOTE) used to sit here always visible, a
+## full wrapped paragraph under the spin box. "I want the text below to be available, but not immediately
+## displayed. Perhaps hidden behind a mouseover of a help icon or a question mark?" Replaced with a small,
+## quiet "(?)" note to the right of the input row — same flat/dim/hover-brightens treatment KeysHelp's own
+## "? Keys" hint uses — carrying the full text as a native tooltip (Control.tooltip_text already shows on
+## hover with no extra wiring needed). The Seed tab on the battle report (BattleReport.seed_tab_text) still
+## shows SEED_NOTE in full, unchanged — that is a place the player deliberately navigated to for exactly
+## this information, not a screen it should sit on by default.
+##
+## Also per direct user request: no up/down stepper — a seed is typed or pasted, never nudged by one, and
+## the arrows just ate width for nothing (`buttons_width` is the theme constant that reserves their column;
+## 0 collapses it entirely, arrows and all — confirmed directly by listing SpinBox's own theme_override_
+## constants, there's no separate "hide the arrows" flag). Narrower now that the reserved arrow column is
+## gone.
 func _build_seed_box() -> Control:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 6)
 	box.add_child(GameConfig.make_selectable_label("Battle seed (-1 = random)"))
+	var input_row := HBoxContainer.new()
+	input_row.add_theme_constant_override("separation", 4)
 	seed_box = SpinBox.new()
 	seed_box.min_value = -1
 	seed_box.max_value = MAX_SEED
 	seed_box.value = -1
-	seed_box.custom_minimum_size = Vector2(200, 0)
-	box.add_child(seed_box)
-	var note := GameConfig.make_selectable_label(SEED_NOTE)
-	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	note.custom_minimum_size = Vector2(780, 0)
-	box.add_child(note)
+	seed_box.custom_minimum_size = Vector2(140, 0)
+	seed_box.add_theme_constant_override("buttons_width", 0)
+	input_row.add_child(seed_box)
+	var help := Label.new()
+	help.text = "(?)"
+	help.mouse_filter = Control.MOUSE_FILTER_STOP # a Label ignores the mouse by default; needed for the tooltip to trigger at all
+	help.add_theme_color_override("font_color", Color(1, 1, 1, 0.45))
+	help.tooltip_text = SEED_NOTE
+	input_row.add_child(help)
+	box.add_child(input_row)
 	return box
 
 

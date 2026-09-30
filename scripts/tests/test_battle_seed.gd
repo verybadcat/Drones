@@ -46,7 +46,20 @@ func test_the_seed_is_chosen_on_the_first_screen() -> void:
 	var text := ""
 	for n in first.find_children("*", "Label", true, false) + first.find_children("*", "RichTextLabel", true, false):
 		text += " " + n.text
-	check("Battle seed" in text and "same weather" in text and "does not replay the battle" in text, "The screen explains what a seed does and does not do")
+	check("Battle seed" in text, "The screen labels the seed box")
+	# Direct user request: the full explanation is no longer displayed directly — "I want the text below
+	# to be available, but not immediately displayed. Perhaps hidden behind a mouseover of a help icon or
+	# a question mark?" It is available as a hover tooltip instead, on a small "(?)" note beside the box.
+	check(not ("same weather" in text), "...but the full explanation is NOT shown directly any more")
+	var tooltip_text := ""
+	for n in first.find_children("*", "Control", true, false):
+		if not n.tooltip_text.is_empty():
+			tooltip_text += " " + n.tooltip_text
+	check("same weather" in tooltip_text and "does not replay the battle" in tooltip_text, "...it's available as a hover tooltip somewhere on the screen")
+	# Direct user request: "we don't need up and down arrows for the seed" — a seed is typed/pasted, never
+	# stepped. buttons_width=0 is the theme constant that collapses the whole up/down column, arrows
+	# included (confirmed directly: SpinBox has no separate "hide the arrows" flag).
+	check(first.seed_box.get_theme_constant("buttons_width") == 0, "The seed box has no up/down stepper arrows")
 	# Set via the LineEdit's own text, not seed_box.value directly — matching how a real user's typing or
 	# paste actually reaches the box (see chosen_seed's own doc comment: .value doesn't sync from a
 	# programmatic .value= write back to the LineEdit's displayed text either, so a direct .value assignment
