@@ -127,8 +127,11 @@ func test_a_finished_battle_carries_and_displays_its_score() -> void:
 	check(is_equal_approx(result.score, BattleScore.score(result.inputs)), "The score is the rubric applied to the stored counts")
 	check(is_equal_approx(result.score, 20.0 - 10.0 + 25.0 + 4.0 + 1.0), "This battle: held +20, 1 of ours killed -10, 5 killed +25, 2 heavily wounded +4, 2 walking wounded +1 = %s" % result.score)
 	check(result.rubric_version == BattleScore.RUBRIC_VERSION, "Every result is stamped with the rubric version")
-	check(("Battle score: %s" % BattleScore.format(result.score)) in text, "The report must display the score (got: %s)" % text.split("\n").slice(0, 5))
-	check(text.split("\n").find("Verdict: %s" % result.verdict) >= 0, "...alongside the verdict, which the score must not replace")
+	# Direct user request: "the AAR should not mention scores at all. It is how things look to in-world
+	# command, not to a player." The score is still fully computed and stored (result.score, checked just
+	# above) and still shown to the player -- just on the Score tab (see BattleReport), never in this text.
+	check(not ("Battle score" in text), "The After Action Report itself must not mention the score at all")
+	check(text.split("\n").find("Verdict: %s" % result.verdict) >= 0, "...the verdict is still there")
 	# starting a new battle clears the old result
 	var squads: Array[Dictionary] = []
 	for pos in GameConfig.CURRENT_MAP.player.default_squad_positions:
@@ -187,7 +190,9 @@ func test_the_score_uses_true_results_even_where_the_report_only_estimates() -> 
 	var text: String = capture_report(bm)
 	check(bm.battle_result.inputs.enemy_killed == 3 and bm.battle_result.inputs.enemy_heavily_wounded == 2, "The unseen enemy casualties are counted, got %s" % [bm.battle_result.inputs])
 	check(is_equal_approx(bm.battle_result.score, -91.0), "The score is built from the true results, got %s" % bm.battle_result.score)
-	check("Battle score: -91.0" in text and not ("Battle score: -110.0" in text), "The report shows that true score")
+	# The AAR itself no longer shows the score at all (see the doctrine doc's "AAR should not mention
+	# scores" entry) -- the true-vs-estimated distinction is fully covered by the direct check above.
+	check(not ("Battle score" in text), "The After Action Report itself must not mention the score at all")
 
 
 ## "Friendly casualties count against the player, regardless of the source

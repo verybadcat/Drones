@@ -10603,9 +10603,11 @@ func _end_battle() -> void:
 		lines.append("%s: stalemate — neither side broke contact before the fight was called" % GameConfig.CURRENT_MAP.name)
 	else:
 		lines.append("%s held: %s" % [GameConfig.CURRENT_MAP.name, "YES" if held else "NO"])
-	# The score, from the TRUE results (user's ruling) — even where the report's
-	# own enemy casualty figures below are only estimates. See BattleScore.
-	lines.append("Battle score: %s" % BattleScore.format(battle_result.score))
+	# Direct user request: the AAR should not mention the score at all — "It is how things look to
+	# in-world command, not to a player." The score itself (BattleScore, computed from the TRUE results,
+	# not this report's own possibly-estimated enemy figures) still exists, still gets recorded to the
+	# durable history, and is still shown to the player — just on the Score tab (see BattleReport), never
+	# folded into the in-world narrative.
 	if weather != null:
 		var weather_line: String = "Weather: %s, %d °C" % [weather.wind_label().replace("Wind", "wind"), roundi(weather.temperature_c)]
 		if weather.is_precipitating():

@@ -1,9 +1,11 @@
 extends SceneTree
 ## Where the player actually sees the battle score: at the end of every
-## battle (main.gd records it to the durable history and adds this scenario's
-## running average to the report), and on the level-select screen (average
-## per scenario — location + scouting). The record is written ONLY here, in
-## the real UI flow — BattleManager never writes history.
+## battle, on the report's own Score tab (main.gd records it to the durable
+## history and computes this scenario's running average there — NOT in the
+## After Action Report tab, which is deliberately score-free, see
+## test_report_has_three_tabs_in_order), and on the level-select screen
+## (average per scenario — location + scouting). The record is written ONLY
+## here, in the real UI flow — BattleManager never writes history.
 ##
 ## Run: godot --headless --path . --script scripts/tests/test_battle_score_display.gd
 const Log = preload("res://scripts/tests/test_combat_log.gd")
@@ -282,7 +284,10 @@ func test_report_has_three_tabs_in_order() -> void:
 	report_tab.pressed.emit()
 	var report_text: String = report_body(report)
 	check("=== AFTER-ACTION REPORT ===" in report_text and "Verdict:" in report_text, "The After Action Report tab is the report it always was")
-	check(("Battle score: %s" % BattleScore.format(score)) in report_text, "...still carrying its own score line, unchanged")
+	# Direct user request: "the AAR should not mention scores at all. It is how things look to in-world
+	# command, not to a player." The score line used to also appear here, duplicated from the Score tab;
+	# it no longer does.
+	check(not ("Battle score" in report_text) and not ("Scenario average" in report_text), "The AAR no longer mentions the score at all — that's the Score tab's job")
 	var report_lines: PackedStringArray = report_text.split("
 ")
 	check(report_lines[1] == "This report details higher command's assessment of enemy casualties. It may or may not match reality.", "The report opens with the note that its enemy casualty figures are higher command's assessment (got %s)" % report_lines[1])

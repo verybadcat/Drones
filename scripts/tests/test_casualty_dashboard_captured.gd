@@ -98,7 +98,7 @@ func test_estimated_enemy_line_has_nothing_to_report_yet() -> void:
 	var dash = make_dashboard(bm)
 	dash._refresh()
 	var text: String = dash._enemy_label.text
-	check(text.begins_with("Enemy: ~"), "Setup check: the enemy line must be the estimated/'~' variant")
+	check(text.begins_with("Russia: ~"), "Setup check: the enemy line must be the estimated/'~' variant")
 	check("captured" not in text, "The estimated view doesn't track captures at all yet (a separate, pre-existing boundary) — must not claim it does (got '%s')" % text)
 	dash.queue_free()
 	bm.combat_log.free()

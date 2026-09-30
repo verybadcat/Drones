@@ -54,11 +54,16 @@ const REPORT_BUTTONS_GAP: float = 20.0
 const REPORT_BUTTON_ROW_HEIGHT: float = 41.0 # a button is 31 px tall, plus spacing
 
 
-## Records the finished battle's score to the durable history, then returns
-## the report with this scenario's running average added under the "Battle
-## score" line. A scenario is the LOCATION plus the KIND OF SCOUTING the
-## player chose (the recon mode) — user's definition. Recording happens here,
-## in the real UI flow, never in BattleManager (which runs in every test).
+## Records the finished battle's score to the durable history, and computes this scenario's running
+## average for the Score tab (_score_tab_text/_scenario_average_line). A scenario is the LOCATION plus the
+## KIND OF SCOUTING the player chose (the recon mode) — user's definition. Recording happens here, in the
+## real UI flow, never in BattleManager (which runs in every test).
+##
+## Direct user request: the After Action Report itself must not mention the score at all — "It is how
+## things look to in-world command, not to a player." This used to also splice the scenario-average line
+## into `report_text` right after a "Battle score:" line BattleManager's own AAR builder used to append;
+## now that line doesn't exist any more (removed for the same reason), so `report_text` passes through
+## completely unchanged — the average lives on the Score tab alone, via `_scenario_average_line`.
 func _record_score_and_annotate(report_text: String) -> String:
 	_scenario_average_line = ""
 	if battle_manager == null or battle_manager.battle_result.is_empty():
@@ -73,12 +78,7 @@ func _record_score_and_annotate(report_text: String) -> String:
 		BattleScore.format(summary.average), summary.count, "battle" if summary.count == 1 else "battles",
 		GameConfig.CURRENT_MAP.name, GameConfig.RECON_MODE_LABELS[recon_mode],
 	]
-	var lines: PackedStringArray = report_text.split("\n")
-	for i in lines.size():
-		if lines[i].begins_with("Battle score:"):
-			lines.insert(i + 1, _scenario_average_line)
-			break
-	return "\n".join(lines)
+	return report_text
 
 
 ## The Score tab's text: the total, the running scenario average, and every

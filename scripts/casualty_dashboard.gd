@@ -207,10 +207,13 @@ func _replay_board() -> Dictionary:
 
 
 func _render(board: Dictionary) -> void:
-	_update_side(board.player.stats, _player_label, _player_bar, "Player")
+	# Direct user request, part of making the Ukraine-vs-Russia setting explicit: "Ukraine"/"Russia" here
+	# specifically (not "Ukrainian"/"Russian" as used in the combat log/AAR/display_name() — a plain
+	# country-noun label reads better as this dashboard's own short side header).
+	_update_side(board.player.stats, _player_label, _player_bar, "Ukraine")
 	_apply_mortar_rows(_player_mortar_rows, board.player.mortars)
 	_apply_drone_row(board.drone)
-	_update_side(board.enemy.stats, _enemy_label, _enemy_bar, "Enemy")
+	_update_side(board.enemy.stats, _enemy_label, _enemy_bar, "Russia")
 	_apply_mortar_rows(_enemy_mortar_rows, board.enemy.mortars)
 
 
