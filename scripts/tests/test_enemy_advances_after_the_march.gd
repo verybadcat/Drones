@@ -36,6 +36,7 @@ func run() -> void:
 	test_only_one_of_several_nearby_squads_diverts()
 	test_a_known_but_destroyed_spotter_is_not_pursued()
 	test_spotter_hunt_applies_even_with_an_active_known_friendly_mortar()
+	test_a_marching_squad_breaks_off_to_deal_with_a_known_spotter()
 	print("Enemy advance after march tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
@@ -323,5 +324,28 @@ func test_spotter_hunt_applies_even_with_an_active_known_friendly_mortar() -> vo
 	seed(7)
 	bm._update_enemy_squad_advance()
 	check(enemy.move_target.distance_to(spotter.global_position) < 1.0, "The squad still closes on the spotter, not the mortar")
+	bm.combat_log.free()
+	bm.free()
+
+
+## Direct user report, a second occurrence of the same underlying bug: "Enemy mortar shot at it when an
+## enemy squad could have easily done the job. The squad just kept moving." Root cause: this function's own
+## top-level "still on its scripted march" gate skipped a marching squad before it ever reached the
+## spotter-hunt tier at all, and _spotter_hunt_candidate itself additionally excluded any such squad from
+## candidacy outright — so a squad marching straight past a known, easily-reachable spotter never even
+## considered it, matching "just kept moving" exactly. Deliberately marches the squad AWAY from the spotter
+## (not toward it) so a pass just from continuing the existing route can't be mistaken for a real fix.
+func test_a_marching_squad_breaks_off_to_deal_with_a_known_spotter() -> void:
+	var bm = make_battle()
+	var spotter := known_spotter(bm, Vector2(210.0, 1940.0))
+	var squad: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, meters(-490.0, 1940.0)) # 700m off
+	var path: Array[Vector2] = [meters(-2000.0, 1940.0), meters(-3000.0, 1940.0)] # marching away from the spotter
+	squad.set_path(path)
+	bm.enemy_units.append(squad)
+	check(not squad.sought_cover, "Set-up: still on its scripted march, never broken off for any reason yet")
+	check(bm._spotter_hunt_candidate() == squad, "Set-up: it is a valid, available candidate despite still marching")
+	bm._update_enemy_squad_advance()
+	check(squad.sought_cover, "It breaks off the scripted march...")
+	check(squad.move_target.distance_to(spotter.global_position) < 1.0, "...to close directly on the known spotter, not continuing its old route (%s)" % (squad.move_target / GameConfig.PIXELS_PER_METER))
 	bm.combat_log.free()
 	bm.free()

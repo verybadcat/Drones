@@ -7326,6 +7326,19 @@ func _update_enemy_squad_advance() -> void:
 	for u in enemy_units:
 		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE:
 			continue
+		if u == spotter_hunter:
+			# Checked here, BEFORE the still-marching gate just below, and unconditionally breaks the
+			# squad off its scripted route exactly like _alert_enemy_squads already does for real contact —
+			# direct user report, a second time, of a squad marching straight past a known, dealable
+			# spotter without ever reacting: the still-marching gate used to skip this whole tier outright,
+			# so nothing here ever got a chance to redirect it. _spotter_hunt_candidate's own filtering
+			# (risk holds, already engaging a real squad, range) already ran before this squad could ever
+			# be chosen, so nothing further needs rechecking here.
+			if not u.sought_cover:
+				u.sought_cover = true
+				u.sought_cover_logged = true
+			_chase_spotter_directly(u)
+			continue
 		if not u.sought_cover:
 			if not _march_route_is_finished(u):
 				continue # still on the scripted road march
@@ -7422,10 +7435,6 @@ func _update_enemy_squad_advance() -> void:
 		var shootable: Unit = _pick_target(u, player_units)
 		if shootable != null and shootable.kind == Unit.Kind.SQUAD:
 			u.last_order_reason = "Staying to fight %s (in range and line of sight) instead of continuing to close." % shootable.display_name()
-			continue
-
-		if u == spotter_hunter:
-			_chase_spotter_directly(u)
 			continue
 
 		if hunt_assignments.has(u):
@@ -7528,10 +7537,17 @@ func _squad_already_engaging_a_real_squad(u: Unit) -> bool:
 ## a new number. "Engaging friendly squads": _squad_already_engaging_a_real_squad excludes a candidate
 ## outright, so the caller's own real _pick_target-driven "stay and fight" branch — checked first, before
 ## this is ever consulted — always wins for whichever squad it actually applies to.
+##
+## Direct user report, a second time — "The squad just kept moving": a squad still executing its scripted
+## road march (not u.sought_cover) used to be excluded from candidacy here, and _update_enemy_squad_
+## advance's own loop skips a still-marching squad entirely before it ever reaches this tier at all — so a
+## squad marching straight past a known, dealable spotter never even considered it, exactly like the report
+## describes. Not required here any more; the caller breaks the chosen squad off its march the same way
+## _alert_enemy_squads already does for real contact (see its own call site for that bookkeeping).
 func _spotter_hunt_candidate() -> Unit:
 	var candidates: Array[Unit] = []
 	for u in enemy_units:
-		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or not u.sought_cover:
+		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE:
 			continue
 		if _risk_holds.has(u) or _squad_already_engaging_a_real_squad(u):
 			continue
