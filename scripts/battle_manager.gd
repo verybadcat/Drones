@@ -443,6 +443,9 @@ var battle_over: bool = false
 ## characterize_doctrine.gd too, which recomputes the verdict independently
 ## from the same public accessors rather than parsing the AAR text.
 var _ended_by_stalemate: bool = false
+## Set for the one tick a unit (either side) actually dies, cleared at the top of every _process — see
+## _on_any_unit_state_changed's own doc comment for why _end_battle reads it.
+var _kill_happened_this_tick: bool = false
 ## The finished battle's score, built once by _end_battle (empty until then):
 ## {verdict, held, stalemate, rubric_version, score, inputs}. `score` is the
 ## TRUE-results score the player is shown (user: "the score can go based off
@@ -1289,7 +1292,18 @@ func _make_unit(team: Unit.Team, kind: Unit.Kind, pos: Vector2) -> Unit:
 		unit.unit_label += " %d" % _unit_name_counts[key]
 	unit_combat_stats.register(unit)
 	unit.fire_timer = randf_range(0.0, unit.fire_interval)
+	unit.state_changed.connect(_on_any_unit_state_changed)
 	return unit
+
+
+## Direct user report: clicked "Retreat Now," the squads and mortar made it safely off, but the report
+## window popped up the instant the player's own spotter was killed mid-retreat — before the player had
+## any real chance to see it happen. Tracks whether a KILL (not a withdrawal or surrender) happened this
+## tick, on EITHER side, so _end_battle can hold the battle's final frame on screen for a beat before the
+## report covers it — see that function's own use of this flag for the actual delay.
+func _on_any_unit_state_changed(unit: Unit) -> void:
+	if unit.state == Unit.State.DESTROYED:
+		_kill_happened_this_tick = true
 
 
 ## See _make_unit's own comment: a real airframe number (1..DRONE_FLEET_
@@ -6427,6 +6441,7 @@ func _process(delta: float) -> void:
 	if battle_over or combat_log == null or is_paused:
 		return
 
+	_kill_happened_this_tick = false
 	elapsed_time += delta
 	_seconds_since_last_shot += delta
 
@@ -10296,6 +10311,11 @@ func _build_battle_result(verdict: String, held: bool, player_stats: Dictionary,
 	}
 
 
+## Real (wall-clock) seconds the battle's final frame stays on screen, unobscured, before the report
+## window covers it — but only when the battle just ended on a kill (see _end_battle's own use of this).
+const BATTLE_END_KILL_PAUSE_S: float = 0.75
+
+
 func _end_battle() -> void:
 	battle_over = true
 	_number_remaining_undiscovered_enemies() # anything the AAR/Damage-by-unit report names but the player never actually spotted still needs a real number
@@ -10449,6 +10469,16 @@ func _end_battle() -> void:
 	# (see its own pressed handler), duplicating the whole thing onto the
 	# end of this summary as well is just redundant scrolling.
 	var report_text := "\n".join(lines)
+	# Direct user report: clicked "Retreat Now," the squads and mortar made it safely off, but the report
+	# popped up the instant the player's own spotter was killed mid-retreat — the player never actually
+	# saw it happen, since the window covers the map immediately on battle_ended. A kill is the one kind of
+	# battle-ending moment worth a beat to actually register (a peaceful mass withdrawal already happens
+	# gradually, in full view, over many prior ticks — this is the one board-flip case where "the moment"
+	# is a single, otherwise-invisible tick, not a fresh player_units count as the withdrawal is). Real
+	# (wall-clock) time, deliberately not tactical time — the battle itself is already over (battle_over is
+	# already true, above), so there is no tactical clock left running to measure this against.
+	if _kill_happened_this_tick:
+		await get_tree().create_timer(BATTLE_END_KILL_PAUSE_S).timeout
 	battle_ended.emit(report_text)
 
 
