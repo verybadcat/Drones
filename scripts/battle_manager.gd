@@ -6604,6 +6604,20 @@ func _step_retreat(unit: Unit, scenario_delta: float) -> void:
 	# through/past it — see GameConfig.RETREAT_THREAT_STEER_FRACTION.
 	next_pos.y += _retreat_avoidance_offset(unit) * unit.retreat_speed * GameConfig.RETREAT_THREAT_STEER_FRACTION * scenario_delta
 
+	# Direct user report: a drone team's dashboard read "withdrawing" but the unit itself was nowhere to be
+	# found — found at y well above the top of the map (a raw y of -485 against a [0, MAP_HEIGHT_PX] map).
+	# A previous fix bounded the ONE-TIME cover-seeking first leg a retreat can take
+	# (order_retreat's SPOTTER/DRONE_TEAM branch, via safest_cover_point's own reference_point), but this
+	# function is the ORDINARY, EVERY-TICK straight-line retreat that leg hands off to — both the zigzag
+	# jink above and _retreat_avoidance_offset's own continuous steering nudge y with no bound at all,
+	# tick after tick, for as long as a retreat actually takes. A threat sitting persistently to one side
+	# (steering always the same way) or an unlucky zigzag streak can accumulate real drift over a long
+	# retreat with nothing ever pulling it back, eventually running the unit off the top or bottom of the
+	# map outright — the same class of bug the earlier fix addressed for the first leg, but never reached
+	# this one, since it is a structurally separate code path. Same clamp the cover-seeking searches
+	# already apply to every candidate they consider.
+	next_pos = GameConfig.clamp_to_operating_area(next_pos)
+
 	if unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(next_pos):
 		_sidestep_building(unit, scenario_delta, next_pos)
 		return
