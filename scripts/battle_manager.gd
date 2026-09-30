@@ -6669,9 +6669,20 @@ func _step_retreat(unit: Unit, scenario_delta: float) -> void:
 	# (steering always the same way) or an unlucky zigzag streak can accumulate real drift over a long
 	# retreat with nothing ever pulling it back, eventually running the unit off the top or bottom of the
 	# map outright — the same class of bug the earlier fix addressed for the first leg, but never reached
-	# this one, since it is a structurally separate code path. Same clamp the cover-seeking searches
-	# already apply to every candidate they consider.
-	next_pos = GameConfig.clamp_to_operating_area(next_pos)
+	# this one, since it is a structurally separate code path.
+	#
+	# Y ONLY, deliberately NOT GameConfig.clamp_to_operating_area (a direct user report caught this: "Enemy
+	# is retreating but failed to exit the map" — confirmed via the live debug snapshot, EVERY enemy unit on
+	# the field stuck in RETREATING at exactly x=MAP_WIDTH_PX). clamp_to_operating_area's own x range is
+	# [-WEST_FLANK_WIDTH_PX, MAP_WIDTH_PX] — it has a deliberate west-side buffer wide enough to contain
+	# PLAYER_SAFE_X, but no matching east-side buffer, because none of its OTHER callers (cover-seeking
+	# searches) ever need to reach past the map's own east edge. GameConfig.ENEMY_SAFE_X, this function's
+	# own retreat_target_x for the enemy side, is deliberately set PAST that edge (spawn_x + 150m, the same
+	# "don't end literally on the boundary" reasoning PLAYER_SAFE_X already documents) — clamping x here
+	# walled the enemy side off from ever reaching its own exit line at all, leaving every retreating enemy
+	# unit stuck forever at x=MAP_WIDTH_PX, RETREATING, never WITHDRAWN. x was never actually the source of
+	# the ORIGINAL y-drift bug this clamp was added for — only y needs bounding here.
+	next_pos.y = clamp(next_pos.y, 0.0, GameConfig.MAP_HEIGHT_PX)
 
 	if unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(next_pos):
 		_sidestep_building(unit, scenario_delta, next_pos)
