@@ -7302,6 +7302,7 @@ func _march_route_is_finished(u: Unit) -> bool:
 func _update_enemy_squad_advance() -> void:
 	_update_enemy_attack_stance()
 	var hunt_assignments := _mortar_hunt_assignments()
+	var spotter_hunter := _spotter_hunt_candidate()
 	for u in enemy_units:
 		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE:
 			continue
@@ -7403,6 +7404,10 @@ func _update_enemy_squad_advance() -> void:
 			u.last_order_reason = "Staying to fight %s (in range and line of sight) instead of continuing to close." % shootable.display_name()
 			continue
 
+		if u == spotter_hunter:
+			_chase_spotter_directly(u)
+			continue
+
 		if hunt_assignments.has(u):
 			_chase_mortar_directly(u)
 			continue
@@ -7411,15 +7416,7 @@ func _update_enemy_squad_advance() -> void:
 			continue # something to shoot at right now, and not mid-chase on a known mortar — stay and fight
 		if u.has_move_target:
 			continue
-		# Direct user ruling: "If they have seen the spotter, enemy squads should try to kill the spotter"
-		# — unconditional, needing none of the numerical case _enemy_attack_stance requires for attacking
-		# real, armed squads (see _known_friendly_spotter_position's own doc comment for why). Without this,
-		# a known spotter alone did nothing to stop the SAME "not enough of an advantage" gathering
-		# decision below from firing whenever ANY known friendly squad also existed somewhere on the map —
-		# consolidating never even reaches _enemy_advance_objective (where the spotter tier actually lives)
-		# to have a say at all.
-		var known_spotter: bool = not is_inf(_known_friendly_spotter_position(u).x)
-		var consolidating: bool = not known_spotter and not _friendly_mortar_is_active() and not _enemy_attack_stance() and not _known_friendly_squad_positions().is_empty()
+		var consolidating: bool = not _friendly_mortar_is_active() and not _enemy_attack_stance() and not _known_friendly_squad_positions().is_empty()
 		var rush_target := _consolidation_step(u) if consolidating else _next_advance_point(u)
 		if rush_target == u.global_position:
 			if consolidating:
@@ -7473,6 +7470,73 @@ func _chase_mortar_directly(u: Unit) -> void:
 		return # already aimed at essentially the right spot — no need to reissue the identical order every tick
 	u.last_order_reason = "Closing directly on a known enemy mortar — hot pursuit."
 	u.move_target = mortar_pos
+	u.has_move_target = true
+	u.move_queue.clear()
+	u.move_speed = GameConfig.ENEMY_ADVANCE_SPEED
+	u.movement_predictable = false
+
+
+## Cheap, RNG-free approximation of "_pick_target(u, player_units) would return a real, armed SQUAD" —
+## used only to rank spotter-hunt candidates (see _spotter_hunt_candidate) BEFORE the real per-squad
+## _pick_target call further down in _update_enemy_squad_advance runs. Deliberately not a second call to
+## the real thing: _pick_target's own baseline path makes a random uniform pick among multiple qualifying
+## candidates, so calling it twice per squad per tick would silently double-draw that randomness for every
+## squad, every tick — a real, previously-diagnosed class of bug this session (see the RNG-sequence-drift
+## regression in test_mortar_evasion_balance.gd, docs/designs/tactical-commander-doctrine.md's 2026-09-29
+## entry). Mirrors _pick_target's own SQUAD-kind gate exactly (SQUAD_ENGAGEMENT_RANGE + has_direct_los) —
+## the DRONE/is_targetable exclusions _pick_target also applies are irrelevant against a live player SQUAD.
+func _squad_already_engaging_a_real_squad(u: Unit) -> bool:
+	for p in player_units:
+		if p.kind != Unit.Kind.SQUAD or p.state != Unit.State.ACTIVE:
+			continue
+		if u.global_position.distance_to(p.global_position) <= GameConfig.SQUAD_ENGAGEMENT_RANGE and GameConfig.has_direct_los(u.global_position, p.global_position):
+			return true
+	return false
+
+
+## The single enemy squad — never more than one — that should break off to deal with a known friendly
+## spotter this tick, or null if none should. Direct user ruling, given after a live report that an enemy
+## mortar was shelling a known spotter while a nearby enemy squad did nothing about it: "If the spotter's
+## position is known, near enemy squads, and easy to reach, ONE nearby squad should act to deal with it.
+## However, if the enemy sees the spotter from far off, or if they are engaging friendly squads, they might
+## choose not to." This supersedes the earlier, broader "any squad, however far, treats a known spotter as
+## its unconditional #1 objective" design (see this same file's revision history) — the user's own framing
+## here is explicitly proximity- and availability-gated, not a blanket priority swap.
+##
+## "Near enough... easy to reach": GameConfig.SQUAD_DANGER_RANGE (1200m) — the same "close enough to react
+## to at all" scale _chasing_mortar_in_hot_pursuit already reuses for a known mortar, rather than inventing
+## a new number. "Engaging friendly squads": _squad_already_engaging_a_real_squad excludes a candidate
+## outright, so the caller's own real _pick_target-driven "stay and fight" branch — checked first, before
+## this is ever consulted — always wins for whichever squad it actually applies to.
+func _spotter_hunt_candidate() -> Unit:
+	var candidates: Array[Unit] = []
+	for u in enemy_units:
+		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or not u.sought_cover:
+			continue
+		if _risk_holds.has(u) or _squad_already_engaging_a_real_squad(u):
+			continue
+		var spotter_pos: Vector2 = _known_friendly_spotter_position(u)
+		if is_inf(spotter_pos.x) or u.global_position.distance_to(spotter_pos) > GameConfig.SQUAD_DANGER_RANGE:
+			continue
+		candidates.append(u)
+	if candidates.is_empty():
+		return null
+	candidates.sort_custom(func(a, b): return a.global_position.distance_to(_known_friendly_spotter_position(a)) < b.global_position.distance_to(_known_friendly_spotter_position(b)))
+	return candidates[0]
+
+
+## The actual "deal with it" step for whichever squad _spotter_hunt_candidate names — an exact mirror of
+## _chase_mortar_directly (aim straight at the current known position, no bent-angle/cover scoring, stop
+## once within real engagement range and hand off to ordinary _pick_target-driven fighting).
+func _chase_spotter_directly(u: Unit) -> void:
+	var spotter_pos: Vector2 = _known_friendly_spotter_position(u)
+	if u.global_position.distance_to(spotter_pos) <= GameConfig.SQUAD_ENGAGEMENT_RANGE:
+		u.has_move_target = false
+		return
+	if u.has_move_target and u.move_target.distance_to(spotter_pos) < Unit.MOVE_ARRIVE_RADIUS:
+		return # already aimed at essentially the right spot — no need to reissue the identical order every tick
+	u.last_order_reason = "Closing directly on a known friendly spotter."
+	u.move_target = spotter_pos
 	u.has_move_target = true
 	u.move_queue.clear()
 	u.move_speed = GameConfig.ENEMY_ADVANCE_SPEED
@@ -7647,14 +7711,6 @@ func _enemy_advance_objective(u: Unit = null) -> Vector2:
 	# just above) still means "the crew is still out there doing its job," which outranks both of the
 	# checks below the same way, not just the squad one.
 	if not _friendly_mortar_is_active():
-		# Direct user ruling: "If they have seen the spotter, enemy squads should try to kill the
-		# spotter." Ahead of the squad-hunting check just below and NOT gated on _enemy_attack_stance's
-		# own numerical-advantage requirement — see _known_friendly_spotter_position's own doc comment for
-		# why that's right: an unarmed, undefended observer isn't a fight that needs the numbers an armed
-		# squad would.
-		var spotter_pos: Vector2 = _known_friendly_spotter_position(u)
-		if not is_inf(spotter_pos.x):
-			return spotter_pos
 		# ... but attacking a known SQUAD only with a real numerical advantage ("I am realizing that's not
 		# true if the enemy squads don't think they have a significant numerical advantage. If numbers are
 		# less than 2:1 in their favor, it would be reasonable for them to consolidate somewhere on the
@@ -7983,14 +8039,15 @@ func _known_friendly_squad_objective(u: Unit = null) -> Vector2:
 	return best
 
 
-## The exact mirror of _known_friendly_squad_objective, for a known SPOTTER instead of a squad. Direct
-## user ruling: "If they have seen the spotter, enemy squads should try to kill the spotter." A lone
-## forward observer is a real, valuable, and completely undefended target once found — unlike attacking a
-## known SQUAD (_known_friendly_squad_objective, gated on _enemy_attack_stance's own numerical-advantage
-## check), going after an unarmed spotter needs no such case: nothing about eliminating it risks the force
-## the way attacking an armed squad without the numbers for it would. Kept as its own separate function
-## (not folded into the squad one) so the two can be gated differently in _enemy_advance_objective without
-## the caller needing to untangle which kind a returned position came from.
+## The exact mirror of _known_friendly_squad_objective, for a known SPOTTER instead of a squad. Consulted
+## by _spotter_hunt_candidate/_chase_spotter_directly (see their own doc comments for the current ruling on
+## when and how a squad acts on this) rather than _enemy_advance_objective — an earlier version of this
+## feature put the spotter there as a blanket, distance-independent #1 objective for every squad; a later,
+## more specific user ruling replaced that with a proximity- and availability-gated single-squad response
+## instead (see docs/designs/tactical-commander-doctrine.md's 2026-09-29 entries for both). Kept as its own
+## separate function from _known_friendly_squad_objective (not folded together) since a spotter needs none
+## of that function's _enemy_attack_stance numerical-advantage gating — an unarmed, undefended observer
+## isn't a fight that needs the numbers an armed squad would.
 func _known_friendly_spotter_position(u: Unit = null) -> Vector2:
 	var positions: Array[Vector2] = []
 	for s in player_units:
