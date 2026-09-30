@@ -4662,6 +4662,16 @@ const DRONE_LANDING_CHARGE_COST: float = DRONE_DESCENT_TIME / DRONE_FULL_CHARGE_
 # the more conservative field case.)
 const DRONE_RECHARGE_DURATION: float = 100.0 * 60.0 # tactical seconds
 
+## Direct user report: "Drones got themselves into a situation where they are repeatedly launching with
+## very little charge." Root cause: a battery was pulled out of the charging pool (BattleManager.
+## _battery_pool) and staged the instant a drone LANDED, whatever charge happened to be best in the pool
+## at that moment — with nothing left to actually launch (a quiet stretch), a partly-charged battery just
+## sat staged, not recharging, while everything ELSE kept getting fuller in the background it was pulled
+## out of. See BattleManager._drone_required_launch_charge for the actual launch-eligibility rule this
+## backs: a real crew's own floor below which a sortie just isn't worth the airframe risk, regardless of
+## how close or urgent the target is. Direct user ruling: "Never launch below 20%."
+const DRONE_MIN_LAUNCH_CHARGE_FLOOR: float = 0.20
+
 # The actual "easily swappable" part: popping out a spent battery, clipping
 # in a charged spare, and a quick power-on/GPS-lock check before the
 # airframe is trusted back in the air. Real and quick — this, not the full

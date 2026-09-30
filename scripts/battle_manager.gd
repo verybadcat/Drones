@@ -3249,6 +3249,20 @@ func _update_drone_operations(scenario_delta: float) -> void:
 	for i in _battery_pool.size():
 		_battery_pool[i] = min(1.0, _battery_pool[i] + scenario_delta / GameConfig.DRONE_RECHARGE_DURATION)
 
+	# A battery that's actually FINISHED charging might as well get staged —
+	# there's nothing left to gain by leaving it sitting in the pool, and
+	# every airframe eventually wants its own fully-charged spare on hand
+	# regardless of whether a launch happens to be imminent. Direct user
+	# ruling on the flip side of this (see _drone_required_launch_charge and
+	# _update_returning_drones' own doc comment for the bug this whole
+	# redesign fixes): "if a battery is charged, you can swap it onto a
+	# drone even if we don't need to launch yet. What's wrong is swapping a
+	# battery that is still charging if we don't need to launch." Looped,
+	# not a single `if`, since more than one battery can cross 1.0 the same
+	# tick.
+	while _stage_best_battery_if_at_least(1.0):
+		pass
+
 	for i in range(_drones_swapping.size() - 1, -1, -1):
 		_drones_swapping[i].time_left -= scenario_delta
 		if _drones_swapping[i].time_left <= 0.0:
@@ -3274,8 +3288,22 @@ func _update_drone_operations(scenario_delta: float) -> void:
 		active_drone = backup_drone
 		backup_drone = null
 
-	if active_drone == null and not _drones_ready.is_empty() and not _drone_grounded_for_weather:
-		_launch_drone()
+	# Direct user report: "Drones got themselves into a situation where they are repeatedly launching with
+	# very little charge." The old rule launched the instant ANYTHING was staged, however little charge it
+	# actually had — with the ground crew now free to stage a still-charging battery early ONLY when a
+	# launch is actually wanted (see _stage_best_battery_if_at_least/_drone_required_launch_charge and
+	# _update_returning_drones' own doc comment for the full redesign), a genuinely quiet stretch (nothing
+	# known worth spotting) holds out for the pool's next FULLY-charged battery instead of grabbing
+	# whatever's best right now — while real urgency (known mortar fire) still launches on much less,
+	# scaled down for a nearer target, never below GameConfig.DRONE_MIN_LAUNCH_CHARGE_FLOOR ("never launch
+	# below 20%", direct user ruling).
+	if active_drone == null and not _drone_grounded_for_weather:
+		if _drones_ready.is_empty() and _drones_swapping.is_empty():
+			var lead: Dictionary = _known_enemy_mortar_lead()
+			if not lead.is_empty():
+				_stage_best_battery_if_at_least(_drone_required_launch_charge(lead.position))
+		if not _drones_ready.is_empty():
+			_launch_drone()
 
 	if active_drone != null and backup_drone == null and not _drones_ready.is_empty() and not _drone_grounded_for_weather:
 		var watched: Unit = _visible_engageable_mortar()
@@ -3283,6 +3311,16 @@ func _update_drone_operations(scenario_delta: float) -> void:
 			var time_until_active_rtb: float = _drone_time_until_rtb(active_drone)
 			var backup_travel_time: float = drone_team.global_position.distance_to(watched.global_position) / GameConfig.DRONE_CRUISE_SPEED
 			if time_until_active_rtb <= backup_travel_time:
+				# Deliberately NOT given the same reactive pool-staging the primary launch above gets: this
+				# timing check assumes a near-instant launch the moment it trips (bounded only by flight time
+				# to arrive, not any ground delay) — a fresh swap-from-pool takes a full DRONE_BATTERY_SWAP_
+				# DURATION (a few minutes) to prep, which is longer than the RTB window this check is
+				# actually racing against, so reactively staging one here would routinely finish AFTER
+				# active_drone has already had to turn for home anyway. Stays limited to a battery that's
+				# already sitting staged from the passive "anything fully charged gets staged regardless"
+				# pass in _update_drone_operations — a real, pre-existing limitation (a backup mission can
+				# only happen if the fleet happened to have a spare already prepped), not something this
+				# session's charge-discipline fix is trying to solve.
 				_launch_backup_drone(watched)
 
 
@@ -3373,6 +3411,49 @@ func _pop_best_battery(pool: Array[float]) -> float:
 	var charge: float = pool[best_index]
 	pool.remove_at(best_index)
 	return charge
+
+
+## If _battery_pool's own best-charged entry is at or above `min_charge`, pops it and starts swapping it
+## in (same mechanism a real landing used to trigger unconditionally — see _update_returning_drones' own
+## doc comment) — returns whether it actually did. Two callers, two very different bars: the per-tick
+## "anything that just finished charging might as well get staged" pass in _update_drone_operations
+## (min_charge=1.0 — a full battery has nothing left to gain sitting in the pool) and the reactive
+## "we actually want to launch now" checks just below it (min_charge=_drone_required_launch_charge's own,
+## distance-scaled, urgency-gated result — pulling a battery that's STILL charging out early is only ever
+## justified when a launch is genuinely wanted right now, see the direct user correction on
+## _update_returning_drones).
+func _stage_best_battery_if_at_least(min_charge: float) -> bool:
+	if _battery_pool.is_empty():
+		return false
+	var best_index := 0
+	for i in _battery_pool.size():
+		if _battery_pool[i] > _battery_pool[best_index]:
+			best_index = i
+	if _battery_pool[best_index] < min_charge:
+		return false
+	_drones_swapping.append({"time_left": GameConfig.DRONE_BATTERY_SWAP_DURATION, "charge": _pop_best_battery(_battery_pool)})
+	return true
+
+
+## How much charge a sortie to `target_pos` and back actually costs — the real round trip (climb, the leg
+## out, the leg back, the same arrival safety reserve an already-airborne drone's own RTB decision holds
+## back — see _drone_time_until_rtb/_drone_arrival_reserve_charge) — clamped to GameConfig.DRONE_MIN_
+## LAUNCH_CHARGE_FLOOR at the low end (direct user ruling, "never launch below 20%", regardless of how
+## close the target is or how cheap the computed trip comes out) and to 1.0 at the high end (a trip that
+## would need more than a full charge to complete safely isn't a trip to launch on speculatively at all —
+## same as the "no known target worth spotting" quiet case, which callers pass Vector2.INF for and get
+## 1.0 back unchanged).
+##
+## Direct user framing for the two ends of this scale: "If there is firing that needs spotting, it would
+## go ahead and launch with as little as 50% I think" (a fairly typical stand-off distance) "or even less
+## if the target is close" — this function IS that sliding scale, not a fixed 50%; a target close enough
+## to be cheap to reach costs less than 50% here, and a farther one costs more, both derived from the same
+## real flight-cost math everything else in this file already uses rather than a separate guessed number.
+func _drone_required_launch_charge(target_pos: Vector2) -> float:
+	if is_inf(target_pos.x) or drone_team == null:
+		return 1.0
+	var round_trip: float = GameConfig.DRONE_LAUNCH_CHARGE_COST + _drone_leg_charge(drone_team.global_position, target_pos) + _drone_leg_charge(target_pos, drone_team.global_position) + _drone_arrival_reserve_charge()
+	return clamp(round_trip, GameConfig.DRONE_MIN_LAUNCH_CHARGE_FLOOR, 1.0)
 
 
 func _launch_drone() -> void:
@@ -3828,14 +3909,27 @@ func _crash_drone(d: Unit, watched: Unit = null) -> void:
 ## _process) actually steps each one toward drone_team's position since
 ## it's ACTIVE with has_move_target set; this just watches for arrival
 ## (_step_toward_target clears has_move_target the instant one reaches
-## drone_team) and lands it for real: free the Unit, drop whatever charge
-## it landed with (usually just the small safety-margin reserve, though a
-## backup sent home early could have much more) into the pool to recharge
-## from there, and immediately hand the airframe the best-charged battery
-## now available (which might be that very one) for a quick swap — landing
-## never means the full ~100-minute recharge for the AIRFRAME; only running
-## the whole pool down does that, and even then only to whichever battery
-## it draws next.
+## drone_team) and lands it for real: free the Unit, and drop whatever
+## charge it landed with (usually just the small safety-margin reserve,
+## though a backup sent home early could have much more) back into the pool
+## to keep charging from there — landing never means the full ~100-minute
+## recharge for the AIRFRAME; only running the whole pool down does that,
+## and even then only to whichever battery it draws next.
+##
+## Direct user correction: this used to ALSO immediately pop the pool's own
+## best-charged battery into a swap right here, on the theory that the next
+## airframe should always have something staged and ready. "If a battery is
+## charged, you can swap it onto a drone even if we don't need to launch
+## yet. What's wrong is swapping a battery that is still charging if we
+## don't need to launch" — a landing is not, on its own, a reason to need
+## one: pulling out whatever's currently best (quite possibly still well
+## short of full) just freezes its charge in _drones_ready/_drones_swapping
+## instead of letting it keep climbing in the pool, for no benefit if
+## nothing is actually about to fly. See _update_drone_operations' own
+## per-tick "stage anything that's finished charging" pass (_drones_ready
+## only ever holds fully-charged batteries now) and _drone_required_launch_
+## charge (a still-charging battery is only ever pulled early when a launch
+## is genuinely wanted and that battery already clears the bar for it).
 func _update_returning_drones(scenario_delta: float) -> void:
 	for i in range(returning_drones.size() - 1, -1, -1):
 		var d: Unit = returning_drones[i]
@@ -3868,7 +3962,6 @@ func _update_returning_drones(scenario_delta: float) -> void:
 		# for this so it's not normally a surprise, but clamp at 0 regardless.
 		_battery_pool.append(max(d.drone_battery_charge - GameConfig.DRONE_LANDING_CHARGE_COST, 0.0))
 		d.queue_free()
-		_drones_swapping.append({"time_left": GameConfig.DRONE_BATTERY_SWAP_DURATION, "charge": _pop_best_battery(_battery_pool)})
 
 
 ## How worried `team`'s side should still be that an as-yet-undiscovered
@@ -4985,7 +5078,11 @@ func _point_currently_observed(point: Vector2, count_drone_camera: bool = true) 
 ## DRONE_TEAM battle between sorties).
 func drone_pilot_debug_snapshot() -> Dictionary:
 	if active_drone == null:
-		return {"active": false}
+		# Direct live user question, diagnosing a "repeatedly launching with very little charge" report:
+		# nothing here previously exposed battery-pool state while grounded (only ever returned
+		# {"active": false}) — drone_fleet_status() already has it (ready/spare counts and each pool's own
+		# best charge), just not reachable without a drone actually airborne.
+		return {"active": false, "fleet": drone_fleet_status()}
 
 	var contacts: Array = []
 	for u in _recent_enemy_contacts:
@@ -6443,6 +6540,17 @@ func general_unit_debug_snapshot() -> Dictionary:
 			entry["player_has_been_sighted"] = u.player_has_been_sighted
 			if u.player_has_been_sighted:
 				entry["player_known_position"] = _pos_to_debug_dict(u.player_known_position)
+			# Direct live user question: several enemy squads far from the known player squads were showing
+			# "No target available: advance another bound toward the current objective" and not obviously
+			# closing the gap. Nothing previously exposed WHICH objective ("advance by bounds" resolves to
+			# one of: an enemy flanking waypoint, the known friendly mortar, a known friendly squad,
+			# a consolidation point, the village, or a push west — see _enemy_advance_objective) a given
+			# squad was actually chasing, so a wide flanking swing (a real, previously-confirmed feature,
+			# see GameConfig.ENEMY_FLANK_CHANCE) was indistinguishable from a squad genuinely stuck.
+			if u.kind == Unit.Kind.SQUAD and u.state == Unit.State.ACTIVE:
+				entry["flanking_route_active"] = u.flanking_route_active
+				entry["advance_objective"] = _pos_to_debug_dict(_enemy_advance_objective(u))
+				entry["enemy_attack_stance"] = _enemy_attack_stance()
 		else:
 			# For a friendly unit is_visible means the ENEMY currently sees
 			# it — what an enemy mortar needs before it can fire at it.
