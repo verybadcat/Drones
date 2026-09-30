@@ -4338,7 +4338,18 @@ const ENEMY_CONCERN_THRESHOLD: float = 0.25 # logs "reports the issue", doesn't 
 # squad's own ENEMY_RETREAT_THRESHOLD (0.5): a commander keeps pressing the
 # attack with individual squads falling back here and there, and only
 # calls it off once losses are heavy across the whole force.
-const ENEMY_COMMANDER_RETREAT_THRESHOLD: float = 0.4
+#
+# Direct user request: randomize this per battle (BattleManager._enemy_
+# commander_retreat_threshold, rolled once in start_battle) rather than a
+# single fixed 0.4 for every battle — a real enemy commander's own breaking
+# point isn't the same fight to fight, and a fixed number is something a
+# player could eventually learn to read like a rulebook. Deliberately never
+# surfaced anywhere the player can see it (see _check_enemy_commander_
+# retreat's own "no banner" note) — the player only ever sees the
+# CONSEQUENCE (squads pulling back), never the number that triggered it,
+# same as before this change.
+const ENEMY_COMMANDER_RETREAT_THRESHOLD_MIN: float = 0.35
+const ENEMY_COMMANDER_RETREAT_THRESHOLD_MAX: float = 0.50
 
 # When the enemy commander's general retreat order reaches a given squad
 # (see BattleManager._squad_surrender_chance), that squad doesn't

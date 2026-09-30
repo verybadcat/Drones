@@ -844,6 +844,10 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	battle_seed = int(doctrine.get("seed", -1))
 	if battle_seed >= 0:
 		seed(battle_seed)
+	# Direct user request: the enemy commander's own whole-force breaking point (_enemy_situation_
+	# hopeless) is randomized per battle rather than one fixed number every time — rolled here, AFTER the
+	# seed above, so the same battle seed still reproduces the same roll. Never surfaced to the player.
+	_enemy_commander_retreat_threshold = randf_range(GameConfig.ENEMY_COMMANDER_RETREAT_THRESHOLD_MIN, GameConfig.ENEMY_COMMANDER_RETREAT_THRESHOLD_MAX)
 	elapsed_time = 0.0
 	scenario_elapsed_time = 0.0
 	battle_over = false
@@ -1963,7 +1967,7 @@ func _check_enemy_commander_retreat() -> void:
 ## _check_retreat), not just all at once via the top-down hopeless
 ## trigger above, and a force can lose every squad this gradual way
 ## without the WHOLE force's casualty percentage ever crossing
-## ENEMY_COMMANDER_RETREAT_THRESHOLD (mortars, undamaged, can keep the
+## _enemy_commander_retreat_threshold (mortars, undamaged, can keep the
 ## overall percentage low even once every squad is gone) — in which case
 ## _check_enemy_commander_retreat would never fire at all, and the mortar
 ## would otherwise keep fighting alone indefinitely with nothing left to
@@ -2072,7 +2076,7 @@ func _squad_surrender_chance(squad: Unit) -> float:
 ## commander sees the overall picture, not just one squad's casualty count.
 func _enemy_situation_hopeless() -> bool:
 	var stats := _compute_side_stats(enemy_units)
-	return stats.casualty_percent / 100.0 >= GameConfig.ENEMY_COMMANDER_RETREAT_THRESHOLD
+	return stats.casualty_percent / 100.0 >= _enemy_commander_retreat_threshold
 
 
 ## Currently-visible enemy positions, from `team`'s point of view — "some
@@ -7996,6 +8000,14 @@ func _update_enemy_attack_stance() -> void:
 var _enemy_attacking: bool = true
 var _enemy_stance_decided: bool = false
 var _enemy_consolidation: Vector2 = Vector2.INF
+## This battle's own roll of GameConfig.ENEMY_COMMANDER_RETREAT_THRESHOLD_MIN/MAX (see start_battle,
+## rolled AFTER the battle's own seed is applied, for reproducibility) — the enemy commander's actual
+## breaking point for this fight, used by _enemy_situation_hopeless. Direct user request: randomize it
+## per battle rather than one fixed number every time, and keep it secret — nothing ever logs or displays
+## this value to the player, only the consequence (squads pulling back) once it's crossed. Defaults to the
+## OLD fixed 0.4 so any test/usage that constructs a BattleManager without calling start_battle keeps its
+## previous, deterministic behavior.
+var _enemy_commander_retreat_threshold: float = 0.4
 ## "Less than 2:1 in their favor": below this they gather instead of attacking.
 const ENEMY_ATTACK_ADVANTAGE_RATIO: float = 2.0
 const ENEMY_ATTACK_KEEP_RATIO: float = 1.6
