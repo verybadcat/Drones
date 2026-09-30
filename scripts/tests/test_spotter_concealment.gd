@@ -33,7 +33,7 @@ func cleanup(bm) -> void:
 
 func run() -> void:
 	test_a_hidden_spotter_is_found_only_at_point_blank_range()
-	test_an_exposed_spotter_is_still_somewhat_harder_to_spot_than_a_squad()
+	test_an_exposed_spotter_is_meaningfully_harder_to_spot_than_a_squad_or_a_mortar_crew()
 	print("Spotter concealment tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
@@ -58,9 +58,15 @@ func test_a_hidden_spotter_is_found_only_at_point_blank_range() -> void:
 
 
 ## Even standing in the open (not in cover), a spotter's own trained concealment discipline gives it a
-## real, if modest, edge over an ordinary squad at the exact same spot.
-func test_an_exposed_spotter_is_still_somewhat_harder_to_spot_than_a_squad() -> void:
-	check(GameConfig.SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER < 1.0 and GameConfig.SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER > 0.5, "The exposed-spotter concealment multiplier is a real, but modest, reduction (got %.2f)" % GameConfig.SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER)
+## real, meaningful edge over an ordinary squad at the exact same spot — and, per direct user ruling after
+## researching real-world detection/concealment distances, a bigger edge than a whole exposed MORTAR CREW
+## gets (MORTAR_EXPOSED_CONCEALMENT_MULTIPLIER, unchanged at 0.8): a single trained observer using field
+## craft alone, with no terrain cover at all, still hides better than several people plus a visible weapon
+## system. (This exposed-in-the-open case is now the rarer one in practice — _update_spotter_positioning
+## has the spotter actively seek real cover the moment it isn't already in some.)
+func test_an_exposed_spotter_is_meaningfully_harder_to_spot_than_a_squad_or_a_mortar_crew() -> void:
+	check(GameConfig.SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER < 1.0 and GameConfig.SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER > 0.1, "The exposed-spotter concealment multiplier is a real, meaningful reduction, not a token one (got %.2f)" % GameConfig.SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER)
+	check(GameConfig.SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER < GameConfig.MORTAR_EXPOSED_CONCEALMENT_MULTIPLIER, "A lone, trained spotter hides better in the open than a whole exposed mortar crew does (spotter %.2f vs mortar %.2f)" % [GameConfig.SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER, GameConfig.MORTAR_EXPOSED_CONCEALMENT_MULTIPLIER])
 	var bm = make_battle()
 	seed(7)
 	var observer: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2.ZERO)

@@ -4485,11 +4485,30 @@ const RECENT_MOVEMENT_SIGNATURE_DECAY_S: float = 240.0
 # than a rifle squad is. Concealment is two very different stories depending
 # on whether it's actually using cover: hidden in trees/a building, the
 # enemy effectively cannot find it beyond point-blank range — "unless they
-# get very close." Standing in the open, it's found close to normally (just
-# a small trained-to-minimize-exposure edge).
+# get very close" (SPOTTER_HIDDEN_DETECTION_RANGE, 250m, matches the real-
+# world benchmark for a proficient camouflaged observer/sniper team closing
+# to within ~200m of a trained opposing observer undetected). Now that the
+# spotter always actively seeks cover the moment it isn't already in some
+# (_update_spotter_positioning), this hidden case is the ordinary one, not
+# the exception — genuinely caught standing in the open should be rare.
+#
+# EXPOSED (in the open, no terrain cover at all) used to apply only a mild
+# 0.8x — identical to a whole exposed MORTAR CREW (MORTAR_EXPOSED_
+# CONCEALMENT_MULTIPLIER, still 0.8 below), despite the two being nothing
+# alike: a mortar crew is several people plus a visible weapon system that
+# periodically gives itself away by firing; a spotter is a single person
+# whose entire job is field craft — going prone, breaking up silhouette,
+# minimizing movement — with no weapon signature at all. Direct user
+# ruling, after researching real-world detection/concealment distances:
+# apply what a single trained, deliberately-hidden observer actually
+# achieves even on ground with no natural cover. Retuned to 0.4 — a real,
+# not token, discount versus the mortar crew's 0.8, reflecting that edge,
+# while staying well short of actual terrain concealment (TREES/BUILDING,
+# which this constant never applies to at all — see effective_detection_
+# range's own hard branch for a target in real cover).
 const SPOTTER_DETECTION_RANGE_BONUS: float = 500.0 * PIXELS_PER_METER # added to its own spotting rolls
 const SPOTTER_HIDDEN_DETECTION_RANGE: float = 250.0 * PIXELS_PER_METER # replaces detection range entirely when in cover
-const SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER: float = 0.8 # applies only when NOT in cover
+const SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER: float = 0.4 # applies only when NOT in cover
 
 # A mortar crew, same idea as the spotter above: real siting/camouflage
 # doctrine (dug in, netted, tucked into vegetation) makes a well-hidden

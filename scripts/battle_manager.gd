@@ -6449,6 +6449,7 @@ func _process(delta: float) -> void:
 	_update_joint_mortar_hunt()
 	_update_enemy_squad_advance()
 	_update_friendly_squad_positioning()
+	_update_spotter_positioning()
 	_update_ground_risk_orders()
 	_update_drone_operations(scenario_delta)
 	_update_drone_team_evasion()
@@ -8138,6 +8139,34 @@ func _friendly_mortar_is_active() -> bool:
 ## ammo/resupply status. Ordinary cover-seeking has no such concern (it's
 ## about the squad's OWN position, not the enemy's), so it's narrated
 ## normally.
+## A spotter's whole value is staying unseen — it carries no weapon and never fires a shot (see
+## _tick_fire's own SPOTTER/DRONE_TEAM/DRONE early return). Direct user ruling, given after research into
+## real-world detection ranges: "Spotter should always seek cover. If set up not in cover, it should
+## immediately move to cover. If it later moves, that might take it out of cover, but it would go to new
+## cover." Mirrors _update_friendly_squad_positioning's own "cover whenever possible" idiom below (same
+## GameConfig.nearest_cover_point call, same REPOSITION_SPEED) stripped of everything specific to an armed,
+## fighting squad — no encirclement response, no "has a live target, stand and fight" exception, since a
+## spotter never has either. Unlike that function, this applies to BOTH teams: nothing currently spawns an
+## enemy spotter, but nothing here assumes a player-only one either.
+func _update_spotter_positioning() -> void:
+	for u in player_units + enemy_units:
+		if u.kind != Unit.Kind.SPOTTER or u.state != Unit.State.ACTIVE or u.has_move_target:
+			continue
+		if _fall_back_orders.has(u) or _risk_holds.has(u):
+			continue # an explicit order/hold outranks the automatic instinct to seek cover
+		if GameConfig.is_in_cover(u.terrain_type()):
+			continue
+		var cover_dest: Vector2 = GameConfig.nearest_cover_point(u.global_position)
+		if cover_dest == u.global_position:
+			continue # nothing better nearby this tick
+		u.last_order_reason = "Moving into available cover."
+		u.move_target = cover_dest
+		u.has_move_target = true
+		u.move_queue.clear()
+		u.move_speed = GameConfig.REPOSITION_SPEED
+		u.movement_predictable = false
+
+
 func _update_friendly_squad_positioning() -> void:
 	var known_enemies := _known_enemy_positions(Unit.Team.PLAYER)
 	var at_risk: Dictionary = {}
