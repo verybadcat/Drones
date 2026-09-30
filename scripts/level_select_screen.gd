@@ -309,8 +309,20 @@ func _build_seed_box() -> Control:
 
 
 ## The seed as typed: -1 for random, else 0 and up.
+##
+## Direct user report: pasted a seed from a prior battle's report, picked a recon mode right after, and
+## got a different enemy force anyway. Root cause: SpinBox.value doesn't update from a pasted/typed edit
+## until something commits it (Enter, an arrow click, or the LineEdit losing focus) — confirmed directly by
+## setting a SpinBox's LineEdit text and reading .value before and after calling apply(): it read the OLD
+## value first. Clicking straight from the seed field to a recon-mode button (this screen's very next
+## step, per _on_recon_mode_chosen) races that commit against main.gd's own read of chosen_seed() — a
+## pasted number could still lose to whatever the box last held. apply() forces the pending text to commit
+## before anything reads .value, closing the race regardless of which way it happened to resolve before.
 func chosen_seed() -> int:
-	return int(seed_box.value) if seed_box != null else -1
+	if seed_box == null:
+		return -1
+	seed_box.apply()
+	return int(seed_box.value)
 
 
 const MAX_SEED: int = 2147483647

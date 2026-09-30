@@ -25,6 +25,7 @@ func run() -> void:
 	await test_the_seed_is_chosen_on_the_first_screen()
 	await test_a_random_battle_still_gets_a_real_seed()
 	await test_the_report_has_a_seed_tab_with_a_copy_button()
+	await test_a_pasted_seed_is_read_correctly_even_without_losing_focus_first()
 	test_what_the_same_seed_reproduces()
 	print("Battle seed tests: %d failures" % failures)
 	quit(1 if failures else 0)
@@ -46,7 +47,12 @@ func test_the_seed_is_chosen_on_the_first_screen() -> void:
 	for n in first.find_children("*", "Label", true, false) + first.find_children("*", "RichTextLabel", true, false):
 		text += " " + n.text
 	check("Battle seed" in text and "same weather" in text and "does not replay the battle" in text, "The screen explains what a seed does and does not do")
-	first.seed_box.value = 4242
+	# Set via the LineEdit's own text, not seed_box.value directly — matching how a real user's typing or
+	# paste actually reaches the box (see chosen_seed's own doc comment: .value doesn't sync from a
+	# programmatic .value= write back to the LineEdit's displayed text either, so a direct .value assignment
+	# here would silently pass without ever exercising the real commit path chosen_seed()'s apply() call
+	# depends on).
+	first.seed_box.get_line_edit().text = "4242"
 	first.mode_chosen.emit(GameConfig.ReconMode.DRONE_TEAM)
 	await process_frame
 	var phase: DeploymentPhase = main.current_screen
@@ -76,7 +82,7 @@ func test_a_random_battle_still_gets_a_real_seed() -> void:
 
 func test_the_report_has_a_seed_tab_with_a_copy_button() -> void:
 	var main = await start_main()
-	main.current_screen.seed_box.value = 777
+	main.current_screen.seed_box.get_line_edit().text = "777" # see the earlier test's own comment on why
 	main.current_screen.mode_chosen.emit(GameConfig.ReconMode.SPOTTER)
 	await process_frame
 	main.current_screen.request_start()
@@ -107,6 +113,23 @@ func test_the_report_has_a_seed_tab_with_a_copy_button() -> void:
 		print("(clipboard is not available in this headless run; the copy call ran without error)")
 	report.report_background.get_node("DamageByUnit").pressed.emit()
 	check(not copy.visible, "The copy button goes away on the other tabs")
+	main.queue_free()
+	await process_frame
+
+
+## Direct user report: pasted a seed copied from a prior battle's report, picked a recon mode right away,
+## and got a different enemy force despite believing the same seed was used. Root cause: SpinBox.value
+## (what chosen_seed() used to read directly) doesn't update from typed/pasted text until something commits
+## it (Enter, an arrow click, or the LineEdit losing focus) — a paste followed immediately by clicking a
+## recon-mode button, this screen's very next step, races that commit. Simulates a real paste exactly:
+## setting the LineEdit's own text directly (what a Ctrl+V does) rather than seed_box.value (what the old,
+## buggy code effectively required already having happened).
+func test_a_pasted_seed_is_read_correctly_even_without_losing_focus_first() -> void:
+	var main = await start_main()
+	var first: LevelSelectScreen = main.current_screen
+	first.seed_box.get_line_edit().text = "555555"
+	check(int(first.seed_box.value) != 555555, "Setup: a pasted-but-uncommitted edit does NOT yet update .value — confirms this test is exercising the real race, not a no-op")
+	check(first.chosen_seed() == 555555, "chosen_seed() reads the pasted value correctly anyway, with no focus change or Enter press in between")
 	main.queue_free()
 	await process_frame
 
