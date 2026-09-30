@@ -129,6 +129,12 @@ func test_mortar_with_persistent_target_still_relocates_and_keeps_fighting() -> 
 	bm._friendly_mortar_home_position = start
 	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, start)
 	bm.player_units.append(mortar)
+	bm._set_retreat_profile(mortar, Unit.Team.PLAYER) # every real spawn path sets this (_spawn_player_units); skipping it here
+	# left retreat_speed/retreat_target_x at their 0.0 defaults — invisible until a crew actually needs an edge-run leg
+	# (_mortar_flee_as_last_resort), where retreat_speed of 0 means move_speed is issued as 0 and the crew freezes mid-relocation
+	# forever. Found by tracing this exact test hanging (move_speed staying 0.0 for the rest of the run) once the spotter/mortar-
+	# evasion fix elsewhere shifted this test's own RNG-drawn timeline enough for its crew to newly reach that leg at all — a
+	# latent test-setup gap the old timeline never happened to exercise, not a bug in that fix itself.
 	mortar.mortar_rounds_remaining = 30
 	mortar.base_hit_chance = 1.0
 	mortar.shoot_and_scoot = true

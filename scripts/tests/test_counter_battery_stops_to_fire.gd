@@ -127,7 +127,7 @@ func test_a_drone_alone_counts_only_if_the_crew_has_seen_it() -> void:
 	var drone: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.DRONE, responder.global_position + Vector2(-4.0, 0.0) * GameConfig.PIXELS_PER_METER)
 	bm.player_units.append(drone)
 	responder.is_visible = true
-	check(bm._mortar_troubled_only_by_drones(responder), "Set-up: only the drone overhead has the mortar in sight")
+	check(bm._mortar_troubled_only_by_unarmed_observers(responder), "Set-up: only the drone overhead has the mortar in sight")
 	responder.seconds_stationary = GameConfig.MORTAR_SETUP_TEARDOWN_TIME
 	var target: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, m(500, 1200))
 	bm.player_units.append(target)
@@ -137,14 +137,14 @@ func test_a_drone_alone_counts_only_if_the_crew_has_seen_it() -> void:
 	}
 
 	drone.is_visible = false # the crew's own side has not spotted this drone
-	check(not bm._mortar_has_seen_the_drone(responder) and not bm._mortar_aware_of_being_spotted(responder), "Not having seen the drone, the crew is not aware of the sighting")
+	check(not bm._mortar_has_seen_an_unarmed_observer(responder) and not bm._mortar_aware_of_being_spotted(responder), "Not having seen the drone, the crew is not aware of the sighting")
 	bm._pending_counter_battery.clear()
 	bm._pending_counter_battery.append(strike.duplicate())
 	bm._resolve_pending_counter_battery()
 	check(bm._pending_counter_battery[0].fired, "...so it still fires")
 
 	drone.is_visible = true # the crew's own side HAS spotted this drone
-	check(bm._mortar_has_seen_the_drone(responder) and bm._mortar_aware_of_being_spotted(responder), "Having seen the drone, the crew is aware it may have been seen too")
+	check(bm._mortar_has_seen_an_unarmed_observer(responder) and bm._mortar_aware_of_being_spotted(responder), "Having seen the drone, the crew is aware it may have been seen too")
 	bm._pending_counter_battery.clear()
 	bm._pending_counter_battery.append(strike.duplicate())
 	bm._resolve_pending_counter_battery()

@@ -30,6 +30,7 @@ func run() -> void:
 	test_the_whole_force_parked_at_the_road_end_moves_on()
 	test_squads_at_the_village_push_west()
 	test_with_no_mortar_left_the_enemy_attacks_the_squads_it_knows()
+	test_enemy_squads_go_after_a_known_spotter()
 	print("Enemy advance after march tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
@@ -179,5 +180,59 @@ func test_with_no_mortar_left_the_enemy_attacks_the_squads_it_knows() -> void:
 	mortar.enemy_known_position_time = bm.scenario_elapsed_time
 	check(bm._friendly_mortar_is_active(), "Set-up: the mortar is back in action")
 	check(bm._enemy_advance_objective(enemy) != ours_a.global_position, "While the mortar is in action the squads are not its objective")
+	bm.combat_log.free()
+	bm.free()
+
+
+## Direct user ruling: "If they have seen the spotter, enemy squads should try to kill the spotter."
+## Unlike attacking a known squad (test_with_no_mortar_left_the_enemy_attacks_the_squads_it_knows, above,
+## which needs a real 2:1 numerical case), going after an unarmed, undefended spotter needs no such case —
+## this deliberately keeps the enemy force small (a single squad, no numeric advantage at all) to prove
+## that difference.
+func test_enemy_squads_go_after_a_known_spotter() -> void:
+	var bm = make_battle()
+	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, meters(-1400.0, 2100.0))
+	mortar.state = Unit.State.WITHDRAWN # fled off the map: no friendly mortar in action
+	bm.player_units.append(mortar)
+	var spotter: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, meters(210.0, 1940.0))
+	bm.player_units.append(spotter)
+	spotter.enemy_has_been_sighted = true # the enemy has seen it
+	spotter.enemy_known_position = spotter.global_position
+	spotter.enemy_known_state = Unit.State.ACTIVE
+	# A real squad of ours too, farther away, so the spotter really is the NEARER, chosen target, not just
+	# the only known asset.
+	var ours: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, meters(3000.0, 1940.0))
+	bm.player_units.append(ours)
+	ours.enemy_has_been_sighted = true
+	ours.enemy_known_position = ours.global_position
+	ours.enemy_known_state = Unit.State.ACTIVE
+	# A single enemy squad — no numerical advantage at all (contrast the squad-hunting test above, which
+	# needs three extra squads for exactly this reason).
+	var enemy: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, meters(-1100.0, 1190.0))
+	enemy.sought_cover = true
+	enemy.village_reached = true
+	bm.enemy_units.append(enemy)
+	bm._update_enemy_attack_stance()
+	check(not bm._enemy_attack_stance(), "Set-up: nowhere near the numbers to attack known squads")
+	var objective: Vector2 = bm._enemy_advance_objective(enemy)
+	check(objective.distance_to(spotter.global_position) < 1.0, "Its objective is the known spotter, not the map edge or consolidation (%s)" % (objective / GameConfig.PIXELS_PER_METER))
+	seed(3)
+	bm._update_enemy_squad_advance()
+	check(enemy.has_move_target and enemy.move_target.x > enemy.global_position.x, "It is ordered east, toward the spotter")
+	# With no spotter known, the (numeric-gated) squad-hunting/consolidation tier applies as before.
+	spotter.enemy_has_been_sighted = false
+	check(bm._enemy_advance_objective(enemy) != spotter.global_position, "With no spotter known, it is not the objective")
+	# A spotter the enemy believes destroyed is not an objective either.
+	spotter.enemy_has_been_sighted = true
+	spotter.enemy_known_state = Unit.State.DESTROYED
+	check(bm._known_friendly_spotter_position(enemy) == Vector2.INF, "A spotter the enemy knows is out of the fight is not an objective")
+	spotter.enemy_known_state = Unit.State.ACTIVE
+	# While a friendly mortar is in action, it still outranks the spotter.
+	mortar.state = Unit.State.ACTIVE
+	mortar.enemy_has_been_sighted = true
+	mortar.enemy_known_position = meters(-800.0, 1500.0)
+	mortar.enemy_known_position_time = bm.scenario_elapsed_time
+	check(bm._friendly_mortar_is_active(), "Set-up: the mortar is back in action")
+	check(bm._enemy_advance_objective(enemy) != spotter.global_position, "While the mortar is in action the spotter is not the objective")
 	bm.combat_log.free()
 	bm.free()

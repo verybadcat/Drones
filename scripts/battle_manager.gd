@@ -2094,7 +2094,7 @@ func _enemy_situation_hopeless() -> bool:
 ## project's own established distinction for what that principle actually
 ## covers), it's a real gap in what the enemy is even capable of knowing
 ## at all. Now genuinely symmetric.
-func _known_enemy_positions(team: Unit.Team, include_drones: bool = true) -> Array[Vector2]:
+func _known_enemy_positions(team: Unit.Team, include_drones: bool = true, include_spotters: bool = true) -> Array[Vector2]:
 	var opposing: Array[Unit] = enemy_units if team == Unit.Team.PLAYER else player_units
 	var positions: Array[Vector2] = []
 	for u in opposing:
@@ -2102,6 +2102,8 @@ func _known_enemy_positions(team: Unit.Team, include_drones: bool = true) -> Arr
 		if not still_a_threat:
 			continue
 		if u.kind == Unit.Kind.DRONE and not include_drones:
+			continue
+		if u.kind == Unit.Kind.SPOTTER and not include_spotters:
 			continue
 		if team == Unit.Team.PLAYER:
 			if u.player_has_been_sighted:
@@ -5738,17 +5740,20 @@ func _unwatched_threat_closing(m: Unit) -> bool:
 ## exactly what this side can see this instant — the same "while a unit is
 ## currently is_visible, ground truth IS knowledge" exception the rest of
 ## this file's knowledge-locality work already carves out everywhere else.
-## Not a drone either way: it cannot overrun a crew (it has no weapon), so
-## one flying nearby is no reason to run.
+## Not a drone or a spotter either way: neither can overrun a crew (an unarmed observer, whichever kind —
+## direct user ruling: "If the enemy has not seen the spotter, the spotter should have no effect on their
+## actions [and even once seen,] this is good reason for the mortar to take evasive action, but not to
+## leave the map" — the same category the drone was already carved out of this exact overrun-danger check
+## for, not a new exception), so one nearby is no reason to run.
 func _nearby_opposing_unit_within(m: Unit, danger_range: float, include_live: bool) -> bool:
-	for pos in _known_enemy_positions(m.team, false):
+	for pos in _known_enemy_positions(m.team, false, false):
 		if m.global_position.distance_to(pos) <= danger_range:
 			return true
 	if not include_live:
 		return false
 	var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
 	for u in opposing:
-		if u.kind == Unit.Kind.DRONE or not u.is_visible:
+		if u.kind == Unit.Kind.DRONE or u.kind == Unit.Kind.SPOTTER or not u.is_visible:
 			continue
 		if u.state != Unit.State.ACTIVE and u.state != Unit.State.RETREATING:
 			continue
@@ -5757,51 +5762,60 @@ func _nearby_opposing_unit_within(m: Unit, danger_range: float, include_live: bo
 	return false
 
 
-## Whether the only thing troubling `m`'s crew is a drone: it is seen, and by a
-## drone alone (nothing else has it in sight), with no ground threat within overrun
-## range and no counter-battery fire landing on it. That is a reason to conceal the
-## crew, never to leave the map.
-func _mortar_troubled_only_by_drones(m: Unit) -> bool:
+## Whether the only thing troubling `m`'s crew is an UNARMED observer — a drone or a spotter, either kind
+## or both together, nothing else — with no ground threat within overrun range and no counter-battery fire
+## landing on it. That is a reason to conceal the crew, never to leave the map. Direct user ruling: "If
+## [the enemy] have seen the spotter, this is good reason for the mortar to take evasive action, but not to
+## leave the map. Instead, the mortar should assume its location is known and move in a way that makes it
+## hard for friendly artillery to hit it, similar to what it would do if seen by a drone" — a lone forward
+## observer can no more physically overrun or assault a crew than an aircraft can, so it earns the exact
+## same treatment this function already gave a drone, not a new, separate mechanism. (Symmetric already:
+## whichever side `m` belongs to, `opposing` is the other side's own units, so this applies unchanged
+## whenever either side ever fields a SPOTTER.)
+func _mortar_troubled_only_by_unarmed_observers(m: Unit) -> bool:
 	if not m.is_visible or m.evading_counter_battery or _unwatched_threat_closing(m):
 		return false
 	var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
-	var drones: Array[Unit] = []
+	var unarmed_observers: Array[Unit] = []
 	var others: Array[Unit] = []
 	for u in opposing:
-		if u.kind == Unit.Kind.DRONE:
-			drones.append(u)
+		if u.kind == Unit.Kind.DRONE or u.kind == Unit.Kind.SPOTTER:
+			unarmed_observers.append(u)
 		else:
 			others.append(u)
-	return CombatResolver.has_live_observer(m, drones) and not CombatResolver.has_live_observer(m, others)
+	return CombatResolver.has_live_observer(m, unarmed_observers) and not CombatResolver.has_live_observer(m, others)
 
 
-## Whether `m`'s own side has, in turn, spotted the drone that has them in sight — "It might be aware of
-## drone-only sighting. It depends if it has seen the drone or not." A drone belongs to the OTHER team, so
-## its own is_visible flag already means exactly this: the side watching `m` can see the drone back. The
-## same live, fog-of-war-correct fact every other spotted/unspotted check in this file already reads, not
-## a fresh detection roll — and, like every other piece of shared battlefield knowledge in this game
-## (_known_enemy_positions and the like), one team member spotting the drone is the whole side knowing
-## about it, not a private fact only the exact unit that saw it gets to act on. Only meaningful when
-## _mortar_troubled_only_by_drones(m) is already true (nothing else has `m` in sight); undefined otherwise.
-func _mortar_has_seen_the_drone(m: Unit) -> bool:
+## Whether `m`'s own side has, in turn, spotted the drone or spotter that has them in sight — "It might be
+## aware of drone-only sighting. It depends if it has seen the drone or not," generalized the same way
+## _mortar_troubled_only_by_unarmed_observers was: a spotter, like a drone, belongs to the OTHER team, so
+## its own is_visible flag already means exactly this: the side watching `m` can see it back. The same
+## live, fog-of-war-correct fact every other spotted/unspotted check in this file already reads, not a
+## fresh detection roll — and, like every other piece of shared battlefield knowledge in this game
+## (_known_enemy_positions and the like), one team member spotting it is the whole side knowing about it,
+## not a private fact only the exact unit that saw it gets to act on. Only meaningful when
+## _mortar_troubled_only_by_unarmed_observers(m) is already true (nothing else has `m` in sight); undefined
+## otherwise.
+func _mortar_has_seen_an_unarmed_observer(m: Unit) -> bool:
 	var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
 	for u in opposing:
-		if u.kind == Unit.Kind.DRONE and u.is_visible:
+		if (u.kind == Unit.Kind.DRONE or u.kind == Unit.Kind.SPOTTER) and u.is_visible:
 			return true
 	return false
 
 
-## Whether `m`'s crew is aware, right now, that it has been seen: spotted by anything other than a drone
-## always counts; spotted only by a drone counts only if the crew's own side has seen that drone too (see
-## _mortar_has_seen_the_drone's own doc comment) — a real crew doesn't necessarily know an aircraft
-## overhead is watching it the way it knows a nearby squad has eyes on it, but if it HAS clocked the
-## drone, it has every reason to assume it's been made.
+## Whether `m`'s crew is aware, right now, that it has been seen: spotted by anything other than an
+## unarmed observer (a drone or a spotter) always counts; spotted only by one of those counts only if the
+## crew's own side has seen it too (see _mortar_has_seen_an_unarmed_observer's own doc comment) — a real
+## crew doesn't necessarily know an aircraft overhead, or a hidden forward observer, is watching it the way
+## it knows a nearby squad has eyes on it, but if it HAS clocked the observer, it has every reason to
+## assume it's been made.
 func _mortar_aware_of_being_spotted(m: Unit) -> bool:
 	if not m.is_visible:
 		return false
-	if not _mortar_troubled_only_by_drones(m):
+	if not _mortar_troubled_only_by_unarmed_observers(m):
 		return true
-	return _mortar_has_seen_the_drone(m)
+	return _mortar_has_seen_an_unarmed_observer(m)
 
 
 ## The single authoritative per-mortar-per-tick decision, replacing what
@@ -7397,7 +7411,15 @@ func _update_enemy_squad_advance() -> void:
 			continue # something to shoot at right now, and not mid-chase on a known mortar — stay and fight
 		if u.has_move_target:
 			continue
-		var consolidating: bool = not _friendly_mortar_is_active() and not _enemy_attack_stance() and not _known_friendly_squad_positions().is_empty()
+		# Direct user ruling: "If they have seen the spotter, enemy squads should try to kill the spotter"
+		# — unconditional, needing none of the numerical case _enemy_attack_stance requires for attacking
+		# real, armed squads (see _known_friendly_spotter_position's own doc comment for why). Without this,
+		# a known spotter alone did nothing to stop the SAME "not enough of an advantage" gathering
+		# decision below from firing whenever ANY known friendly squad also existed somewhere on the map —
+		# consolidating never even reaches _enemy_advance_objective (where the spotter tier actually lives)
+		# to have a say at all.
+		var known_spotter: bool = not is_inf(_known_friendly_spotter_position(u).x)
+		var consolidating: bool = not known_spotter and not _friendly_mortar_is_active() and not _enemy_attack_stance() and not _known_friendly_squad_positions().is_empty()
 		var rush_target := _consolidation_step(u) if consolidating else _next_advance_point(u)
 		if rush_target == u.global_position:
 			if consolidating:
@@ -7621,13 +7643,23 @@ func _enemy_advance_objective(u: Unit = null) -> Vector2:
 	# the mortar had fled, "advancing" on that edge, while our squads were 1300 m behind them and known.)
 	# With no friendly mortar left in action, our squads are what is left to fight, and the enemy squads
 	# go for the ones they know of, by where they were last seen. While the mortar is in action it stays
-	# the objective, as before.
-	# ... but only with a real numerical advantage ("I am realizing that's not true if the enemy squads don't
-	# think they have a significant numerical advantage. If numbers are less than 2:1 in their favor, it
-	# would be reasonable for them to consolidate somewhere on the map, avoiding the friendly squads, and
-	# allowing a stalemate to happen."): see _enemy_attack_stance. Without it they gather at the
-	# consolidation point (_enemy_consolidation_point).
+	# the objective, as before — an active mortar (even one with no concrete fix on it yet, the two tiers
+	# just above) still means "the crew is still out there doing its job," which outranks both of the
+	# checks below the same way, not just the squad one.
 	if not _friendly_mortar_is_active():
+		# Direct user ruling: "If they have seen the spotter, enemy squads should try to kill the
+		# spotter." Ahead of the squad-hunting check just below and NOT gated on _enemy_attack_stance's
+		# own numerical-advantage requirement — see _known_friendly_spotter_position's own doc comment for
+		# why that's right: an unarmed, undefended observer isn't a fight that needs the numbers an armed
+		# squad would.
+		var spotter_pos: Vector2 = _known_friendly_spotter_position(u)
+		if not is_inf(spotter_pos.x):
+			return spotter_pos
+		# ... but attacking a known SQUAD only with a real numerical advantage ("I am realizing that's not
+		# true if the enemy squads don't think they have a significant numerical advantage. If numbers are
+		# less than 2:1 in their favor, it would be reasonable for them to consolidate somewhere on the
+		# map, avoiding the friendly squads, and allowing a stalemate to happen."): see _enemy_attack_
+		# stance. Without it they gather at the consolidation point (_enemy_consolidation_point).
 		var squad_pos: Vector2 = _known_friendly_squad_objective(u)
 		if not is_inf(squad_pos.x):
 			if _enemy_attack_stance():
@@ -7939,6 +7971,30 @@ func _known_friendly_squad_objective(u: Unit = null) -> Vector2:
 	var positions: Array[Vector2] = []
 	for s in player_units:
 		if s.kind == Unit.Kind.SQUAD and s.enemy_has_been_sighted and s.enemy_known_state == Unit.State.ACTIVE and s.state == Unit.State.ACTIVE:
+			positions.append(s.enemy_known_position)
+	if positions.is_empty():
+		return Vector2.INF
+	if u == null:
+		return _known_position_centroid(positions)
+	var best: Vector2 = positions[0]
+	for p in positions:
+		if u.global_position.distance_to(p) < u.global_position.distance_to(best):
+			best = p
+	return best
+
+
+## The exact mirror of _known_friendly_squad_objective, for a known SPOTTER instead of a squad. Direct
+## user ruling: "If they have seen the spotter, enemy squads should try to kill the spotter." A lone
+## forward observer is a real, valuable, and completely undefended target once found — unlike attacking a
+## known SQUAD (_known_friendly_squad_objective, gated on _enemy_attack_stance's own numerical-advantage
+## check), going after an unarmed spotter needs no such case: nothing about eliminating it risks the force
+## the way attacking an armed squad without the numbers for it would. Kept as its own separate function
+## (not folded into the squad one) so the two can be gated differently in _enemy_advance_objective without
+## the caller needing to untangle which kind a returned position came from.
+func _known_friendly_spotter_position(u: Unit = null) -> Vector2:
+	var positions: Array[Vector2] = []
+	for s in player_units:
+		if s.kind == Unit.Kind.SPOTTER and s.enemy_has_been_sighted and s.enemy_known_state == Unit.State.ACTIVE and s.state == Unit.State.ACTIVE:
 			positions.append(s.enemy_known_position)
 	if positions.is_empty():
 		return Vector2.INF
@@ -8739,10 +8795,10 @@ func _relocate_mortar(mortar: Unit, intent: String, force_urgent: bool = false) 
 ## blocked) falls back to the old immediate commitment rather than leaving
 ## the crew with nothing to do.
 func _mortar_flee_as_last_resort(m: Unit) -> void:
-	# Seen by a drone and nothing else: hiding is worth trying (the caller
-	# already did), but running for the edge is not — stay put.
-	if _mortar_troubled_only_by_drones(m):
-		_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Only a drone has sighted us — no place to hide, but not leaving the map over it."}
+	# Seen by an unarmed observer (a drone, a spotter) and nothing else: hiding is worth trying (the
+	# caller already did), but running for the edge is not — stay put.
+	if _mortar_troubled_only_by_unarmed_observers(m):
+		_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Only a drone or spotter has sighted us — no place to hide, but not leaving the map over it."}
 		return
 	if absf(m.retreat_target_x - m.global_position.x) > GameConfig.MORTAR_FLEE_COMMIT_DISTANCE:
 		var legs: Array[Vector2] = _mortar_edge_run_legs(m)
