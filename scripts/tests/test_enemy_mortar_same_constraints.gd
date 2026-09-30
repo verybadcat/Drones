@@ -41,6 +41,8 @@ func run() -> void:
 	test_an_enemy_mortar_hiding_stays_within_its_leash()
 	test_both_sides_share_the_firing_rules()
 	test_a_mortar_already_ahead_may_not_be_sent_further_ahead()
+	test_an_enemy_mortar_now_feels_the_same_post_fire_relocation_instinct()
+	test_an_enemy_mortar_gets_the_same_density_driven_urgency()
 	print("Enemy mortar constraint tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
@@ -161,3 +163,44 @@ func test_both_sides_share_the_firing_rules() -> void:
 	var tf: int = src.find("func _tick_fire(")
 	var fire_body: String = src.substr(tf, 6500)
 	check("_clear_mortar_move(unit)" in fire_body and "if unit.has_move_target:" in fire_body, "A mortar with a shot available stops its walk to fire, whichever side it is")
+
+
+## Direct user report, after a live incident where an enemy mortar was wiped out with uncanny speed by
+## walking fire (see _mortar_dispersion_offset's own convergence, which a target sitting still after every
+## shot only ever helps): "Also, enemy mortars did not scoot after shooting." _mortar_should_relocate_for_
+## safety used to be hardcoded PLAYER-only; both sides now feel identically compelled to displace once
+## they've recently given their own position away and a real opposing mortar can still reach it.
+func test_an_enemy_mortar_now_feels_the_same_post_fire_relocation_instinct() -> void:
+	for team in [Unit.Team.PLAYER, Unit.Team.ENEMY]:
+		var bm = make_battle()
+		var mortar: Unit = bm._make_unit(team, Unit.Kind.MORTAR, m(0, 0))
+		var opposing_team: Unit.Team = Unit.Team.ENEMY if team == Unit.Team.PLAYER else Unit.Team.PLAYER
+		var threat: Unit = bm._make_unit(opposing_team, Unit.Kind.MORTAR, m(1000, 0))
+		if team == Unit.Team.PLAYER:
+			bm.player_units.append(mortar)
+			bm.enemy_units.append(threat)
+		else:
+			bm.enemy_units.append(mortar)
+			bm.player_units.append(threat)
+		bm._last_detected_mortar_fire[mortar] = {"position": mortar.global_position, "time": bm.scenario_elapsed_time}
+		check(bm._mortar_should_relocate_for_safety(mortar), "%s: feels the post-fire relocation instinct with a real opposing mortar in range" % Unit.Team.keys()[team])
+		cleanup(bm)
+
+
+## _known_enemy_mortars_in_range now reads the asking side's OWN knowledge of the opposing side's
+## mortars (enemy_known_state/enemy_has_been_sighted/enemy_known_position for an enemy asker), not the
+## player's knowledge of other enemy mortars — the original PLAYER-only version was checking the wrong
+## side's knowledge entirely for this direction, not merely skipping a feature.
+func test_an_enemy_mortar_gets_the_same_density_driven_urgency() -> void:
+	var bm = make_battle()
+	var mortar: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, m(0, 0))
+	bm.enemy_units.append(mortar)
+	for i in GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT:
+		var p: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, m(200.0 * i, 0))
+		bm.player_units.append(p)
+		p.enemy_has_been_sighted = true
+		p.enemy_known_position = p.global_position
+		p.enemy_known_state = Unit.State.ACTIVE
+	check(bm._known_enemy_mortars_in_range(mortar.global_position, Unit.Team.ENEMY) >= GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT, "The enemy's own known-mortar density count sees what it itself knows about player mortars")
+	check(bm._known_enemy_mortars_in_range(mortar.global_position) == 0, "...and the default (PLAYER-perspective) call is unaffected — these are two different, real questions")
+	cleanup(bm)

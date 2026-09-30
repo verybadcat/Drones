@@ -1249,7 +1249,11 @@ func _spawn_enemy_units() -> void:
 
 	for mortar_pos_m in GameConfig.enemy_mortar_positions_m(force_size.mortars):
 		var em := _make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, mortar_pos_m * GameConfig.PIXELS_PER_METER)
-		em.shoot_and_scoot = false
+		# Cosmetic only: the field itself is currently vestigial, never read anywhere in the tier ladder
+		# (see _mortar_should_relocate_for_safety's own doc comment) — but now that enemy mortars DO get
+		# the same post-fire relocation instinct the player's own default doctrine implies, leaving this
+		# set to false would actively mislead anyone reading it next.
+		em.shoot_and_scoot = true
 		_enemy_mortar_homes[em] = em.global_position
 		_set_retreat_profile(em, Unit.Team.ENEMY)
 		enemy_units.append(em)
@@ -6111,7 +6115,7 @@ func _decide_mortar_action(m: Unit) -> void:
 		# still matters for WHETHER this tier fires at all (see
 		# _mortar_should_relocate_for_safety) — it just can't also control
 		# this cooldown-bypass without reopening this exact bug.
-		var known_in_range: int = _known_enemy_mortars_in_range(m.global_position)
+		var known_in_range: int = _known_enemy_mortars_in_range(m.global_position, m.team)
 		var urgent: bool = known_in_range >= GameConfig.MORTAR_DENSITY_FORCE_SCOOT_COUNT
 		if current_intent == "scoot" and m.has_move_target:
 			# A real, previously-reported live regression, deeper than the
@@ -9359,22 +9363,32 @@ func _mortar_shot_this_tick(m: Unit, opposing: Array[Unit]) -> Unit:
 ## detected, so the mere fact the enemy fields mortars capable of
 ## reaching this position at all is itself the reason to assume
 ## counter-battery risk, not proof a specific tube spotted this one.
-## Doctrine no longer gates whether this fires at all — see
-## _decide_mortar_action's own call site for how `m.shoot_and_scoot` is
-## still meaningful (it now controls how URGENTLY the crew responds, not
-## whether it bothers).
+## Doctrine no longer gates whether this fires at all — and, despite an
+## older version of this comment claiming otherwise, `m.shoot_and_scoot`
+## itself no longer reads anywhere in the current tier ladder either (see
+## _decide_mortar_action's own call site, whose comment says so directly);
+## it is currently a vestigial field, set at spawn but never consulted.
 ##
-## Player-only, matching every other doctrine-aware mortar check's
-## "enemy may differ" scope.
+## Direct user correction, later, after a live report of an enemy mortar
+## being wiped out with uncanny speed and consistency by walking-fire
+## (see _mortar_dispersion_offset's own convergence, which requires the
+## target to keep sitting still to benefit an attacker's fire correction):
+## "Also, enemy mortars did not scoot after shooting" — this used to be
+## PLAYER-only, matching every other doctrine-aware mortar check's "enemy
+## may differ" scope, but a stationary target never breaks a
+## walking-fire correction once started, and the enemy fields mortars for
+## the friendly side to feel exactly the same counter-battery risk from —
+## there is no real reason left for this one to stay asymmetric once
+## reported. Both sides now feel it identically.
 func _mortar_should_relocate_for_safety(m: Unit) -> bool:
-	if m.team != Unit.Team.PLAYER or unit_doctrine_for(m).risk != "inherit":
+	if unit_doctrine_for(m).risk != "inherit":
 		return false
 	if not mortar_recently_detected_firing(m):
 		return false
 	var last_fire: Dictionary = _last_detected_mortar_fire[m]
 	if m.global_position.distance_to(last_fire.position) >= GameConfig.COUNTER_BATTERY_BLAST_RADIUS:
 		return false # already put real distance between itself and where it was last given away
-	return _enemy_mortars_in_range(m.global_position) >= GameConfig.MORTAR_STANDING_THREAT_COUNT
+	return _enemy_mortars_in_range(m.global_position, m.team) >= GameConfig.MORTAR_STANDING_THREAT_COUNT
 
 
 ## Ground truth, not "known" — see _known_enemy_mortars_in_range's own doc
@@ -9385,11 +9399,15 @@ func _mortar_should_relocate_for_safety(m: Unit) -> bool:
 ## shoot-and-scoot doctrine assumes counter-battery risk from the mere
 ## fact the enemy fields mortars able to reach this position, not from
 ## confirmation a specific tube detected this one — a crew never gets
-## that confirmation in real life either.
-func _enemy_mortars_in_range(pos: Vector2) -> int:
+## that confirmation in real life either. `team` is the mortar's OWN team
+## (whichever side is asking "can the other guy reach me here") — counts
+## the OPPOSING side's mortars, at the opposing side's own max range.
+func _enemy_mortars_in_range(pos: Vector2, team: Unit.Team = Unit.Team.PLAYER) -> int:
+	var opposing_team: Unit.Team = Unit.Team.ENEMY if team == Unit.Team.PLAYER else Unit.Team.PLAYER
+	var opposing: Array[Unit] = enemy_units if team == Unit.Team.PLAYER else player_units
 	var count := 0
-	var range_px: float = GameConfig.mortar_max_range(Unit.Team.ENEMY)
-	for u in enemy_units:
+	var range_px: float = GameConfig.mortar_max_range(opposing_team)
+	for u in opposing:
 		if u.kind == Unit.Kind.MORTAR and u.state == Unit.State.ACTIVE and pos.distance_to(u.global_position) <= range_px:
 			count += 1
 	return count
@@ -9413,6 +9431,17 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# behind this — a live bug report: enemy mortars were seen firing
 		# HE rounds at a drone hundreds of meters away).
 		if e.kind == Unit.Kind.DRONE:
+			continue
+		# Direct user report: "Enemy mortars were still shooting at our spotter when enemy squads were
+		# nearby, and friendly squads were not. Instead, the enemy should have tasked an enemy squad with
+		# that, as the squad could have done it easily." Reuses the exact same availability check
+		# _spotter_hunt_candidate already makes for whether a squad WILL go deal with a known spotter
+		# (near enough, free, not already fighting a real squad) rather than a separate, looser proximity
+		# check that could drift out of sync with what that tier actually does. A squad engaging the
+		# spotter directly (this function's own SQUAD branch, a few lines below) is exactly the desired
+		# outcome and is untouched — this only stops a MORTAR from also spending a shell on an unarmed
+		# target ground forces are already free and positioned to deal with.
+		if e.kind == Unit.Kind.SPOTTER and unit.kind == Unit.Kind.MORTAR and unit.team == Unit.Team.ENEMY and _spotter_hunt_candidate() != null:
 			continue
 		if unit.kind == Unit.Kind.SQUAD:
 			if unit.global_position.distance_to(e.global_position) > GameConfig.SQUAD_ENGAGEMENT_RANGE:
@@ -9723,23 +9752,35 @@ func mortar_minutes_since_detected_firing(mortar: Unit) -> float:
 ## MORTAR_DENSITY_FORCE_SCOOT_COUNT's own doc comment for why this count
 ## specifically (not just "is there a known enemy mortar at all") is what
 ## should be driving how urgently a crew needs to keep displacing.
-func _known_enemy_mortars_in_range(pos: Vector2) -> int:
+##
+## `team` is the mortar's OWN team (whichever side is asking "how many of the other guy's mortars do I
+## know about"); default preserves every existing PLAYER-perspective call site. Direct user report, given
+## alongside the same live incident that made _mortar_should_relocate_for_safety symmetric: enemy mortars
+## get the identical density-driven urgency a friendly crew already had, using the ENEMY's OWN knowledge
+## of PLAYER mortars (enemy_known_state/enemy_has_been_sighted/enemy_known_position) rather than checking
+## what the PLAYER happens to know — the original, PLAYER-only version was actively checking the wrong
+## side's knowledge for that direction, not merely omitting a feature.
+func _known_enemy_mortars_in_range(pos: Vector2, team: Unit.Team = Unit.Team.PLAYER) -> int:
+	var opposing: Array[Unit] = enemy_units if team == Unit.Team.PLAYER else player_units
 	var count := 0
-	for u in enemy_units:
+	for u in opposing:
 		if u.kind != Unit.Kind.MORTAR:
 			continue
 		# Knowledge audit (2026-09-27): this function's own doc comment already promises "never omniscient
-		# ground truth" — u.state was exactly that. A mortar the player still believes ACTIVE or RETREATING
-		# must keep counting even if it has since been destroyed unseen; a never-known one is excluded by
-		# the branches below regardless (player_known_state defaults to ACTIVE, but none of is_visible /
-		# player_has_been_sighted / mortar_ever_detected_firing will be true for it).
-		if u.player_known_state != Unit.State.ACTIVE and u.player_known_state != Unit.State.RETREATING:
+		# ground truth" — u.state was exactly that. A mortar the other side still believes ACTIVE or
+		# RETREATING must keep counting even if it has since been destroyed unseen; a never-known one is
+		# excluded by the branches below regardless (the known-state field defaults to ACTIVE, but none of
+		# is_visible / has-been-sighted / mortar_ever_detected_firing will be true for it).
+		var known_state: Unit.State = u.player_known_state if team == Unit.Team.PLAYER else u.enemy_known_state
+		if known_state != Unit.State.ACTIVE and known_state != Unit.State.RETREATING:
 			continue
+		var has_been_sighted: bool = u.player_has_been_sighted if team == Unit.Team.PLAYER else u.enemy_has_been_sighted
+		var known_position: Vector2 = u.player_known_position if team == Unit.Team.PLAYER else u.enemy_known_position
 		var known_pos: Vector2
 		if u.is_visible:
 			known_pos = u.global_position
-		elif u.player_has_been_sighted:
-			known_pos = u.player_known_position
+		elif has_been_sighted:
+			known_pos = known_position
 		elif mortar_ever_detected_firing(u):
 			known_pos = _last_detected_mortar_fire[u].position
 		else:
