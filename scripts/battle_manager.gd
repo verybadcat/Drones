@@ -3312,21 +3312,34 @@ func _update_drone_team_evasion() -> void:
 		return
 	if drone_team.state != Unit.State.ACTIVE or drone_team.has_move_target:
 		return
+	# Direct user report: "The drone team came under mortar fire. Now it is withdrawing. But given that it
+	# took no casualties, I don't understand why it is withdrawing. Relocating would be reasonable." Fixed
+	# at the source (Unit._apply_crew_casualties now gives a DRONE_TEAM the same "holds position" roll a
+	# MORTAR crew already gets, rather than unconditionally retreating over any hit at all) — but a crew
+	# that holds still needs to actually MOVE for "relocating" to mean anything. The ordinary risk trigger
+	# just below only reacts to a currently VISIBLE, closing ground threat; a mortar shell lands from a
+	# tube that is very often neither, so it would otherwise hold in place and never actually reposition.
+	# Bypasses that roll outright, the same unconditional-once-triggered treatment _decide_mortar_action's
+	# own tier 1 gives a mortar crew for evading_counter_battery — but reads Unit.taking_fire instead of
+	# that flag: direct user correction, "Fire at the drone team is not counter battery fire," since a
+	# drone team never fires anything and so can never draw an actual counter-battery response.
+	var urgent_evasion: bool = drone_team.taking_fire
 	var risk := 0.0
-	for e in enemy_units:
-		var still_a_threat: bool = e.state == Unit.State.ACTIVE or e.state == Unit.State.RETREATING
-		if not still_a_threat or not e.is_visible:
-			continue
-		var to_team: Vector2 = drone_team.global_position - e.global_position
-		var dist: float = to_team.length()
-		if dist > GameConfig.DRONE_TEAM_EVASION_RANGE:
-			continue
-		var velocity: Vector2 = _estimate_unit_velocity(e)
-		if velocity == Vector2.ZERO or velocity.normalized().dot(to_team.normalized()) <= 0.0:
-			continue # stationary, or heading away/across rather than toward the team
-		risk = max(risk, clamp(1.0 - dist / GameConfig.DRONE_TEAM_EVASION_RANGE, 0.0, 1.0))
-	if risk <= 0.0 or randf() >= risk * risk:
-		return
+	if not urgent_evasion:
+		for e in enemy_units:
+			var still_a_threat: bool = e.state == Unit.State.ACTIVE or e.state == Unit.State.RETREATING
+			if not still_a_threat or not e.is_visible:
+				continue
+			var to_team: Vector2 = drone_team.global_position - e.global_position
+			var dist: float = to_team.length()
+			if dist > GameConfig.DRONE_TEAM_EVASION_RANGE:
+				continue
+			var velocity: Vector2 = _estimate_unit_velocity(e)
+			if velocity == Vector2.ZERO or velocity.normalized().dot(to_team.normalized()) <= 0.0:
+				continue # stationary, or heading away/across rather than toward the team
+			risk = max(risk, clamp(1.0 - dist / GameConfig.DRONE_TEAM_EVASION_RANGE, 0.0, 1.0))
+		if risk <= 0.0 or randf() >= risk * risk:
+			return
 	var threats := _known_enemy_positions(Unit.Team.PLAYER)
 	# The trailing explicit defaults here (avoid_buildings through firing_point)
 	# exist only so danger_range can be reached positionally (GDScript has no
@@ -3337,7 +3350,8 @@ func _update_drone_team_evasion() -> void:
 	# standoff instead of the 1200m scale this team's own trigger above uses.
 	var destination: Vector2 = GameConfig.nearest_hidden_point(drone_team.global_position, threats, false, false, [], Vector2.INF, INF, 0.0, [], [], Vector2.ZERO, Vector2.INF, GameConfig.DRONE_TEAM_EVASION_RANGE)
 	if destination == drone_team.global_position:
-		return # nowhere better to go this tick — try again next tick if the threat's still closing
+		return # nowhere better to go this tick — try again next tick (taking_fire stays set, same as a mortar's own retry)
+	drone_team.taking_fire = false
 	drone_team.move_target = destination
 	drone_team.has_move_target = true
 	drone_team.move_queue.clear()
@@ -6508,6 +6522,47 @@ func _process(delta: float) -> void:
 ## tactical clock they're realistic relative to, not real elapsed play time.
 func _tick_movement(scenario_delta: float) -> void:
 	for unit in player_units + enemy_units:
+		if unit.kind == Unit.Kind.RESUPPLY_RUN and not unit.resupply_delivered and unit.resupply_target_mortar != null and unit.resupply_target_mortar.state == Unit.State.ACTIVE:
+			# Direct user report, seen in the post-battle replay: a resupply
+			# run appeared to drive right past a mortar that was actively
+			# relocating (shoot-and-scoot/evade/hunt — NOT retreating, which
+			# already aborts the run outright below in
+			# _resolve_resupply_run_arrivals) without ever delivering, with
+			# an extreme play-speed override (Godot's own debug time-scale,
+			# stacked on top of this game's own TIME_SCALE_FAST_FORWARD tier)
+			# confirmed active at the time.
+			#
+			# Root cause, confirmed with a synthetic stress test: _update_
+			# resupply_run_targets (below _tick_movement in _process) sets
+			# this run's move_target from the mortar's position BEFORE this
+			# tick's own movement runs. Under an ordinary scenario_delta that
+			# staleness is trivial (well under MORTAR_RESUPPLY_ARRIVAL_RADIUS)
+			# and the run's real speed advantage (7 m/s vs. a relocating
+			# mortar's 2.2 m/s, see MORTAR_RESUPPLY_RUN_SPEED/MORTAR_RELOCATE_
+			# SPEED) converges it in. But at a large enough single-tick
+			# scenario_delta, the mortar's OWN per-tick displacement can
+			# exceed the arrival radius outright — and since the run is
+			# always chasing LAST tick's already-stale position, it can
+			# perpetually trail just outside arrival range even though it's
+			# genuinely faster than what it's chasing, tick after tick,
+			# indefinitely (verified: a synthetic run at a fixed 40-tactical-
+			# second-per-tick step, well within reach of an 8x Godot debug
+			# time-scale stacked on FAST_FORWARD's 300x, never delivered in
+			# 500 simulated ticks despite the speed advantage).
+			#
+			# Fixed here rather than in _update_resupply_run_targets itself:
+			# this unit's mortar is always EARLIER in this same player_units/
+			# enemy_units array (a RESUPPLY_RUN can only be spawned — see
+			# _spawn_resupply_run — targeting a mortar that already exists,
+			# and is always appended after it), so by the time this loop
+			# reaches the run's own turn, its mortar has already taken
+			# *this* tick's step. Retargeting right here, immediately before
+			# the run takes its own step, means it always aims at the
+			# mortar's truest, current-this-tick position — not a snapshot
+			# from before either of them moved — closing the staleness
+			# window entirely rather than just shrinking it.
+			unit.move_target = unit.resupply_target_mortar.global_position
+			unit.has_move_target = true
 		if unit.state == Unit.State.RETREATING:
 			if unit.has_move_target:
 				_step_toward_target(unit, scenario_delta)

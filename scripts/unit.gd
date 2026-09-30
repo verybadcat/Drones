@@ -125,6 +125,15 @@ var reload_time: float = 30.0
 # BattleManager._resolve_pending_counter_battery / _relocate_mortar.
 var evading_counter_battery: bool = false
 
+# A DRONE_TEAM's own equivalent of the flag above, DELIBERATELY not sharing its name: direct user
+# correction — "Fire at the drone team is not counter battery fire." Counter-battery is a specific
+# doctrine (a return shot drawn by THIS unit's OWN firing giving its position away); a drone team never
+# fires anything at all, so nothing it takes can be "countering" anything. This just marks "a shell
+# landed near this crew and it survived," the same trigger _apply_crew_casualties' shared MORTAR/
+# DRONE_TEAM branch below already treats as a reason to hold and relocate rather than fully withdraw —
+# consumed the next time BattleManager._update_drone_team_evasion actually issues that move.
+var taking_fire: bool = false
+
 # General-purpose movement target + queue, used for: an enemy squad's
 # initial road march (a real multi-waypoint path — see set_path), either
 # side's squad bolting for cover, and a retreat's first leg to cover.
@@ -513,7 +522,7 @@ func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_pos
 
 	if state != State.ACTIVE:
 		return
-	if kind == Kind.MORTAR and not cooked_off and _mortar_crew_holds_position(known_enemy_positions):
+	if (kind == Kind.MORTAR or kind == Kind.DRONE_TEAM) and not cooked_off and _mortar_crew_holds_position(known_enemy_positions):
 		# Stays in the fight, wounded but still crewed — a real reason to
 		# relocate (shoot-and-scoot after the next shot, the out-of-ammo
 		# safety check, or simply being spotted while idle) still applies
@@ -522,7 +531,15 @@ func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_pos
 		# it had just weathered counter-battery fire either way — whatever
 		# actually hit it, a crew that chose to stick it out after taking
 		# casualties is especially eager not to get caught again.
-		evading_counter_battery = true
+		#
+		# Kind-specific flag, deliberately: a MORTAR genuinely IS evading
+		# counter-battery (return fire drawn by its own shot); a DRONE_TEAM
+		# never fires anything, so what just hit it can't be "countering"
+		# anything — see taking_fire's own doc comment for the distinction.
+		if kind == Kind.MORTAR:
+			evading_counter_battery = true
+		else:
+			taking_fire = true
 		return
 	order_retreat(known_enemy_positions, ally_positions)
 
@@ -581,18 +598,24 @@ func _roll_crew_casualties(remaining: int, impact_distance: float, terrain: Game
 	return newly_down
 
 
-## Whether a wounded MORTAR crew (crew_size - crew_casualties survivors)
-## keeps the gun in the fight rather than abandoning it — see GameConfig.
-## MORTAR_CREW_OVERRUN_DANGER_RANGE for the doctrine this models. A genuine
-## risk-weighted roll, not a hard cutoff, matching this game's standing
-## "real decisions aren't perfectly rational" idiom: `remaining_fraction *
-## (1.0 - overrun_risk)`. A full-strength crew with nothing threatening it
-## up close holds essentially every time; the same crew with an enemy
-## closing to overrun range flees almost regardless of how many hands are
-## still on the gun — self-preservation from being physically overrun beats
-## the tactical value of one more round downrange. With nothing known
-## nearby at all, overrun_risk is 0 and the decision rests purely on how
-## much crew is actually left to work the tube.
+## Whether a wounded crew (crew_size - crew_casualties survivors) keeps its post in the fight rather than
+## abandoning it — see GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE for the doctrine this models. Named for
+## its original MORTAR-only use, but also called for a DRONE_TEAM now (see take_hit's own shared
+## MORTAR/DRONE_TEAM branch, and _apply_crew_casualties' call site below) — a ground station crew facing a
+## near-miss with nobody actually hurt and nothing closing to overrun it has exactly the same reason to
+## stay put and reposition as an untouched mortar crew does, not to abandon the whole mission over a shell
+## that landed clear. Direct user report: "The drone team came under mortar fire. Now it is withdrawing.
+## But given that it took no casualties, I don't understand why it is withdrawing. Relocating would be
+## reasonable" — traced to _apply_crew_casualties unconditionally retreating any DRONE_TEAM that reached
+## its own final branch, with no equivalent to this roll at all, regardless of whether the hit that
+## triggered it actually cost it anyone.
+##
+## A genuine risk-weighted roll, not a hard cutoff, matching this game's standing "real decisions aren't
+## perfectly rational" idiom: `remaining_fraction * (1.0 - overrun_risk)`. A full-strength crew with
+## nothing threatening it up close holds essentially every time; the same crew with an enemy closing to
+## overrun range flees almost regardless of how many hands are still on post — self-preservation from
+## being physically overrun beats the tactical value of staying. With nothing known nearby at all,
+## overrun_risk is 0 and the decision rests purely on how much crew is actually left.
 func _mortar_crew_holds_position(known_enemy_positions: Array[Vector2]) -> bool:
 	var remaining_fraction: float = float(crew_size - crew_casualties) / float(crew_size)
 	var nearest_threat_dist := INF
