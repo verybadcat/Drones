@@ -271,8 +271,8 @@ func test_report_has_three_tabs_in_order() -> void:
 	var lines: PackedStringArray = body.split("\n")
 	check(lines[0] == "Battle score: %s" % BattleScore.format(score), "It opens on the Score tab, headed by the score, got: %s" % lines[0])
 	check("  Position held: 20.0" in lines, "The position line item is shown: %s" % [lines])
-	check("  Enemy killed: 4 \u00d7 5 = 20.0" in lines, "...each event as count x points = points")
-	check("  Enemy walking wounded: 5 \u00d7 0.5 = 2.5" in lines, "...including fractional values")
+	check("  Russian killed: 4 \u00d7 5 = 20.0" in lines, "...each event as count x points = points")
+	check("  Russian walking wounded: 5 \u00d7 0.5 = 2.5" in lines, "...including fractional values")
 	check(not ("Our personnel killed" in body), "...and not the things that didn't happen")
 	check(lines[-1] == "Total: %s" % BattleScore.format(score) and is_equal_approx(score, 42.5), "...ending in the total, which is the same score the report headline gives (got %s)" % lines[-1])
 

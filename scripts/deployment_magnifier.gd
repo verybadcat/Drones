@@ -89,7 +89,8 @@ func draw_overlay(ci: CanvasItem) -> void:
 	elif unit_kind == Unit.Kind.SPOTTER or unit_kind == Unit.Kind.DRONE_TEAM:
 		ci.draw_circle(center, TOKEN_RADIUS * 0.4, Color(0.1, 0.1, 0.1, TOKEN_ALPHA))
 		ci.draw_circle(center, TOKEN_RADIUS * 0.18, Color(1.0, 1.0, 1.0, TOKEN_ALPHA))
-	GameConfig.draw_cover_ring(ci, TOKEN_RADIUS, GameConfig.get_terrain_type_at(focus_position), center)
+	# The magnifier only ever previews the player's own (Ukrainian) deployment.
+	GameConfig.draw_cover_ring(ci, TOKEN_RADIUS, GameConfig.get_terrain_type_at(focus_position), center, Unit.Team.PLAYER)
 
 	# A thin crosshair pinpoints the exact placement point independently of
 	# the token marker's own visual weight, however small/transparent —

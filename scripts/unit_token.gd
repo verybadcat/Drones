@@ -45,8 +45,9 @@ func _draw() -> void:
 		draw_circle(Vector2.ZERO, RADIUS * 0.4, Color(0.1, 0.1, 0.1))
 		draw_circle(Vector2.ZERO, RADIUS * 0.18, Color.WHITE)
 
-	# Cover status is visible during setup too, not just once the battle starts.
-	GameConfig.draw_cover_ring(self, RADIUS, GameConfig.get_terrain_type_at(position))
+	# Cover status is visible during setup too, not just once the battle starts. Deployment tokens are
+	# always the player's own (Ukrainian) units — there is no enemy deployment screen.
+	GameConfig.draw_cover_ring(self, RADIUS, GameConfig.get_terrain_type_at(position), Vector2.ZERO, Unit.Team.PLAYER)
 
 	# Wide enough for the longest label actually used ("Drone Team") at this
 	# font size without clipping — 60px cut it off mid-word.

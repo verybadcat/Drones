@@ -219,7 +219,7 @@ func _draw_unit(u: Dictionary) -> void:
 	if state == Unit.State.WITHDRAWN or state == Unit.State.DESTROYED or state == Unit.State.SURRENDERED:
 		return
 
-	GameConfig.draw_cover_ring(self, radius, GameConfig.get_terrain_type_at(pos), pos)
+	GameConfig.draw_cover_ring(self, radius, GameConfig.get_terrain_type_at(pos), pos, team)
 
 	var bar_width := 28.0
 	var bar_y := pos.y - radius - 10.0

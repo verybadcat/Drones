@@ -58,7 +58,7 @@ func test_stalemate_reports_a_distinct_verdict_and_no_held_or_lost_claim() -> vo
 	check("held: YES" not in text and "held: NO" not in text,
 		"Neither 'held' nor 'lost' is true of a stalemate -- the report must not claim either (got: %s)" % text.split("\n")[2])
 	check("stalemate" in text.to_lower(), "The map-result line must itself say this was a stalemate, not stay silent about it")
-	check("Player casualties:" in text and "Enemy casualties:" in text,
+	check("Ukrainian casualties:" in text and "Russian casualties:" in text,
 		"Losses must still be reported in full -- a stalemate isn't an excuse to omit the casualty picture")
 
 

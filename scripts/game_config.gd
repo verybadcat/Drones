@@ -8219,11 +8219,26 @@ static func _draw_river(ci: CanvasItem) -> void:
 ## A ring around a unit/token showing whether its current spot is cover —
 ## shown in the battle view AND on the deployment screen, so cover status is
 ## visible before the battle even starts.
-static func draw_cover_ring(ci: CanvasItem, radius: float, terrain: TerrainType, center: Vector2 = Vector2.ZERO) -> void:
+##
+## Direct user request, the first concrete step of making the Ukraine-vs-Russia setting explicit
+## (see docs/designs/tactical-commander-doctrine.md): a friendly (Ukrainian, blue) unit's in-cover ring is
+## yellow, not the same green every unit used before — the blue/yellow pairing reads as the Ukrainian
+## flag. `team` defaults to ENEMY so a caller that genuinely doesn't know/care about team (there are none
+## left after this change, but a stray future one would fail safe onto the old green/red scheme rather
+## than silently drawing the wrong side's colors).
+static func draw_cover_ring(ci: CanvasItem, radius: float, terrain: TerrainType, center: Vector2 = Vector2.ZERO, team: Unit.Team = Unit.Team.ENEMY) -> void:
 	var in_cover := is_in_cover(terrain)
-	var color: Color = Color(0.25, 1.0, 0.35, 0.9) if in_cover else Color(1.0, 0.3, 0.2, 0.55)
+	var color: Color = cover_ring_color(in_cover, team)
 	var width: float = 3.0 if in_cover else 1.5
 	ci.draw_arc(center, radius + 5.0, 0.0, TAU, 24, color, width, true)
+
+
+## The color half of draw_cover_ring, split out so the actual color choice is unit-testable without a
+## real CanvasItem/rendering context.
+static func cover_ring_color(in_cover: bool, team: Unit.Team) -> Color:
+	if not in_cover:
+		return Color(1.0, 0.3, 0.2, 0.55)
+	return Color(1.0, 0.85, 0.1, 0.9) if team == Unit.Team.PLAYER else Color(0.25, 1.0, 0.35, 0.9)
 
 
 ## Real, believable contour lines, not perfect circles: each hill's isoline

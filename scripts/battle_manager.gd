@@ -10620,7 +10620,13 @@ func _end_battle() -> void:
 	# captured always visibly sums to the personnel-lost total on the left —
 	# every one of those four is tracked for every personnel kind now (see
 	# _compute_side_stats), so this is a real identity, not just usually true.
-	lines.append("Player casualties: %d/%d personnel (%.0f%%) — %d killed, %d heavily wounded, %d walking wounded, %d captured" % [
+	#
+	# "Ukrainian"/"Russian" from here down (this report and its own losses/withdrew/surrendered lines
+	# below), not "Player"/"Enemy" — direct user request making the Ukraine-vs-Russia setting explicit.
+	# Unit.display_name() got the same treatment for the combat log; the on-map unit label itself
+	# (Unit._draw, drawing unit_label directly) deliberately did NOT — "Don't put it onto the unit names
+	# on the map. It makes them too long."
+	lines.append("Ukrainian casualties: %d/%d personnel (%.0f%%) — %d killed, %d heavily wounded, %d walking wounded, %d captured" % [
 		player_stats.pips_lost, player_stats.pips_total, player_stats.casualty_percent,
 		player_stats.killed, player_stats.heavily_wounded, player_stats.walking_wounded, player_stats.captured,
 	])
@@ -10635,7 +10641,7 @@ func _end_battle() -> void:
 	# rather than being silently folded into either the pure-estimate or
 	# pure-confirmed line.
 	if enemy_stats.estimated:
-		lines.append("Enemy casualties: an estimated %d/%d personnel (~%.0f%%) — the position wasn't held for a battlefield assessment, so this reflects only what was actually scouted during the fight, not the true toll" % [
+		lines.append("Russian casualties: an estimated %d/%d personnel (~%.0f%%) — the position wasn't held for a battlefield assessment, so this reflects only what was actually scouted during the fight, not the true toll" % [
 			enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent,
 		])
 	elif enemy_stats.unconfirmed_pips_lost == 0:
@@ -10646,17 +10652,17 @@ func _end_battle() -> void:
 		# of them; `evacuated_unknown` is a real, counted personnel loss,
 		# just not one this assessment can characterize any further (see
 		# _compute_side_stats's own `is_enemy_side` doc comment).
-		lines.append("Enemy casualties: %d/%d personnel confirmed on the battlefield (%.0f%%) — %d killed, %d heavily wounded, %d captured, %d more unaccounted for (likely evacuated wounded — the enemy pulls its own ambulatory casualties out even from ground it's about to lose)" % [
+		lines.append("Russian casualties: %d/%d personnel confirmed on the battlefield (%.0f%%) — %d killed, %d heavily wounded, %d captured, %d more unaccounted for (likely evacuated wounded — the enemy pulls its own ambulatory casualties out even from ground it's about to lose)" % [
 			enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent,
 			enemy_stats.killed, enemy_stats.heavily_wounded, enemy_stats.captured, enemy_stats.evacuated_unknown,
 		])
 	else:
-		lines.append("Enemy casualties: %d/%d confirmed on the battlefield — %d killed, %d heavily wounded, %d captured, %d more unaccounted for (likely evacuated wounded)" % [
+		lines.append("Russian casualties: %d/%d confirmed on the battlefield — %d killed, %d heavily wounded, %d captured, %d more unaccounted for (likely evacuated wounded)" % [
 			enemy_stats.confirmed_pips_lost, enemy_stats.pips_total,
 			enemy_stats.killed, enemy_stats.heavily_wounded, enemy_stats.captured, enemy_stats.evacuated_unknown,
 		])
 		lines.append("Plus an estimated %d more among units that got away before the position could be swept — not independently confirmed, just what was actually scouted during the fight" % enemy_stats.unconfirmed_pips_lost)
-		lines.append("Enemy casualties overall (partly estimated): ~%d/%d personnel (~%.0f%%)" % [
+		lines.append("Russian casualties overall (partly estimated): ~%d/%d personnel (~%.0f%%)" % [
 			enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent,
 		])
 	# No separate "exchange ratio" line — it was purely duplicative of the two
@@ -10664,21 +10670,21 @@ func _end_battle() -> void:
 	# real work in the verdict math above (SUCCESSFUL DEFENSE/PYRRHIC
 	# DEFENSE/TACTICAL WITHDRAWAL thresholds), just no longer printed.
 	if not player_stats.destroyed.is_empty():
-		lines.append("Player losses: %s" % ", ".join(player_stats.destroyed))
+		lines.append("Ukrainian losses: %s" % ", ".join(player_stats.destroyed))
 	if not player_stats.withdrawn.is_empty():
-		lines.append("Player withdrew safely: %s" % ", ".join(player_stats.withdrawn))
+		lines.append("Ukrainian forces withdrew safely: %s" % ", ".join(player_stats.withdrawn))
 	if not player_stats.still_retreating.is_empty():
-		lines.append("Player still pulling back when the battle ended: %s" % ", ".join(player_stats.still_retreating))
+		lines.append("Ukrainian forces still pulling back when the battle ended: %s" % ", ".join(player_stats.still_retreating))
 	if not enemy_stats.destroyed.is_empty():
-		lines.append("Enemy losses: %s" % ", ".join(enemy_stats.destroyed))
+		lines.append("Russian losses: %s" % ", ".join(enemy_stats.destroyed))
 	if not enemy_stats.withdrawn.is_empty():
-		lines.append("Enemy withdrew: %s" % ", ".join(enemy_stats.withdrawn))
+		lines.append("Russian forces withdrew: %s" % ", ".join(enemy_stats.withdrawn))
 	if not enemy_stats.still_retreating.is_empty():
-		lines.append("Enemy still pulling back when the battle ended: %s" % ", ".join(enemy_stats.still_retreating))
+		lines.append("Russian forces still pulling back when the battle ended: %s" % ", ".join(enemy_stats.still_retreating))
 	if not player_stats.surrendered.is_empty():
-		lines.append("Player surrendered: %s" % ", ".join(player_stats.surrendered))
+		lines.append("Ukrainian forces surrendered: %s" % ", ".join(player_stats.surrendered))
 	if not enemy_stats.surrendered.is_empty():
-		lines.append("Enemy surrendered: %s" % ", ".join(enemy_stats.surrendered))
+		lines.append("Russian forces surrendered: %s" % ", ".join(enemy_stats.surrendered))
 
 	# unit_combat_stats.report_lines() used to be appended here too — now
 	# that BattleReport's own "Damage by unit" tab fetches it fresh on demand

@@ -268,9 +268,9 @@ func test_breakdown_text_lists_what_happened() -> void:
 	check(lines[1].begins_with("Scenario average:"), "...then the scenario average when there is one")
 	check("  Position held: 20.0" in lines, "The position is a line item")
 	check("  Our personnel killed: 2 \u00d7 -10 = -20.0" in lines, "A friendly loss shows count x points-each = points, got %s" % [lines])
-	check("  Enemy killed: 6 \u00d7 5 = 30.0" in lines, "An enemy loss the same way")
-	check("  Enemy walking wounded: 3 \u00d7 0.5 = 1.5" in lines, "Fractional values keep their precision, with no plus sign")
-	check("  Enemy mortar destroyed or abandoned: 1 \u00d7 5 = 5.0" in lines, "The mortar term too")
+	check("  Russian killed: 6 \u00d7 5 = 30.0" in lines, "An enemy loss the same way")
+	check("  Russian walking wounded: 3 \u00d7 0.5 = 1.5" in lines, "Fractional values keep their precision, with no plus sign")
+	check("  Russian mortar destroyed or abandoned: 1 \u00d7 5 = 5.0" in lines, "The mortar term too")
 	for line in lines:
 		if line.begins_with("  "):
 			check(not ("+" in line), "No plus signs in the line items (user's request), got '%s'" % line)

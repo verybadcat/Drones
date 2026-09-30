@@ -66,11 +66,14 @@ const TERMS: Array = [
 	["player_heavily_wounded", "Our heavily wounded", FRIENDLY_HEAVILY_WOUNDED],
 	["player_walking_wounded", "Our walking wounded", FRIENDLY_WALKING_WOUNDED],
 	["player_mortar_lost", "Our mortar lost", FRIENDLY_MORTAR_LOST],
-	["enemy_killed", "Enemy killed", ENEMY_DEATH],
-	["enemy_captured", "Enemy captured", ENEMY_CAPTURED],
-	["enemy_heavily_wounded", "Enemy heavily wounded", ENEMY_HEAVILY_WOUNDED],
-	["enemy_walking_wounded", "Enemy walking wounded", ENEMY_WALKING_WOUNDED],
-	["enemy_mortar_out", "Enemy mortar destroyed or abandoned", ENEMY_MORTAR_OUT],
+	# "Russian" here, not "Enemy" — direct user request making the Ukraine-vs-Russia setting explicit.
+	# "Our" on the friendly-side labels above is left as-is: an already-natural first-person framing, not
+	# the "Player"/"Enemy" pattern this request is about.
+	["enemy_killed", "Russian killed", ENEMY_DEATH],
+	["enemy_captured", "Russian captured", ENEMY_CAPTURED],
+	["enemy_heavily_wounded", "Russian heavily wounded", ENEMY_HEAVILY_WOUNDED],
+	["enemy_walking_wounded", "Russian walking wounded", ENEMY_WALKING_WOUNDED],
+	["enemy_mortar_out", "Russian mortar destroyed or abandoned", ENEMY_MORTAR_OUT],
 ]
 
 

@@ -137,7 +137,7 @@ func report_lines() -> PackedStringArray:
 		# fire below, not folded in silently), so both sides' totals
 		# together still give the full, exact picture without a separate,
 		# fog-of-war-limited figure: this whole report is the exact,
-		# omniscient one, unlike _end_battle's own "Player/Enemy casualties"
+		# omniscient one, unlike _end_battle's own "Ukrainian/Russian casualties"
 		# lines elsewhere in the AAR. Heavily wounded vs. walking wounded
 		# split out here the same way _end_battle's own casualty lines
 		# already do — "wounded" alone hid the difference between a

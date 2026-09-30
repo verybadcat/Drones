@@ -992,8 +992,13 @@ func is_targetable_state_known_to_player() -> bool:
 	return player_known_state == State.ACTIVE or player_known_state == State.RETREATING
 
 
+## Direct user request, part of making the Ukraine-vs-Russia setting explicit: "Ukrainian"/"Russian" here
+## specifically — NOT on the map's own on-unit label (Unit._draw draws unit_label directly, with no side
+## prefix at all, and stays that way: "Don't put it onto the unit names on the map. It makes them too
+## long."). This is the combat log / AAR report / debug-snapshot name instead, where the extra length
+## doesn't crowd anything.
 func display_name() -> String:
-	var side := "Player" if team == Team.PLAYER else "Enemy"
+	var side := "Ukrainian" if team == Team.PLAYER else "Russian"
 	return "%s %s" % [side, unit_label]
 
 
@@ -1080,7 +1085,7 @@ func _draw() -> void:
 
 	# Cover ring — visible any time the unit is on the field, so cover status
 	# is always readable at a glance during the battle.
-	GameConfig.draw_cover_ring(self, radius, terrain_type())
+	GameConfig.draw_cover_ring(self, radius, terrain_type(), Vector2.ZERO, team)
 
 	# Pip bar above the unit — a mortar's now tracks actual crew strength
 	# (max_pips == crew_size, see setup()) same as a squad's; the spotter

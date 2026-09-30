@@ -115,7 +115,7 @@ func open(report_text: String) -> void:
 	# A bare Label outside any Container never actually respects a width
 	# smaller than its own natural (unwrapped) content size — custom_min_size
 	# can only raise a control's minimum, never cap it below that, so the
-	# report's longest line (e.g. a full "Enemy withdrew: ..." list) forced
+	# report's longest line (e.g. a full "Russian forces withdrew: ..." list) forced
 	# the label wider than this box regardless of autowrap_mode. A
 	# ScrollContainer is a real Container: it assigns the label's width from
 	# the outside and clips anything that still doesn't fit, exactly like
