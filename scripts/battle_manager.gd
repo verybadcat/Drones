@@ -3392,7 +3392,25 @@ func _update_drone_team_evasion() -> void:
 	# standoff instead of the 1200m scale this team's own trigger above uses.
 	var destination: Vector2 = GameConfig.nearest_hidden_point(drone_team.global_position, threats, false, false, [], Vector2.INF, INF, 0.0, [], [], Vector2.ZERO, Vector2.INF, GameConfig.DRONE_TEAM_EVASION_RANGE)
 	if destination == drone_team.global_position:
-		return # nowhere better to go this tick — try again next tick (taking_fire stays set, same as a mortar's own retry)
+		# Direct user report: cornered by an enemy squad with nowhere left to hide, the team just sat
+		# there and did nothing — this exact "try again next tick" used to be the whole plan, but a
+		# squad actively closing the distance every tick doesn't leave a better hiding spot to find on a
+		# later attempt; it only gets closer. "I know I objected to a drone team retreat earlier. But the
+		# recent situation is one where they would have retreated even without casualties, because they
+		# had nowhere else to go to escape." Mirrors the mortar's own last-resort flee
+		# (_mortar_flee_as_last_resort) when ITS OWN concealment search comes up empty under real
+		# pressure — a genuine withdrawal, not silence.
+		#
+		# Scoped to a real, closing GROUND threat specifically (the `risk` trigger, i.e. `not
+		# urgent_evasion`) — NOT a bare taking_fire with nothing actually closing in: a mortar shell can
+		# land with no one nearby to physically overrun the crew, so that case keeps retrying next tick
+		# as before, same as the mortar's own "only an unarmed observer" exclusion keeps a sighted-but-
+		# not-threatened mortar crew in place rather than fleeing over nothing.
+		if not urgent_evasion:
+			drone_team.taking_fire = false
+			drone_team.order_retreat(threats, [], "Cornered: no safe place to relocate to.")
+			combat_log.log_ordered_retreat(drone_team)
+		return
 	drone_team.taking_fire = false
 	drone_team.move_target = destination
 	drone_team.has_move_target = true
