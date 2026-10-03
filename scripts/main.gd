@@ -234,6 +234,7 @@ func _open_screen(screen: GameScreen) -> void:
 func _show_level_select() -> void:
 	var screen := LevelSelectScreen.new()
 	screen.score_log = score_log # one history, one path (and the same headless guard)
+	screen.last_battle_seed = battle_seed # -1 until a battle has been set up this session; enables "Use seed from last battle"
 	screen.mode_chosen.connect(_on_recon_mode_chosen)
 	screen.map_chosen.connect(_on_map_chosen)
 	_open_screen(screen)

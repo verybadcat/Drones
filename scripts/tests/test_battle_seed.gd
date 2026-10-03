@@ -26,6 +26,7 @@ func run() -> void:
 	await test_a_random_battle_still_gets_a_real_seed()
 	await test_the_report_has_a_seed_tab_with_a_copy_button()
 	await test_a_pasted_seed_is_read_correctly_even_without_losing_focus_first()
+	await test_use_seed_from_last_battle_button()
 	test_what_the_same_seed_reproduces()
 	print("Battle seed tests: %d failures" % failures)
 	quit(1 if failures else 0)
@@ -143,6 +144,34 @@ func test_a_pasted_seed_is_read_correctly_even_without_losing_focus_first() -> v
 	first.seed_box.get_line_edit().text = "555555"
 	check(int(first.seed_box.value) != 555555, "Setup: a pasted-but-uncommitted edit does NOT yet update .value — confirms this test is exercising the real race, not a no-op")
 	check(first.chosen_seed() == 555555, "chosen_seed() reads the pasted value correctly anyway, with no focus change or Enter press in between")
+	main.queue_free()
+	await process_frame
+
+
+## Direct user request: "When choosing a new setup, I want a 'use seed from last battle' button" and "This
+## can be grayed out if there was no last battle."
+func test_use_seed_from_last_battle_button() -> void:
+	var main = await start_main()
+	var first: LevelSelectScreen = main.current_screen
+	check(first.use_last_seed_button != null and first.use_last_seed_button.disabled, "With no previous battle the button is there but grayed out")
+	first.seed_box.get_line_edit().text = "999"
+	first.use_last_battle_seed() # what a (somehow delivered) press would call: nothing to use, so nothing changes
+	check(first.seed_box.get_line_edit().text == "999", "...and using it with no last battle leaves the box alone")
+	first.seed_box.get_line_edit().text = "4242"
+	first.mode_chosen.emit(GameConfig.ReconMode.DRONE_TEAM)
+	await process_frame
+	check(main.battle_seed == 4242, "Setup: a battle was set up on seed 4242")
+	main._show_level_select()
+	await process_frame
+	var second: LevelSelectScreen = main.current_screen
+	check(second.use_last_seed_button != null and not second.use_last_seed_button.disabled, "Back on the setup screen the button is enabled")
+	check(second.chosen_seed() == -1, "Setup: the box still reads random until the button is used")
+	second.use_last_seed_button.pressed.emit()
+	check(second.seed_box.get_line_edit().text == "4242", "Pressing it puts the last battle's seed in the box (shows '%s')" % second.seed_box.get_line_edit().text)
+	check(second.chosen_seed() == 4242, "...and chosen_seed() reads it, not a stale value (the SpinBox commit race)")
+	second.mode_chosen.emit(GameConfig.ReconMode.SPOTTER)
+	await process_frame
+	check(main.battle_seed == 4242, "...so the next battle really runs on it")
 	main.queue_free()
 	await process_frame
 

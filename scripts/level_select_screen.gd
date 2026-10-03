@@ -290,6 +290,22 @@ func _build_map_picker() -> Control:
 ## the user picks a scenario"). -1 (the default) means a random one, which the battle report shows
 ## afterwards so it can be copied and used again. See main.gd, which draws it for the battle.
 var seed_box: SpinBox
+## The seed the previous battle ran on (-1 if none has been set up yet this session). Set by main.gd
+## before this screen is added to the tree, since _ready builds the button from it.
+var last_battle_seed: int = -1
+var use_last_seed_button: Button
+
+
+## Fills the seed box with the last battle's seed. Sets the LineEdit's own text, then commits it with
+## apply(), rather than assigning .value alone: a later chosen_seed() calls apply() too, which re-parses
+## whatever text the box is showing — a bare .value assignment would be reverted by that if the displayed
+## text hadn't followed (see chosen_seed's own doc comment on the SpinBox commit race).
+func use_last_battle_seed() -> void:
+	if last_battle_seed < 0 or seed_box == null:
+		return
+	seed_box.get_line_edit().text = str(last_battle_seed)
+	seed_box.apply()
+
 
 ## Direct user request: the seed's explanatory paragraph (SEED_NOTE) used to sit here always visible, a
 ## full wrapped paragraph under the spin box. "I want the text below to be available, but not immediately
@@ -318,6 +334,15 @@ func _build_seed_box() -> Control:
 	seed_box.custom_minimum_size = Vector2(140, 0)
 	seed_box.add_theme_constant_override("buttons_width", 0)
 	input_row.add_child(seed_box)
+	# Direct user request: a "use seed from last battle" button when choosing a new setup, "grayed out if
+	# there was no last battle". main.gd hands the last battle's seed in (last_battle_seed, -1 until one
+	# has been set up this session) before this screen is built.
+	use_last_seed_button = Button.new()
+	use_last_seed_button.text = "Use seed from last battle"
+	use_last_seed_button.disabled = last_battle_seed < 0
+	use_last_seed_button.tooltip_text = "No battle yet this session." if last_battle_seed < 0 else "Seed %d" % last_battle_seed
+	use_last_seed_button.pressed.connect(use_last_battle_seed)
+	input_row.add_child(use_last_seed_button)
 	var help := HelpIcon.new()
 	help.tooltip_text = SEED_NOTE
 	input_row.add_child(help)
