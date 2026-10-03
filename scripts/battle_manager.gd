@@ -844,10 +844,11 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	battle_seed = int(doctrine.get("seed", -1))
 	if battle_seed >= 0:
 		seed(battle_seed)
-	# Direct user request: the enemy commander's own whole-force breaking point (_enemy_situation_
-	# hopeless) is randomized per battle rather than one fixed number every time — rolled here, AFTER the
-	# seed above, so the same battle seed still reproduces the same roll. Never surfaced to the player.
-	_enemy_commander_retreat_threshold = randf_range(GameConfig.ENEMY_COMMANDER_RETREAT_THRESHOLD_MIN, GameConfig.ENEMY_COMMANDER_RETREAT_THRESHOLD_MAX)
+	# The enemy side's own dice: one dedicated stream, seeded from the battle seed alone — see _enemy_rng
+	# for why. The commander's whole-force breaking point (_enemy_situation_hopeless; randomized per battle
+	# and never surfaced to the player) is its first draw; _spawn_enemy_units below takes the rest.
+	_seed_enemy_rng()
+	_enemy_commander_retreat_threshold = _roll_enemy_commander_retreat_threshold()
 	elapsed_time = 0.0
 	scenario_elapsed_time = 0.0
 	battle_over = false
@@ -1090,6 +1091,42 @@ func _spawn_player_units(doctrine: Dictionary) -> void:
 		player_units.append(spotter)
 
 
+## Everything the enemy side rolls when a battle is set up — the force's size, which squads swing wide,
+## each unit's starting fire phase, the commander's breaking point — comes from this ONE dedicated stream,
+## not the shared global one. Direct user request: "As much as possible, make the code to generate the
+## enemy force independent of everything else that is going on. For example, if the same seed is used on a
+## different map or with a different recon choice, it still gives the same enemy force." Before this, the
+## force was drawn from the global stream AFTER every player unit (and, in drone-team mode, the first
+## drone) had already consumed draws of their own making (`_make_unit` rolls a fire phase per unit) — so
+## the number of player squads a map happens to default to, and whether recon is a spotter or a drone team,
+## silently shifted every number the enemy force was built from. A stream of its own, seeded from the
+## battle seed alone and consumed in a fixed order, cannot be shifted by anything else.
+##
+## What this does NOT make identical, by construction: where the force starts. Positions are laid out from
+## the map's own geometry (spawn line, road, spread range — see GameConfig.enemy_squad_y_offsets_m and
+## enemy_mortar_positions_m), so the same force on a different map stands in that map's places. Nor does it
+## cover any future case where the force's range is meant to differ by situation — that would, as the user
+## put it, "break this" on purpose, and the draws would then need the situation as an input.
+var _enemy_rng := RandomNumberGenerator.new()
+const ENEMY_RNG_SEED_SALT: int = 1163413837 # "ENEM" — keeps this stream distinct from anything else a future caller might derive from the battle seed
+
+
+## Seeds `_enemy_rng` from the battle seed alone (hashed with the salt above), so the same seed always
+## starts the same stream no matter what else has happened. An unseeded battle (a test or harness that
+## never passed one) takes its seed from the global stream instead — one draw, so a caller that seeded the
+## global stream itself still gets a reproducible battle.
+func _seed_enemy_rng() -> void:
+	_enemy_rng.seed = hash(battle_seed + ENEMY_RNG_SEED_SALT) if battle_seed >= 0 else randi()
+
+
+## The enemy commander's whole-force breaking point for this battle — see GameConfig.ENEMY_COMMANDER_
+## RETREAT_THRESHOLD_MIN/MAX and `_enemy_commander_retreat_threshold`. Drawn from the enemy stream (the first
+## draw it ever makes) rather than the global one, so it is as independent of the player's setup as the
+## force itself.
+func _roll_enemy_commander_retreat_threshold() -> float:
+	return _enemy_rng.randf_range(GameConfig.ENEMY_COMMANDER_RETREAT_THRESHOLD_MIN, GameConfig.ENEMY_COMMANDER_RETREAT_THRESHOLD_MAX)
+
+
 ## The attacking force's size, rolled once per battle — not always the same
 ## strength. Squad count is rolled FIRST, a two-piece mixture rather than
 ## one flat range: ENEMY_SQUAD_COUNT_TAIL_CHANCE (15%) of the time it's
@@ -1116,12 +1153,12 @@ func _spawn_player_units(doctrine: Dictionary) -> void:
 ## theoretical one the old, tighter jitter could never actually produce.
 func roll_enemy_force_size() -> Dictionary:
 	var squads: int
-	if randf() < GameConfig.ENEMY_SQUAD_COUNT_TAIL_CHANCE:
-		squads = randi_range(GameConfig.ENEMY_SQUAD_COUNT_MAX + 1, GameConfig.ENEMY_SQUAD_COUNT_TAIL_MAX)
+	if _enemy_rng.randf() < GameConfig.ENEMY_SQUAD_COUNT_TAIL_CHANCE:
+		squads = _enemy_rng.randi_range(GameConfig.ENEMY_SQUAD_COUNT_MAX + 1, GameConfig.ENEMY_SQUAD_COUNT_TAIL_MAX)
 	else:
-		squads = randi_range(GameConfig.ENEMY_SQUAD_COUNT_MIN, GameConfig.ENEMY_SQUAD_COUNT_MAX)
+		squads = _enemy_rng.randi_range(GameConfig.ENEMY_SQUAD_COUNT_MIN, GameConfig.ENEMY_SQUAD_COUNT_MAX)
 	var target_mortars: int = roundi(float(squads) / GameConfig.ENEMY_SQUAD_PER_MORTAR_RATIO)
-	var jitter: int = randi_range(-GameConfig.ENEMY_MORTAR_COUNT_JITTER, GameConfig.ENEMY_MORTAR_COUNT_JITTER)
+	var jitter: int = _enemy_rng.randi_range(-GameConfig.ENEMY_MORTAR_COUNT_JITTER, GameConfig.ENEMY_MORTAR_COUNT_JITTER)
 	var mortars: int = clampi(target_mortars + jitter, GameConfig.ENEMY_MORTAR_COUNT_MIN, GameConfig.ENEMY_MORTAR_COUNT_MAX)
 	return {"mortars": mortars, "squads": squads}
 
@@ -1234,6 +1271,10 @@ func _spawn_enemy_units() -> void:
 		var y_offset: float = squad_y_offsets_m[i] * GameConfig.PIXELS_PER_METER
 		var start_pos := Vector2(GameConfig.CURRENT_MAP.enemy.spawn_x, road_px[0].y + y_offset)
 		var squad := _make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, start_pos)
+		# _make_unit gave it a fire phase from the GLOBAL stream (right for every other caller); replace
+		# it from the enemy stream so this unit's start state doesn't depend on how many units the player
+		# side happened to create first. See _enemy_rng.
+		squad.fire_timer = _enemy_rng.randf_range(0.0, squad.fire_interval)
 		squad.retreat_threshold = GameConfig.ENEMY_RETREAT_THRESHOLD if profile_for(Unit.Team.ENEMY).id == "baseline" else float(profile_for(Unit.Team.ENEMY).retreat_threshold)
 		squad.concern_threshold = GameConfig.ENEMY_CONCERN_THRESHOLD
 		squad.move_speed = GameConfig.ENEMY_ADVANCE_SPEED
@@ -1249,13 +1290,14 @@ func _spawn_enemy_units() -> void:
 		# breaks from this scripted road march (_enemy_advance_objective is
 		# never consulted before then); until then it marches with everyone
 		# else like normal.
-		if randf() < GameConfig.ENEMY_FLANK_CHANCE:
+		if _enemy_rng.randf() < GameConfig.ENEMY_FLANK_CHANCE:
 			squad.flanking_route_active = true
 			squad.flank_waypoint_y = start_pos.y
 		enemy_units.append(squad)
 
 	for mortar_pos_m in GameConfig.enemy_mortar_positions_m(force_size.mortars):
 		var em := _make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, mortar_pos_m * GameConfig.PIXELS_PER_METER)
+		em.fire_timer = _enemy_rng.randf_range(0.0, em.fire_interval) # see the squad loop above
 		# Cosmetic only: the field itself is currently vestigial, never read anywhere in the tier ladder
 		# (see _mortar_should_relocate_for_safety's own doc comment) — but now that enemy mortars DO get
 		# the same post-fire relocation instinct the player's own default doctrine implies, leaving this

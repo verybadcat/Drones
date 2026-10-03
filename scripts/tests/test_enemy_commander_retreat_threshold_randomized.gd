@@ -24,20 +24,27 @@ func check(condition: bool, message: String) -> void:
 func _initialize() -> void:
 	call_deferred("run")
 
-## Mirrors exactly the two statements start_battle itself runs for this (seed the battle, THEN roll) —
-## this project's own established test style constructs BattleManager state directly rather than driving
-## the full start_battle pipeline (unit spawning, doctrine sanitizing, map setup), which no existing test
-## in this codebase invokes at all. The roll's actual placement in start_battle (immediately after
-## `seed(battle_seed)`) was checked directly in the diff.
+## Drives the REAL functions start_battle calls for this (the enemy stream's seeding, then the roll) rather
+## than re-stating their bodies — this used to mirror two raw statements (`seed(s)` then `randf_range`)
+## because the roll was an inline line in start_battle; now that the enemy side's dice live on their own
+## stream (BattleManager._enemy_rng), the two steps are real functions and can be called directly. One
+## shared BattleManager, reseeded per call.
+var _bm: BattleManager
+
 func rolled_threshold(battle_seed: int) -> float:
-	seed(battle_seed)
-	return randf_range(GameConfig.ENEMY_COMMANDER_RETREAT_THRESHOLD_MIN, GameConfig.ENEMY_COMMANDER_RETREAT_THRESHOLD_MAX)
+	_bm.battle_seed = battle_seed
+	_bm._seed_enemy_rng()
+	return _bm._roll_enemy_commander_retreat_threshold()
 
 func run() -> void:
+	_bm = BattleManager.new()
+	root.add_child(_bm)
+	_bm.set_process(false)
 	test_the_threshold_is_rolled_within_the_stated_range()
 	test_the_same_seed_reproduces_the_same_threshold()
 	test_different_seeds_produce_different_thresholds()
 	test_hopeless_check_uses_the_rolled_value_not_a_fixed_one()
+	_bm.free()
 	print("Enemy-commander-retreat-threshold-randomized tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
