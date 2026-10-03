@@ -57,6 +57,12 @@ func test_the_seed_is_chosen_on_the_first_screen() -> void:
 		if not n.tooltip_text.is_empty():
 			tooltip_text += " " + n.tooltip_text
 	check("same weather" in tooltip_text and "does not replay the battle" in tooltip_text, "...it's available as a hover tooltip somewhere on the screen")
+	# The enemy force and weather no longer depend on the location or recon choice (see
+	# test_enemy_force_independent_of_setup.gd), and the note says so — while still saying that where the
+	# enemy STARTS follows the map, the one part that doesn't carry over.
+	check("whichever location and reconnaissance setup" in tooltip_text, "...and it says the same force comes whichever location and recon setup is chosen")
+	check("follows the map" in tooltip_text, "...while saying where the enemy starts still follows the map")
+	check(not ("on the same location and reconnaissance setup, gives you" in tooltip_text), "...and no longer limits the claim to the same location and setup")
 	# Direct user request: "we don't need up and down arrows for the seed" — a seed is typed/pasted, never
 	# stepped. buttons_width=0 is the theme constant that collapses the whole up/down column, arrows
 	# included (confirmed directly: SpinBox has no separate "hide the arrows" flag).

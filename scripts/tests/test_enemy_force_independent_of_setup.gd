@@ -33,6 +33,7 @@ func run() -> void:
 	test_the_same_seed_gives_the_same_force_on_every_map_and_recon_choice()
 	test_the_players_own_setup_cannot_shift_it()
 	test_different_seeds_still_give_different_forces()
+	test_the_starting_weather_does_not_depend_on_the_map()
 	GameConfig.set_active_map(original_map)
 	print("Enemy-force-independent-of-setup tests: %d failures" % failures)
 	quit(1 if failures else 0)
@@ -119,3 +120,18 @@ func test_different_seeds_still_give_different_forces() -> void:
 		seen["%d/%d" % [size.squads, size.mortars]] = true
 	check(seen.size() > 3, "Different seeds give a spread of different forces, not one fixed one (%d distinct squad/mortar combinations across 40 seeds)" % seen.size())
 	bm.free()
+
+
+## The setup screen's seed note says the same seed gives the same weather "whichever location and
+## reconnaissance setup you choose". Weather.roll takes the seed and nothing else (main.gd calls it with
+## battle_seed + 7919 before recon is even used), so recon cannot reach it; this guards the map half — that
+## nobody later gives the starting weather a dependence on the active map without this note becoming false.
+func test_the_starting_weather_does_not_depend_on_the_map() -> void:
+	var reference := ""
+	for map_id in GameConfig.MAPS.keys():
+		GameConfig.set_active_map(map_id)
+		var signature: String = Weather.roll(731 + 7919).hud_signature()
+		if reference.is_empty():
+			reference = signature
+		else:
+			check(signature == reference, "The same seed rolls the same starting weather on map %s (%s vs %s)" % [map_id, signature, reference])

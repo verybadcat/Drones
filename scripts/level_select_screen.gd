@@ -368,9 +368,15 @@ func chosen_seed() -> int:
 
 
 const MAX_SEED: int = 2147483647
-## What a seed does and does not do (measured: see the design doc's 2026-09-26 entry). Shared with the
-## report's Seed tab (BattleReport), which repeats it beside the seed the battle used.
-const SEED_NOTE: String = "Using the same seed again, on the same location and reconnaissance setup, gives you the same weather and the same enemy force (how many squads and mortars, and where they start), and the game's dice start from the same place. It does not replay the battle: what happens after that depends on what you do and on the exact timing of the game's frames, so the fight will still go its own way."
+## What a seed does and does not do (measured: see the design doc's 2026-09-26 entry for the
+## same-setup claims, and its 2026-10-03 entry for the "whichever location and reconnaissance setup"
+## ones — the enemy force has its own dice stream now, and the starting weather never looked at the map).
+## Shared with the report's Seed tab (BattleReport), which repeats it beside the seed the battle used.
+##
+## The enemy force is described as "how many squads and mortars, and how each is set up" on purpose, not
+## by listing the details: some of those (the commander's breaking point) are secret from the player. And
+## where the enemy STARTS is stated separately because it is the one part that does follow the map.
+const SEED_NOTE: String = "Using the same seed again gives you the same weather and the same enemy force (how many squads and mortars, and how each is set up) whichever location and reconnaissance setup you choose. Where the enemy starts follows the map, so a different location puts that same force in that location's places. On the same location and setup, the game's other dice also start from the same place. It does not replay the battle: what happens after that depends on what you do and on the exact timing of the game's frames, so the fight will still go its own way."
 
 
 func _build_option(title_text: String, body_text: String, mode: GameConfig.ReconMode) -> Control:
