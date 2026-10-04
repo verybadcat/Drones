@@ -57,6 +57,7 @@ func make_battle() -> BattleManager:
 	bm._drones_ready.clear()
 	bm._drones_swapping.clear()
 	bm._battery_pool.clear()
+	bm._airframes_awaiting_battery = 1 # one airframe on the ground with no battery in it, for a staged battery to go into
 	return bm
 
 func enemy_mortar(bm: BattleManager, pos: Vector2) -> Unit:
@@ -72,6 +73,8 @@ func run() -> void:
 	test_urgent_close_target_launches_on_a_partial_battery()
 	test_never_launches_below_the_absolute_floor()
 	test_backup_drone_does_not_reactively_stage_from_a_cold_pool()
+	test_ready_never_exceeds_the_fleet_however_many_batteries_there_are()
+	test_the_dashboard_reports_the_bare_airframes()
 	print("Drone launch-charge-discipline tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
@@ -91,6 +94,7 @@ func test_landing_does_not_auto_stage_a_partial_battery() -> void:
 	check(bm._drones_swapping.is_empty(), "Landing itself starts no swap")
 	check(bm._drones_ready.is_empty(), "Landing itself stages nothing")
 	check(bm._battery_pool.size() == 2, "The landed battery (minus landing cost) just joins the pool")
+	check(bm._airframes_awaiting_battery == 2, "The landed airframe itself is still counted, bare, on the ground")
 	bm.combat_log.free()
 	bm.free()
 
@@ -190,3 +194,48 @@ func test_backup_drone_does_not_reactively_stage_from_a_cold_pool() -> void:
 	check(bm.backup_drone == null, "No backup launches from a cold pool, however charged, without something already pre-staged")
 	bm.combat_log.free()
 	bm.free()
+
+
+## Direct user report: "The sidebar says there are 7 drones ready. That's impossible as the team only has 4
+## drones" — "It may be inappropriately lumping drones and batteries." The fleet is 4 AIRFRAMES but 8
+## BATTERIES. Every airframe is exactly one of: airborne, backup, inbound, ready (battery in), swapping
+## (battery going in), awaiting a battery (landed, bare), or destroyed — so those seven must always add up to
+## GameConfig.DRONE_FLEET_SIZE no matter how the batteries pile up. The real bug: landing sent the battery to
+## the pool and forgot the airframe, so staging a battery conjured a "ready" drone out of nothing.
+func fleet_total(status: Dictionary) -> int:
+	return int(status.airborne) + int(status.backup) + status.inbound + status.ready + status.swapping + status.awaiting_battery + status.destroyed
+
+func test_ready_never_exceeds_the_fleet_however_many_batteries_there_are() -> void:
+	var bm := make_battle()
+	# The real start-of-battle fleet: 4 ready airframes, 4 spare batteries in the pool (start_battle does this).
+	for i in GameConfig.DRONE_FLEET_SIZE:
+		bm._drones_ready.append(1.0)
+	bm._airframes_awaiting_battery = 0
+	for i in GameConfig.DRONE_SPARE_BATTERIES:
+		bm._battery_pool.append(1.0)
+	bm._launch_drone()
+	var worst_ready := 0
+	var worst_total_error := 0
+	# A long, quiet stretch: the drone flies, comes home, lands, a fresh battery goes on, it flies again —
+	# many full cycles, every tick checked.
+	for i in 6000:
+		bm._update_drone_operations(10.0)
+		var status: Dictionary = bm.drone_fleet_status()
+		worst_ready = maxi(worst_ready, status.ready)
+		worst_total_error = maxi(worst_total_error, absi(fleet_total(status) - GameConfig.DRONE_FLEET_SIZE))
+	check(bm._battery_pool.size() + bm._drones_ready.size() + bm._drones_swapping.size() + int(bm.active_drone != null) + int(bm.backup_drone != null) + bm.returning_drones.size() <= GameConfig.DRONE_FLEET_SIZE + GameConfig.DRONE_SPARE_BATTERIES, "Batteries are never conjured either")
+	check(worst_ready <= GameConfig.DRONE_FLEET_SIZE, "Never more drones ready than the team owns (worst seen: %d)" % worst_ready)
+	check(worst_total_error == 0, "Every airframe is accounted for, every tick (worst miscount: %d)" % worst_total_error)
+	bm.combat_log.free()
+	bm.free()
+
+
+func test_the_dashboard_reports_the_bare_airframes() -> void:
+	var dash := CasualtyDashboard.new()
+	var status := {"team_active": true, "team_state": Unit.State.ACTIVE, "team_crew_casualties": 0, "team_crew_size": 4,
+		"airborne": true, "airborne_charge": 0.8, "backup": false, "backup_charge": -1.0, "inbound": 0,
+		"ready": 1, "ready_best_charge": 1.0, "swapping": 0, "awaiting_battery": 2,
+		"spare_batteries": 3, "spare_best_charge": 0.5, "destroyed": 0}
+	var row: Dictionary = dash._drone_row_data(true, status)
+	check("2 awaiting battery" in row.text, "The sidebar names airframes waiting on a battery instead of leaving them uncounted: %s" % row.text)
+	dash.free()

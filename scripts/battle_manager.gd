@@ -750,6 +750,13 @@ var returning_drones: Array[Unit] = []
 var _drones_ready: Array[float] = [] # charge level of each grounded, battery-installed, ready-to-launch airframe
 var _drones_swapping: Array[Dictionary] = [] # [{"time_left": float, "charge": float}] grounded airframes mid battery-swap
 var _battery_pool: Array[float] = [] # charge level of every battery not currently installed in any airframe
+# Airframes that have landed and are sitting on the ground with NO battery in them yet (the battery went to
+# the pool to charge). Direct user report: "The sidebar says there are 7 drones ready. That's impossible as
+# the team only has 4 drones" / "It may be inappropriately lumping drones and batteries" — when landing
+# stopped swapping a battery straight in, the landed airframe stopped being counted anywhere, so staging
+# a battery conjured a "ready" airframe out of nothing and `ready` could climb toward 8 (the battery
+# count). A battery can only be staged onto one of THESE; staging turns one into a swapping airframe.
+var _airframes_awaiting_battery: int = 0
 var _drones_destroyed: int = 0 # airframes permanently lost (shot down, battery and all) this battle
 # The current battle's weather is Weather.current (rolled at deployment, or here
 # in start_battle if nothing has been rolled for this battle yet).
@@ -887,6 +894,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drones_ready.clear()
 	_drones_swapping.clear()
 	_battery_pool.clear()
+	_airframes_awaiting_battery = 0
 	_drones_destroyed = 0
 	_drones_lost_to_weather = 0
 	_drones_aborted_by_weather = 0
@@ -3487,14 +3495,15 @@ func _pop_best_battery(pool: Array[float]) -> float:
 ## justified when a launch is genuinely wanted right now, see the direct user correction on
 ## _update_returning_drones).
 func _stage_best_battery_if_at_least(min_charge: float) -> bool:
-	if _battery_pool.is_empty():
-		return false
+	if _battery_pool.is_empty() or _airframes_awaiting_battery <= 0:
+		return false # no battery to stage, or no bare airframe on the ground to put one into
 	var best_index := 0
 	for i in _battery_pool.size():
 		if _battery_pool[i] > _battery_pool[best_index]:
 			best_index = i
 	if _battery_pool[best_index] < min_charge:
 		return false
+	_airframes_awaiting_battery -= 1
 	_drones_swapping.append({"time_left": GameConfig.DRONE_BATTERY_SWAP_DURATION, "charge": _pop_best_battery(_battery_pool)})
 	return true
 
@@ -4025,6 +4034,7 @@ func _update_returning_drones(scenario_delta: float) -> void:
 		# DRONE_LANDING_CHARGE_COST; _drone_time_until_rtb already reserves
 		# for this so it's not normally a surprise, but clamp at 0 regardless.
 		_battery_pool.append(max(d.drone_battery_charge - GameConfig.DRONE_LANDING_CHARGE_COST, 0.0))
+		_airframes_awaiting_battery += 1 # the airframe itself is still here, bare, until a battery is staged
 		d.queue_free()
 
 
@@ -10330,6 +10340,7 @@ func drone_fleet_status() -> Dictionary:
 		"ready": _drones_ready.size(),
 		"ready_best_charge": _drones_ready.max() if not _drones_ready.is_empty() else -1.0,
 		"swapping": _drones_swapping.size(),
+		"awaiting_battery": _airframes_awaiting_battery,
 		"spare_batteries": _battery_pool.size(),
 		"spare_best_charge": _battery_pool.max() if not _battery_pool.is_empty() else -1.0,
 		"destroyed": _drones_destroyed,

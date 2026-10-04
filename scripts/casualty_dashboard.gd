@@ -413,6 +413,8 @@ func _drone_row_data(using_drones: bool, status: Dictionary) -> Dictionary:
 		parts.append("0 ready")
 	if status.swapping > 0:
 		parts.append("%d swapping battery" % status.swapping)
+	if status.get("awaiting_battery", 0) > 0:
+		parts.append("%d awaiting battery" % status.awaiting_battery)
 	if status.spare_batteries > 0:
 		parts.append("%d spare batteries (best %d%%)" % [status.spare_batteries, int(round(status.spare_best_charge * 100.0))])
 	if status.destroyed > 0:
