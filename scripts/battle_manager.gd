@@ -757,6 +757,9 @@ var _battery_pool: Array[float] = [] # charge level of every battery not current
 # a battery conjured a "ready" airframe out of nothing and `ready` could climb toward 8 (the battery
 # count). A battery can only be staged onto one of THESE; staging turns one into a swapping airframe.
 var _airframes_awaiting_battery: int = 0
+var _drone_tracked_class: int = -1 # the class (2 = threatens the mortar, 1 = approaching ours, 0 = other) _drone_tracked_squad had at the last pick
+var _drone_tracked_since: float = 0.0 # scenario_elapsed_time when _drone_tracked_squad was taken up
+var _drone_tracked_squad: Unit = null # the enemy squad "Tracking dangerous squad" is on now — see _drone_squad_to_track's stickiness
 var _drones_destroyed: int = 0 # airframes permanently lost (shot down, battery and all) this battle
 # The current battle's weather is Weather.current (rolled at deployment, or here
 # in start_battle if nothing has been rolled for this battle yet).
@@ -895,6 +898,9 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drones_swapping.clear()
 	_battery_pool.clear()
 	_airframes_awaiting_battery = 0
+	_drone_tracked_squad = null
+	_drone_tracked_since = 0.0
+	_drone_tracked_class = -1
 	_drones_destroyed = 0
 	_drones_lost_to_weather = 0
 	_drones_aborted_by_weather = 0
@@ -4152,6 +4158,8 @@ func _drone_squad_to_track() -> Dictionary:
 			squads.append(f)
 	var best: Dictionary = {}
 	var best_rank := [-1, -1.0]
+	var tracked_pick: Dictionary = {} # the squad tracked last time, IF it is still a candidate now
+	var tracked_rank := [-1, -1.0]
 	for u in enemy_units:
 		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or not u.is_visible:
 			continue
@@ -4177,9 +4185,38 @@ func _drone_squad_to_track() -> Dictionary:
 					why = "An enemy squad approaching our squads" if f.kind == Unit.Kind.SQUAD else "An enemy squad approaching the drone team"
 					break
 		var rank := [klass, threat_proximity]
+		var pick := {"unit": u, "score": maxf(score, threat_proximity) if klass == 2 else score, "why": why}
+		if u == _drone_tracked_squad:
+			tracked_pick = pick
+			tracked_rank = rank
 		if rank[0] > best_rank[0] or (rank[0] == best_rank[0] and rank[1] > best_rank[1]):
 			best_rank = rank
-			best = {"unit": u, "score": maxf(score, threat_proximity) if klass == 2 else score, "why": why}
+			best = pick
+	# Direct user report, live: the drone kept "changing its mind between enemy squads 1 and 3" (one far in
+	# the north, one far in the south: "it went partway up, then partway down, back and forth"). The pick
+	# above is a bare argmax of (class, nearness) every tick, so two squads of about equal danger trade the
+	# lead with every few meters of ordinary movement, and the drone swings to follow whichever is ahead
+	# this tick. A squad already being tracked keeps the drone unless:
+	#   - it is no longer a candidate at all (out of sight, retreating, dead): replaced at once;
+	#   - the rival has just come to threaten the friendly mortar and the tracked squad does not: at once;
+	#   - the rival is CLEARLY more dangerous in nearness (DRONE_SQUAD_SWITCH_FACTOR/_MARGIN): at once;
+	#   - the tracked squad WAS threatening the mortar and no longer is (it moved away): released at once;
+	#   - the rival is merely in a higher class (e.g. heading toward our squads now, where the tracked one is
+	#     not) — a class is judged from a squad's heading, which can wobble — and the tracked squad has been
+	#     held for at least DRONE_SQUAD_MIN_DWELL_S, long enough to actually fly there and look.
+	if not tracked_pick.is_empty() and best.unit != _drone_tracked_squad:
+		var mortar_threat: bool = best_rank[0] == 2 and tracked_rank[0] < 2
+		var clearly_nearer: bool = best_rank[0] >= tracked_rank[0] and best_rank[1] > tracked_rank[1] * GameConfig.DRONE_SQUAD_SWITCH_FACTOR + GameConfig.DRONE_SQUAD_SWITCH_MARGIN
+		var class_gain: bool = best_rank[0] > tracked_rank[0]
+		var threat_over: bool = _drone_tracked_class == 2 and tracked_rank[0] < 2
+		var dwelled: bool = scenario_elapsed_time - _drone_tracked_since >= GameConfig.DRONE_SQUAD_MIN_DWELL_S
+		if not (mortar_threat or clearly_nearer or threat_over or (class_gain and dwelled)):
+			best = tracked_pick
+	var picked: Unit = best.get("unit", null)
+	if picked != _drone_tracked_squad:
+		_drone_tracked_squad = picked
+		_drone_tracked_since = scenario_elapsed_time
+	_drone_tracked_class = int(tracked_rank[0]) if (not tracked_pick.is_empty() and picked == tracked_pick.get("unit", null)) else int(best_rank[0])
 	return best
 
 

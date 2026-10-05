@@ -4773,6 +4773,16 @@ const DRONE_CONTACT_WATCH_FLOOR: float = 0.3
 ## alternative's (see BattleManager._drone_commitment_has_collapsed).
 const DRONE_COMMITMENT_ABANDON_FRACTION: float = 0.25
 
+## The drone swaps the enemy squad it is tracking for another one of the SAME class only when the rival's
+## nearness-to-what-it-threatens score beats the tracked squad's by this factor plus this margin (of a
+## 0-10 scale) — two squads of about equal danger must not trade the lead every few meters (user: "changing
+## its mind between enemy squads 1 and 3"). A rival in a higher class still wins at once. JUDGMENT.
+const DRONE_SQUAD_SWITCH_FACTOR: float = 1.5
+const DRONE_SQUAD_SWITCH_MARGIN: float = 0.5
+## A rival squad that wins only on CLASS (not on nearness) takes the drone from the squad it is tracking
+## only after that squad has been held this long (tactical seconds). JUDGMENT.
+const DRONE_SQUAD_MIN_DWELL_S: float = 90.0
+
 ## The enemy heat-map overlay's own "just confirmed clear" discount (see
 ## BattleManager._heatmap_recently_cleared_multiplier/estimated_enemy_
 ## likelihood) — a genuinely separate concept from DRONE_DESTINATION_
