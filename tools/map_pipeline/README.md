@@ -39,3 +39,7 @@ and roads for the map's frame), `calibrate.py` / `calibrate_bld.py` (find the sm
 own frame by matching the old road and the old blocks), `build_old_maps.py` (footprints + cover blocks), `apply_old_maps.py`
 (writes them into game_config.gd and copies the footprint files), `verify_old.py` (footprints and old blocks drawn on
 Esri imagery: look at it).
+
+## Mortar exclusion region (`mortar_exclusion/`)
+
+`build.py` turns each map's footprint file into the region the Ukrainian mortar will not enter (within 200 m of a cluster of at least five buildings), written to `assets/maps/<id>_mortar_exclusion.json`; `render_setup.gd` renders the real deployment screen of a map, with the region shaded, to a PNG. Run `python tools/map_pipeline/mortar_exclusion/build.py` from the repo root after changing a map's footprints.

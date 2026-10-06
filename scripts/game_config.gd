@@ -128,6 +128,8 @@ const MAPS: Dictionary = {
 	# Real building footprints, drawn as they are (see this entry's doc comment); terrain_zones below are the coarse
 	# cover blocks the game logic uses.
 	"building_footprints_file": "res://assets/maps/pervomaiske_buildings.json",
+	# The ground the Ukrainian mortar will not go (within 200 m of a populated place), shaded on the deployment screen.
+	"mortar_exclusion_file": "res://assets/maps/pervomaiske_mortar_exclusion.json",
 
 	# The fitted model's own constant term — see this dictionary's own doc
 	# comment for the real elevation sourcing.
@@ -1374,7 +1376,8 @@ const MAPS: Dictionary = {
 		# road end to end, so this is the best available cover, not a
 		# guaranteed mask (same standard the mortar's own relocation logic
 		# already uses live). Clear of every building block.
-		"mortar_default_position": Vector2(1448.0, 1496.0) * PIXELS_PER_METER,
+		# (Moved from (1448, 1496), which is inside the village the mortar now keeps 200 m clear of.)
+		"mortar_default_position": Vector2(1620.0, 1170.0) * PIXELS_PER_METER,
 		# Inside a real tree patch, picked for the clearest sightline to
 		# the road among every patch within reach of the village.
 		"spotter_default_position": Vector2(2309.0, 2190.0) * PIXELS_PER_METER,
@@ -1462,6 +1465,8 @@ const MAPS: Dictionary = {
 	# Real building footprints, drawn as they are (see this entry's doc comment); terrain_zones below are the coarse
 	# cover blocks the game logic uses.
 	"building_footprints_file": "res://assets/maps/pishchane_buildings.json",
+	# The ground the Ukrainian mortar will not go (within 200 m of a populated place), shaded on the deployment screen.
+	"mortar_exclusion_file": "res://assets/maps/pishchane_mortar_exclusion.json",
 
 	# The fitted model's own constant term — see this dictionary's own doc
 	# comment for the real elevation sourcing.
@@ -2661,8 +2666,8 @@ const MAPS: Dictionary = {
 		# road end to end, so this is the best available cover, not a
 		# guaranteed mask (same standard the mortar's own relocation logic
 		# already uses live). Clear of every building block.
-		# (Moved 25 m, from (992, 1885), when the buildings were redone: the old spot is inside one of the new cover blocks.)
-		"mortar_default_position": Vector2(967.0, 1870.0) * PIXELS_PER_METER,
+		# (Moved twice: 25 m, from (992, 1885), when the buildings were redone, then from (967, 1870), which is inside the village the mortar now keeps 200 m clear of.)
+		"mortar_default_position": Vector2(930.0, 2090.0) * PIXELS_PER_METER,
 		# Inside a real tree patch, picked for the clearest sightline to
 		# the road among every patch within reach of the village.
 		"spotter_default_position": Vector2(1209.0, 1329.0) * PIXELS_PER_METER,
@@ -2780,6 +2785,8 @@ const MAPS: Dictionary = {
 	# Real building footprints, drawn as they are (see this entry's doc comment); terrain_zones below are the coarse
 	# cover blocks the game logic uses.
 	"building_footprints_file": "res://assets/maps/svystunivka_buildings.json",
+	# The ground the Ukrainian mortar will not go (within 200 m of a populated place), shaded on the deployment screen.
+	"mortar_exclusion_file": "res://assets/maps/svystunivka_mortar_exclusion.json",
 
 	# The fitted model's own constant term — roughly the valley floor (the
 	# real ground runs 83-192m ASL across the footprint; the hills below add
@@ -4103,6 +4110,8 @@ const MAPS: Dictionary = {
 	# Real footprints, drawn as they are (see this entry's doc comment); terrain_zones below are the coarse
 	# cover blocks the game logic uses.
 	"building_footprints_file": "res://assets/maps/voznesensk_buildings.json",
+	# The ground the Ukrainian mortar will not go (within 200 m of a populated place), shaded on the deployment screen.
+	"mortar_exclusion_file": "res://assets/maps/voznesensk_mortar_exclusion.json",
 
 	# The constant term of the elevation fit (about the Southern Bug's own level).
 	"elevation_baseline_m": -2.0,
@@ -5986,7 +5995,8 @@ const MAPS: Dictionary = {
 			Vector2(1650, 1750) * PIXELS_PER_METER,
 			Vector2(1800, 1825) * PIXELS_PER_METER,
 		],
-		"mortar_default_position": Vector2(850.0, 1500.0) * PIXELS_PER_METER,
+		# (Moved from (850, 1500), which is inside the town the mortar now keeps 200 m clear of.)
+		"mortar_default_position": Vector2(1030.0, 1360.0) * PIXELS_PER_METER,
 		"spotter_default_position": Vector2(1685.0, 1725.0) * PIXELS_PER_METER,
 	},
 
@@ -6132,6 +6142,9 @@ static func _recompute_map_derived_state() -> void:
 	_tree_sight_cache.clear()
 	_footprints_built = false
 	_footprint_cache.clear()
+	_exclusion_built = false
+	_exclusion_rects.clear()
+	_exclusion_grid = PackedByteArray()
 
 
 ## Runs automatically the first time this script is loaded/referenced —
@@ -9094,10 +9107,12 @@ static func _random_point_in_cover_zone(zone: Dictionary) -> Vector2:
 	return patch.center_m * PIXELS_PER_METER + Vector2(cos(theta), sin(theta)) * r_m * PIXELS_PER_METER
 
 
-static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false, avoid_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO, firing_point: Vector2 = Vector2.INF, reference_point: Vector2 = Vector2.INF) -> Vector2:
+static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false, avoid_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO, firing_point: Vector2 = Vector2.INF, reference_point: Vector2 = Vector2.INF, avoid_populated: bool = false) -> Vector2:
 	var candidates: Array[Dictionary] = []
 	for zone in _all_cover_zones():
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
+			continue
+		if avoid_populated and mortar_excluded_at(zone.center):
 			continue
 		var d: float = from.distance_to(zone.center)
 		# See retreat_cover_point_toward's own doc comment on this same
@@ -9128,7 +9143,7 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 
 	candidates = _exclude_dangerous(candidates, known_enemy_positions)
 	candidates = _prefer_retreat_direction(candidates, from, retreat_dir)
-	candidates = _prefer_clear_path(candidates, from, avoid_buildings)
+	candidates = _prefer_clear_path(candidates, from, avoid_buildings, avoid_populated)
 
 	if not avoid_positions.is_empty():
 		var unclaimed: Array[Dictionary] = []
@@ -9441,8 +9456,8 @@ static func _prefer_retreat_direction(candidates: Array[Dictionary], from: Vecto
 ## "give up, return everything" fallback) is a real but minor routing
 ## inconvenience (an actual detour around a building), never a step
 ## toward the enemy the way running this first could produce.
-static func _prefer_clear_path(candidates: Array[Dictionary], from: Vector2, avoid_buildings: bool) -> Array[Dictionary]:
-	if not avoid_buildings or candidates.is_empty():
+static func _prefer_clear_path(candidates: Array[Dictionary], from: Vector2, avoid_buildings: bool, avoid_populated: bool = false) -> Array[Dictionary]:
+	if not (avoid_buildings or avoid_populated) or candidates.is_empty():
 		return candidates
 	var nearest_overall: float = INF
 	for c in candidates:
@@ -9451,7 +9466,7 @@ static func _prefer_clear_path(candidates: Array[Dictionary], from: Vector2, avo
 	var clear: Array[Dictionary] = []
 	for c in candidates:
 		var dist: float = from.distance_to(c.zone.center)
-		if dist <= budget and not path_crosses_building(from, c.zone.center):
+		if dist <= budget and not (avoid_buildings and path_crosses_building(from, c.zone.center)) and not (avoid_populated and path_enters_mortar_exclusion(from, c.zone.center)):
 			clear.append(c)
 	return clear if not clear.is_empty() else candidates
 
@@ -9488,13 +9503,15 @@ static func _prefer_clear_path(candidates: Array[Dictionary], from: Vector2, avo
 ## `retreat_dir` / `avoid_buildings` — see nearest_cover_point. `reference_point`
 ## — see nearest_cover_point's own identical parameter; Vector2.INF (the
 ## default) leaves every non-retreat caller exactly as before.
-static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vector2], retreat_dir: float = 0.0, avoid_buildings: bool = false, reference_point: Vector2 = Vector2.INF) -> Vector2:
+static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vector2], retreat_dir: float = 0.0, avoid_buildings: bool = false, reference_point: Vector2 = Vector2.INF, avoid_populated: bool = false) -> Vector2:
 	if known_enemy_positions.is_empty():
-		return nearest_cover_point(from, retreat_dir, avoid_buildings, [], [], [], [], Vector2.ZERO, Vector2.INF, reference_point)
+		return nearest_cover_point(from, retreat_dir, avoid_buildings, [], [], [], [], Vector2.ZERO, Vector2.INF, reference_point, avoid_populated)
 
 	var candidates: Array[Dictionary] = []
 	for zone in _all_cover_zones():
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
+			continue
+		if avoid_populated and mortar_excluded_at(zone.center):
 			continue
 		var d: float = from.distance_to(zone.center)
 		if reference_point != Vector2.INF:
@@ -9505,7 +9522,7 @@ static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vecto
 
 	candidates = _exclude_dangerous(candidates, known_enemy_positions)
 	candidates = _prefer_retreat_direction(candidates, from, retreat_dir)
-	candidates = _prefer_clear_path(candidates, from, avoid_buildings)
+	candidates = _prefer_clear_path(candidates, from, avoid_buildings, avoid_populated)
 	for c in candidates:
 		var center: Vector2 = c.zone.center
 		var nearest_enemy_dist: float = INF
@@ -9540,13 +9557,15 @@ static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vecto
 ## nearest_cover_point, same as safest_cover_point.
 ##
 ## `retreat_dir` / `avoid_buildings` — see nearest_cover_point.
-static func retreat_cover_point_toward(from: Vector2, reference_point: Vector2, known_enemy_positions: Array[Vector2], retreat_dir: float = 0.0, avoid_buildings: bool = false) -> Vector2:
+static func retreat_cover_point_toward(from: Vector2, reference_point: Vector2, known_enemy_positions: Array[Vector2], retreat_dir: float = 0.0, avoid_buildings: bool = false, avoid_populated: bool = false) -> Vector2:
 	if known_enemy_positions.is_empty():
-		return nearest_cover_point(from, retreat_dir, avoid_buildings)
+		return nearest_cover_point(from, retreat_dir, avoid_buildings, [], [], [], [], Vector2.ZERO, Vector2.INF, Vector2.INF, avoid_populated)
 
 	var candidates: Array[Dictionary] = []
 	for zone in _all_cover_zones():
 		if avoid_buildings and zone.type == TerrainType.BUILDING:
+			continue
+		if avoid_populated and mortar_excluded_at(zone.center):
 			continue
 		candidates.append({"zone": zone, "dist_from_self": from.distance_to(zone.center)})
 	if candidates.is_empty():
@@ -9554,7 +9573,7 @@ static func retreat_cover_point_toward(from: Vector2, reference_point: Vector2, 
 
 	candidates = _exclude_dangerous(candidates, known_enemy_positions)
 	candidates = _prefer_retreat_direction(candidates, from, retreat_dir)
-	candidates = _prefer_clear_path(candidates, from, avoid_buildings)
+	candidates = _prefer_clear_path(candidates, from, avoid_buildings, avoid_populated)
 	return _random_point_in_cover_zone(_best_cover_zone_by_total_trip(candidates, reference_point).zone)
 
 
@@ -9969,12 +9988,12 @@ const CONCEALMENT_HILL_MAX_EXTRA_M: float = 300.0
 ## preserves every existing caller's behavior exactly; only a relocation
 ## reacting to a crew's own still-live firing signature passes a real
 ## value.
-static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO, firing_point: Vector2 = Vector2.INF, danger_range: float = MORTAR_CREW_OVERRUN_DANGER_RANGE) -> Vector2:
+static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool = false, urgent: bool = false, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO, firing_point: Vector2 = Vector2.INF, danger_range: float = MORTAR_CREW_OVERRUN_DANGER_RANGE, avoid_populated: bool = false) -> Vector2:
 	if threat_positions.is_empty():
 		return from
 
-	var hill_spot := _reverse_slope_candidate(from, threat_positions, avoid_buildings, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions, no_reversal_positions, firing_point)
-	var ring_spot := _ring_search_hidden_point(from, threat_positions, avoid_buildings, urgent, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions, no_reversal_positions, travel_direction, firing_point, danger_range)
+	var hill_spot := _reverse_slope_candidate(from, threat_positions, avoid_buildings, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions, no_reversal_positions, firing_point, avoid_populated)
+	var ring_spot := _ring_search_hidden_point(from, threat_positions, avoid_buildings, urgent, avoid_positions, home_position, home_leash, min_distance_from_home, bunch_avoid_positions, no_reversal_positions, travel_direction, firing_point, danger_range, avoid_populated)
 
 	if hill_spot == from:
 		return ring_spot
@@ -10015,7 +10034,7 @@ static func nearest_hidden_point(from: Vector2, threat_positions: Array[Vector2]
 ## — a crew that reliably ran to the single most-hidden location every
 ## time would itself be a predictable pattern, exactly the thing shoot-
 ## and-scoot doctrine exists to avoid.
-static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO, firing_point: Vector2 = Vector2.INF, danger_range: float = MORTAR_CREW_OVERRUN_DANGER_RANGE) -> Vector2:
+static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, urgent: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO, firing_point: Vector2 = Vector2.INF, danger_range: float = MORTAR_CREW_OVERRUN_DANGER_RANGE, avoid_populated: bool = false) -> Vector2:
 	var rings: Array[float] = CONCEALMENT_SEARCH_RINGS_URGENT_M if urgent else CONCEALMENT_SEARCH_RINGS_M
 	# See CONCEALMENT_SEARCH_RINGS_BUNCHING_EXTRA_M's own doc comment —
 	# only sampled when there's an actual sibling to create real
@@ -10050,6 +10069,8 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 			# of the position this crew exists to help defend (home_leash
 			# — a real tactical limit, not just a preference).
 			if avoid_buildings and (is_building_at(candidate) or path_crosses_building(from, candidate)):
+				continue
+			if avoid_populated and (mortar_excluded_at(candidate) or path_enters_mortar_exclusion(from, candidate)):
 				continue
 			if home_position.distance_to(candidate) > home_leash:
 				continue
@@ -10320,7 +10341,7 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 ## which is guaranteed to clear it by construction (its nearest ring is
 ## already farther out than the blast radius).
 ## Returns `from` (no better option this way) if no hill qualifies.
-static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], firing_point: Vector2 = Vector2.INF) -> Vector2:
+static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vector2], avoid_buildings: bool, avoid_positions: Array[Vector2] = [], home_position: Vector2 = Vector2.INF, home_leash: float = INF, min_distance_from_home: float = 0.0, bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], firing_point: Vector2 = Vector2.INF, avoid_populated: bool = false) -> Vector2:
 	var avg_threat := Vector2.ZERO
 	for t in threat_positions:
 		avg_threat += t
@@ -10394,6 +10415,8 @@ static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vect
 		if too_close_to_sibling:
 			continue
 		if avoid_buildings and (is_building_at(candidate) or path_crosses_building(from, candidate)):
+			continue
+		if avoid_populated and (mortar_excluded_at(candidate) or path_enters_mortar_exclusion(from, candidate)):
 			continue
 		var hidden := true
 		for t in threat_positions:
@@ -10654,6 +10677,116 @@ static func draw_terrain(ci: CanvasItem) -> void:
 	for patch in CURRENT_MAP.forest_patches:
 		_draw_forest_patch(ci, patch)
 	_draw_settlement_labels(ci) # last, so no tree or building covers a name
+
+
+## Where the Ukrainian mortar will not go: the ground within 200 m of a populated place (a cluster of at least five
+## buildings; the rule is in tools/map_pipeline/mortar_exclusion/build.py). Direct user request: "Each map needs a region
+## where the Ukrainian mortar cannot go. They will not go within 200 meters of populated locations. But I want to
+## examine it individually by map." CURRENT_MAP.mortar_exclusion_file is a JSON resource of merged rectangles in meters
+## ({"cell_m": 10, "rects": [[x, y, w, h], ...]}); here they are Rect2s in pixel space for drawing, plus a one-byte-per-cell
+## grid for the point test (a mortar asks at every candidate position, so it has to be cheap). A map without the key (or an
+## unreadable file) has no such region. Only the player's mortar is held to it (mortar_barred_at); the enemy's is not.
+static var _exclusion_built: bool = false
+static var _exclusion_rects: Array = []
+static var _exclusion_grid: PackedByteArray = PackedByteArray()
+static var _exclusion_cols: int = 0
+static var _exclusion_rows: int = 0
+static var _exclusion_origin: Vector2 = Vector2.ZERO # pixel position of the grid's north-west corner
+static var _exclusion_cell: float = 1.0 # grid cell size, pixels
+
+static func mortar_exclusion_rects() -> Array:
+	_ensure_exclusion()
+	return _exclusion_rects
+
+
+static func _ensure_exclusion() -> void:
+	if _exclusion_built:
+		return
+	_exclusion_built = true
+	var path: String = CURRENT_MAP.get("mortar_exclusion_file", "")
+	_exclusion_rects = _load_mortar_exclusion_file(path)
+	_exclusion_grid = PackedByteArray()
+	if _exclusion_rects.is_empty():
+		return
+	var cell_m: float = 10.0
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if typeof(parsed) == TYPE_DICTIONARY:
+		cell_m = float(parsed.get("cell_m", 10.0))
+	_exclusion_cell = cell_m * PIXELS_PER_METER
+	var low := Vector2.INF
+	var high := -Vector2.INF
+	for r in _exclusion_rects:
+		low = Vector2(minf(low.x, r.position.x), minf(low.y, r.position.y))
+		high = Vector2(maxf(high.x, r.end.x), maxf(high.y, r.end.y))
+	_exclusion_origin = low
+	_exclusion_cols = int(ceil((high.x - low.x) / _exclusion_cell)) + 1
+	_exclusion_rows = int(ceil((high.y - low.y) / _exclusion_cell)) + 1
+	_exclusion_grid.resize(_exclusion_cols * _exclusion_rows)
+	_exclusion_grid.fill(0)
+	for r in _exclusion_rects:
+		var c0: int = int(round((r.position.x - low.x) / _exclusion_cell))
+		var c1: int = int(round((r.end.x - low.x) / _exclusion_cell))
+		var r0: int = int(round((r.position.y - low.y) / _exclusion_cell))
+		var r1: int = int(round((r.end.y - low.y) / _exclusion_cell))
+		for row in range(r0, r1):
+			for col in range(c0, c1):
+				_exclusion_grid[row * _exclusion_cols + col] = 1
+
+
+static func _load_mortar_exclusion_file(path: String) -> Array:
+	var out: Array = []
+	if path.is_empty() or not FileAccess.file_exists(path):
+		return out
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return out
+	for r in parsed.get("rects", []):
+		out.append(Rect2(float(r[0]) * PIXELS_PER_METER, float(r[1]) * PIXELS_PER_METER, float(r[2]) * PIXELS_PER_METER, float(r[3]) * PIXELS_PER_METER))
+	return out
+
+
+## True if `point` (pixels) is inside the region the Ukrainian mortar keeps out of.
+static func mortar_excluded_at(point: Vector2) -> bool:
+	_ensure_exclusion()
+	if _exclusion_grid.is_empty():
+		return false
+	var col: int = int(floor((point.x - _exclusion_origin.x) / _exclusion_cell))
+	var row: int = int(floor((point.y - _exclusion_origin.y) / _exclusion_cell))
+	if col < 0 or row < 0 or col >= _exclusion_cols or row >= _exclusion_rows:
+		return false
+	return _exclusion_grid[row * _exclusion_cols + col] != 0
+
+
+## True if walking the straight segment from `from` to `to` would take a mortar INTO the region from outside it. A mortar
+## already inside (it never should be) is free to walk out: only where it ends up is then judged.
+static func path_enters_mortar_exclusion(from: Vector2, to: Vector2) -> bool:
+	_ensure_exclusion()
+	if _exclusion_grid.is_empty() or mortar_excluded_at(from):
+		return false
+	var steps: int = int(ceil(from.distance_to(to) / (_exclusion_cell * 0.9)))
+	for i in range(1, steps + 1):
+		if mortar_excluded_at(from.lerp(to, float(i) / float(steps))):
+			return true
+	return false
+
+
+## The one question every "may this mortar stand here" check asks: a building bars any mortar (no overhead clearance);
+## the populated-place region bars the player's only.
+static func mortar_barred_at(point: Vector2, team: int) -> bool:
+	return is_building_at(point) or (team == Unit.Team.PLAYER and mortar_excluded_at(point))
+
+
+static func mortar_path_barred(from: Vector2, to: Vector2, team: int) -> bool:
+	return path_crosses_building(from, to) or (team == Unit.Team.PLAYER and path_enters_mortar_exclusion(from, to))
+
+
+## The region as a translucent red wash, for the deployment screen.
+static func draw_mortar_exclusion(ci: CanvasItem) -> void:
+	for r in mortar_exclusion_rects():
+		ci.draw_rect(r, MORTAR_EXCLUSION_COLOR)
+
+
+const MORTAR_EXCLUSION_COLOR: Color = Color(0.9, 0.12, 0.1, 0.30)
 
 
 ## The name of every village on the map, English over Ukrainian, centered on its position (CURRENT_MAP.settlements,

@@ -268,16 +268,22 @@ func _shelter_candidates(unit: Unit, known: Array[Vector2]) -> Array[Vector2]:
 	return [unit.global_position, _hidden_point_for(unit, known), _cover_point_for(unit, known, _ally_positions_for(unit))]
 
 
+## Whether this unit's relocation searches must also keep out of the populated-place region (GameConfig.mortar_exclusion_rects):
+## the player's mortar only. Direct user request: "Each map needs a region where the Ukrainian mortar cannot go."
+func _keeps_clear_of_populated(unit: Unit) -> bool:
+	return unit.kind == Unit.Kind.MORTAR and unit.team == Unit.Team.PLAYER
+
+
 ## GameConfig.nearest_hidden_point as _relocate_for_risk has always called it (its
 ## pick among the best candidates is deliberately randomised, so two calls can differ).
 func _hidden_point_for(unit: Unit, known: Array[Vector2]) -> Vector2:
 	var danger_range: float = GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE if unit.kind == Unit.Kind.MORTAR else GameConfig.SQUAD_DANGER_RANGE
-	return GameConfig.nearest_hidden_point(unit.global_position, known, unit.kind == Unit.Kind.MORTAR, false, [], Vector2.INF, INF, 0.0, [], [], Vector2.ZERO, Vector2.INF, danger_range)
+	return GameConfig.nearest_hidden_point(unit.global_position, known, unit.kind == Unit.Kind.MORTAR, false, [], Vector2.INF, INF, 0.0, [], [], Vector2.ZERO, Vector2.INF, danger_range, _keeps_clear_of_populated(unit))
 
 
 ## GameConfig.nearest_cover_point, skipping any cover zone that contains one of `avoid`.
 func _cover_point_for(unit: Unit, known: Array[Vector2], avoid: Array[Vector2]) -> Vector2:
-	return GameConfig.nearest_cover_point(unit.global_position, 0.0, unit.kind == Unit.Kind.MORTAR, avoid, known)
+	return GameConfig.nearest_cover_point(unit.global_position, 0.0, unit.kind == Unit.Kind.MORTAR, avoid, known, [], [], Vector2.ZERO, Vector2.INF, Vector2.INF, _keeps_clear_of_populated(unit))
 
 
 func _relocate_for_risk(unit: Unit) -> void:
@@ -288,7 +294,7 @@ func _relocate_for_risk(unit: Unit) -> void:
 	var best: Vector2 = unit.global_position
 	var best_risk := INF
 	for point in choices:
-		if unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(point): continue
+		if unit.kind == Unit.Kind.MORTAR and GameConfig.mortar_barred_at(point, unit.team): continue
 		if _advances_past_fall_back_line(unit, point): continue
 		var alternative := _risk_forecast(unit, null, point)
 		var cost: float = alternative.loss_probability + alternative.hit_probability
@@ -1697,7 +1703,7 @@ func _fall_back_destination(unit: Unit) -> Vector2:
 	var allies: Array[Vector2] = _ally_positions_for(unit)
 	for distance_m in FALL_BACK_COVER_WAYPOINTS_M:
 		var waypoint: Vector2 = unit.global_position + edge_dir * distance_m * GameConfig.PIXELS_PER_METER
-		raw.append(GameConfig.nearest_cover_point(waypoint, 0.0, unit.kind == Unit.Kind.MORTAR, allies, threats))
+		raw.append(GameConfig.nearest_cover_point(waypoint, 0.0, unit.kind == Unit.Kind.MORTAR, allies, threats, [], [], Vector2.ZERO, Vector2.INF, Vector2.INF, _keeps_clear_of_populated(unit)))
 	for i in FALL_BACK_HIDDEN_SAMPLES:
 		raw.append(_hidden_point_for(unit, threats))
 	var min_move: float = minf(FALL_BACK_MIN_MOVE_M * GameConfig.PIXELS_PER_METER, remaining)
@@ -1713,7 +1719,7 @@ func _fall_back_destination(unit: Unit) -> Vector2:
 		var bearing: float = rad_to_deg(acos(clampf(offset.normalized().dot(edge_dir), -1.0, 1.0)))
 		if bearing > FALL_BACK_MAX_BEARING_DEG + 0.01:
 			continue
-		if GameConfig.is_river_at(point) or (unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(point)):
+		if GameConfig.is_river_at(point) or (unit.kind == Unit.Kind.MORTAR and GameConfig.mortar_barred_at(point, unit.team)):
 			continue
 		var score: float = _fall_back_score(unit, point, known, advancing) \
 			+ _fall_back_distance_penalty(offset.length() / GameConfig.PIXELS_PER_METER, remaining / GameConfig.PIXELS_PER_METER) \
@@ -3289,7 +3295,7 @@ func _friendly_mortar_hunt_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 	for offset_deg in [0.0, -15.0, 15.0, -30.0, 30.0, -45.0, 45.0]:
 		var dir: Vector2 = base_dir.rotated(deg_to_rad(offset_deg))
 		var candidate: Vector2 = target_pos - dir * target_distance
-		if GameConfig.is_building_at(candidate) or GameConfig.path_crosses_building(mortar.global_position, candidate):
+		if GameConfig.mortar_barred_at(candidate, mortar.team) or GameConfig.mortar_path_barred(mortar.global_position, candidate, mortar.team):
 			continue
 		valid_candidates.append(candidate)
 		var hidden := true
@@ -5950,7 +5956,7 @@ func _mortar_advance_point(mortar: Unit, target_pos: Vector2) -> Vector2:
 	for offset_deg in [0.0, -15.0, 15.0, -30.0, 30.0, -45.0, 45.0, -60.0, 60.0, -75.0, 75.0, -90.0, 90.0]:
 		var dir: Vector2 = base_dir.rotated(deg_to_rad(offset_deg))
 		var candidate: Vector2 = GameConfig.clamp_to_operating_area(target_pos - dir * target_distance)
-		if GameConfig.is_building_at(candidate) or GameConfig.path_crosses_building(mortar.global_position, candidate):
+		if GameConfig.mortar_barred_at(candidate, mortar.team) or GameConfig.mortar_path_barred(mortar.global_position, candidate, mortar.team):
 			continue
 		var nearest_sibling_dist := INF
 		for p in siblings:
@@ -6895,6 +6901,16 @@ func _step_toward_target(unit: Unit, scenario_delta: float) -> void:
 	var step: float = unit.move_speed * scenario_delta
 	if unit.kind == Unit.Kind.DRONE and dist > 0.001:
 		step = _drone_ground_speed(unit.move_speed, to_target / dist) * scenario_delta
+	# The Ukrainian mortar never walks INTO the populated-place region (the planners above already keep its orders out of it;
+	# this is the wall behind them, for a leg of a path or a clamp that slipped through): the crew halts at the edge and the
+	# decision loop plans again from there. A crew already inside is left free to walk out.
+	if _keeps_clear_of_populated(unit) and dist > 0.001 and not GameConfig.mortar_excluded_at(unit.position):
+		if GameConfig.mortar_excluded_at(unit.position + to_target.normalized() * minf(step, dist)):
+			unit.has_move_target = false
+			unit.move_queue.clear()
+			unit.activity = Unit.Activity.STATIONARY
+			_mortar_move_intent.erase(unit)
+			return
 	if step >= dist or dist <= Unit.MOVE_ARRIVE_RADIUS:
 		unit.position = unit.move_target
 		if not unit.move_queue.is_empty():
@@ -9538,9 +9554,9 @@ func _mortar_relocation_plan(mortar: Unit, urgent: bool) -> Dictionary:
 	if mortar_recently_detected_firing(mortar):
 		firing_point = _last_detected_mortar_fire[mortar].position
 	var destination: Vector2 = (
-		GameConfig.nearest_hidden_point(mortar.global_position, threats, true, urgent, recent, home_position, home_leash, min_distance_from_home, siblings, recent, travel_direction, firing_point)
+		GameConfig.nearest_hidden_point(mortar.global_position, threats, true, urgent, recent, home_position, home_leash, min_distance_from_home, siblings, recent, travel_direction, firing_point, GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE, _keeps_clear_of_populated(mortar))
 		if not threats.is_empty()
-		else GameConfig.nearest_cover_point(mortar.global_position, 0.0, true, [], [], siblings, recent, travel_direction, firing_point)
+		else GameConfig.nearest_cover_point(mortar.global_position, 0.0, true, [], [], siblings, recent, travel_direction, firing_point, Vector2.INF, _keeps_clear_of_populated(mortar))
 	)
 	if destination == mortar.global_position:
 		return {}

@@ -781,6 +781,7 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 	if needs_real_cover and not GameConfig.is_in_cover(terrain_type()):
 		var retreat_dir: float = -1.0 if team == Team.PLAYER else 1.0
 		var avoid_buildings: bool = kind == Kind.MORTAR
+		var avoid_populated: bool = kind == Kind.MORTAR and team == Team.PLAYER # see GameConfig.mortar_excluded_at
 		if kind == Kind.MORTAR and not known_enemy_positions.is_empty():
 			# A real, previously-reported failure mode: nearest_cover_point's
 			# own retreat_dir filter only ever constrains which side of the
@@ -796,7 +797,7 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 			# danger.
 			var edge_x: float = -GameConfig.WEST_FLANK_WIDTH_PX if team == Team.PLAYER else GameConfig.MAP_WIDTH_PX
 			var resupply_reference := Vector2(edge_x, global_position.y)
-			move_target = GameConfig.retreat_cover_point_toward(global_position, resupply_reference, known_enemy_positions, retreat_dir, avoid_buildings)
+			move_target = GameConfig.retreat_cover_point_toward(global_position, resupply_reference, known_enemy_positions, retreat_dir, avoid_buildings, avoid_populated)
 		elif (kind == Kind.SPOTTER or kind == Kind.DRONE_TEAM) and not known_enemy_positions.is_empty():
 			# Direct user report: "Spotter retreated off the top of the map last battle. That should not be
 			# allowed. Has to go to the friendly map edge." Same "cover is a MEANS to reaching the edge, not
@@ -805,7 +806,7 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 			# then safest of those" cut had nothing at all bounding how far the DETOUR itself could run
 			# north or south, only which side of the map it stayed on.
 			var reference_point := Vector2(retreat_target_x, global_position.y)
-			move_target = GameConfig.safest_cover_point(global_position, known_enemy_positions, retreat_dir, avoid_buildings, reference_point)
+			move_target = GameConfig.safest_cover_point(global_position, known_enemy_positions, retreat_dir, avoid_buildings, reference_point, avoid_populated)
 		else:
 			# Same "cover is a MEANS to reaching the edge, not a competing
 			# goal" principle as retreat_cover_point_toward's own doc
@@ -818,7 +819,7 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 			# consistent with what "the edge" means everywhere else in
 			# this function.
 			var reference_point := Vector2(retreat_target_x, global_position.y)
-			move_target = GameConfig.nearest_cover_point(global_position, retreat_dir, avoid_buildings, avoid_positions, known_enemy_positions, [], [], Vector2.ZERO, Vector2.INF, reference_point)
+			move_target = GameConfig.nearest_cover_point(global_position, retreat_dir, avoid_buildings, avoid_positions, known_enemy_positions, [], [], Vector2.ZERO, Vector2.INF, reference_point, avoid_populated)
 		# Direct, live-caught correction: none of the cover-point searches
 		# above ever return "nothing" (same "movement must never be
 		# starved to zero" principle as every other relocation search in

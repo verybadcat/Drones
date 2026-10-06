@@ -60,7 +60,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		# A mortar can never be set up inside a building (no overhead
 		# clearance to fire from one) — the token simply stops at the
 		# building's edge instead of following the cursor inside it.
-		if _dragging.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(candidate):
+		if _dragging.kind == Unit.Kind.MORTAR and GameConfig.mortar_barred_at(candidate, Unit.Team.PLAYER):
 			return
 		_dragging.position = candidate
 		_dragging.queue_redraw() # cover ring must update live as it crosses terrain
@@ -94,6 +94,13 @@ func get_positions() -> Dictionary:
 
 func _draw() -> void:
 	GameConfig.draw_terrain(self)
+	GameConfig.draw_mortar_exclusion(self) # the ground the mortar will not go: within 200 m of a populated place
 	draw_rect(GameConfig.CURRENT_MAP.player.mortar_deployment_zone, Color(1.0, 0.55, 0.15, 0.5), false, 2.0)
 	draw_rect(GameConfig.CURRENT_MAP.player.deployment_zone, Color(1.0, 1.0, 0.2, 0.7), false, 2.0)
 	draw_rect(_recon_deployment_zone(), Color(0.3, 1.0, 1.0, 0.6), false, 2.0)
+	if not GameConfig.mortar_exclusion_rects().is_empty():
+		var font: Font = ThemeDB.fallback_font
+		var at := Vector2(-GameConfig.WEST_FLANK_WIDTH_PX + 12.0, 22.0)
+		var text := "Red: the mortar will not go within 200 m of a populated place"
+		draw_string_outline(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 4, Color(1.0, 1.0, 1.0, 0.9))
+		draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.6, 0.05, 0.05))
