@@ -4426,3 +4426,17 @@ Direct user ruling, after seeing the crossfire change work: "I want to reduce th
 **Verified.** New `test_small_arms_base_effectiveness.gd`: the constant, the two squad base chances, the mortar unchanged, a squad's real hit chance exactly 80% of what the old base gave, two sides above x1.9 and four above x2.5 of the old chance, and the 330-degree break-even. With the scaling removed it fails five ways. The risk forecast reads the same `hit_probability`, so it follows automatically.
 
 **Not seen in a live battle.** Every fight with squads shooting is about 20% less deadly in the one-direction case, so battles will be somewhat longer; the doctrine characterization baselines were not re-run.
+
+### 2026-10-06 — The risk forecast now knows about crossfire
+
+Direct user request, right after the 80% small-arms change: "Then do the risk forecast." (The follow-up the user had asked to be reminded of if it was not done within four commits of the crossfire commit `1c0aca2`; it lands as the third.)
+
+**The gap.** `BattleManager._risk_forecast` (every unit's self-risk assessment: whether to take a shot, hold fire, or move, and where) used each known threat's plain per-shot hit chance. A unit weighing whether to stand somewhere could not see that being fired on from several sides there is x2 to x3 as dangerous, so it could accept a spot a real squad would refuse.
+
+**What it does now.** The forecast collects the known positions of the direct-fire threats it already counts (visible squads in range with a line of sight; nothing hidden is used, so knowledge locality is unchanged), works out the safe arc AT THE POINT BEING ASSESSED (`CombatResolver.safe_arc_deg(point, ...)`, so a unit weighing a move sees the crossfire of its destination, not of where it stands) and multiplies each squad threat's chance by `crossfire_multiplier` (cap 1.0, as in the real fire path). Mortar threats and counter-battery strikes are outside it. The forecast dictionary gains `safe_arc_deg` and `crossfire_multiplier`, which the decision log carries along with the rest of it.
+
+**What this changes in play.** Units are now more cautious about spots where known enemies would bracket them, and more willing to accept a spot where the same enemies are all on one side. The assumptions text still says known threats are assumed able to focus fire, which is what makes the multiplier apply to every known squad in range.
+
+**Verified.** New `test_crossfire_in_risk_forecast.gd`: two shooters in the same direction leave the forecast exactly as it was (arc 360, x1); north and south give arc 180, x2.5 and a forecast equal to the plain per-shot chances times 2.5 pushed through the same distribution; four sides give arc 90, x3.25; the arc is judged at the assessed point (at 200 m off to one side it is 247 degrees, not the 180 of where the unit stands); a mortar on the far side opens no second direction and its own chance is untouched. With the multiplier not applied to the threats three checks fail; with the arc taken at the unit instead of the point one fails.
+
+**Not seen in a live battle.** This changes the decisions the squads make under fire from several enemies, which is exactly where it matters most; the doctrine characterization baselines were not re-run.

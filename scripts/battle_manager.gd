@@ -165,6 +165,7 @@ func _forecast_target(unit: Unit) -> Unit:
 
 func _risk_forecast(unit: Unit, target: Unit, point: Vector2) -> Dictionary:
 	var threats: Array[Dictionary] = []
+	var direct_fire_positions: Array[Vector2] = [] # where the known squad threats would be firing from, for the crossfire arc
 	var opposing: Array[Unit] = enemy_units if unit.team == Unit.Team.PLAYER else player_units
 	for enemy in opposing:
 		if enemy.kind not in [Unit.Kind.SQUAD, Unit.Kind.MORTAR]: continue
@@ -186,6 +187,19 @@ func _risk_forecast(unit: Unit, target: Unit, point: Vector2) -> Dictionary:
 		if enemy.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(known_position): continue
 		var probability := CombatResolver.hit_probability(enemy, unit, false, point, known_position) * confidence
 		threats.append({"chance": probability, "shots": RiskForecast.shot_count(enemy, RiskForecast.HORIZON_SECONDS, GameConfig.TIME_SCALE_NORMAL, false), "mortar": enemy.kind == Unit.Kind.MORTAR})
+		if enemy.kind != Unit.Kind.MORTAR:
+			direct_fire_positions.append(known_position)
+	# Crossfire (direct user design, see CombatResolver.safe_arc_deg/crossfire_multiplier): the more of the circle
+	# around `point` the known direct-fire threats cover, the more dangerous each of their shots is. Judged at
+	# the point being assessed — so a unit weighing a move sees the crossfire of its DESTINATION — from the same
+	# known threats the forecast already counts (nothing hidden is used), and mortar threats are outside it,
+	# exactly as in the real fire path (BattleManager._resolve_fire_and_check_bunching).
+	var safe_arc: float = CombatResolver.safe_arc_deg(point, direct_fire_positions)
+	var crossfire: float = CombatResolver.crossfire_multiplier(safe_arc)
+	if crossfire > 1.0:
+		for threat in threats:
+			if not threat.mortar:
+				threat.chance = minf(float(threat.chance) * crossfire, 1.0)
 	# Incoming fire is already announced to the target's side. The source
 	# and other hidden artillery are not exposed by this calculation.
 	for strike in _pending_counter_battery:
@@ -195,6 +209,8 @@ func _risk_forecast(unit: Unit, target: Unit, point: Vector2) -> Dictionary:
 	var forecast := RiskForecast.damage_distribution(unit, threats)
 	forecast["horizon_seconds"] = RiskForecast.HORIZON_SECONDS
 	forecast["known_threats"] = threats.size()
+	forecast["safe_arc_deg"] = safe_arc
+	forecast["crossfire_multiplier"] = crossfire
 	forecast["goal_probability"] = -1.0
 	forecast["goal"] = "Continue the assigned support or movement task (success not forecast)."
 	if target != null and unit.kind in [Unit.Kind.SQUAD, Unit.Kind.MORTAR]:
