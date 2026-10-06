@@ -360,7 +360,7 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 			max_pips = SQUAD_SIZE
 			# Defenders fight from prepared, pre-ranged positions — their first
 			# shots land far more often than an attacker's do.
-			base_hit_chance = 0.32 if team == Team.PLAYER else 0.20
+			base_hit_chance = (0.32 if team == Team.PLAYER else 0.20) * GameConfig.SMALL_ARMS_BASE_EFFECTIVENESS
 			unit_label = "Squad"
 			fire_interval = 2.0
 	pips = max_pips

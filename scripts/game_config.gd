@@ -4860,6 +4860,15 @@ const SQUAD_CLOSE_RANGE_HIT_MULTIPLIER: float = 2.0
 const CROSSFIRE_FULL_ARC_DEG: float = 360.0
 const CROSSFIRE_ARC_PER_EXTRA_MULTIPLE_DEG: float = 120.0
 const CROSSFIRE_MEMORY_S: float = 10.0
+
+## Small arms (a squad's direct fire) hit at this fraction of the hit chances they had before the crossfire
+## change. Direct user ruling, right after crossfire went in: "this change made small arms fire more deadly
+## and I am making it slightly less so" — 80% of the old base effectiveness. The effect is that fire from ONE
+## direction is now 20% less deadly than it was before crossfire existed, while fire from widely separated
+## directions is still far worse than before (x0.8 times the crossfire multiplier: x2.0 for two opposite
+## sides, x2.6 for four). It breaks even with the old game at a safe arc of 330 degrees (x1.25 * 0.8 = 1).
+## Mortars are unaffected.
+const SMALL_ARMS_BASE_EFFECTIVENESS: float = 0.8
 const SQUAD_CLOSE_RANGE_DECAY_M: float = 150.0 * PIXELS_PER_METER
 
 # MORTAR fire against a moving target is the opposite story: indirect fire
