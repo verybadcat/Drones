@@ -6366,6 +6366,15 @@ const ENEMY_ADVANCE_CONCEALMENT_BONUS: float = 2.0
 const ENEMY_ADVANCE_ENCIRCLE_BONUS: float = 3.0
 const ENEMY_ADVANCE_ANGLE_PENALTY_PER_DEG: float = 0.03
 const ENEMY_ADVANCE_BASE_WEIGHT: float = 1.0
+## Cover, concealment and encirclement only count for an advance bound when the squad is within this distance
+## of its objective, ramping up to full weight at the standoff ring (BattleManager._advance_tactical_pressure).
+## Farther out there is no fight to use cover in, nobody to hide from and nothing yet to surround, so the
+## squad just closes the distance. Direct user report, live: squads ~1200 m from our line wandered sideways
+## ("I see no rational explanation"). JUDGMENT: where a squad starts to care — about SQUAD_DANGER_RANGE.
+const ENEMY_ADVANCE_TACTICAL_RANGE: float = 1200.0 * PIXELS_PER_METER
+## Bends wider than this (degrees off the line to the objective) also fade out with distance from the objective,
+## for the same reason: they only pay when there is something to bend around.
+const ENEMY_ADVANCE_WIDE_BEND_DEG: float = 30.0
 
 ## Once an enemy squad is this close to its current objective (see
 ## BattleManager._enemy_advance_objective/_next_advance_point), it treats

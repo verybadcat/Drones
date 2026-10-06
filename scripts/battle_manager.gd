@@ -7958,7 +7958,21 @@ func _next_advance_point(u: Unit, max_step: float = GameConfig.ENEMY_ADVANCE_RUS
 	var candidates: Array[Vector2] = []
 	for angle_deg in GameConfig.ENEMY_ADVANCE_ANGLES_DEG:
 		candidates.append(GameConfig.clamp_to_operating_area(u.global_position + to_objective.normalized().rotated(deg_to_rad(angle_deg)) * rush))
-	return _weighted_advance_point_pick(candidates, GameConfig.ENEMY_ADVANCE_ANGLES_DEG, known_player_positions, friendly_center, other_bearings)
+	# Direct user report, live: "enemy squads 2 and 6 are not attacking the friendly squads. I see no rational
+	# explanation." Far from the objective, cover/concealment/encirclement buy nothing (no fight to use cover
+	# in, nobody to hide from or surround), yet they outweighed the straight line, so squads wandered sideways
+	# ~1200 m out. See _advance_tactical_pressure. The alert-time scatter (max_step INF) happens at contact and
+	# keeps full weight.
+	var pressure: float = 1.0 if is_inf(max_step) else _advance_tactical_pressure(distance_to_objective)
+	return _weighted_advance_point_pick(candidates, GameConfig.ENEMY_ADVANCE_ANGLES_DEG, known_player_positions, friendly_center, other_bearings, pressure)
+
+
+## How much the fight-related terms of an advance bound's scoring (cover, concealment, encirclement) count for
+## a squad `distance` from its objective: nothing beyond GameConfig.ENEMY_ADVANCE_TACTICAL_RANGE (there is no
+## fight yet, so the squad just closes the distance), everything at the standoff ring, a straight ramp between.
+func _advance_tactical_pressure(distance: float) -> float:
+	var ring: float = GameConfig.ENEMY_SURROUND_STANDOFF_RADIUS
+	return clampf((GameConfig.ENEMY_ADVANCE_TACTICAL_RANGE - distance) / (GameConfig.ENEMY_ADVANCE_TACTICAL_RANGE - ring), 0.0, 1.0)
 
 
 ## The pivot _next_advance_point uses for its own encirclement scoring —
@@ -8825,10 +8839,10 @@ func _lane_is_screened(from: Vector2, to: Vector2, squads: Array[Unit]) -> bool:
 ## shared objective instead of all crowding the one patch of cover nearest
 ## the direct line to it. Neutral 0 with no known friendly cluster yet, or
 ## with no other squad to differ from (nothing to spread out relative to).
-func _score_advance_candidate(point: Vector2, angle_deg: float, known_player_positions: Array[Vector2], friendly_center: Vector2 = Vector2.INF, other_bearings_deg: Array[float] = []) -> float:
+func _score_advance_candidate(point: Vector2, angle_deg: float, known_player_positions: Array[Vector2], friendly_center: Vector2 = Vector2.INF, other_bearings_deg: Array[float] = [], tactical_pressure: float = 1.0) -> float:
 	var score: float = GameConfig.ENEMY_ADVANCE_BASE_WEIGHT
 	if GameConfig.is_in_cover(GameConfig.get_terrain_type_at(point)):
-		score += GameConfig.ENEMY_ADVANCE_COVER_BONUS
+		score += GameConfig.ENEMY_ADVANCE_COVER_BONUS * tactical_pressure
 	if not known_player_positions.is_empty():
 		var concealed := true
 		var exposed_to_fire := false
@@ -8838,7 +8852,7 @@ func _score_advance_candidate(point: Vector2, angle_deg: float, known_player_pos
 				if point.distance_to(pp) <= GameConfig.SQUAD_ENGAGEMENT_RANGE:
 					exposed_to_fire = true
 		if concealed:
-			score += GameConfig.ENEMY_ADVANCE_CONCEALMENT_BONUS
+			score += GameConfig.ENEMY_ADVANCE_CONCEALMENT_BONUS * tactical_pressure
 		if exposed_to_fire:
 			score -= GameConfig.ENEMY_ADVANCE_EXPOSURE_PENALTY
 	if not is_inf(friendly_center.x) and not other_bearings_deg.is_empty():
@@ -8846,20 +8860,26 @@ func _score_advance_candidate(point: Vector2, angle_deg: float, known_player_pos
 		var nearest_claimed_gap := 180.0
 		for b in other_bearings_deg:
 			nearest_claimed_gap = min(nearest_claimed_gap, _angle_diff(candidate_bearing, b))
-		score += GameConfig.ENEMY_ADVANCE_ENCIRCLE_BONUS * (nearest_claimed_gap / 180.0)
+		score += GameConfig.ENEMY_ADVANCE_ENCIRCLE_BONUS * (nearest_claimed_gap / 180.0) * tactical_pressure
 	score -= abs(angle_deg) * GameConfig.ENEMY_ADVANCE_ANGLE_PENALTY_PER_DEG
-	return max(score, 0.1)
+	score = max(score, 0.1)
+	# A wide bend (or a step backward) is only worth rolling when there is a fight to bend around: the 0.1
+	# floor above would otherwise keep each of the six widest candidates alive at ~5% apiece however far the
+	# squad is from anything, which alone is roughly a one-in-three chance of a wasted or backward bound.
+	if absf(angle_deg) > GameConfig.ENEMY_ADVANCE_WIDE_BEND_DEG:
+		score *= tactical_pressure
+	return score
 
 
 ## A genuine weighted-random choice among advance-rush candidates (see
 ## _next_advance_point) — not a deterministic "always the single best
 ## angle," matching the same real-tactics-isn't-perfectly-rational idiom as
 ## _weighted_mortar_target_pick.
-func _weighted_advance_point_pick(candidates: Array[Vector2], angles_deg: Array[float], known_player_positions: Array[Vector2], friendly_center: Vector2 = Vector2.INF, other_bearings_deg: Array[float] = []) -> Vector2:
+func _weighted_advance_point_pick(candidates: Array[Vector2], angles_deg: Array[float], known_player_positions: Array[Vector2], friendly_center: Vector2 = Vector2.INF, other_bearings_deg: Array[float] = [], tactical_pressure: float = 1.0) -> Vector2:
 	var weights: Array[float] = []
 	var total := 0.0
 	for i in candidates.size():
-		var w: float = _score_advance_candidate(candidates[i], angles_deg[i], known_player_positions, friendly_center, other_bearings_deg)
+		var w: float = _score_advance_candidate(candidates[i], angles_deg[i], known_player_positions, friendly_center, other_bearings_deg, tactical_pressure)
 		weights.append(w)
 		total += w
 	var roll: float = randf() * total
