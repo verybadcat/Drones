@@ -4060,7 +4060,7 @@ const MAPS: Dictionary = {
 ## BUILT from real data (2026-10), with the building layer done differently from the older maps: those
 ## aggregate OpenStreetMap footprints into a few dozen blocks, and OpenStreetMap is nearly empty here (about
 ## 330 buildings tagged in the whole frame where the satellite picture shows several thousand houses), so the
-## buildings come from Overture Maps (Microsoft ML Buildings plus OpenStreetMap): 5,465 real footprints,
+## buildings come from Overture Maps (Microsoft ML Buildings plus OpenStreetMap): 5,712 real footprints,
 ## checked against Esri World Imagery by overlaying them on it (they line up with the houses along the H-24
 ## and the south-east suburb). Every footprint is DRAWN as itself (a resource file, listed under
 ## "building_footprints_file"), so the picture matches the satellite; the GAME LOGIC (cover, line of sight)
@@ -4074,12 +4074,22 @@ const MAPS: Dictionary = {
 ## to use as trees, and it has no tree rows or hedges.
 ## ROAD: the real H-24 centreline (Overture transportation segments), from the map's east edge to the
 ## east edge of the town.
-## THE FRAME IS CUT SHORT: the map is 2,200 m tall, not the usual 3,500 m. A large river, the Southern Bug,
+## THE FRAME IS CUT SHORT AT THE SOUTH: south of the highway the map is only 450 m deep. A large river, the Southern Bug,
 ## runs south of the highway (its north bank is 450-600 m south of the station, the floodplain even nearer),
 ## and the game's river mechanic (one crossing, units routed to it) did not work for it: in test battles units
 ## crossed it anyway, and mortar resupply runs that began on the far bank were sent to a bridge 4 km away and
 ## stuck. So the map ends just north of the river's bank (the bluff and the edge of the floodplain are in);
-## everything south of y = 2,200 is left out, the river included.
+## everything south of that line (y = 4,000 in today's frame) is left out, the river included.
+##
+## EXTENDED NORTH (2026-10, 1,800 m): the map began 2,200 m tall and the city fills its whole west, so once the Ukrainian mortar was
+## kept 200 m clear of populated places (mortar_exclusion_file) over half the map was closed to it, and a crew retreating to the west
+## edge had to run through the city. The user: "Could including more areas fix this?" The map is now 4,000 m tall: the whole earlier
+## map sits 1,800 m lower (every y below is the old y + 1,800), and a strip of open farmland north of the city, on the plateau, was added above it
+## (the city's own north edge is about 1,000 m above the old top; with the 200 m margin the strip leaves a free band 700-900 m
+## wide to the west edge, which is the retreat route). The strip's ground is real data in the same frame: SRTM elevation (14 more hills, the
+## plateau there is 40-100 m above the old map's, 6.2 m RMS over the strip), Overture footprints (+490, a small village in the north-centre
+## and the city's fringe at the west), cover blocks from them by the same rule (+50), forest (+111 patches). Its deployment zones for the
+## mortar and the spotter reach up into it; the squads' did not move. The drone's sweep rows are this map's own (drone_search_rows_m).
 ##
 ## The attack comes from the east-south-east (bearing 113 degrees from the station, toward Rakove), so the
 ## map frame is turned: north on screen points up-left (compass_north_screen_direction).
@@ -4093,18 +4103,18 @@ const MAPS: Dictionary = {
 	"compass_north_screen_direction": Vector2(-0.3907, -0.9205),
 
 	"width_m": 5000.0,
-	"height_m": 2200.0,
+	"height_m": 4000.0,
 	"west_flank_width_m": 1500.0,
 
-	"village_center": Vector2(1500.0, 1750.0) * PIXELS_PER_METER,
+	"village_center": Vector2(1500.0, 3550.0) * PIXELS_PER_METER,
 
 	# The named places on the map, drawn as English over Ukrainian text (see _draw_settlement_labels). Real
 	# OpenStreetMap place nodes mapped through the anchor: Rakove (village), Bolharka (the town's south-east
 	# suburb), and Voznesensk itself at the centre point of the city.
 	"settlements": [
-		{"name_en": "Rakove", "name_uk": "Ракове", "position_m": Vector2(3934.0, 1753.0)},
-		{"name_en": "Bolharka", "name_uk": "Болгарка", "position_m": Vector2(-340.0, 1166.0)},
-		{"name_en": "Voznesensk", "name_uk": "Вознесенськ", "position_m": Vector2(-826.0, 1248.0)},
+		{"name_en": "Rakove", "name_uk": "Ракове", "position_m": Vector2(3934.0, 3553.0)},
+		{"name_en": "Bolharka", "name_uk": "Болгарка", "position_m": Vector2(-340.0, 2966.0)},
+		{"name_en": "Voznesensk", "name_uk": "Вознесенськ", "position_m": Vector2(-826.0, 3048.0)},
 	],
 
 	# Real footprints, drawn as they are (see this entry's doc comment); terrain_zones below are the coarse
@@ -4118,1886 +4128,2438 @@ const MAPS: Dictionary = {
 
 	## Least-squares fit to real SRTM data (see the doc comment). Ordered nearest the station first.
 	"hills": [
-		{"center_m": Vector2(1400.0, 1700.0), "radius_m": 130.0, "height_m": 26.3, "warp_harmonics": [
+		{"center_m": Vector2(1400.0, 3500.0), "radius_m": 130.0, "height_m": 26.3, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.06, "phase": 1.5},
 			{"frequency": 2, "amplitude": 0.06, "phase": 1.8},
 		]},
-		{"center_m": Vector2(1700.0, 1800.0), "radius_m": 130.0, "height_m": 19.9, "warp_harmonics": [
+		{"center_m": Vector2(1700.0, 3600.0), "radius_m": 130.0, "height_m": 19.9, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.10, "phase": 2.7},
 			{"frequency": 4, "amplitude": 0.05, "phase": 6.0},
 		]},
-		{"center_m": Vector2(1800.0, 1400.0), "radius_m": 280.0, "height_m": 53.0, "warp_harmonics": [
+		{"center_m": Vector2(1800.0, 3200.0), "radius_m": 280.0, "height_m": 53.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.12, "phase": 4.9},
 			{"frequency": 2, "amplitude": 0.04, "phase": 5.8},
 		]},
-		{"center_m": Vector2(1000.0, 1800.0), "radius_m": 130.0, "height_m": 18.9, "warp_harmonics": [
+		{"center_m": Vector2(1000.0, 3600.0), "radius_m": 130.0, "height_m": 18.9, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.10, "phase": 2.9},
 			{"frequency": 2, "amplitude": 0.05, "phase": 3.7},
 		]},
-		{"center_m": Vector2(1100.0, 1400.0), "radius_m": 190.0, "height_m": 39.3, "warp_harmonics": [
+		{"center_m": Vector2(1100.0, 3200.0), "radius_m": 190.0, "height_m": 39.3, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.06, "phase": 0.8},
 			{"frequency": 3, "amplitude": 0.08, "phase": 3.4},
 		]},
-		{"center_m": Vector2(2100.0, 1800.0), "radius_m": 130.0, "height_m": 34.1, "warp_harmonics": [
+		{"center_m": Vector2(2100.0, 3600.0), "radius_m": 130.0, "height_m": 34.1, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 5.0},
 			{"frequency": 4, "amplitude": 0.06, "phase": 1.1},
 		]},
-		{"center_m": Vector2(1500.0, 900.0), "radius_m": 190.0, "height_m": 25.6, "warp_harmonics": [
+		{"center_m": Vector2(1500.0, 2700.0), "radius_m": 190.0, "height_m": 25.6, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.05, "phase": 1.7},
 			{"frequency": 3, "amplitude": 0.04, "phase": 5.3},
 		]},
-		{"center_m": Vector2(2500.0, 1600.0), "radius_m": 190.0, "height_m": 50.8, "warp_harmonics": [
+		{"center_m": Vector2(2500.0, 3400.0), "radius_m": 190.0, "height_m": 50.8, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.07, "phase": 0.9},
 			{"frequency": 2, "amplitude": 0.07, "phase": 2.2},
 		]},
-		{"center_m": Vector2(2500.0, 1900.0), "radius_m": 90.0, "height_m": 23.5, "warp_harmonics": [
+		{"center_m": Vector2(2500.0, 3700.0), "radius_m": 90.0, "height_m": 23.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.07, "phase": 2.0},
 			{"frequency": 3, "amplitude": 0.04, "phase": 3.8},
 		]},
-		{"center_m": Vector2(1800.0, 700.0), "radius_m": 130.0, "height_m": 12.8, "warp_harmonics": [
+		{"center_m": Vector2(1800.0, 2500.0), "radius_m": 130.0, "height_m": 12.8, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.11, "phase": 1.6},
 			{"frequency": 3, "amplitude": 0.07, "phase": 6.3},
 		]},
-		{"center_m": Vector2(700.0, 1000.0), "radius_m": 280.0, "height_m": 13.2, "warp_harmonics": [
+		{"center_m": Vector2(700.0, 2800.0), "radius_m": 280.0, "height_m": 13.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.08, "phase": 0.2},
 			{"frequency": 2, "amplitude": 0.09, "phase": 3.2},
 		]},
-		{"center_m": Vector2(2200.0, 900.0), "radius_m": 280.0, "height_m": 37.4, "warp_harmonics": [
+		{"center_m": Vector2(2200.0, 2700.0), "radius_m": 280.0, "height_m": 37.4, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.10, "phase": 5.7},
 			{"frequency": 3, "amplitude": 0.07, "phase": 5.9},
 		]},
-		{"center_m": Vector2(2500.0, 1200.0), "radius_m": 130.0, "height_m": 22.4, "warp_harmonics": [
+		{"center_m": Vector2(2500.0, 3000.0), "radius_m": 130.0, "height_m": 22.4, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.12, "phase": 0.0},
 			{"frequency": 2, "amplitude": 0.07, "phase": 3.9},
 		]},
-		{"center_m": Vector2(200.0, 1600.0), "radius_m": 280.0, "height_m": 27.6, "warp_harmonics": [
+		{"center_m": Vector2(200.0, 3400.0), "radius_m": 280.0, "height_m": 27.6, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.13, "phase": 5.7},
 			{"frequency": 3, "amplitude": 0.04, "phase": 3.1},
 		]},
-		{"center_m": Vector2(2900.0, 1800.0), "radius_m": 130.0, "height_m": 49.1, "warp_harmonics": [
+		{"center_m": Vector2(2900.0, 3600.0), "radius_m": 130.0, "height_m": 49.1, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 1.3},
 			{"frequency": 2, "amplitude": 0.06, "phase": 2.0},
 		]},
-		{"center_m": Vector2(2000.0, 300.0), "radius_m": 190.0, "height_m": 36.9, "warp_harmonics": [
+		{"center_m": Vector2(2000.0, 2100.0), "radius_m": 190.0, "height_m": 36.9, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.08, "phase": 2.3},
 			{"frequency": 2, "amplitude": 0.08, "phase": 0.2},
 		]},
-		{"center_m": Vector2(1200.0, 0.0), "radius_m": 560.0, "height_m": 58.7, "warp_harmonics": [
+		{"center_m": Vector2(1200.0, 1800.0), "radius_m": 560.0, "height_m": 58.7, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 2.0},
 			{"frequency": 4, "amplitude": 0.08, "phase": 4.2},
 		]},
-		{"center_m": Vector2(1300.0, 3600.0), "radius_m": 280.0, "height_m": 28.2, "warp_harmonics": [
+		{"center_m": Vector2(1300.0, 5400.0), "radius_m": 280.0, "height_m": 28.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.05, "phase": 0.1},
 			{"frequency": 4, "amplitude": 0.06, "phase": 2.8},
 		]},
-		{"center_m": Vector2(3200.0, 900.0), "radius_m": 400.0, "height_m": 28.2, "warp_harmonics": [
+		{"center_m": Vector2(3200.0, 2700.0), "radius_m": 400.0, "height_m": 28.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.05, "phase": 2.0},
 			{"frequency": 4, "amplitude": 0.07, "phase": 5.6},
 		]},
-		{"center_m": Vector2(-100.0, 700.0), "radius_m": 560.0, "height_m": 58.7, "warp_harmonics": [
+		{"center_m": Vector2(-100.0, 2500.0), "radius_m": 560.0, "height_m": 58.7, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.06, "phase": 0.8},
 			{"frequency": 4, "amplitude": 0.04, "phase": 1.2},
 		]},
-		{"center_m": Vector2(2200.0, -100.0), "radius_m": 1600.0, "height_m": 20.7, "warp_harmonics": [
+		{"center_m": Vector2(2200.0, 1700.0), "radius_m": 1600.0, "height_m": 20.7, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.10, "phase": 5.9},
 			{"frequency": 3, "amplitude": 0.08, "phase": 3.4},
 		]},
-		{"center_m": Vector2(2800.0, 100.0), "radius_m": 190.0, "height_m": 34.9, "warp_harmonics": [
+		{"center_m": Vector2(2800.0, 1900.0), "radius_m": 190.0, "height_m": 34.9, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.09, "phase": 1.2},
 			{"frequency": 2, "amplitude": 0.08, "phase": 1.0},
 		]},
-		{"center_m": Vector2(100.0, -100.0), "radius_m": 190.0, "height_m": 47.4, "warp_harmonics": [
+		{"center_m": Vector2(100.0, 1700.0), "radius_m": 190.0, "height_m": 47.4, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.12, "phase": 1.3},
 			{"frequency": 2, "amplitude": 0.08, "phase": 4.0},
 		]},
-		{"center_m": Vector2(4000.0, 1400.0), "radius_m": 280.0, "height_m": 32.4, "warp_harmonics": [
+		{"center_m": Vector2(4000.0, 3200.0), "radius_m": 280.0, "height_m": 32.4, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.08, "phase": 3.6},
 			{"frequency": 3, "amplitude": 0.07, "phase": 2.1},
 		]},
-		{"center_m": Vector2(3500.0, -100.0), "radius_m": 400.0, "height_m": 61.8, "warp_harmonics": [
+		{"center_m": Vector2(3500.0, 1700.0), "radius_m": 400.0, "height_m": 61.8, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 5.9},
 			{"frequency": 4, "amplitude": 0.03, "phase": 0.6},
 		]},
-		{"center_m": Vector2(4400.0, 600.0), "radius_m": 560.0, "height_m": 62.1, "warp_harmonics": [
+		{"center_m": Vector2(4400.0, 2400.0), "radius_m": 560.0, "height_m": 62.1, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 2.8},
 			{"frequency": 4, "amplitude": 0.10, "phase": 2.9},
 		]},
-		{"center_m": Vector2(4800.0, 1800.0), "radius_m": 280.0, "height_m": 40.5, "warp_harmonics": [
+		{"center_m": Vector2(4800.0, 3600.0), "radius_m": 280.0, "height_m": 40.5, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.13, "phase": 4.2},
 			{"frequency": 2, "amplitude": 0.06, "phase": 5.9},
 		]},
-		{"center_m": Vector2(4600.0, -100.0), "radius_m": 280.0, "height_m": 31.1, "warp_harmonics": [
+		{"center_m": Vector2(4600.0, 1700.0), "radius_m": 280.0, "height_m": 31.1, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.10, "phase": 2.2},
 			{"frequency": 3, "amplitude": 0.07, "phase": 2.0},
+		]},
+		{"center_m": Vector2(3900.0, 200.0), "radius_m": 780.0, "height_m": 74.8, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 5.8},
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.9},
+		]},
+		{"center_m": Vector2(800.0, 200.0), "radius_m": 780.0, "height_m": 68.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.06, "phase": 1.5},
+			{"frequency": 4, "amplitude": 0.04, "phase": 1.6},
+		]},
+		{"center_m": Vector2(-500.0, 900.0), "radius_m": 400.0, "height_m": 51.1, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.4},
+			{"frequency": 3, "amplitude": 0.04, "phase": 3.1},
+		]},
+		{"center_m": Vector2(2200.0, 400.0), "radius_m": 560.0, "height_m": 34.3, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.06, "phase": 4.6},
+			{"frequency": 4, "amplitude": 0.06, "phase": 0.2},
+		]},
+		{"center_m": Vector2(5100.0, 200.0), "radius_m": 400.0, "height_m": 52.7, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.06, "phase": 6.0},
+			{"frequency": 3, "amplitude": 0.04, "phase": 3.0},
+		]},
+		{"center_m": Vector2(4500.0, 1100.0), "radius_m": 280.0, "height_m": 31.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.07, "phase": 3.2},
+			{"frequency": 3, "amplitude": 0.07, "phase": 4.0},
+		]},
+		{"center_m": Vector2(-200.0, -100.0), "radius_m": 280.0, "height_m": 30.6, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 0.8},
+			{"frequency": 4, "amplitude": 0.03, "phase": 2.6},
+		]},
+		{"center_m": Vector2(2800.0, 1300.0), "radius_m": 190.0, "height_m": 27.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.0},
+			{"frequency": 4, "amplitude": 0.09, "phase": 4.3},
+		]},
+		{"center_m": Vector2(300.0, 1100.0), "radius_m": 190.0, "height_m": 28.1, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 1.9},
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.6},
+		]},
+		{"center_m": Vector2(-1100.0, 400.0), "radius_m": 280.0, "height_m": 27.1, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.06, "phase": 0.7},
+			{"frequency": 4, "amplitude": 0.03, "phase": 0.7},
+		]},
+		{"center_m": Vector2(2600.0, -100.0), "radius_m": 190.0, "height_m": 30.8, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 0.9},
+			{"frequency": 2, "amplitude": 0.07, "phase": 0.4},
+		]},
+		{"center_m": Vector2(5100.0, 1300.0), "radius_m": 130.0, "height_m": 28.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 3.7},
+			{"frequency": 3, "amplitude": 0.10, "phase": 2.9},
+		]},
+		{"center_m": Vector2(3300.0, 1000.0), "radius_m": 190.0, "height_m": 15.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.6},
+			{"frequency": 3, "amplitude": 0.07, "phase": 0.5},
+		]},
+		{"center_m": Vector2(4500.0, -100.0), "radius_m": 190.0, "height_m": 20.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.05, "phase": 2.5},
+			{"frequency": 2, "amplitude": 0.06, "phase": 2.3},
 		]},
 	],
 
 	"terrain_zones": [
-		{"rect": Rect2(-151 * PIXELS_PER_METER, 71 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-119 * PIXELS_PER_METER, 103 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-87 * PIXELS_PER_METER, 135 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-170 * PIXELS_PER_METER, 298 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-146 * PIXELS_PER_METER, 409 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-163 * PIXELS_PER_METER, 459 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-163 * PIXELS_PER_METER, 491 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-131 * PIXELS_PER_METER, 523 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-170 * PIXELS_PER_METER, 555 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-170 * PIXELS_PER_METER, 779 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-170 * PIXELS_PER_METER, 619 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-170 * PIXELS_PER_METER, 683 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 96 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-170 * PIXELS_PER_METER, 811 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-138 * PIXELS_PER_METER, 843 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-170 * PIXELS_PER_METER, 875 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 96 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-42 * PIXELS_PER_METER, 875 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(22 * PIXELS_PER_METER, 907 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(86 * PIXELS_PER_METER, 939 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-131 * PIXELS_PER_METER, 953 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-163 * PIXELS_PER_METER, 1017 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-67 * PIXELS_PER_METER, 1049 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-157 * PIXELS_PER_METER, 1148 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(88 * PIXELS_PER_METER, 1243 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(56 * PIXELS_PER_METER, 1275 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(56 * PIXELS_PER_METER, 1307 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(184 * PIXELS_PER_METER, 1307 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(56 * PIXELS_PER_METER, 1339 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-168 * PIXELS_PER_METER, 1371 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-168 * PIXELS_PER_METER, 1819 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(24 * PIXELS_PER_METER, 1371 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(152 * PIXELS_PER_METER, 1371 * PIXELS_PER_METER, 320 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-168 * PIXELS_PER_METER, 1403 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-8 * PIXELS_PER_METER, 1403 * PIXELS_PER_METER, 480 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-168 * PIXELS_PER_METER, 1435 * PIXELS_PER_METER, 640 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-168 * PIXELS_PER_METER, 1467 * PIXELS_PER_METER, 544 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(408 * PIXELS_PER_METER, 1467 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-104 * PIXELS_PER_METER, 1499 * PIXELS_PER_METER, 576 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-104 * PIXELS_PER_METER, 1531 * PIXELS_PER_METER, 608 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-104 * PIXELS_PER_METER, 1563 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(24 * PIXELS_PER_METER, 1563 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(344 * PIXELS_PER_METER, 1563 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-72 * PIXELS_PER_METER, 1595 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(88 * PIXELS_PER_METER, 1595 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-168 * PIXELS_PER_METER, 1627 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-168 * PIXELS_PER_METER, 1851 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(152 * PIXELS_PER_METER, 1627 * PIXELS_PER_METER, 416 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(120 * PIXELS_PER_METER, 1659 * PIXELS_PER_METER, 448 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-136 * PIXELS_PER_METER, 1691 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(120 * PIXELS_PER_METER, 1691 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(344 * PIXELS_PER_METER, 1691 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-168 * PIXELS_PER_METER, 1723 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(152 * PIXELS_PER_METER, 1723 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(344 * PIXELS_PER_METER, 1723 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(344 * PIXELS_PER_METER, 1851 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(536 * PIXELS_PER_METER, 1723 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(536 * PIXELS_PER_METER, 2107 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-136 * PIXELS_PER_METER, 1755 * PIXELS_PER_METER, 576 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(568 * PIXELS_PER_METER, 1755 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(632 * PIXELS_PER_METER, 1755 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-168 * PIXELS_PER_METER, 1787 * PIXELS_PER_METER, 864 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-72 * PIXELS_PER_METER, 1819 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(88 * PIXELS_PER_METER, 1819 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(312 * PIXELS_PER_METER, 1819 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(664 * PIXELS_PER_METER, 1819 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(664 * PIXELS_PER_METER, 2075 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(88 * PIXELS_PER_METER, 1851 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(472 * PIXELS_PER_METER, 1851 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-104 * PIXELS_PER_METER, 1883 * PIXELS_PER_METER, 384 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(600 * PIXELS_PER_METER, 1883 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-168 * PIXELS_PER_METER, 1915 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(56 * PIXELS_PER_METER, 1915 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(120 * PIXELS_PER_METER, 1915 * PIXELS_PER_METER, 576 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(152 * PIXELS_PER_METER, 1947 * PIXELS_PER_METER, 544 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-168 * PIXELS_PER_METER, 1979 * PIXELS_PER_METER, 512 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(376 * PIXELS_PER_METER, 1979 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-136 * PIXELS_PER_METER, 2011 * PIXELS_PER_METER, 768 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-8 * PIXELS_PER_METER, 2043 * PIXELS_PER_METER, 704 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(184 * PIXELS_PER_METER, 2075 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(280 * PIXELS_PER_METER, 2075 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-167 * PIXELS_PER_METER, 2123 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(409 * PIXELS_PER_METER, 2123 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-71 * PIXELS_PER_METER, 2155 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(89 * PIXELS_PER_METER, 2155 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(217 * PIXELS_PER_METER, 2155 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(39 * PIXELS_PER_METER, 39 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(135 * PIXELS_PER_METER, 39 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(39 * PIXELS_PER_METER, 71 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(7 * PIXELS_PER_METER, 103 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-25 * PIXELS_PER_METER, 135 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-57 * PIXELS_PER_METER, 167 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-89 * PIXELS_PER_METER, 199 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-121 * PIXELS_PER_METER, 231 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-121 * PIXELS_PER_METER, 263 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-89 * PIXELS_PER_METER, 295 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-105 * PIXELS_PER_METER, 411 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-64 * PIXELS_PER_METER, 940 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(49 * PIXELS_PER_METER, -2 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-6 * PIXELS_PER_METER, 395 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(26 * PIXELS_PER_METER, 427 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(6 * PIXELS_PER_METER, 465 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(38 * PIXELS_PER_METER, 497 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-31 * PIXELS_PER_METER, 570 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(74 * PIXELS_PER_METER, 579 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(42 * PIXELS_PER_METER, 611 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(42 * PIXELS_PER_METER, 643 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(74 * PIXELS_PER_METER, 675 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(106 * PIXELS_PER_METER, 707 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(24 * PIXELS_PER_METER, 662 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(25 * PIXELS_PER_METER, 789 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(-27 * PIXELS_PER_METER, 796 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(121 * PIXELS_PER_METER, -25 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(89 * PIXELS_PER_METER, 7 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(89 * PIXELS_PER_METER, 39 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(86 * PIXELS_PER_METER, 510 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(86 * PIXELS_PER_METER, 542 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(141 * PIXELS_PER_METER, 557 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(109 * PIXELS_PER_METER, 589 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(114 * PIXELS_PER_METER, 957 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(155 * PIXELS_PER_METER, 1048 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(123 * PIXELS_PER_METER, 1080 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(187 * PIXELS_PER_METER, 1112 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(193 * PIXELS_PER_METER, 70 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(178 * PIXELS_PER_METER, 606 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(194 * PIXELS_PER_METER, 666 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(194 * PIXELS_PER_METER, 698 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(258 * PIXELS_PER_METER, 730 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(163 * PIXELS_PER_METER, 728 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(197 * PIXELS_PER_METER, 758 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(197 * PIXELS_PER_METER, 790 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(179 * PIXELS_PER_METER, 865 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(187 * PIXELS_PER_METER, 1215 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(219 * PIXELS_PER_METER, 43 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(422 * PIXELS_PER_METER, 1220 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(358 * PIXELS_PER_METER, 1252 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(294 * PIXELS_PER_METER, 1284 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(294 * PIXELS_PER_METER, 1316 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(332 * PIXELS_PER_METER, 850 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(317 * PIXELS_PER_METER, 934 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(432 * PIXELS_PER_METER, 812 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(432 * PIXELS_PER_METER, 844 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(459 * PIXELS_PER_METER, 850 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(427 * PIXELS_PER_METER, 882 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(568 * PIXELS_PER_METER, 930 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(443 * PIXELS_PER_METER, 1077 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(609 * PIXELS_PER_METER, 972 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(755 * PIXELS_PER_METER, 1158 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(663 * PIXELS_PER_METER, 1251 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(695 * PIXELS_PER_METER, 1283 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(756 * PIXELS_PER_METER, 1232 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(724 * PIXELS_PER_METER, 1264 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(724 * PIXELS_PER_METER, 1296 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(735 * PIXELS_PER_METER, 1337 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(763 * PIXELS_PER_METER, 1566 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(763 * PIXELS_PER_METER, 1598 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1083 * PIXELS_PER_METER, 1598 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1179 * PIXELS_PER_METER, 1598 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(859 * PIXELS_PER_METER, 1630 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(859 * PIXELS_PER_METER, 1758 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1275 * PIXELS_PER_METER, 1630 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(731 * PIXELS_PER_METER, 1662 * PIXELS_PER_METER, 704 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(731 * PIXELS_PER_METER, 1694 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 192 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(859 * PIXELS_PER_METER, 1694 * PIXELS_PER_METER, 480 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(859 * PIXELS_PER_METER, 1726 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1051 * PIXELS_PER_METER, 1726 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1275 * PIXELS_PER_METER, 1758 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1371 * PIXELS_PER_METER, 1758 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(891 * PIXELS_PER_METER, 1790 * PIXELS_PER_METER, 416 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1339 * PIXELS_PER_METER, 1790 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(891 * PIXELS_PER_METER, 1822 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(987 * PIXELS_PER_METER, 1822 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1051 * PIXELS_PER_METER, 1822 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(891 * PIXELS_PER_METER, 1854 * PIXELS_PER_METER, 384 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(763 * PIXELS_PER_METER, 1886 * PIXELS_PER_METER, 480 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(731 * PIXELS_PER_METER, 1918 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(731 * PIXELS_PER_METER, 1950 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(827 * PIXELS_PER_METER, 1950 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(699 * PIXELS_PER_METER, 1982 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(699 * PIXELS_PER_METER, 2014 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(684 * PIXELS_PER_METER, 1622 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(744 * PIXELS_PER_METER, 1629 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1020 * PIXELS_PER_METER, 66 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1369 * PIXELS_PER_METER, 1890 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1298 * PIXELS_PER_METER, 1893 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1298 * PIXELS_PER_METER, 1925 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1177 * PIXELS_PER_METER, 1958 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1809 * PIXELS_PER_METER, 170 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1777 * PIXELS_PER_METER, 202 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1777 * PIXELS_PER_METER, 234 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2095 * PIXELS_PER_METER, 361 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1633 * PIXELS_PER_METER, 1361 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1581 * PIXELS_PER_METER, 1382 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1549 * PIXELS_PER_METER, 1414 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1677 * PIXELS_PER_METER, 1414 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1677 * PIXELS_PER_METER, 1510 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 96 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1549 * PIXELS_PER_METER, 1446 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1529 * PIXELS_PER_METER, 1500 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1521 * PIXELS_PER_METER, 1552 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1575 * PIXELS_PER_METER, 1553 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1463 * PIXELS_PER_METER, 1568 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1642 * PIXELS_PER_METER, 1607 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1484 * PIXELS_PER_METER, 1669 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1626 * PIXELS_PER_METER, 1689 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1438 * PIXELS_PER_METER, 1738 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1563 * PIXELS_PER_METER, 1790 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1444 * PIXELS_PER_METER, 1794 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1604 * PIXELS_PER_METER, 1794 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1444 * PIXELS_PER_METER, 1826 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(1444 * PIXELS_PER_METER, 1890 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2754 * PIXELS_PER_METER, 787 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3023 * PIXELS_PER_METER, 793 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3055 * PIXELS_PER_METER, 825 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3101 * PIXELS_PER_METER, 828 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3101 * PIXELS_PER_METER, 860 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3101 * PIXELS_PER_METER, 892 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3133 * PIXELS_PER_METER, 924 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3197 * PIXELS_PER_METER, 924 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3229 * PIXELS_PER_METER, 956 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3261 * PIXELS_PER_METER, 988 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2730 * PIXELS_PER_METER, 890 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2997 * PIXELS_PER_METER, 925 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3044 * PIXELS_PER_METER, 931 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3110 * PIXELS_PER_METER, 980 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2765 * PIXELS_PER_METER, 984 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2790 * PIXELS_PER_METER, 1014 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2989 * PIXELS_PER_METER, 1025 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3021 * PIXELS_PER_METER, 1057 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3053 * PIXELS_PER_METER, 1089 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2885 * PIXELS_PER_METER, 1081 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2776 * PIXELS_PER_METER, 1116 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3111 * PIXELS_PER_METER, 1153 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2755 * PIXELS_PER_METER, 1161 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2755 * PIXELS_PER_METER, 1193 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2787 * PIXELS_PER_METER, 1225 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2819 * PIXELS_PER_METER, 1257 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2984 * PIXELS_PER_METER, 1250 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2840 * PIXELS_PER_METER, 1291 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2840 * PIXELS_PER_METER, 1355 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2960 * PIXELS_PER_METER, 1373 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2960 * PIXELS_PER_METER, 1469 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2928 * PIXELS_PER_METER, 1405 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2992 * PIXELS_PER_METER, 1501 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2992 * PIXELS_PER_METER, 1533 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3024 * PIXELS_PER_METER, 1565 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3024 * PIXELS_PER_METER, 1597 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3056 * PIXELS_PER_METER, 1629 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3088 * PIXELS_PER_METER, 1661 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3120 * PIXELS_PER_METER, 1693 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3152 * PIXELS_PER_METER, 1757 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3184 * PIXELS_PER_METER, 1821 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2155 * PIXELS_PER_METER, 1511 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2155 * PIXELS_PER_METER, 1543 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3127 * PIXELS_PER_METER, 1853 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3095 * PIXELS_PER_METER, 1885 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3095 * PIXELS_PER_METER, 1917 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2648 * PIXELS_PER_METER, 2041 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2294 * PIXELS_PER_METER, 2067 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(2764 * PIXELS_PER_METER, 2073 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3317 * PIXELS_PER_METER, 993 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3317 * PIXELS_PER_METER, 1057 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3164 * PIXELS_PER_METER, 1015 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3394 * PIXELS_PER_METER, 1018 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3517 * PIXELS_PER_METER, 1073 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3168 * PIXELS_PER_METER, 1252 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3207 * PIXELS_PER_METER, 1319 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3733 * PIXELS_PER_METER, 1381 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3252 * PIXELS_PER_METER, 1380 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3638 * PIXELS_PER_METER, 1391 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3670 * PIXELS_PER_METER, 1423 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3813 * PIXELS_PER_METER, 1414 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3650 * PIXELS_PER_METER, 1444 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3650 * PIXELS_PER_METER, 1476 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3747 * PIXELS_PER_METER, 1464 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3319 * PIXELS_PER_METER, 1469 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3741 * PIXELS_PER_METER, 1504 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3709 * PIXELS_PER_METER, 1536 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3709 * PIXELS_PER_METER, 1568 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3663 * PIXELS_PER_METER, 1582 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3858 * PIXELS_PER_METER, 1596 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3858 * PIXELS_PER_METER, 1628 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3858 * PIXELS_PER_METER, 1660 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4018 * PIXELS_PER_METER, 1660 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4114 * PIXELS_PER_METER, 1660 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3922 * PIXELS_PER_METER, 1692 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3753 * PIXELS_PER_METER, 1611 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3785 * PIXELS_PER_METER, 1643 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3459 * PIXELS_PER_METER, 1657 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3312 * PIXELS_PER_METER, 1678 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3312 * PIXELS_PER_METER, 1710 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3734 * PIXELS_PER_METER, 1698 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3495 * PIXELS_PER_METER, 1743 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3527 * PIXELS_PER_METER, 1775 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3595 * PIXELS_PER_METER, 1789 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3775 * PIXELS_PER_METER, 1791 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3775 * PIXELS_PER_METER, 1823 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3877 * PIXELS_PER_METER, 1791 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3845 * PIXELS_PER_METER, 1823 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3717 * PIXELS_PER_METER, 1855 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3749 * PIXELS_PER_METER, 1887 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3358 * PIXELS_PER_METER, 1796 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3722 * PIXELS_PER_METER, 1799 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3461 * PIXELS_PER_METER, 1850 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3244 * PIXELS_PER_METER, 1849 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3244 * PIXELS_PER_METER, 1881 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3631 * PIXELS_PER_METER, 1852 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3631 * PIXELS_PER_METER, 1884 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3200 * PIXELS_PER_METER, 1854 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3420 * PIXELS_PER_METER, 1853 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3484 * PIXELS_PER_METER, 1908 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4559 * PIXELS_PER_METER, 1224 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4574 * PIXELS_PER_METER, 1273 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4574 * PIXELS_PER_METER, 1401 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4574 * PIXELS_PER_METER, 1305 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4574 * PIXELS_PER_METER, 1465 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4574 * PIXELS_PER_METER, 1593 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4606 * PIXELS_PER_METER, 1337 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4606 * PIXELS_PER_METER, 1497 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4606 * PIXELS_PER_METER, 1561 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4606 * PIXELS_PER_METER, 1657 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4638 * PIXELS_PER_METER, 1689 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3994 * PIXELS_PER_METER, 1403 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3994 * PIXELS_PER_METER, 1435 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4026 * PIXELS_PER_METER, 1467 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4090 * PIXELS_PER_METER, 1499 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4250 * PIXELS_PER_METER, 1499 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4329 * PIXELS_PER_METER, 1428 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4329 * PIXELS_PER_METER, 1460 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3943 * PIXELS_PER_METER, 1435 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4333 * PIXELS_PER_METER, 1510 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4301 * PIXELS_PER_METER, 1574 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 96 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4301 * PIXELS_PER_METER, 1670 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4242 * PIXELS_PER_METER, 1546 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4152 * PIXELS_PER_METER, 1635 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4184 * PIXELS_PER_METER, 1699 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4246 * PIXELS_PER_METER, 1643 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4254 * PIXELS_PER_METER, 1690 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4011 * PIXELS_PER_METER, 1712 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4011 * PIXELS_PER_METER, 1744 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4581 * PIXELS_PER_METER, 1707 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4581 * PIXELS_PER_METER, 1771 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4549 * PIXELS_PER_METER, 1739 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4201 * PIXELS_PER_METER, 1774 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4201 * PIXELS_PER_METER, 1806 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4055 * PIXELS_PER_METER, 1782 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4023 * PIXELS_PER_METER, 1814 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4055 * PIXELS_PER_METER, 1846 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4409 * PIXELS_PER_METER, 1817 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4569 * PIXELS_PER_METER, 1817 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4473 * PIXELS_PER_METER, 1849 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4569 * PIXELS_PER_METER, 1881 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4213 * PIXELS_PER_METER, 1835 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(3944 * PIXELS_PER_METER, 1839 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4375 * PIXELS_PER_METER, 1857 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4449 * PIXELS_PER_METER, 1880 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4449 * PIXELS_PER_METER, 1912 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4504 * PIXELS_PER_METER, 1901 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4727 * PIXELS_PER_METER, 1348 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4700 * PIXELS_PER_METER, 1386 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4700 * PIXELS_PER_METER, 1450 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4700 * PIXELS_PER_METER, 1482 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4732 * PIXELS_PER_METER, 1514 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4764 * PIXELS_PER_METER, 1578 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4828 * PIXELS_PER_METER, 1537 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4756 * PIXELS_PER_METER, 1625 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4756 * PIXELS_PER_METER, 1657 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4788 * PIXELS_PER_METER, 1721 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4788 * PIXELS_PER_METER, 1753 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4819 * PIXELS_PER_METER, 1760 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4821 * PIXELS_PER_METER, 1799 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4777 * PIXELS_PER_METER, 1862 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4680 * PIXELS_PER_METER, 1905 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4712 * PIXELS_PER_METER, 1937 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4575 * PIXELS_PER_METER, 1920 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4607 * PIXELS_PER_METER, 1952 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4773 * PIXELS_PER_METER, 1933 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4805 * PIXELS_PER_METER, 1965 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4695 * PIXELS_PER_METER, 1962 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(5006 * PIXELS_PER_METER, 1976 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4974 * PIXELS_PER_METER, 2008 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4974 * PIXELS_PER_METER, 2040 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4879 * PIXELS_PER_METER, 1977 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4911 * PIXELS_PER_METER, 2009 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4747 * PIXELS_PER_METER, 1976 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4747 * PIXELS_PER_METER, 2008 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4779 * PIXELS_PER_METER, 2040 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4843 * PIXELS_PER_METER, 2040 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4925 * PIXELS_PER_METER, 2036 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
-		{"rect": Rect2(4972 * PIXELS_PER_METER, 2069 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2295 * PIXELS_PER_METER, -55 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4857 * PIXELS_PER_METER, -52 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 96 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1668 * PIXELS_PER_METER, -47 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2327 * PIXELS_PER_METER, -23 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1944 * PIXELS_PER_METER, -3 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2652 * PIXELS_PER_METER, 39 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2345 * PIXELS_PER_METER, 58 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4828 * PIXELS_PER_METER, 58 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2015 * PIXELS_PER_METER, 69 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4926 * PIXELS_PER_METER, 84 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1524 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4843 * PIXELS_PER_METER, 108 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4016 * PIXELS_PER_METER, 111 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4910 * PIXELS_PER_METER, 123 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1524 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1575 * PIXELS_PER_METER, 142 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4816 * PIXELS_PER_METER, 142 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(397 * PIXELS_PER_METER, 151 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2411 * PIXELS_PER_METER, 174 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4867 * PIXELS_PER_METER, 182 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(429 * PIXELS_PER_METER, 183 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2109 * PIXELS_PER_METER, 186 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4867 * PIXELS_PER_METER, 214 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(417 * PIXELS_PER_METER, 237 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4867 * PIXELS_PER_METER, 246 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2454 * PIXELS_PER_METER, 270 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4785 * PIXELS_PER_METER, 272 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(982 * PIXELS_PER_METER, 277 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4835 * PIXELS_PER_METER, 278 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2221 * PIXELS_PER_METER, 279 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4968 * PIXELS_PER_METER, 304 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(362 * PIXELS_PER_METER, 318 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1027 * PIXELS_PER_METER, 322 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(392 * PIXELS_PER_METER, 355 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4837 * PIXELS_PER_METER, 370 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2479 * PIXELS_PER_METER, 371 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4918 * PIXELS_PER_METER, 395 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4782 * PIXELS_PER_METER, 402 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4918 * PIXELS_PER_METER, 427 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2518 * PIXELS_PER_METER, 472 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4982 * PIXELS_PER_METER, 491 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-50 * PIXELS_PER_METER, 517 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-126 * PIXELS_PER_METER, 557 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(625 * PIXELS_PER_METER, 1472 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(361 * PIXELS_PER_METER, 1546 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(745 * PIXELS_PER_METER, 1629 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(11 * PIXELS_PER_METER, 1639 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(45 * PIXELS_PER_METER, 1645 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(786 * PIXELS_PER_METER, 1671 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(121 * PIXELS_PER_METER, 1775 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(49 * PIXELS_PER_METER, 1798 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(89 * PIXELS_PER_METER, 1807 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(39 * PIXELS_PER_METER, 1839 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(89 * PIXELS_PER_METER, 1839 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(135 * PIXELS_PER_METER, 1839 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(219 * PIXELS_PER_METER, 1843 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1020 * PIXELS_PER_METER, 1866 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(193 * PIXELS_PER_METER, 1870 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-151 * PIXELS_PER_METER, 1871 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(39 * PIXELS_PER_METER, 1871 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-119 * PIXELS_PER_METER, 1903 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(7 * PIXELS_PER_METER, 1903 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-87 * PIXELS_PER_METER, 1935 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-25 * PIXELS_PER_METER, 1935 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-57 * PIXELS_PER_METER, 1967 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1809 * PIXELS_PER_METER, 1970 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-89 * PIXELS_PER_METER, 1999 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1777 * PIXELS_PER_METER, 2002 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-121 * PIXELS_PER_METER, 2031 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1777 * PIXELS_PER_METER, 2034 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-121 * PIXELS_PER_METER, 2063 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-89 * PIXELS_PER_METER, 2095 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-170 * PIXELS_PER_METER, 2098 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2095 * PIXELS_PER_METER, 2161 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-6 * PIXELS_PER_METER, 2195 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-146 * PIXELS_PER_METER, 2209 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-105 * PIXELS_PER_METER, 2211 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(26 * PIXELS_PER_METER, 2227 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-163 * PIXELS_PER_METER, 2259 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(6 * PIXELS_PER_METER, 2265 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-163 * PIXELS_PER_METER, 2291 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(38 * PIXELS_PER_METER, 2297 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(86 * PIXELS_PER_METER, 2310 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-131 * PIXELS_PER_METER, 2323 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(86 * PIXELS_PER_METER, 2342 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-170 * PIXELS_PER_METER, 2355 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(141 * PIXELS_PER_METER, 2357 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-31 * PIXELS_PER_METER, 2370 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(74 * PIXELS_PER_METER, 2379 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(109 * PIXELS_PER_METER, 2389 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(178 * PIXELS_PER_METER, 2406 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(42 * PIXELS_PER_METER, 2411 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-170 * PIXELS_PER_METER, 2419 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(42 * PIXELS_PER_METER, 2443 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(24 * PIXELS_PER_METER, 2462 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(194 * PIXELS_PER_METER, 2466 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(74 * PIXELS_PER_METER, 2475 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-170 * PIXELS_PER_METER, 2483 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 96 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(194 * PIXELS_PER_METER, 2498 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(106 * PIXELS_PER_METER, 2507 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(163 * PIXELS_PER_METER, 2528 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(258 * PIXELS_PER_METER, 2530 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(197 * PIXELS_PER_METER, 2558 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-170 * PIXELS_PER_METER, 2579 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2754 * PIXELS_PER_METER, 2587 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(25 * PIXELS_PER_METER, 2589 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(197 * PIXELS_PER_METER, 2590 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3023 * PIXELS_PER_METER, 2593 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-27 * PIXELS_PER_METER, 2596 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-170 * PIXELS_PER_METER, 2611 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(432 * PIXELS_PER_METER, 2612 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3055 * PIXELS_PER_METER, 2625 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3101 * PIXELS_PER_METER, 2628 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-138 * PIXELS_PER_METER, 2643 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(432 * PIXELS_PER_METER, 2644 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(332 * PIXELS_PER_METER, 2650 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(459 * PIXELS_PER_METER, 2650 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3101 * PIXELS_PER_METER, 2660 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(179 * PIXELS_PER_METER, 2665 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-170 * PIXELS_PER_METER, 2675 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 96 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-42 * PIXELS_PER_METER, 2675 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(427 * PIXELS_PER_METER, 2682 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2730 * PIXELS_PER_METER, 2690 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3101 * PIXELS_PER_METER, 2692 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(22 * PIXELS_PER_METER, 2707 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3133 * PIXELS_PER_METER, 2724 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3197 * PIXELS_PER_METER, 2724 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2997 * PIXELS_PER_METER, 2725 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(568 * PIXELS_PER_METER, 2730 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3044 * PIXELS_PER_METER, 2731 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(317 * PIXELS_PER_METER, 2734 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(86 * PIXELS_PER_METER, 2739 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-64 * PIXELS_PER_METER, 2740 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-131 * PIXELS_PER_METER, 2753 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3229 * PIXELS_PER_METER, 2756 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(114 * PIXELS_PER_METER, 2757 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(609 * PIXELS_PER_METER, 2772 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3110 * PIXELS_PER_METER, 2780 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2765 * PIXELS_PER_METER, 2784 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3261 * PIXELS_PER_METER, 2788 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3317 * PIXELS_PER_METER, 2793 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2790 * PIXELS_PER_METER, 2814 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3164 * PIXELS_PER_METER, 2815 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-163 * PIXELS_PER_METER, 2817 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3394 * PIXELS_PER_METER, 2818 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2989 * PIXELS_PER_METER, 2825 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(155 * PIXELS_PER_METER, 2848 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-67 * PIXELS_PER_METER, 2849 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3021 * PIXELS_PER_METER, 2857 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3317 * PIXELS_PER_METER, 2857 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3517 * PIXELS_PER_METER, 2873 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(443 * PIXELS_PER_METER, 2877 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(123 * PIXELS_PER_METER, 2880 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2885 * PIXELS_PER_METER, 2881 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3053 * PIXELS_PER_METER, 2889 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(187 * PIXELS_PER_METER, 2912 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2776 * PIXELS_PER_METER, 2916 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-157 * PIXELS_PER_METER, 2948 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3111 * PIXELS_PER_METER, 2953 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(755 * PIXELS_PER_METER, 2958 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2755 * PIXELS_PER_METER, 2961 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2755 * PIXELS_PER_METER, 2993 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(187 * PIXELS_PER_METER, 3015 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(422 * PIXELS_PER_METER, 3020 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4559 * PIXELS_PER_METER, 3024 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2787 * PIXELS_PER_METER, 3025 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(756 * PIXELS_PER_METER, 3032 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(88 * PIXELS_PER_METER, 3043 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2984 * PIXELS_PER_METER, 3050 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(663 * PIXELS_PER_METER, 3051 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(358 * PIXELS_PER_METER, 3052 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3168 * PIXELS_PER_METER, 3052 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2819 * PIXELS_PER_METER, 3057 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(724 * PIXELS_PER_METER, 3064 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4574 * PIXELS_PER_METER, 3073 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(56 * PIXELS_PER_METER, 3075 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(695 * PIXELS_PER_METER, 3083 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(294 * PIXELS_PER_METER, 3084 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2840 * PIXELS_PER_METER, 3091 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(724 * PIXELS_PER_METER, 3096 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4574 * PIXELS_PER_METER, 3105 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(56 * PIXELS_PER_METER, 3107 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(184 * PIXELS_PER_METER, 3107 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(294 * PIXELS_PER_METER, 3116 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3207 * PIXELS_PER_METER, 3119 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(735 * PIXELS_PER_METER, 3137 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4606 * PIXELS_PER_METER, 3137 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(56 * PIXELS_PER_METER, 3139 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4727 * PIXELS_PER_METER, 3148 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2840 * PIXELS_PER_METER, 3155 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1633 * PIXELS_PER_METER, 3161 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 3171 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(24 * PIXELS_PER_METER, 3171 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(152 * PIXELS_PER_METER, 3171 * PIXELS_PER_METER, 320 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2960 * PIXELS_PER_METER, 3173 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3252 * PIXELS_PER_METER, 3180 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3733 * PIXELS_PER_METER, 3181 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1581 * PIXELS_PER_METER, 3182 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4700 * PIXELS_PER_METER, 3186 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3638 * PIXELS_PER_METER, 3191 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4574 * PIXELS_PER_METER, 3201 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 3203 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-8 * PIXELS_PER_METER, 3203 * PIXELS_PER_METER, 480 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3994 * PIXELS_PER_METER, 3203 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2928 * PIXELS_PER_METER, 3205 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1549 * PIXELS_PER_METER, 3214 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1677 * PIXELS_PER_METER, 3214 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3813 * PIXELS_PER_METER, 3214 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3670 * PIXELS_PER_METER, 3223 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4329 * PIXELS_PER_METER, 3228 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 3235 * PIXELS_PER_METER, 640 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3943 * PIXELS_PER_METER, 3235 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3994 * PIXELS_PER_METER, 3235 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3650 * PIXELS_PER_METER, 3244 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1549 * PIXELS_PER_METER, 3246 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4700 * PIXELS_PER_METER, 3250 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4329 * PIXELS_PER_METER, 3260 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3747 * PIXELS_PER_METER, 3264 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4574 * PIXELS_PER_METER, 3265 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 3267 * PIXELS_PER_METER, 544 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(408 * PIXELS_PER_METER, 3267 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4026 * PIXELS_PER_METER, 3267 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2960 * PIXELS_PER_METER, 3269 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3319 * PIXELS_PER_METER, 3269 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3650 * PIXELS_PER_METER, 3276 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4700 * PIXELS_PER_METER, 3282 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4606 * PIXELS_PER_METER, 3297 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-104 * PIXELS_PER_METER, 3299 * PIXELS_PER_METER, 576 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4090 * PIXELS_PER_METER, 3299 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4250 * PIXELS_PER_METER, 3299 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1529 * PIXELS_PER_METER, 3300 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2992 * PIXELS_PER_METER, 3301 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3741 * PIXELS_PER_METER, 3304 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1677 * PIXELS_PER_METER, 3310 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 96 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4333 * PIXELS_PER_METER, 3310 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2155 * PIXELS_PER_METER, 3311 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4732 * PIXELS_PER_METER, 3314 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-104 * PIXELS_PER_METER, 3331 * PIXELS_PER_METER, 608 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2992 * PIXELS_PER_METER, 3333 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3709 * PIXELS_PER_METER, 3336 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4828 * PIXELS_PER_METER, 3337 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2155 * PIXELS_PER_METER, 3343 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4242 * PIXELS_PER_METER, 3346 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1521 * PIXELS_PER_METER, 3352 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1575 * PIXELS_PER_METER, 3353 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4606 * PIXELS_PER_METER, 3361 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-104 * PIXELS_PER_METER, 3363 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(24 * PIXELS_PER_METER, 3363 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(344 * PIXELS_PER_METER, 3363 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3024 * PIXELS_PER_METER, 3365 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(763 * PIXELS_PER_METER, 3366 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1463 * PIXELS_PER_METER, 3368 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3709 * PIXELS_PER_METER, 3368 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4301 * PIXELS_PER_METER, 3374 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 96 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4764 * PIXELS_PER_METER, 3378 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3663 * PIXELS_PER_METER, 3382 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4574 * PIXELS_PER_METER, 3393 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-72 * PIXELS_PER_METER, 3395 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(88 * PIXELS_PER_METER, 3395 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3858 * PIXELS_PER_METER, 3396 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3024 * PIXELS_PER_METER, 3397 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(763 * PIXELS_PER_METER, 3398 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1083 * PIXELS_PER_METER, 3398 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1179 * PIXELS_PER_METER, 3398 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1642 * PIXELS_PER_METER, 3407 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3753 * PIXELS_PER_METER, 3411 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(684 * PIXELS_PER_METER, 3422 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4756 * PIXELS_PER_METER, 3425 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 3427 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(152 * PIXELS_PER_METER, 3427 * PIXELS_PER_METER, 416 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3858 * PIXELS_PER_METER, 3428 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(744 * PIXELS_PER_METER, 3429 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3056 * PIXELS_PER_METER, 3429 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(859 * PIXELS_PER_METER, 3430 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1275 * PIXELS_PER_METER, 3430 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4152 * PIXELS_PER_METER, 3435 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3785 * PIXELS_PER_METER, 3443 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4246 * PIXELS_PER_METER, 3443 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3459 * PIXELS_PER_METER, 3457 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4606 * PIXELS_PER_METER, 3457 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4756 * PIXELS_PER_METER, 3457 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(120 * PIXELS_PER_METER, 3459 * PIXELS_PER_METER, 448 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3858 * PIXELS_PER_METER, 3460 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4018 * PIXELS_PER_METER, 3460 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4114 * PIXELS_PER_METER, 3460 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3088 * PIXELS_PER_METER, 3461 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(731 * PIXELS_PER_METER, 3462 * PIXELS_PER_METER, 704 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1484 * PIXELS_PER_METER, 3469 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4301 * PIXELS_PER_METER, 3470 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3312 * PIXELS_PER_METER, 3478 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1626 * PIXELS_PER_METER, 3489 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4638 * PIXELS_PER_METER, 3489 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4254 * PIXELS_PER_METER, 3490 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-136 * PIXELS_PER_METER, 3491 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(120 * PIXELS_PER_METER, 3491 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(344 * PIXELS_PER_METER, 3491 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3922 * PIXELS_PER_METER, 3492 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3120 * PIXELS_PER_METER, 3493 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(731 * PIXELS_PER_METER, 3494 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 192 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(859 * PIXELS_PER_METER, 3494 * PIXELS_PER_METER, 480 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3734 * PIXELS_PER_METER, 3498 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4184 * PIXELS_PER_METER, 3499 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4581 * PIXELS_PER_METER, 3507 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3312 * PIXELS_PER_METER, 3510 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4011 * PIXELS_PER_METER, 3512 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4788 * PIXELS_PER_METER, 3521 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 3523 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(152 * PIXELS_PER_METER, 3523 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(344 * PIXELS_PER_METER, 3523 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(536 * PIXELS_PER_METER, 3523 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(859 * PIXELS_PER_METER, 3526 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1051 * PIXELS_PER_METER, 3526 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1438 * PIXELS_PER_METER, 3538 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4549 * PIXELS_PER_METER, 3539 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3495 * PIXELS_PER_METER, 3543 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4011 * PIXELS_PER_METER, 3544 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4788 * PIXELS_PER_METER, 3553 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-136 * PIXELS_PER_METER, 3555 * PIXELS_PER_METER, 576 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(568 * PIXELS_PER_METER, 3555 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(632 * PIXELS_PER_METER, 3555 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3152 * PIXELS_PER_METER, 3557 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(859 * PIXELS_PER_METER, 3558 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1275 * PIXELS_PER_METER, 3558 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1371 * PIXELS_PER_METER, 3558 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4819 * PIXELS_PER_METER, 3560 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4581 * PIXELS_PER_METER, 3571 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4201 * PIXELS_PER_METER, 3574 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3527 * PIXELS_PER_METER, 3575 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4055 * PIXELS_PER_METER, 3582 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 3587 * PIXELS_PER_METER, 864 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3595 * PIXELS_PER_METER, 3589 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(891 * PIXELS_PER_METER, 3590 * PIXELS_PER_METER, 416 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1339 * PIXELS_PER_METER, 3590 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1563 * PIXELS_PER_METER, 3590 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3775 * PIXELS_PER_METER, 3591 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3877 * PIXELS_PER_METER, 3591 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1444 * PIXELS_PER_METER, 3594 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1604 * PIXELS_PER_METER, 3594 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3358 * PIXELS_PER_METER, 3596 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3722 * PIXELS_PER_METER, 3599 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4821 * PIXELS_PER_METER, 3599 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4201 * PIXELS_PER_METER, 3606 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4023 * PIXELS_PER_METER, 3614 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4409 * PIXELS_PER_METER, 3617 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4569 * PIXELS_PER_METER, 3617 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 3619 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-72 * PIXELS_PER_METER, 3619 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(88 * PIXELS_PER_METER, 3619 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(312 * PIXELS_PER_METER, 3619 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(664 * PIXELS_PER_METER, 3619 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3184 * PIXELS_PER_METER, 3621 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(891 * PIXELS_PER_METER, 3622 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(987 * PIXELS_PER_METER, 3622 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1051 * PIXELS_PER_METER, 3622 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3775 * PIXELS_PER_METER, 3623 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3845 * PIXELS_PER_METER, 3623 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1444 * PIXELS_PER_METER, 3626 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4213 * PIXELS_PER_METER, 3635 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3944 * PIXELS_PER_METER, 3639 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4055 * PIXELS_PER_METER, 3646 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3244 * PIXELS_PER_METER, 3649 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4473 * PIXELS_PER_METER, 3649 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3461 * PIXELS_PER_METER, 3650 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 3651 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(88 * PIXELS_PER_METER, 3651 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(344 * PIXELS_PER_METER, 3651 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(472 * PIXELS_PER_METER, 3651 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3631 * PIXELS_PER_METER, 3652 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3127 * PIXELS_PER_METER, 3653 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3420 * PIXELS_PER_METER, 3653 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(891 * PIXELS_PER_METER, 3654 * PIXELS_PER_METER, 384 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3200 * PIXELS_PER_METER, 3654 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3717 * PIXELS_PER_METER, 3655 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4375 * PIXELS_PER_METER, 3657 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4777 * PIXELS_PER_METER, 3662 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4449 * PIXELS_PER_METER, 3680 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3244 * PIXELS_PER_METER, 3681 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4569 * PIXELS_PER_METER, 3681 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-104 * PIXELS_PER_METER, 3683 * PIXELS_PER_METER, 384 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(600 * PIXELS_PER_METER, 3683 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3631 * PIXELS_PER_METER, 3684 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3095 * PIXELS_PER_METER, 3685 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(763 * PIXELS_PER_METER, 3686 * PIXELS_PER_METER, 480 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3749 * PIXELS_PER_METER, 3687 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1369 * PIXELS_PER_METER, 3690 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1444 * PIXELS_PER_METER, 3690 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1298 * PIXELS_PER_METER, 3693 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4504 * PIXELS_PER_METER, 3701 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4680 * PIXELS_PER_METER, 3705 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3484 * PIXELS_PER_METER, 3708 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4449 * PIXELS_PER_METER, 3712 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 3715 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(56 * PIXELS_PER_METER, 3715 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(120 * PIXELS_PER_METER, 3715 * PIXELS_PER_METER, 576 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3095 * PIXELS_PER_METER, 3717 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(731 * PIXELS_PER_METER, 3718 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4575 * PIXELS_PER_METER, 3720 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1298 * PIXELS_PER_METER, 3725 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4773 * PIXELS_PER_METER, 3733 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4712 * PIXELS_PER_METER, 3737 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(152 * PIXELS_PER_METER, 3747 * PIXELS_PER_METER, 544 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(731 * PIXELS_PER_METER, 3750 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(827 * PIXELS_PER_METER, 3750 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4607 * PIXELS_PER_METER, 3752 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1177 * PIXELS_PER_METER, 3758 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4695 * PIXELS_PER_METER, 3762 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4805 * PIXELS_PER_METER, 3765 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4747 * PIXELS_PER_METER, 3776 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(5006 * PIXELS_PER_METER, 3776 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4879 * PIXELS_PER_METER, 3777 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 3779 * PIXELS_PER_METER, 512 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(376 * PIXELS_PER_METER, 3779 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(699 * PIXELS_PER_METER, 3782 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4747 * PIXELS_PER_METER, 3808 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4974 * PIXELS_PER_METER, 3808 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4911 * PIXELS_PER_METER, 3809 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-136 * PIXELS_PER_METER, 3811 * PIXELS_PER_METER, 768 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(699 * PIXELS_PER_METER, 3814 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4925 * PIXELS_PER_METER, 3836 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4779 * PIXELS_PER_METER, 3840 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4843 * PIXELS_PER_METER, 3840 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4974 * PIXELS_PER_METER, 3840 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2648 * PIXELS_PER_METER, 3841 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-8 * PIXELS_PER_METER, 3843 * PIXELS_PER_METER, 704 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2294 * PIXELS_PER_METER, 3867 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4972 * PIXELS_PER_METER, 3869 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2764 * PIXELS_PER_METER, 3873 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(184 * PIXELS_PER_METER, 3875 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(280 * PIXELS_PER_METER, 3875 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(664 * PIXELS_PER_METER, 3875 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(536 * PIXELS_PER_METER, 3907 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-167 * PIXELS_PER_METER, 3923 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(409 * PIXELS_PER_METER, 3923 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-71 * PIXELS_PER_METER, 3955 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(89 * PIXELS_PER_METER, 3955 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(217 * PIXELS_PER_METER, 3955 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
 	],
 
 	"forest_patches": [
-		{"center_m": Vector2(1835.0, 1915.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(1835.0, 3715.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 6.1},
 			{"frequency": 4, "amplitude": 0.08, "phase": 0.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2105.0, 1935.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(2105.0, 3735.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 0.4},
 			{"frequency": 2, "amplitude": 0.07, "phase": 2.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2925.0, 1935.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(2925.0, 3735.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 5.0},
 			{"frequency": 3, "amplitude": 0.06, "phase": 5.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2435.0, 1945.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(2435.0, 3745.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 2.1},
 			{"frequency": 2, "amplitude": 0.05, "phase": 2.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4995.0, 1395.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(4995.0, 3195.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.16, "phase": 1.5},
 			{"frequency": 2, "amplitude": 0.09, "phase": 4.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2905.0, 715.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(2905.0, 2515.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.11, "phase": 5.4},
 			{"frequency": 2, "amplitude": 0.05, "phase": 4.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2705.0, 625.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(2705.0, 2425.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.14, "phase": 5.9},
 			{"frequency": 3, "amplitude": 0.09, "phase": 4.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2635.0, 1925.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(2635.0, 3725.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.08, "phase": 1.0},
 			{"frequency": 2, "amplitude": 0.08, "phase": 1.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2275.0, 1865.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(2275.0, 3665.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 0.8},
 			{"frequency": 3, "amplitude": 0.08, "phase": 2.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4995.0, 1585.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(4995.0, 3385.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 2.9},
 			{"frequency": 3, "amplitude": 0.05, "phase": 1.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2935.0, 1755.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(2935.0, 3555.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.08, "phase": 3.7},
 			{"frequency": 4, "amplitude": 0.12, "phase": 5.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1965.0, 2025.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(1965.0, 3825.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.13, "phase": 4.5},
 			{"frequency": 4, "amplitude": 0.12, "phase": 3.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1695.0, 2005.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(1695.0, 3805.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.13, "phase": 2.4},
 			{"frequency": 4, "amplitude": 0.11, "phase": 3.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2535.0, 835.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(2535.0, 2635.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.14, "phase": 5.3},
 			{"frequency": 4, "amplitude": 0.06, "phase": 5.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2855.0, 885.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(2855.0, 2685.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.13, "phase": 5.8},
 			{"frequency": 4, "amplitude": 0.09, "phase": 1.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1975.0, 1835.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(1975.0, 3635.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.12, "phase": 3.8},
 			{"frequency": 3, "amplitude": 0.12, "phase": 0.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2235.0, 2025.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(2235.0, 3825.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 3.1},
 			{"frequency": 2, "amplitude": 0.08, "phase": 0.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(975.0, 855.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(975.0, 2655.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.16, "phase": 1.3},
 			{"frequency": 4, "amplitude": 0.05, "phase": 6.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2775.0, 1995.0), "radius_m": 76.0, "warp_harmonics": [
+		{"center_m": Vector2(2775.0, 3795.0), "radius_m": 76.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 4.8},
 			{"frequency": 2, "amplitude": 0.12, "phase": 5.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3015.0, 595.0), "radius_m": 74.2, "warp_harmonics": [
+		{"center_m": Vector2(3015.0, 2395.0), "radius_m": 74.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 4.5},
 			{"frequency": 2, "amplitude": 0.06, "phase": 5.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1245.0, 165.0), "radius_m": 72.3, "warp_harmonics": [
+		{"center_m": Vector2(1245.0, 1965.0), "radius_m": 72.3, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 1.9},
 			{"frequency": 4, "amplitude": 0.07, "phase": 3.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3055.0, 2015.0), "radius_m": 72.3, "warp_harmonics": [
+		{"center_m": Vector2(3055.0, 3815.0), "radius_m": 72.3, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 3.3},
 			{"frequency": 3, "amplitude": 0.05, "phase": 4.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4995.0, 1795.0), "radius_m": 69.2, "warp_harmonics": [
+		{"center_m": Vector2(4995.0, 3595.0), "radius_m": 69.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 5.8},
 			{"frequency": 3, "amplitude": 0.05, "phase": 1.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2425.0, 485.0), "radius_m": 68.5, "warp_harmonics": [
+		{"center_m": Vector2(2425.0, 2285.0), "radius_m": 68.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 0.4},
 			{"frequency": 2, "amplitude": 0.12, "phase": 2.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2605.0, 495.0), "radius_m": 68.5, "warp_harmonics": [
+		{"center_m": Vector2(2605.0, 2295.0), "radius_m": 68.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.09, "phase": 3.2},
 			{"frequency": 4, "amplitude": 0.05, "phase": 4.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(945.0, 575.0), "radius_m": 67.2, "warp_harmonics": [
+		{"center_m": Vector2(945.0, 2375.0), "radius_m": 67.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 2.1},
 			{"frequency": 4, "amplitude": 0.11, "phase": 4.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2925.0, 1605.0), "radius_m": 67.2, "warp_harmonics": [
+		{"center_m": Vector2(2925.0, 3405.0), "radius_m": 67.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.09, "phase": 3.4},
 			{"frequency": 3, "amplitude": 0.07, "phase": 5.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4385.0, 1755.0), "radius_m": 67.2, "warp_harmonics": [
+		{"center_m": Vector2(4385.0, 3555.0), "radius_m": 67.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.14, "phase": 4.2},
 			{"frequency": 2, "amplitude": 0.12, "phase": 3.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1985.0, 125.0), "radius_m": 66.5, "warp_harmonics": [
+		{"center_m": Vector2(1985.0, 1925.0), "radius_m": 66.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 4.2},
 			{"frequency": 3, "amplitude": 0.06, "phase": 3.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2695.0, 775.0), "radius_m": 63.7, "warp_harmonics": [
+		{"center_m": Vector2(2695.0, 2575.0), "radius_m": 63.7, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 2.2},
 			{"frequency": 3, "amplitude": 0.05, "phase": 5.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2915.0, 1015.0), "radius_m": 63.7, "warp_harmonics": [
+		{"center_m": Vector2(2915.0, 2815.0), "radius_m": 63.7, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.16, "phase": 2.4},
 			{"frequency": 3, "amplitude": 0.05, "phase": 5.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1755.0, 1795.0), "radius_m": 63.7, "warp_harmonics": [
+		{"center_m": Vector2(1755.0, 3595.0), "radius_m": 63.7, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.16, "phase": 3.2},
 			{"frequency": 3, "amplitude": 0.08, "phase": 5.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2575.0, 2055.0), "radius_m": 63.7, "warp_harmonics": [
+		{"center_m": Vector2(2575.0, 3855.0), "radius_m": 63.7, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.16, "phase": 3.4},
 			{"frequency": 4, "amplitude": 0.10, "phase": 3.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2005.0, 355.0), "radius_m": 60.8, "warp_harmonics": [
+		{"center_m": Vector2(2005.0, 2155.0), "radius_m": 60.8, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 3.1},
 			{"frequency": 2, "amplitude": 0.08, "phase": 3.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3935.0, 1935.0), "radius_m": 60.1, "warp_harmonics": [
+		{"center_m": Vector2(3935.0, 3735.0), "radius_m": 60.1, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 3.5},
 			{"frequency": 2, "amplitude": 0.10, "phase": 3.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4145.0, 1945.0), "radius_m": 60.1, "warp_harmonics": [
+		{"center_m": Vector2(4145.0, 3745.0), "radius_m": 60.1, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.12, "phase": 1.8},
 			{"frequency": 2, "amplitude": 0.05, "phase": 5.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2005.0, 505.0), "radius_m": 57.0, "warp_harmonics": [
+		{"center_m": Vector2(2005.0, 2305.0), "radius_m": 57.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 1.0},
 			{"frequency": 2, "amplitude": 0.05, "phase": 3.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2145.0, 1805.0), "radius_m": 57.0, "warp_harmonics": [
+		{"center_m": Vector2(2145.0, 3605.0), "radius_m": 57.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.13, "phase": 2.5},
 			{"frequency": 3, "amplitude": 0.06, "phase": 0.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2455.0, 665.0), "radius_m": 55.4, "warp_harmonics": [
+		{"center_m": Vector2(2455.0, 2465.0), "radius_m": 55.4, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.13, "phase": 2.1},
 			{"frequency": 2, "amplitude": 0.09, "phase": 5.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1835.0, 2055.0), "radius_m": 55.4, "warp_harmonics": [
+		{"center_m": Vector2(1835.0, 3855.0), "radius_m": 55.4, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 2.9},
 			{"frequency": 3, "amplitude": 0.13, "phase": 2.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1265.0, 1995.0), "radius_m": 53.7, "warp_harmonics": [
+		{"center_m": Vector2(1265.0, 3795.0), "radius_m": 53.7, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.13, "phase": 1.1},
 			{"frequency": 2, "amplitude": 0.05, "phase": 0.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1665.0, 255.0), "radius_m": 51.2, "warp_harmonics": [
+		{"center_m": Vector2(1665.0, 2055.0), "radius_m": 51.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.12, "phase": 5.1},
 			{"frequency": 3, "amplitude": 0.10, "phase": 4.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3045.0, 725.0), "radius_m": 51.2, "warp_harmonics": [
+		{"center_m": Vector2(3045.0, 2525.0), "radius_m": 51.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.11, "phase": 5.1},
 			{"frequency": 2, "amplitude": 0.12, "phase": 3.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4865.0, 1345.0), "radius_m": 51.2, "warp_harmonics": [
+		{"center_m": Vector2(4865.0, 3145.0), "radius_m": 51.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.12, "phase": 4.6},
 			{"frequency": 2, "amplitude": 0.06, "phase": 4.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4445.0, 1635.0), "radius_m": 51.2, "warp_harmonics": [
+		{"center_m": Vector2(4445.0, 3435.0), "radius_m": 51.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.13, "phase": 4.5},
 			{"frequency": 2, "amplitude": 0.05, "phase": 1.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1595.0, 1645.0), "radius_m": 51.2, "warp_harmonics": [
+		{"center_m": Vector2(1595.0, 3445.0), "radius_m": 51.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 0.5},
 			{"frequency": 4, "amplitude": 0.10, "phase": 4.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2885.0, 2065.0), "radius_m": 51.2, "warp_harmonics": [
+		{"center_m": Vector2(2885.0, 3865.0), "radius_m": 51.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 2.0},
 			{"frequency": 2, "amplitude": 0.08, "phase": 5.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2085.0, 2075.0), "radius_m": 51.2, "warp_harmonics": [
+		{"center_m": Vector2(2085.0, 3875.0), "radius_m": 51.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.13, "phase": 1.9},
 			{"frequency": 4, "amplitude": 0.07, "phase": 0.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2455.0, 2075.0), "radius_m": 51.2, "warp_harmonics": [
+		{"center_m": Vector2(2455.0, 3875.0), "radius_m": 51.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.11, "phase": 1.3},
 			{"frequency": 2, "amplitude": 0.11, "phase": 1.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2975.0, 825.0), "radius_m": 48.4, "warp_harmonics": [
+		{"center_m": Vector2(2975.0, 2625.0), "radius_m": 48.4, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 1.0},
 			{"frequency": 2, "amplitude": 0.12, "phase": 4.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2395.0, 1825.0), "radius_m": 48.4, "warp_harmonics": [
+		{"center_m": Vector2(2395.0, 3625.0), "radius_m": 48.4, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.13, "phase": 1.7},
 			{"frequency": 4, "amplitude": 0.08, "phase": 5.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-435.0, 95.0), "radius_m": 47.5, "warp_harmonics": [
+		{"center_m": Vector2(-435.0, 1895.0), "radius_m": 47.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.14, "phase": 0.8},
 			{"frequency": 3, "amplitude": 0.09, "phase": 2.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1865.0, 535.0), "radius_m": 47.5, "warp_harmonics": [
+		{"center_m": Vector2(1865.0, 2335.0), "radius_m": 47.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.13, "phase": 5.4},
 			{"frequency": 3, "amplitude": 0.12, "phase": 4.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2575.0, 635.0), "radius_m": 47.5, "warp_harmonics": [
+		{"center_m": Vector2(2575.0, 2435.0), "radius_m": 47.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.08, "phase": 5.7},
 			{"frequency": 4, "amplitude": 0.07, "phase": 6.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1055.0, 955.0), "radius_m": 47.5, "warp_harmonics": [
+		{"center_m": Vector2(1055.0, 2755.0), "radius_m": 47.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 5.6},
 			{"frequency": 2, "amplitude": 0.10, "phase": 2.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2955.0, 1135.0), "radius_m": 47.5, "warp_harmonics": [
+		{"center_m": Vector2(2955.0, 2935.0), "radius_m": 47.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 3.1},
 			{"frequency": 3, "amplitude": 0.10, "phase": 0.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4975.0, 1265.0), "radius_m": 47.5, "warp_harmonics": [
+		{"center_m": Vector2(4975.0, 3065.0), "radius_m": 47.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.16, "phase": 4.2},
 			{"frequency": 4, "amplitude": 0.07, "phase": 1.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4525.0, 1445.0), "radius_m": 47.5, "warp_harmonics": [
+		{"center_m": Vector2(4525.0, 3245.0), "radius_m": 47.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 4.6},
 			{"frequency": 4, "amplitude": 0.10, "phase": 2.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1865.0, 1775.0), "radius_m": 47.5, "warp_harmonics": [
+		{"center_m": Vector2(1865.0, 3575.0), "radius_m": 47.5, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.08, "phase": 5.9},
 			{"frequency": 4, "amplitude": 0.05, "phase": 3.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2495.0, 1835.0), "radius_m": 47.5, "warp_harmonics": [
+		{"center_m": Vector2(2495.0, 3635.0), "radius_m": 47.5, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.08, "phase": 0.9},
 			{"frequency": 2, "amplitude": 0.12, "phase": 4.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2835.0, 1835.0), "radius_m": 47.5, "warp_harmonics": [
+		{"center_m": Vector2(2835.0, 3635.0), "radius_m": 47.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.16, "phase": 5.5},
 			{"frequency": 3, "amplitude": 0.07, "phase": 3.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3025.0, 1855.0), "radius_m": 47.5, "warp_harmonics": [
+		{"center_m": Vector2(3025.0, 3655.0), "radius_m": 47.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 5.6},
 			{"frequency": 4, "amplitude": 0.07, "phase": 4.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1135.0, 1975.0), "radius_m": 47.5, "warp_harmonics": [
+		{"center_m": Vector2(1135.0, 3775.0), "radius_m": 47.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.13, "phase": 2.1},
 			{"frequency": 2, "amplitude": 0.10, "phase": 6.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(215.0, 5.0), "radius_m": 42.5, "warp_harmonics": [
+		{"center_m": Vector2(215.0, 1805.0), "radius_m": 42.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 2.5},
 			{"frequency": 3, "amplitude": 0.07, "phase": 4.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-555.0, 65.0), "radius_m": 42.5, "warp_harmonics": [
+		{"center_m": Vector2(-555.0, 1865.0), "radius_m": 42.5, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.16, "phase": 6.0},
 			{"frequency": 2, "amplitude": 0.12, "phase": 2.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1125.0, 95.0), "radius_m": 42.5, "warp_harmonics": [
+		{"center_m": Vector2(1125.0, 1895.0), "radius_m": 42.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.10, "phase": 2.4},
 			{"frequency": 4, "amplitude": 0.06, "phase": 0.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(225.0, 165.0), "radius_m": 42.5, "warp_harmonics": [
+		{"center_m": Vector2(225.0, 1965.0), "radius_m": 42.5, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 2.9},
 			{"frequency": 4, "amplitude": 0.10, "phase": 5.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2485.0, 295.0), "radius_m": 42.5, "warp_harmonics": [
+		{"center_m": Vector2(2485.0, 2095.0), "radius_m": 42.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.09, "phase": 3.1},
 			{"frequency": 3, "amplitude": 0.06, "phase": 1.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2825.0, 605.0), "radius_m": 42.5, "warp_harmonics": [
+		{"center_m": Vector2(2825.0, 2405.0), "radius_m": 42.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.08, "phase": 5.9},
 			{"frequency": 2, "amplitude": 0.12, "phase": 2.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2695.0, 945.0), "radius_m": 42.5, "warp_harmonics": [
+		{"center_m": Vector2(2695.0, 2745.0), "radius_m": 42.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 3.1},
 			{"frequency": 4, "amplitude": 0.08, "phase": 2.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1125.0, 955.0), "radius_m": 42.5, "warp_harmonics": [
+		{"center_m": Vector2(-1125.0, 2755.0), "radius_m": 42.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.13, "phase": 4.4},
 			{"frequency": 4, "amplitude": 0.11, "phase": 2.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1675.0, 1875.0), "radius_m": 42.5, "warp_harmonics": [
+		{"center_m": Vector2(1675.0, 3675.0), "radius_m": 42.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 3.9},
 			{"frequency": 2, "amplitude": 0.07, "phase": 4.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2745.0, 1875.0), "radius_m": 42.5, "warp_harmonics": [
+		{"center_m": Vector2(2745.0, 3675.0), "radius_m": 42.5, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.11, "phase": 3.7},
 			{"frequency": 2, "amplitude": 0.12, "phase": 5.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2535.0, 405.0), "radius_m": 40.3, "warp_harmonics": [
+		{"center_m": Vector2(2535.0, 2205.0), "radius_m": 40.3, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.16, "phase": 1.7},
 			{"frequency": 2, "amplitude": 0.06, "phase": 3.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4915.0, 1485.0), "radius_m": 40.3, "warp_harmonics": [
+		{"center_m": Vector2(4915.0, 3285.0), "radius_m": 40.3, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.14, "phase": 1.4},
 			{"frequency": 3, "amplitude": 0.12, "phase": 4.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2365.0, 2045.0), "radius_m": 40.3, "warp_harmonics": [
+		{"center_m": Vector2(2365.0, 3845.0), "radius_m": 40.3, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 2.8},
 			{"frequency": 4, "amplitude": 0.12, "phase": 4.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(255.0, 1275.0), "radius_m": 39.2, "warp_harmonics": [
+		{"center_m": Vector2(255.0, 3075.0), "radius_m": 39.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.12, "phase": 1.2},
 			{"frequency": 2, "amplitude": 0.11, "phase": 5.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1745.0, 1375.0), "radius_m": 39.2, "warp_harmonics": [
+		{"center_m": Vector2(1745.0, 3175.0), "radius_m": 39.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.16, "phase": 4.8},
 			{"frequency": 3, "amplitude": 0.10, "phase": 4.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4045.0, 1915.0), "radius_m": 39.2, "warp_harmonics": [
+		{"center_m": Vector2(4045.0, 3715.0), "radius_m": 39.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 2.9},
 			{"frequency": 2, "amplitude": 0.10, "phase": 1.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-345.0, 1985.0), "radius_m": 39.2, "warp_harmonics": [
+		{"center_m": Vector2(-345.0, 3785.0), "radius_m": 39.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 2.0},
 			{"frequency": 4, "amplitude": 0.08, "phase": 1.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1975.0, 595.0), "radius_m": 38.0, "warp_harmonics": [
+		{"center_m": Vector2(1975.0, 2395.0), "radius_m": 38.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 1.5},
 			{"frequency": 2, "amplitude": 0.12, "phase": 4.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2785.0, 715.0), "radius_m": 38.0, "warp_harmonics": [
+		{"center_m": Vector2(2785.0, 2515.0), "radius_m": 38.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.14, "phase": 2.8},
 			{"frequency": 2, "amplitude": 0.06, "phase": 4.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2865.0, 1145.0), "radius_m": 38.0, "warp_harmonics": [
+		{"center_m": Vector2(2865.0, 2945.0), "radius_m": 38.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 5.8},
 			{"frequency": 2, "amplitude": 0.09, "phase": 1.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1505.0, 1635.0), "radius_m": 38.0, "warp_harmonics": [
+		{"center_m": Vector2(1505.0, 3435.0), "radius_m": 38.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.13, "phase": 3.7},
 			{"frequency": 2, "amplitude": 0.11, "phase": 2.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3165.0, 1985.0), "radius_m": 38.0, "warp_harmonics": [
+		{"center_m": Vector2(3165.0, 3785.0), "radius_m": 38.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.13, "phase": 5.6},
 			{"frequency": 2, "amplitude": 0.08, "phase": 6.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1585.0, 2055.0), "radius_m": 38.0, "warp_harmonics": [
+		{"center_m": Vector2(1585.0, 3855.0), "radius_m": 38.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 1.2},
 			{"frequency": 4, "amplitude": 0.09, "phase": 3.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-715.0, 35.0), "radius_m": 34.3, "warp_harmonics": [
+		{"center_m": Vector2(-715.0, 1835.0), "radius_m": 34.3, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 1.5},
 			{"frequency": 3, "amplitude": 0.11, "phase": 5.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1065.0, 45.0), "radius_m": 34.3, "warp_harmonics": [
+		{"center_m": Vector2(1065.0, 1845.0), "radius_m": 34.3, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.10, "phase": 3.9},
 			{"frequency": 2, "amplitude": 0.07, "phase": 2.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1575.0, 225.0), "radius_m": 34.3, "warp_harmonics": [
+		{"center_m": Vector2(1575.0, 2025.0), "radius_m": 34.3, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.13, "phase": 4.0},
 			{"frequency": 3, "amplitude": 0.12, "phase": 2.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-615.0, 385.0), "radius_m": 34.3, "warp_harmonics": [
+		{"center_m": Vector2(-615.0, 2185.0), "radius_m": 34.3, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 1.5},
 			{"frequency": 3, "amplitude": 0.05, "phase": 0.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-645.0, 635.0), "radius_m": 34.3, "warp_harmonics": [
+		{"center_m": Vector2(-645.0, 2435.0), "radius_m": 34.3, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.14, "phase": 3.3},
 			{"frequency": 3, "amplitude": 0.10, "phase": 2.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(955.0, 745.0), "radius_m": 34.3, "warp_harmonics": [
+		{"center_m": Vector2(955.0, 2545.0), "radius_m": 34.3, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.09, "phase": 3.5},
 			{"frequency": 3, "amplitude": 0.10, "phase": 5.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-75.0, 915.0), "radius_m": 34.3, "warp_harmonics": [
+		{"center_m": Vector2(-75.0, 2715.0), "radius_m": 34.3, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.08, "phase": 4.2},
 			{"frequency": 2, "amplitude": 0.13, "phase": 2.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2835.0, 1075.0), "radius_m": 34.3, "warp_harmonics": [
+		{"center_m": Vector2(2835.0, 2875.0), "radius_m": 34.3, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 4.6},
 			{"frequency": 3, "amplitude": 0.06, "phase": 6.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1115.0, 1195.0), "radius_m": 34.3, "warp_harmonics": [
+		{"center_m": Vector2(-1115.0, 2995.0), "radius_m": 34.3, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 3.3},
 			{"frequency": 4, "amplitude": 0.11, "phase": 4.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4955.0, 1695.0), "radius_m": 34.3, "warp_harmonics": [
+		{"center_m": Vector2(4955.0, 3495.0), "radius_m": 34.3, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.13, "phase": 5.3},
 			{"frequency": 3, "amplitude": 0.12, "phase": 4.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1395.0, 1855.0), "radius_m": 34.3, "warp_harmonics": [
+		{"center_m": Vector2(1395.0, 3655.0), "radius_m": 34.3, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.11, "phase": 3.4},
 			{"frequency": 2, "amplitude": 0.11, "phase": 3.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4335.0, 1875.0), "radius_m": 34.3, "warp_harmonics": [
+		{"center_m": Vector2(4335.0, 3675.0), "radius_m": 34.3, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 3.2},
 			{"frequency": 4, "amplitude": 0.07, "phase": 1.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4995.0, 1905.0), "radius_m": 34.3, "warp_harmonics": [
+		{"center_m": Vector2(4995.0, 3705.0), "radius_m": 34.3, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 1.4},
 			{"frequency": 3, "amplitude": 0.09, "phase": 5.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(955.0, 2015.0), "radius_m": 34.3, "warp_harmonics": [
+		{"center_m": Vector2(955.0, 3815.0), "radius_m": 34.3, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.11, "phase": 5.2},
 			{"frequency": 4, "amplitude": 0.08, "phase": 0.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1525.0, 2015.0), "radius_m": 34.3, "warp_harmonics": [
+		{"center_m": Vector2(1525.0, 3815.0), "radius_m": 34.3, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.13, "phase": 1.2},
 			{"frequency": 2, "amplitude": 0.09, "phase": 4.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-355.0, 2125.0), "radius_m": 34.3, "warp_harmonics": [
+		{"center_m": Vector2(-355.0, 3925.0), "radius_m": 34.3, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.11, "phase": 5.1},
 			{"frequency": 4, "amplitude": 0.07, "phase": 3.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1345.0, 345.0), "radius_m": 30.0, "warp_harmonics": [
+		{"center_m": Vector2(-1345.0, 2145.0), "radius_m": 30.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.12, "phase": 3.5},
 			{"frequency": 4, "amplitude": 0.11, "phase": 1.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1125.0, 365.0), "radius_m": 30.0, "warp_harmonics": [
+		{"center_m": Vector2(-1125.0, 2165.0), "radius_m": 30.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.10, "phase": 1.3},
 			{"frequency": 3, "amplitude": 0.11, "phase": 5.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1055.0, 365.0), "radius_m": 30.0, "warp_harmonics": [
+		{"center_m": Vector2(-1055.0, 2165.0), "radius_m": 30.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 0.3},
 			{"frequency": 4, "amplitude": 0.11, "phase": 3.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-955.0, 365.0), "radius_m": 30.0, "warp_harmonics": [
+		{"center_m": Vector2(-955.0, 2165.0), "radius_m": 30.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 0.4},
 			{"frequency": 3, "amplitude": 0.09, "phase": 2.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2715.0, 515.0), "radius_m": 30.0, "warp_harmonics": [
+		{"center_m": Vector2(2715.0, 2315.0), "radius_m": 30.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.13, "phase": 0.5},
 			{"frequency": 4, "amplitude": 0.05, "phase": 4.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2465.0, 575.0), "radius_m": 30.0, "warp_harmonics": [
+		{"center_m": Vector2(2465.0, 2375.0), "radius_m": 30.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.14, "phase": 3.2},
 			{"frequency": 2, "amplitude": 0.06, "phase": 3.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2905.0, 595.0), "radius_m": 30.0, "warp_harmonics": [
+		{"center_m": Vector2(2905.0, 2395.0), "radius_m": 30.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 4.7},
 			{"frequency": 4, "amplitude": 0.12, "phase": 6.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-965.0, 695.0), "radius_m": 30.0, "warp_harmonics": [
+		{"center_m": Vector2(-965.0, 2495.0), "radius_m": 30.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.13, "phase": 3.5},
 			{"frequency": 2, "amplitude": 0.11, "phase": 3.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2815.0, 775.0), "radius_m": 30.0, "warp_harmonics": [
+		{"center_m": Vector2(2815.0, 2575.0), "radius_m": 30.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.09, "phase": 3.4},
 			{"frequency": 2, "amplitude": 0.12, "phase": 2.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2735.0, 865.0), "radius_m": 30.0, "warp_harmonics": [
+		{"center_m": Vector2(2735.0, 2665.0), "radius_m": 30.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.16, "phase": 3.1},
 			{"frequency": 2, "amplitude": 0.06, "phase": 3.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-65.0, 1095.0), "radius_m": 30.0, "warp_harmonics": [
+		{"center_m": Vector2(-65.0, 2895.0), "radius_m": 30.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 5.8},
 			{"frequency": 4, "amplitude": 0.08, "phase": 1.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1605.0, 1345.0), "radius_m": 30.0, "warp_harmonics": [
+		{"center_m": Vector2(1605.0, 3145.0), "radius_m": 30.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.08, "phase": 3.0},
 			{"frequency": 4, "amplitude": 0.11, "phase": 5.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1745.0, 1455.0), "radius_m": 30.0, "warp_harmonics": [
+		{"center_m": Vector2(1745.0, 3255.0), "radius_m": 30.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.08, "phase": 4.7},
 			{"frequency": 2, "amplitude": 0.08, "phase": 1.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1675.0, 1665.0), "radius_m": 30.0, "warp_harmonics": [
+		{"center_m": Vector2(1675.0, 3465.0), "radius_m": 30.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.14, "phase": 2.4},
 			{"frequency": 2, "amplitude": 0.12, "phase": 4.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3795.0, 1925.0), "radius_m": 30.0, "warp_harmonics": [
+		{"center_m": Vector2(3795.0, 3725.0), "radius_m": 30.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 5.1},
 			{"frequency": 3, "amplitude": 0.05, "phase": 3.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2325.0, 1965.0), "radius_m": 30.0, "warp_harmonics": [
+		{"center_m": Vector2(2325.0, 3765.0), "radius_m": 30.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 4.7},
 			{"frequency": 2, "amplitude": 0.13, "phase": 3.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2475.0, 225.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(2475.0, 2025.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 1.9},
 			{"frequency": 3, "amplitude": 0.07, "phase": 1.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1915.0, 315.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(1915.0, 2115.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.13, "phase": 0.2},
 			{"frequency": 3, "amplitude": 0.12, "phase": 2.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1265.0, 375.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(-1265.0, 2175.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 5.4},
 			{"frequency": 4, "amplitude": 0.11, "phase": 5.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1925.0, 465.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(1925.0, 2265.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 1.8},
 			{"frequency": 3, "amplitude": 0.08, "phase": 0.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-5.0, 535.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(-5.0, 2335.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.11, "phase": 3.8},
 			{"frequency": 4, "amplitude": 0.06, "phase": 3.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2625.0, 705.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(2625.0, 2505.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 0.3},
 			{"frequency": 3, "amplitude": 0.09, "phase": 2.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2455.0, 745.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(2455.0, 2545.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.10, "phase": 1.6},
 			{"frequency": 4, "amplitude": 0.09, "phase": 5.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2825.0, 985.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(2825.0, 2785.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 0.3},
 			{"frequency": 4, "amplitude": 0.08, "phase": 6.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4875.0, 1425.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(4875.0, 3225.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.10, "phase": 2.1},
 			{"frequency": 2, "amplitude": 0.10, "phase": 1.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(485.0, 1465.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(485.0, 3265.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.13, "phase": 0.6},
 			{"frequency": 4, "amplitude": 0.07, "phase": 5.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(745.0, 1555.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(745.0, 3355.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.08, "phase": 1.4},
 			{"frequency": 3, "amplitude": 0.08, "phase": 3.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1025.0, 1595.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(1025.0, 3395.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.11, "phase": 2.2},
 			{"frequency": 4, "amplitude": 0.10, "phase": 0.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1245.0, 1625.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(1245.0, 3425.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.09, "phase": 2.7},
 			{"frequency": 2, "amplitude": 0.08, "phase": 2.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2065.0, 1775.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(2065.0, 3575.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 1.0},
 			{"frequency": 2, "amplitude": 0.11, "phase": 1.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2575.0, 1825.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(2575.0, 3625.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 5.7},
 			{"frequency": 4, "amplitude": 0.11, "phase": 3.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2665.0, 1825.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(2665.0, 3625.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 4.4},
 			{"frequency": 4, "amplitude": 0.10, "phase": 5.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1275.0, 1915.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(1275.0, 3715.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 6.0},
 			{"frequency": 2, "amplitude": 0.05, "phase": 2.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3455.0, 1925.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(3455.0, 3725.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 0.3},
 			{"frequency": 4, "amplitude": 0.07, "phase": 3.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(855.0, 2035.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(855.0, 3835.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.09, "phase": 2.7},
 			{"frequency": 4, "amplitude": 0.10, "phase": 5.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(775.0, 2075.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(775.0, 3875.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.12, "phase": 6.0},
 			{"frequency": 3, "amplitude": 0.10, "phase": 2.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2965.0, 2075.0), "radius_m": 28.5, "warp_harmonics": [
+		{"center_m": Vector2(2965.0, 3875.0), "radius_m": 28.5, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.12, "phase": 1.8},
 			{"frequency": 2, "amplitude": 0.06, "phase": 4.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1895.0, 145.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(1895.0, 1945.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.14, "phase": 5.3},
 			{"frequency": 2, "amplitude": 0.06, "phase": 5.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-465.0, 305.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(-465.0, 2105.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.13, "phase": 3.4},
 			{"frequency": 4, "amplitude": 0.07, "phase": 5.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-595.0, 465.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(-595.0, 2265.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.10, "phase": 0.6},
 			{"frequency": 4, "amplitude": 0.09, "phase": 4.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-855.0, 545.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(-855.0, 2345.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 2.6},
 			{"frequency": 2, "amplitude": 0.09, "phase": 3.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2775.0, 545.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(2775.0, 2345.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.16, "phase": 2.9},
 			{"frequency": 2, "amplitude": 0.12, "phase": 0.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(55.0, 555.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(55.0, 2355.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.13, "phase": 0.7},
 			{"frequency": 3, "amplitude": 0.13, "phase": 4.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-775.0, 595.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(-775.0, 2395.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 2.0},
 			{"frequency": 2, "amplitude": 0.06, "phase": 0.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-925.0, 625.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(-925.0, 2425.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.09, "phase": 3.0},
 			{"frequency": 3, "amplitude": 0.10, "phase": 5.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3095.0, 655.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(3095.0, 2455.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.13, "phase": 5.2},
 			{"frequency": 3, "amplitude": 0.12, "phase": 3.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2515.0, 725.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(2515.0, 2525.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.13, "phase": 3.2},
 			{"frequency": 3, "amplitude": 0.09, "phase": 4.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1025.0, 755.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(-1025.0, 2555.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.12, "phase": 6.1},
 			{"frequency": 3, "amplitude": 0.06, "phase": 1.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1195.0, 1025.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(-1195.0, 2825.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 2.1},
 			{"frequency": 4, "amplitude": 0.05, "phase": 5.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1245.0, 1075.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(-1245.0, 2875.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.09, "phase": 5.3},
 			{"frequency": 4, "amplitude": 0.10, "phase": 1.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1085.0, 1305.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(-1085.0, 3105.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 5.1},
 			{"frequency": 4, "amplitude": 0.06, "phase": 4.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4575.0, 1375.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(4575.0, 3175.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 0.9},
 			{"frequency": 3, "amplitude": 0.07, "phase": 5.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1545.0, 1425.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(1545.0, 3225.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.14, "phase": 3.9},
 			{"frequency": 3, "amplitude": 0.11, "phase": 0.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1525.0, 1485.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(1525.0, 3285.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 6.0},
 			{"frequency": 2, "amplitude": 0.11, "phase": 3.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4505.0, 1515.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(4505.0, 3315.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.09, "phase": 4.7},
 			{"frequency": 3, "amplitude": 0.08, "phase": 5.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(965.0, 1575.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(965.0, 3375.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.16, "phase": 3.4},
 			{"frequency": 2, "amplitude": 0.08, "phase": 4.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(525.0, 1595.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(525.0, 3395.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.08, "phase": 1.7},
 			{"frequency": 3, "amplitude": 0.11, "phase": 4.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4585.0, 1695.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(4585.0, 3495.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.13, "phase": 0.2},
 			{"frequency": 4, "amplitude": 0.09, "phase": 2.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1685.0, 1725.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(1685.0, 3525.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.11, "phase": 4.5},
 			{"frequency": 4, "amplitude": 0.07, "phase": 4.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-715.0, 1755.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(-715.0, 3555.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 1.8},
 			{"frequency": 4, "amplitude": 0.09, "phase": 5.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-645.0, 1795.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(-645.0, 3595.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 5.2},
 			{"frequency": 4, "amplitude": 0.09, "phase": 3.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2535.0, 1905.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(2535.0, 3705.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.10, "phase": 4.7},
 			{"frequency": 3, "amplitude": 0.08, "phase": 1.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3085.0, 1905.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(3085.0, 3705.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.13, "phase": 5.4},
 			{"frequency": 3, "amplitude": 0.09, "phase": 6.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4365.0, 1925.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(4365.0, 3725.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.16, "phase": 3.7},
 			{"frequency": 3, "amplitude": 0.07, "phase": 5.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-405.0, 1945.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(-405.0, 3745.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 4.3},
 			{"frequency": 3, "amplitude": 0.09, "phase": 4.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2535.0, 1965.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(2535.0, 3765.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 3.7},
 			{"frequency": 4, "amplitude": 0.07, "phase": 1.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4015.0, 1975.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(4015.0, 3775.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.16, "phase": 0.6},
 			{"frequency": 3, "amplitude": 0.10, "phase": 4.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2285.0, 2115.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(2285.0, 3915.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.16, "phase": 3.4},
 			{"frequency": 4, "amplitude": 0.06, "phase": 5.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2365.0, 2115.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(2365.0, 3915.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.13, "phase": 2.1},
 			{"frequency": 3, "amplitude": 0.10, "phase": 2.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2825.0, 2115.0), "radius_m": 26.9, "warp_harmonics": [
+		{"center_m": Vector2(2825.0, 3915.0), "radius_m": 26.9, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 6.2},
 			{"frequency": 2, "amplitude": 0.05, "phase": 1.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-675.0, 65.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(-675.0, 1865.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.11, "phase": 0.0},
 			{"frequency": 2, "amplitude": 0.05, "phase": 3.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1285.0, 75.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(1285.0, 1875.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 2.2},
 			{"frequency": 4, "amplitude": 0.08, "phase": 1.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-505.0, 105.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(-505.0, 1905.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.09, "phase": 4.3},
 			{"frequency": 4, "amplitude": 0.10, "phase": 0.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(255.0, 105.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(255.0, 1905.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 0.7},
 			{"frequency": 3, "amplitude": 0.12, "phase": 3.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2075.0, 115.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(2075.0, 1915.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 1.2},
 			{"frequency": 2, "amplitude": 0.09, "phase": 6.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-585.0, 215.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(-585.0, 2015.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 5.2},
 			{"frequency": 2, "amplitude": 0.08, "phase": 4.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1735.0, 275.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(1735.0, 2075.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.13, "phase": 2.2},
 			{"frequency": 4, "amplitude": 0.10, "phase": 1.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-525.0, 325.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(-525.0, 2125.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.13, "phase": 0.9},
 			{"frequency": 2, "amplitude": 0.08, "phase": 2.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1395.0, 365.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(-1395.0, 2165.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 4.0},
 			{"frequency": 3, "amplitude": 0.08, "phase": 0.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1205.0, 365.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(-1205.0, 2165.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.10, "phase": 1.7},
 			{"frequency": 3, "amplitude": 0.10, "phase": 4.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2495.0, 365.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(2495.0, 2165.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.12, "phase": 1.9},
 			{"frequency": 2, "amplitude": 0.12, "phase": 2.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-835.0, 475.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(-835.0, 2275.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.14, "phase": 5.6},
 			{"frequency": 2, "amplitude": 0.11, "phase": 1.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-715.0, 515.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(-715.0, 2315.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.12, "phase": 1.0},
 			{"frequency": 2, "amplitude": 0.10, "phase": 5.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2405.0, 575.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(2405.0, 2375.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.09, "phase": 1.8},
 			{"frequency": 3, "amplitude": 0.10, "phase": 2.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-615.0, 585.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(-615.0, 2385.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.11, "phase": 0.9},
 			{"frequency": 3, "amplitude": 0.11, "phase": 1.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1015.0, 755.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(1015.0, 2555.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.11, "phase": 5.5},
 			{"frequency": 2, "amplitude": 0.11, "phase": 5.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2625.0, 875.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(2625.0, 2675.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.08, "phase": 3.7},
 			{"frequency": 3, "amplitude": 0.05, "phase": 5.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(885.0, 895.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(885.0, 2695.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.10, "phase": 1.0},
 			{"frequency": 3, "amplitude": 0.11, "phase": 0.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2785.0, 955.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(2785.0, 2755.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.14, "phase": 4.7},
 			{"frequency": 4, "amplitude": 0.06, "phase": 2.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2745.0, 985.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(2745.0, 2785.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 4.4},
 			{"frequency": 3, "amplitude": 0.13, "phase": 4.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2775.0, 1045.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(2775.0, 2845.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 4.0},
 			{"frequency": 3, "amplitude": 0.08, "phase": 3.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-95.0, 1055.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(-95.0, 2855.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.12, "phase": 0.3},
 			{"frequency": 2, "amplitude": 0.11, "phase": 2.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1285.0, 1115.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(-1285.0, 2915.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.13, "phase": 5.1},
 			{"frequency": 4, "amplitude": 0.08, "phase": 3.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3015.0, 1175.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(3015.0, 2975.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.14, "phase": 0.0},
 			{"frequency": 2, "amplitude": 0.07, "phase": 3.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(175.0, 1245.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(175.0, 3045.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 5.2},
 			{"frequency": 3, "amplitude": 0.10, "phase": 2.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(425.0, 1355.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(425.0, 3155.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.16, "phase": 5.1},
 			{"frequency": 4, "amplitude": 0.06, "phase": 1.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4645.0, 1395.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(4645.0, 3195.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.09, "phase": 1.9},
 			{"frequency": 4, "amplitude": 0.10, "phase": 2.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1715.0, 1505.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(1715.0, 3305.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.13, "phase": 0.0},
 			{"frequency": 3, "amplitude": 0.10, "phase": 0.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(505.0, 1515.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(505.0, 3315.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.10, "phase": 2.1},
 			{"frequency": 2, "amplitude": 0.12, "phase": 3.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4595.0, 1515.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(4595.0, 3315.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 4.1},
 			{"frequency": 2, "amplitude": 0.10, "phase": 4.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1505.0, 1545.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(1505.0, 3345.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 3.0},
 			{"frequency": 2, "amplitude": 0.08, "phase": 5.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(815.0, 1565.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(815.0, 3365.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.12, "phase": 0.4},
 			{"frequency": 2, "amplitude": 0.09, "phase": 2.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1695.0, 1615.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(1695.0, 3415.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 1.2},
 			{"frequency": 3, "amplitude": 0.09, "phase": 1.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4375.0, 1655.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(4375.0, 3455.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.10, "phase": 4.6},
 			{"frequency": 3, "amplitude": 0.05, "phase": 4.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2865.0, 1685.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(2865.0, 3485.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 4.6},
 			{"frequency": 3, "amplitude": 0.10, "phase": 2.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1615.0, 1725.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(1615.0, 3525.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.10, "phase": 2.2},
 			{"frequency": 2, "amplitude": 0.10, "phase": 1.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4295.0, 1725.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(4295.0, 3525.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.11, "phase": 1.6},
 			{"frequency": 4, "amplitude": 0.10, "phase": 1.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3035.0, 1745.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(3035.0, 3545.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 3.8},
 			{"frequency": 2, "amplitude": 0.06, "phase": 5.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2335.0, 1785.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(2335.0, 3585.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 3.0},
 			{"frequency": 2, "amplitude": 0.08, "phase": 4.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4105.0, 1785.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(4105.0, 3585.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 2.1},
 			{"frequency": 4, "amplitude": 0.09, "phase": 1.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4275.0, 1875.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(4275.0, 3675.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 3.5},
 			{"frequency": 4, "amplitude": 0.07, "phase": 0.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1735.0, 1905.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(1735.0, 3705.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.10, "phase": 2.4},
 			{"frequency": 3, "amplitude": 0.05, "phase": 5.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2815.0, 1905.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(2815.0, 3705.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 0.1},
 			{"frequency": 3, "amplitude": 0.11, "phase": 3.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1935.0, 1925.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(1935.0, 3725.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.11, "phase": 2.8},
 			{"frequency": 2, "amplitude": 0.10, "phase": 1.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1195.0, 1935.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(1195.0, 3735.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.08, "phase": 6.0},
 			{"frequency": 4, "amplitude": 0.11, "phase": 4.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1505.0, 1965.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(1505.0, 3765.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 2.6},
 			{"frequency": 4, "amplitude": 0.05, "phase": 4.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4065.0, 1975.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(4065.0, 3775.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.14, "phase": 2.3},
 			{"frequency": 3, "amplitude": 0.13, "phase": 5.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4675.0, 1995.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(4675.0, 3795.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.08, "phase": 5.3},
 			{"frequency": 4, "amplitude": 0.09, "phase": 3.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1045.0, 2005.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(1045.0, 3805.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.14, "phase": 0.2},
 			{"frequency": 2, "amplitude": 0.08, "phase": 1.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2675.0, 2015.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(2675.0, 3815.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 4.9},
 			{"frequency": 4, "amplitude": 0.06, "phase": 5.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4725.0, 2015.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(4725.0, 3815.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 3.0},
 			{"frequency": 4, "amplitude": 0.08, "phase": 3.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1185.0, 2025.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(1185.0, 3825.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.13, "phase": 0.5},
 			{"frequency": 3, "amplitude": 0.08, "phase": 3.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2705.0, 2065.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(2705.0, 3865.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 4.7},
 			{"frequency": 3, "amplitude": 0.12, "phase": 4.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2165.0, 2095.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(2165.0, 3895.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.12, "phase": 3.6},
 			{"frequency": 3, "amplitude": 0.10, "phase": 1.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-355.0, 2185.0), "radius_m": 21.2, "warp_harmonics": [
+		{"center_m": Vector2(-355.0, 3985.0), "radius_m": 21.2, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.09, "phase": 4.0},
 			{"frequency": 3, "amplitude": 0.12, "phase": 5.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-495.0, 45.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-495.0, 1845.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.10, "phase": 3.8},
 			{"frequency": 3, "amplitude": 0.12, "phase": 4.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-805.0, 75.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-805.0, 1875.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.14, "phase": 5.0},
 			{"frequency": 2, "amplitude": 0.05, "phase": 0.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-375.0, 75.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-375.0, 1875.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.14, "phase": 3.6},
 			{"frequency": 4, "amplitude": 0.08, "phase": 6.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1145.0, 155.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1145.0, 1955.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 1.1},
 			{"frequency": 2, "amplitude": 0.10, "phase": 0.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1845.0, 155.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1845.0, 1955.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.09, "phase": 4.8},
 			{"frequency": 2, "amplitude": 0.06, "phase": 2.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(165.0, 165.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(165.0, 1965.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 5.7},
 			{"frequency": 4, "amplitude": 0.12, "phase": 3.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2005.0, 205.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2005.0, 2005.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.08, "phase": 5.6},
 			{"frequency": 4, "amplitude": 0.10, "phase": 5.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1725.0, 225.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1725.0, 2025.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.14, "phase": 4.6},
 			{"frequency": 4, "amplitude": 0.08, "phase": 6.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-635.0, 305.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-635.0, 2105.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.11, "phase": 1.5},
 			{"frequency": 3, "amplitude": 0.10, "phase": 5.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1005.0, 345.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-1005.0, 2145.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.16, "phase": 2.1},
 			{"frequency": 3, "amplitude": 0.10, "phase": 5.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-705.0, 365.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-705.0, 2165.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 2.3},
 			{"frequency": 4, "amplitude": 0.05, "phase": 5.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1925.0, 365.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1925.0, 2165.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 3.1},
 			{"frequency": 3, "amplitude": 0.12, "phase": 3.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1985.0, 435.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1985.0, 2235.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.13, "phase": 4.8},
 			{"frequency": 4, "amplitude": 0.11, "phase": 4.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2025.0, 435.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2025.0, 2235.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 0.6},
 			{"frequency": 3, "amplitude": 0.12, "phase": 2.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-705.0, 475.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-705.0, 2275.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.16, "phase": 0.3},
 			{"frequency": 3, "amplitude": 0.05, "phase": 5.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(945.0, 485.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(945.0, 2285.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.12, "phase": 5.4},
 			{"frequency": 2, "amplitude": 0.07, "phase": 1.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-595.0, 505.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-595.0, 2305.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 4.6},
 			{"frequency": 4, "amplitude": 0.08, "phase": 2.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(95.0, 505.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(95.0, 2305.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.08, "phase": 3.1},
 			{"frequency": 4, "amplitude": 0.10, "phase": 4.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3025.0, 505.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(3025.0, 2305.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.12, "phase": 2.8},
 			{"frequency": 4, "amplitude": 0.08, "phase": 0.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1925.0, 515.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1925.0, 2315.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 6.1},
 			{"frequency": 2, "amplitude": 0.09, "phase": 3.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-725.0, 555.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-725.0, 2355.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.10, "phase": 3.1},
 			{"frequency": 3, "amplitude": 0.09, "phase": 1.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1925.0, 565.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1925.0, 2365.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.10, "phase": 5.5},
 			{"frequency": 4, "amplitude": 0.09, "phase": 1.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2025.0, 575.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2025.0, 2375.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.12, "phase": 4.6},
 			{"frequency": 3, "amplitude": 0.08, "phase": 3.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2805.0, 665.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2805.0, 2465.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 1.4},
 			{"frequency": 3, "amplitude": 0.06, "phase": 5.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-645.0, 685.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-645.0, 2485.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 0.8},
 			{"frequency": 2, "amplitude": 0.07, "phase": 0.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-555.0, 685.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-555.0, 2485.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.16, "phase": 3.9},
 			{"frequency": 3, "amplitude": 0.07, "phase": 1.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-985.0, 745.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-985.0, 2545.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.12, "phase": 5.7},
 			{"frequency": 2, "amplitude": 0.13, "phase": 1.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2615.0, 755.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2615.0, 2555.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 1.3},
 			{"frequency": 3, "amplitude": 0.12, "phase": 2.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2445.0, 795.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2445.0, 2595.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.14, "phase": 5.0},
 			{"frequency": 4, "amplitude": 0.08, "phase": 5.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2675.0, 855.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2675.0, 2655.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 1.2},
 			{"frequency": 4, "amplitude": 0.08, "phase": 4.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3035.0, 855.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(3035.0, 2655.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.14, "phase": 0.9},
 			{"frequency": 3, "amplitude": 0.07, "phase": 4.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1135.0, 895.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-1135.0, 2695.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 1.5},
 			{"frequency": 2, "amplitude": 0.11, "phase": 3.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-25.0, 925.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-25.0, 2725.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.12, "phase": 2.8},
 			{"frequency": 2, "amplitude": 0.10, "phase": 3.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1075.0, 995.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-1075.0, 2795.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.09, "phase": 4.4},
 			{"frequency": 4, "amplitude": 0.10, "phase": 4.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(15.0, 995.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(15.0, 2795.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 5.9},
 			{"frequency": 4, "amplitude": 0.09, "phase": 6.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(25.0, 1035.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(25.0, 2835.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.12, "phase": 3.3},
 			{"frequency": 4, "amplitude": 0.06, "phase": 2.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1015.0, 1065.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-1015.0, 2865.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.16, "phase": 5.6},
 			{"frequency": 2, "amplitude": 0.08, "phase": 6.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-15.0, 1095.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-15.0, 2895.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 3.8},
 			{"frequency": 2, "amplitude": 0.06, "phase": 2.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1125.0, 1145.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-1125.0, 2945.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 1.2},
 			{"frequency": 3, "amplitude": 0.09, "phase": 6.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1085.0, 1265.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-1085.0, 3065.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 3.7},
 			{"frequency": 3, "amplitude": 0.06, "phase": 1.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(315.0, 1265.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(315.0, 3065.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.08, "phase": 5.2},
 			{"frequency": 2, "amplitude": 0.09, "phase": 4.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4915.0, 1295.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(4915.0, 3095.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 2.5},
 			{"frequency": 2, "amplitude": 0.11, "phase": 5.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1675.0, 1355.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1675.0, 3155.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 1.4},
 			{"frequency": 4, "amplitude": 0.08, "phase": 1.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1565.0, 1375.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1565.0, 3175.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.09, "phase": 4.7},
 			{"frequency": 4, "amplitude": 0.10, "phase": 2.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1635.0, 1405.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1635.0, 3205.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.09, "phase": 2.7},
 			{"frequency": 4, "amplitude": 0.10, "phase": 3.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4395.0, 1445.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(4395.0, 3245.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.11, "phase": 1.0},
 			{"frequency": 2, "amplitude": 0.06, "phase": 0.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4635.0, 1455.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(4635.0, 3255.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.08, "phase": 0.5},
 			{"frequency": 3, "amplitude": 0.09, "phase": 5.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4975.0, 1485.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(4975.0, 3285.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 0.5},
 			{"frequency": 2, "amplitude": 0.10, "phase": 1.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4385.0, 1505.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(4385.0, 3305.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.11, "phase": 0.9},
 			{"frequency": 4, "amplitude": 0.09, "phase": 4.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-1075.0, 1525.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-1075.0, 3325.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.16, "phase": 0.9},
 			{"frequency": 3, "amplitude": 0.12, "phase": 5.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2975.0, 1535.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2975.0, 3335.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.12, "phase": 4.9},
 			{"frequency": 2, "amplitude": 0.12, "phase": 2.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4385.0, 1545.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(4385.0, 3345.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 0.3},
 			{"frequency": 2, "amplitude": 0.05, "phase": 4.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3005.0, 1565.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(3005.0, 3365.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.13, "phase": 1.6},
 			{"frequency": 3, "amplitude": 0.07, "phase": 0.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(905.0, 1575.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(905.0, 3375.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.16, "phase": 3.5},
 			{"frequency": 3, "amplitude": 0.09, "phase": 2.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1655.0, 1575.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1655.0, 3375.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.13, "phase": 5.4},
 			{"frequency": 2, "amplitude": 0.10, "phase": 1.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-975.0, 1585.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-975.0, 3385.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 0.3},
 			{"frequency": 3, "amplitude": 0.11, "phase": 4.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4685.0, 1585.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(4685.0, 3385.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.14, "phase": 2.2},
 			{"frequency": 3, "amplitude": 0.06, "phase": 1.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(485.0, 1595.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(485.0, 3395.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.11, "phase": 4.0},
 			{"frequency": 4, "amplitude": 0.09, "phase": 4.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1075.0, 1595.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1075.0, 3395.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 5.8},
 			{"frequency": 2, "amplitude": 0.07, "phase": 2.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1295.0, 1615.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1295.0, 3415.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.13, "phase": 5.2},
 			{"frequency": 3, "amplitude": 0.11, "phase": 2.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4085.0, 1615.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(4085.0, 3415.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.09, "phase": 4.0},
 			{"frequency": 3, "amplitude": 0.11, "phase": 2.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4125.0, 1625.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(4125.0, 3425.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.11, "phase": 5.3},
 			{"frequency": 3, "amplitude": 0.05, "phase": 5.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-895.0, 1635.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-895.0, 3435.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.16, "phase": 6.1},
 			{"frequency": 3, "amplitude": 0.11, "phase": 1.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-755.0, 1725.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-755.0, 3525.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 0.2},
 			{"frequency": 2, "amplitude": 0.12, "phase": 1.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2845.0, 1735.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2845.0, 3535.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.10, "phase": 4.6},
 			{"frequency": 3, "amplitude": 0.07, "phase": 3.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1665.0, 1765.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1665.0, 3565.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 5.8},
 			{"frequency": 2, "amplitude": 0.10, "phase": 3.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2215.0, 1775.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2215.0, 3575.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.10, "phase": 3.6},
 			{"frequency": 2, "amplitude": 0.06, "phase": 5.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2255.0, 1775.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2255.0, 3575.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.12, "phase": 0.2},
 			{"frequency": 3, "amplitude": 0.05, "phase": 1.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2295.0, 1775.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2295.0, 3575.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.14, "phase": 1.2},
 			{"frequency": 2, "amplitude": 0.08, "phase": 0.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3025.0, 1785.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(3025.0, 3585.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.09, "phase": 5.8},
 			{"frequency": 2, "amplitude": 0.09, "phase": 5.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3375.0, 1785.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(3375.0, 3585.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.09, "phase": 5.9},
 			{"frequency": 4, "amplitude": 0.13, "phase": 5.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3415.0, 1785.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(3415.0, 3585.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.16, "phase": 4.4},
 			{"frequency": 2, "amplitude": 0.05, "phase": 4.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2715.0, 1815.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2715.0, 3615.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.13, "phase": 0.2},
 			{"frequency": 3, "amplitude": 0.08, "phase": 4.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2075.0, 1825.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2075.0, 3625.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 6.1},
 			{"frequency": 4, "amplitude": 0.11, "phase": 2.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3495.0, 1825.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(3495.0, 3625.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 0.9},
 			{"frequency": 4, "amplitude": 0.06, "phase": 4.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2905.0, 1845.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2905.0, 3645.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 3.5},
 			{"frequency": 4, "amplitude": 0.11, "phase": 0.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2955.0, 1845.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2955.0, 3645.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.11, "phase": 6.0},
 			{"frequency": 4, "amplitude": 0.06, "phase": 3.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4375.0, 1845.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(4375.0, 3645.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.12, "phase": 5.8},
 			{"frequency": 2, "amplitude": 0.07, "phase": 0.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-575.0, 1855.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-575.0, 3655.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.11, "phase": 2.6},
 			{"frequency": 4, "amplitude": 0.09, "phase": 4.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2555.0, 1865.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2555.0, 3665.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.14, "phase": 2.5},
 			{"frequency": 3, "amplitude": 0.09, "phase": 3.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4605.0, 1865.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(4605.0, 3665.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.11, "phase": 3.4},
 			{"frequency": 3, "amplitude": 0.05, "phase": 4.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1305.0, 1875.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1305.0, 3675.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.10, "phase": 3.9},
 			{"frequency": 3, "amplitude": 0.12, "phase": 3.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4955.0, 1875.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(4955.0, 3675.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.12, "phase": 3.6},
 			{"frequency": 2, "amplitude": 0.12, "phase": 4.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2185.0, 1885.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2185.0, 3685.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.10, "phase": 1.1},
 			{"frequency": 4, "amplitude": 0.11, "phase": 2.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1425.0, 1895.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1425.0, 3695.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.11, "phase": 5.0},
 			{"frequency": 3, "amplitude": 0.12, "phase": 5.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3205.0, 1905.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(3205.0, 3705.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.11, "phase": 1.3},
 			{"frequency": 2, "amplitude": 0.05, "phase": 5.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3855.0, 1905.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(3855.0, 3705.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.08, "phase": 2.2},
 			{"frequency": 4, "amplitude": 0.11, "phase": 5.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3045.0, 1915.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(3045.0, 3715.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.14, "phase": 2.6},
 			{"frequency": 3, "amplitude": 0.07, "phase": 5.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1995.0, 1925.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1995.0, 3725.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.13, "phase": 2.9},
 			{"frequency": 3, "amplitude": 0.12, "phase": 1.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4405.0, 1925.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(4405.0, 3725.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.08, "phase": 3.6},
 			{"frequency": 3, "amplitude": 0.10, "phase": 5.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2205.0, 1935.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2205.0, 3735.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.11, "phase": 0.6},
 			{"frequency": 4, "amplitude": 0.13, "phase": 0.3},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3185.0, 1935.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(3185.0, 3735.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.15, "phase": 5.5},
 			{"frequency": 4, "amplitude": 0.11, "phase": 2.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3475.0, 1965.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(3475.0, 3765.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 1.3},
 			{"frequency": 4, "amplitude": 0.08, "phase": 3.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1605.0, 1975.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1605.0, 3775.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.16, "phase": 5.0},
 			{"frequency": 3, "amplitude": 0.10, "phase": 2.1},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4585.0, 1975.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(4585.0, 3775.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.08, "phase": 2.5},
 			{"frequency": 4, "amplitude": 0.11, "phase": 0.2},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(895.0, 2015.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(895.0, 3815.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 5.4},
 			{"frequency": 3, "amplitude": 0.11, "phase": 3.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2135.0, 2025.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2135.0, 3825.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.14, "phase": 3.8},
 			{"frequency": 3, "amplitude": 0.09, "phase": 5.8},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2945.0, 2025.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2945.0, 3825.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.16, "phase": 1.8},
 			{"frequency": 4, "amplitude": 0.09, "phase": 5.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(3145.0, 2035.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(3145.0, 3835.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.13, "phase": 2.8},
 			{"frequency": 4, "amplitude": 0.06, "phase": 2.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1145.0, 2045.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1145.0, 3845.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.10, "phase": 5.6},
 			{"frequency": 4, "amplitude": 0.10, "phase": 4.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(815.0, 2055.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(815.0, 3855.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.12, "phase": 5.6},
 			{"frequency": 3, "amplitude": 0.09, "phase": 2.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(715.0, 2075.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(715.0, 3875.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 2, "amplitude": 0.13, "phase": 3.3},
 			{"frequency": 4, "amplitude": 0.10, "phase": 4.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(1765.0, 2075.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(1765.0, 3875.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 6.2},
 			{"frequency": 2, "amplitude": 0.07, "phase": 4.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-385.0, 2085.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-385.0, 3885.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.12, "phase": 1.3},
 			{"frequency": 4, "amplitude": 0.11, "phase": 1.5},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(4875.0, 2085.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(4875.0, 3885.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 2.4},
 			{"frequency": 2, "amplitude": 0.13, "phase": 1.4},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2655.0, 2095.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2655.0, 3895.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.15, "phase": 4.7},
 			{"frequency": 3, "amplitude": 0.07, "phase": 0.7},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-305.0, 2125.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-305.0, 3925.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.14, "phase": 0.3},
 			{"frequency": 4, "amplitude": 0.12, "phase": 1.6},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(2325.0, 2135.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(2325.0, 3935.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.09, "phase": 4.8},
 			{"frequency": 3, "amplitude": 0.12, "phase": 2.9},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-255.0, 2155.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-255.0, 3955.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 3, "amplitude": 0.15, "phase": 2.9},
 			{"frequency": 4, "amplitude": 0.08, "phase": 2.0},
 		]}, # wooded block / thicket
-		{"center_m": Vector2(-465.0, 2165.0), "radius_m": 19.0, "warp_harmonics": [
+		{"center_m": Vector2(-465.0, 3965.0), "radius_m": 19.0, "warp_harmonics": [
 			{"frequency": 4, "amplitude": 0.08, "phase": 2.7},
 			{"frequency": 2, "amplitude": 0.09, "phase": 3.1},
 		]}, # wooded block / thicket
+		{"center_m": Vector2(-865.0, -15.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 2.7},
+			{"frequency": 2, "amplitude": 0.07, "phase": 3.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1215.0, 675.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 3.7},
+			{"frequency": 2, "amplitude": 0.09, "phase": 4.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-995.0, 165.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 1.8},
+			{"frequency": 2, "amplitude": 0.08, "phase": 1.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1115.0, 315.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 2.5},
+			{"frequency": 4, "amplitude": 0.12, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-315.0, 345.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.09, "phase": 6.2},
+			{"frequency": 4, "amplitude": 0.09, "phase": 5.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2345.0, 895.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 2.8},
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1225.0, 505.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 2.6},
+			{"frequency": 2, "amplitude": 0.05, "phase": 2.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2305.0, 595.0), "radius_m": 74.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 3.5},
+			{"frequency": 4, "amplitude": 0.09, "phase": 1.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(305.0, 395.0), "radius_m": 68.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 0.9},
+			{"frequency": 2, "amplitude": 0.12, "phase": 4.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2365.0, 745.0), "radius_m": 68.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 3.8},
+			{"frequency": 3, "amplitude": 0.09, "phase": 2.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2135.0, 295.0), "radius_m": 63.7, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 6.1},
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(355.0, 255.0), "radius_m": 60.1, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 3.0},
+			{"frequency": 3, "amplitude": 0.06, "phase": 1.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2235.0, 465.0), "radius_m": 60.1, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 5.8},
+			{"frequency": 3, "amplitude": 0.08, "phase": 5.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2315.0, 1035.0), "radius_m": 60.1, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 3.2},
+			{"frequency": 4, "amplitude": 0.12, "phase": 1.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-745.0, 55.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 0.9},
+			{"frequency": 2, "amplitude": 0.07, "phase": 3.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2365.0, 1285.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.10, "phase": 1.5},
+			{"frequency": 3, "amplitude": 0.12, "phase": 1.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-865.0, 125.0), "radius_m": 51.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 0.0},
+			{"frequency": 3, "amplitude": 0.06, "phase": 2.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-985.0, 35.0), "radius_m": 48.4, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 5.8},
+			{"frequency": 4, "amplitude": 0.08, "phase": 0.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2695.0, 135.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 1.2},
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2025.0, 155.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 0.0},
+			{"frequency": 2, "amplitude": 0.09, "phase": 1.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1085.0, 685.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 3.8},
+			{"frequency": 4, "amplitude": 0.07, "phase": 3.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2175.0, 825.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 4.1},
+			{"frequency": 2, "amplitude": 0.12, "phase": 2.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(215.0, 1775.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 6.2},
+			{"frequency": 2, "amplitude": 0.12, "phase": 3.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-365.0, 225.0), "radius_m": 40.3, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 5.0},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1305.0, 595.0), "radius_m": 40.3, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 1.4},
+			{"frequency": 4, "amplitude": 0.10, "phase": 4.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1985.0, 675.0), "radius_m": 40.3, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 0.4},
+			{"frequency": 2, "amplitude": 0.12, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(935.0, 1735.0), "radius_m": 40.3, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 3.9},
+			{"frequency": 2, "amplitude": 0.11, "phase": 0.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2745.0, -45.0), "radius_m": 39.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 4.7},
+			{"frequency": 2, "amplitude": 0.10, "phase": 3.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2065.0, 725.0), "radius_m": 39.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 0.8},
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1155.0, 775.0), "radius_m": 39.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 5.5},
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-755.0, -45.0), "radius_m": 38.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 3.7},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1115.0, 195.0), "radius_m": 38.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 4.5},
+			{"frequency": 2, "amplitude": 0.08, "phase": 3.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(155.0, 365.0), "radius_m": 38.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 2.8},
+			{"frequency": 4, "amplitude": 0.10, "phase": 2.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2165.0, 395.0), "radius_m": 38.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.09, "phase": 4.6},
+			{"frequency": 2, "amplitude": 0.09, "phase": 0.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-425.0, 365.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.16, "phase": 1.2},
+			{"frequency": 3, "amplitude": 0.09, "phase": 0.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1205.0, 395.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 2.0},
+			{"frequency": 3, "amplitude": 0.13, "phase": 0.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2595.0, 395.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 5.8},
+			{"frequency": 4, "amplitude": 0.07, "phase": 4.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1145.0, 425.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 5.0},
+			{"frequency": 3, "amplitude": 0.11, "phase": 5.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1935.0, 625.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 4.3},
+			{"frequency": 3, "amplitude": 0.06, "phase": 6.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2365.0, 1185.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 2.9},
+			{"frequency": 4, "amplitude": 0.08, "phase": 3.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-975.0, -45.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 0.8},
+			{"frequency": 3, "amplitude": 0.08, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1015.0, 275.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 0.5},
+			{"frequency": 4, "amplitude": 0.05, "phase": 3.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(365.0, 165.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 3.2},
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(265.0, 485.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 5.2},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2575.0, 545.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 6.2},
+			{"frequency": 4, "amplitude": 0.09, "phase": 1.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2285.0, 1315.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 2.4},
+			{"frequency": 4, "amplitude": 0.06, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2085.0, 205.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 4.2},
+			{"frequency": 4, "amplitude": 0.08, "phase": 3.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2215.0, 355.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 1.2},
+			{"frequency": 4, "amplitude": 0.11, "phase": 0.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(225.0, 445.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 2.2},
+			{"frequency": 4, "amplitude": 0.12, "phase": 1.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1325.0, 665.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 1.4},
+			{"frequency": 3, "amplitude": 0.09, "phase": 1.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2115.0, 765.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.09, "phase": 1.8},
+			{"frequency": 2, "amplitude": 0.11, "phase": 3.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1245.0, 775.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 2.2},
+			{"frequency": 4, "amplitude": 0.12, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-815.0, 1655.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 0.4},
+			{"frequency": 2, "amplitude": 0.05, "phase": 3.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-505.0, 1715.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 0.4},
+			{"frequency": 4, "amplitude": 0.09, "phase": 3.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1045.0, 75.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 5.9},
+			{"frequency": 2, "amplitude": 0.09, "phase": 2.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-925.0, 75.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 6.1},
+			{"frequency": 2, "amplitude": 0.07, "phase": 2.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1075.0, 105.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 0.3},
+			{"frequency": 4, "amplitude": 0.08, "phase": 5.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-925.0, 235.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 4.9},
+			{"frequency": 2, "amplitude": 0.10, "phase": 5.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-305.0, 245.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 2.9},
+			{"frequency": 3, "amplitude": 0.09, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(285.0, 305.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 0.9},
+			{"frequency": 4, "amplitude": 0.06, "phase": 5.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(215.0, 355.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 4.2},
+			{"frequency": 2, "amplitude": 0.11, "phase": 4.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-395.0, 405.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 2.4},
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2585.0, 455.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 2.5},
+			{"frequency": 2, "amplitude": 0.06, "phase": 3.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1165.0, 585.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 4.0},
+			{"frequency": 2, "amplitude": 0.11, "phase": 0.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1135.0, 615.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 5.0},
+			{"frequency": 4, "amplitude": 0.05, "phase": 6.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1305.0, 715.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 4.9},
+			{"frequency": 4, "amplitude": 0.12, "phase": 4.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2445.0, 785.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 3.0},
+			{"frequency": 4, "amplitude": 0.06, "phase": 1.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1205.0, 805.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 0.0},
+			{"frequency": 2, "amplitude": 0.06, "phase": 1.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2415.0, 825.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 2.7},
+			{"frequency": 2, "amplitude": 0.06, "phase": 6.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2225.0, 875.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 5.5},
+			{"frequency": 2, "amplitude": 0.10, "phase": 5.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1395.0, 935.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 1.5},
+			{"frequency": 2, "amplitude": 0.11, "phase": 5.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2385.0, 985.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 2.4},
+			{"frequency": 3, "amplitude": 0.10, "phase": 0.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1345.0, 1115.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 0.5},
+			{"frequency": 3, "amplitude": 0.11, "phase": 2.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1305.0, 1145.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 4.4},
+			{"frequency": 3, "amplitude": 0.07, "phase": 4.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1275.0, 1175.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 3.9},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-555.0, 1725.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 5.4},
+			{"frequency": 3, "amplitude": 0.10, "phase": 3.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-615.0, 1745.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 2.6},
+			{"frequency": 2, "amplitude": 0.06, "phase": 0.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-775.0, 1755.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 5.4},
+			{"frequency": 4, "amplitude": 0.06, "phase": 1.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-655.0, 1775.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.16, "phase": 0.8},
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(975.0, 1775.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 5.1},
+			{"frequency": 3, "amplitude": 0.09, "phase": 4.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2705.0, 65.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 1.3},
+			{"frequency": 3, "amplitude": 0.10, "phase": 3.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-815.0, 75.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 3.4},
+			{"frequency": 3, "amplitude": 0.11, "phase": 1.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1095.0, 145.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 3.7},
+			{"frequency": 4, "amplitude": 0.10, "phase": 6.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-905.0, 185.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.3},
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2675.0, 195.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 2.1},
+			{"frequency": 2, "amplitude": 0.07, "phase": 3.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2715.0, 195.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 3.2},
+			{"frequency": 3, "amplitude": 0.10, "phase": 5.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2045.0, 215.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 4.3},
+			{"frequency": 4, "amplitude": 0.08, "phase": 4.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(445.0, 225.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 5.4},
+			{"frequency": 2, "amplitude": 0.10, "phase": 3.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1065.0, 235.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 0.9},
+			{"frequency": 2, "amplitude": 0.10, "phase": 0.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2065.0, 245.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 3.7},
+			{"frequency": 3, "amplitude": 0.06, "phase": 1.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-965.0, 255.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 3.0},
+			{"frequency": 3, "amplitude": 0.09, "phase": 2.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1205.0, 335.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 5.5},
+			{"frequency": 3, "amplitude": 0.06, "phase": 0.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1095.0, 405.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.6},
+			{"frequency": 2, "amplitude": 0.06, "phase": 0.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-245.0, 415.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.2},
+			{"frequency": 2, "amplitude": 0.10, "phase": 2.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(315.0, 485.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 1.6},
+			{"frequency": 2, "amplitude": 0.08, "phase": 1.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2595.0, 495.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 3.0},
+			{"frequency": 3, "amplitude": 0.06, "phase": 5.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2305.0, 505.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 5.4},
+			{"frequency": 3, "amplitude": 0.08, "phase": 1.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1315.0, 525.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 4.7},
+			{"frequency": 3, "amplitude": 0.06, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2215.0, 545.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 5.6},
+			{"frequency": 3, "amplitude": 0.08, "phase": 5.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2385.0, 645.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.16, "phase": 2.1},
+			{"frequency": 2, "amplitude": 0.10, "phase": 4.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2285.0, 685.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 5.5},
+			{"frequency": 4, "amplitude": 0.11, "phase": 2.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1105.0, 745.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 6.0},
+			{"frequency": 2, "amplitude": 0.10, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1285.0, 755.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 4.8},
+			{"frequency": 3, "amplitude": 0.11, "phase": 4.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2115.0, 805.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 5.7},
+			{"frequency": 2, "amplitude": 0.10, "phase": 2.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2295.0, 805.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 5.8},
+			{"frequency": 3, "amplitude": 0.13, "phase": 5.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2275.0, 965.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 2.1},
+			{"frequency": 3, "amplitude": 0.06, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1495.0, 995.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 0.6},
+			{"frequency": 3, "amplitude": 0.08, "phase": 6.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1265.0, 1035.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 1.8},
+			{"frequency": 4, "amplitude": 0.12, "phase": 4.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(145.0, 1755.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 5.9},
+			{"frequency": 2, "amplitude": 0.11, "phase": 3.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(105.0, 1775.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 0.7},
+			{"frequency": 4, "amplitude": 0.12, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-695.0, 1785.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 3.7},
+			{"frequency": 4, "amplitude": 0.07, "phase": 1.3},
+		]}, # wooded block / thicket
 	],
 
+	# The drone's sweep rows, north to south (see GameConfig.drone_search_rows_m): the heavy third row on the road, the map's
+	# long northern reach covered by the first two.
+	"drone_search_rows_m": [800.0, 2300.0, 3550.0, 3780.0, 3940.0],
 	"road_width_m": 8.0,
 	"road_waypoints_m": [
-		Vector2(4900, 2013),
-		Vector2(4291, 1831),
-		Vector2(2685, 1856),
-		Vector2(1773, 1797),
-		Vector2(948, 1656),
-		Vector2(745, 1661),
+		Vector2(4900, 3813),
+		Vector2(4291, 3631),
+		Vector2(2685, 3656),
+		Vector2(1773, 3597),
+		Vector2(948, 3456),
+		Vector2(745, 3461),
 	],
 
 	"player": {
-		"deployment_zone": Rect2(150.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 2200.0 * PIXELS_PER_METER, 1950.0 * PIXELS_PER_METER),
-		"mortar_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 1950.0 * PIXELS_PER_METER, 2000.0 * PIXELS_PER_METER),
-		"spotter_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 30.0 * PIXELS_PER_METER, 4940.0 * PIXELS_PER_METER, 2030.0 * PIXELS_PER_METER),
+		"deployment_zone": Rect2(150.0 * PIXELS_PER_METER, 1900.0 * PIXELS_PER_METER, 2200.0 * PIXELS_PER_METER, 1950.0 * PIXELS_PER_METER),
+		"mortar_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 1950.0 * PIXELS_PER_METER, 3800.0 * PIXELS_PER_METER),
+		"spotter_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 30.0 * PIXELS_PER_METER, 4940.0 * PIXELS_PER_METER, 3830.0 * PIXELS_PER_METER),
 		# Chosen by scanning the deployment area with the game's own has_direct_los/elevation model: each
 		# squad the point near the station that sees the most of the real road, clear of the road bed itself
 		# and of any building.
 		"default_squad_positions": [
-			Vector2(1750, 1750) * PIXELS_PER_METER,
-			Vector2(1650, 1750) * PIXELS_PER_METER,
-			Vector2(1800, 1825) * PIXELS_PER_METER,
+			Vector2(1750, 3550.0) * PIXELS_PER_METER,
+			Vector2(1650, 3550.0) * PIXELS_PER_METER,
+			Vector2(1800, 3625.0) * PIXELS_PER_METER,
 		],
 		# (Moved from (850, 1500), which is inside the town the mortar now keeps 200 m clear of.)
-		"mortar_default_position": Vector2(1030.0, 1360.0) * PIXELS_PER_METER,
-		"spotter_default_position": Vector2(1685.0, 1725.0) * PIXELS_PER_METER,
+		"mortar_default_position": Vector2(1030.0, 3160.0) * PIXELS_PER_METER,
+		"spotter_default_position": Vector2(1685.0, 3525.0) * PIXELS_PER_METER,
 	},
 
 	"enemy": {
@@ -6007,8 +6569,8 @@ const MAPS: Dictionary = {
 		"squad_spread_max_offset_m": 60.0,
 		"mortar_rear_x_m": 4700.0, # 200m behind spawn_x, same offset as every other map
 		# 1300 m span on the north side of the road (the other maps use 1600 m: here the south side is the river).
-		"mortar_spread_min_y_m": 812.7,
-		"mortar_spread_max_y_m": 2112.7,
+		"mortar_spread_min_y_m": 2612.7,
+		"mortar_spread_max_y_m": 3912.7,
 		"flank_waypoint_x": -1000.0 * PIXELS_PER_METER,
 		"flank_waypoint_arrival_radius": 350.0 * PIXELS_PER_METER, # must stay > ENEMY_SURROUND_STANDOFF_RADIUS (300m) - see that constant's own doc comment
 	},
@@ -6145,6 +6707,7 @@ static func _recompute_map_derived_state() -> void:
 	_exclusion_built = false
 	_exclusion_rects.clear()
 	_exclusion_grid = PackedByteArray()
+	_route_grid = null
 
 
 ## Runs automatically the first time this script is loaded/referenced —
@@ -6501,10 +7064,20 @@ static func road_waypoints_px() -> Array[Vector2]:
 const DRONE_SEARCH_GRID_COLUMNS_M: Array[float] = [1550.0, 2400.0, 3250.0, 4100.0, 4950.0]
 const DRONE_SEARCH_GRID_ROWS_M: Array[float] = [300.0, 1050.0, 1750.0, 2450.0, 3150.0]
 
+## The five sweep rows (y, meters, north to south) of the map loaded now: DRONE_SEARCH_GRID_ROWS_M, which assumes a 3500 m map
+## with its road at y = 1750, unless the map names its own (CURRENT_MAP.drone_search_rows_m: Voznesensk, whose road is far south
+## of the middle). Row index 2 is the heavy one and should sit on the road (see DRONE_SWEEP_ROW_WEIGHTS).
+static func drone_search_rows_m() -> Array[float]:
+	var out: Array[float] = []
+	out.assign(CURRENT_MAP.get("drone_search_rows_m", DRONE_SEARCH_GRID_ROWS_M))
+	return out
+
+
 static func _drone_search_waypoints_m() -> Array[Vector2]:
 	var out: Array[Vector2] = []
-	for row_i in DRONE_SEARCH_GRID_ROWS_M.size():
-		var y: float = DRONE_SEARCH_GRID_ROWS_M[row_i]
+	var rows: Array[float] = drone_search_rows_m()
+	for row_i in rows.size():
+		var y: float = rows[row_i]
 		var columns: Array[float] = DRONE_SEARCH_GRID_COLUMNS_M.duplicate()
 		if row_i % 2 == 1: # alternate direction each row — a real boustrophedon
 			columns.reverse()
@@ -10778,6 +11351,96 @@ static func mortar_barred_at(point: Vector2, team: int) -> bool:
 
 static func mortar_path_barred(from: Vector2, to: Vector2, team: int) -> bool:
 	return path_crosses_building(from, to) or (team == Unit.Team.PLAYER and path_enters_mortar_exclusion(from, to))
+
+
+## A route for a mortar crew that has to get to the west edge (x = target_x) without entering the populated-place region (or a
+## building or the river): an A* over a 20 m grid of the map, each cell solid if its centre is in the region, a building or the
+## river, then pulled straight wherever a straight run is clear. Direct user report: "The mortar also has no retreat path"
+## (Voznesensk, where the city fills the whole west). Waypoints in pixels, not including the start; empty if the crew is
+## boxed in (the caller then runs straight, as before) or the edge cannot be reached.
+const MORTAR_ROUTE_CELL_M: float = 20.0
+static var _route_grid: AStarGrid2D = null
+
+static func _route_cell_px() -> float:
+	return MORTAR_ROUTE_CELL_M * PIXELS_PER_METER
+
+
+static func _route_cell_of(point: Vector2) -> Vector2i:
+	var cell: float = _route_cell_px()
+	return Vector2i(int(floor((point.x + WEST_FLANK_WIDTH_PX) / cell)), int(floor(point.y / cell)))
+
+
+static func _route_point_of(c: Vector2i) -> Vector2:
+	var cell: float = _route_cell_px()
+	return Vector2((float(c.x) + 0.5) * cell - WEST_FLANK_WIDTH_PX, (float(c.y) + 0.5) * cell)
+
+
+static func _ensure_route_grid() -> void:
+	if _route_grid != null:
+		return
+	var cell: float = _route_cell_px()
+	var cols: int = int(ceil((MAP_WIDTH_PX + WEST_FLANK_WIDTH_PX) / cell))
+	var rows: int = int(ceil(MAP_HEIGHT_PX / cell))
+	_route_grid = AStarGrid2D.new()
+	_route_grid.region = Rect2i(0, 0, cols, rows)
+	_route_grid.cell_size = Vector2(1.0, 1.0)
+	_route_grid.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
+	_route_grid.update()
+	for j in rows:
+		for i in cols:
+			var centre: Vector2 = _route_point_of(Vector2i(i, j))
+			if mortar_excluded_at(centre) or is_building_at(centre) or is_river_at(centre):
+				_route_grid.set_point_solid(Vector2i(i, j), true)
+
+
+static func mortar_route_to_x(from: Vector2, target_x: float) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	_ensure_route_grid()
+	var region: Rect2i = _route_grid.region
+	var start: Vector2i = _route_cell_of(from)
+	start = Vector2i(clampi(start.x, 0, region.size.x - 1), clampi(start.y, 0, region.size.y - 1))
+	if _route_grid.is_point_solid(start):
+		var found := false
+		for r in range(1, 4):
+			for dj in range(-r, r + 1):
+				for di in range(-r, r + 1):
+					var c := Vector2i(start.x + di, start.y + dj)
+					if region.has_point(c) and not _route_grid.is_point_solid(c):
+						start = c
+						found = true
+						break
+				if found:
+					break
+			if found:
+				break
+		if not found:
+			return out
+	var goal_col: int = clampi(_route_cell_of(Vector2(target_x, 0.0)).x, 0, region.size.x - 1)
+	var ids: Array[Vector2i] = []
+	for dj in region.size.y:
+		for dir in [1, -1]:
+			var gj: int = start.y + dir * dj
+			if gj < 0 or gj >= region.size.y or _route_grid.is_point_solid(Vector2i(goal_col, gj)):
+				continue
+			ids = _route_grid.get_id_path(start, Vector2i(goal_col, gj))
+			if not ids.is_empty():
+				break
+		if not ids.is_empty():
+			break
+	if ids.size() < 2:
+		return out
+	var pts: Array[Vector2] = []
+	for c in ids:
+		pts.append(_route_point_of(c))
+	pts[0] = from
+	var i := 0
+	while i < pts.size() - 1:
+		var j: int = pts.size() - 1
+		while j > i + 1 and mortar_path_barred(pts[i], pts[j], Unit.Team.PLAYER):
+			j -= 1
+		out.append(pts[j])
+		i = j
+	return out
 
 
 ## The region as a translucent red wash, for the deployment screen.

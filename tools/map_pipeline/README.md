@@ -43,3 +43,12 @@ Esri imagery: look at it).
 ## Mortar exclusion region (`mortar_exclusion/`)
 
 `build.py` turns each map's footprint file into the region the Ukrainian mortar will not enter (within 200 m of a cluster of at least five buildings), written to `assets/maps/<id>_mortar_exclusion.json`; `render_setup.gd` renders the real deployment screen of a map, with the region shaded, to a PNG. Run `python tools/map_pipeline/mortar_exclusion/build.py` from the repo root after changing a map's footprints.
+
+## Voznesensk extended north by 1,800 m (`voznesensk_north/`, October 2026)
+
+Run from the working folder (see the top of this file) in this order: `corridor.py` (how far north the map has to go for the mortar to have
+room and a retreat route around the city, from the Overture buildings: this is what chose 1,800 m), `fetch_dem_north.py` (SRTM for the new
+strip), `fit_hills_north.py` (extra hills fitted to what the old 28 leave over the strip, weighting the old area so it is not disturbed),
+`build_buildings_ext.py` / `pack_trees_ext.py` / `block_params_ext.py` (footprints, forest circles and cover blocks for the larger frame, by
+the same rules as the original), then `apply_north.py` (shifts the whole existing entry down 1,800 m, adds the strip's hills, blocks,
+trees and the footprint file, and grows `height_m`). Afterwards rebuild the mortar exclusion (`mortar_exclusion/build.py voznesensk`).

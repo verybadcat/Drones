@@ -171,10 +171,57 @@ func test_a_slipped_order_is_stopped_at_the_edge() -> void:
 	bm.combat_log.free()
 
 
+## Direct user report, Voznesensk: "The mortar also has no retreat path." The city fills the whole west, so a crew told to
+## retreat to the west edge used to run straight through it (the region). Now it is routed around.
+func test_a_retreating_crew_goes_around_the_region() -> void:
+	GameConfig.set_active_map("voznesensk")
+	var bm = make_battle()
+	var start: Vector2 = GameConfig.CURRENT_MAP.player.mortar_default_position
+	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, start)
+	bm.player_units.append(mortar)
+	bm._set_retreat_profile(mortar, Unit.Team.PLAYER)
+	mortar.state = Unit.State.RETREATING
+	mortar.has_move_target = false
+	check(GameConfig.path_enters_mortar_exclusion(start, Vector2(mortar.retreat_target_x, start.y)), "Setup: the straight run west from the default position crosses the region")
+	var route: Array[Vector2] = GameConfig.mortar_route_to_x(start, mortar.retreat_target_x)
+	check(not route.is_empty(), "There is a route to the west edge that avoids the region")
+	var prev := start
+	var route_clear := true
+	for w in route:
+		if GameConfig.mortar_path_barred(prev, w, Unit.Team.PLAYER):
+			route_clear = false
+		prev = w
+	check(route_clear, "...and every leg of it is clear of the region and of buildings")
+	var entered := 0
+	var ticks := 0
+	while ticks < 40000 and mortar.position.x > mortar.retreat_target_x + m(5.0):
+		bm._tick_movement(5.0)
+		if GameConfig.mortar_excluded_at(mortar.position):
+			entered += 1
+		ticks += 1
+	check(mortar.position.x <= mortar.retreat_target_x + m(5.0), "The retreating crew reaches the west edge (x %.0f m after %d ticks)" % [mortar.position.x / GameConfig.PIXELS_PER_METER, ticks])
+	check(entered == 0, "...without once entering the region (%d ticks inside)" % entered)
+	# On a map where the straight run is already clear, nothing changes: it dashes straight.
+	GameConfig.set_active_map("svystunivka")
+	var bm2 = make_battle()
+	var home: Vector2 = GameConfig.CURRENT_MAP.player.mortar_default_position
+	var m2: Unit = bm2._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, home)
+	bm2.player_units.append(m2)
+	bm2._set_retreat_profile(m2, Unit.Team.PLAYER)
+	m2.state = Unit.State.RETREATING
+	m2.has_move_target = false
+	bm2._tick_movement(5.0)
+	check(not m2.has_move_target, "A clear straight run west is left as it was (no route issued)")
+	bm.combat_log.free()
+	bm2.combat_log.free()
+	GameConfig.set_active_map("pishchane")
+
+
 func run() -> void:
 	test_every_map_has_a_sensible_region()
 	test_it_bars_the_player_mortar_only()
 	test_player_mortar_never_plans_into_the_region()
 	test_a_slipped_order_is_stopped_at_the_edge()
+	test_a_retreating_crew_goes_around_the_region()
 	print("Mortar exclusion region tests: %d failures" % failures)
 	quit(1 if failures else 0)

@@ -5095,7 +5095,7 @@ func _pos_to_debug_dict(point: Vector2) -> Dictionary:
 ## rather than 25 isolated dots — never used by any actual sweep decision,
 ## which still runs on the real discrete grid.
 func _row_bias_at_y(y: float) -> float:
-	var rows_m: Array[float] = GameConfig.DRONE_SEARCH_GRID_ROWS_M
+	var rows_m: Array[float] = GameConfig.drone_search_rows_m()
 	var weights: Array[float] = []
 	for i in rows_m.size():
 		weights.append(GameConfig.DRONE_SWEEP_ROW_WEIGHTS[i] + GameConfig.DRONE_MORTAR_HUNT_ROW_WEIGHTS[i])
@@ -5653,7 +5653,7 @@ func _flank_watch_plausibility(point: Vector2) -> float:
 ## spot isn't worth the trip), just from a permanent-kill source versus a
 ## live-observation source.
 func _sweep_candidates(committed_key: String = "") -> Array:
-	var row_count: int = GameConfig.DRONE_SEARCH_GRID_ROWS_M.size()
+	var row_count: int = GameConfig.drone_search_rows_m().size()
 	var columns_per_row: int = GameConfig.DRONE_SEARCH_GRID_COLUMNS_M.size()
 	var waypoints: Array[Vector2] = GameConfig.drone_search_waypoints_px()
 	# The mortar-hunt half of each cell's value shrinks with the same weighing
@@ -6923,6 +6923,27 @@ func _step_toward_target(unit: Unit, scenario_delta: float) -> void:
 		unit.position += to_target.normalized() * step
 
 
+## The player's mortar crew retreating to the west edge goes AROUND the populated-place region (GameConfig.mortar_exclusion_rects)
+## rather than through it: when the straight dash would enter it, the route (GameConfig.mortar_route_to_x) is queued as ordinary
+## legs and the straight dash resumes where the way is clear. Direct user report, Voznesensk: "The mortar also has no retreat path."
+## False (nothing issued) for any other crew, one already inside the region, a clear straight run, or a crew boxed in with no route.
+func _route_mortar_retreat_around_populated(m: Unit) -> bool:
+	if not _keeps_clear_of_populated(m) or GameConfig.mortar_excluded_at(m.position):
+		return false
+	if not GameConfig.path_enters_mortar_exclusion(m.position, Vector2(m.retreat_target_x, m.position.y)):
+		return false
+	var route: Array[Vector2] = GameConfig.mortar_route_to_x(m.position, m.retreat_target_x)
+	if route.is_empty():
+		return false
+	m.move_queue.clear()
+	m.move_target = route[0]
+	for i in range(1, route.size()):
+		m.move_queue.append(route[i])
+	m.has_move_target = true
+	m.move_speed = m.retreat_speed
+	return true
+
+
 ## The final leg is a dash toward the safe line's x, primarily along x but
 ## bending in y away from the nearest known threat along the way (see
 ## _retreat_avoidance_offset) rather than a compass-straight line
@@ -6933,6 +6954,9 @@ func _step_toward_target(unit: Unit, scenario_delta: float) -> void:
 ## building is blocking it, until clear, then the normal dash resumes on
 ## its own — see _sidestep_building.
 func _step_retreat(unit: Unit, scenario_delta: float) -> void:
+	if unit.kind == Unit.Kind.MORTAR and _route_mortar_retreat_around_populated(unit):
+		_step_toward_target(unit, scenario_delta)
+		return
 	unit.activity = Unit.Activity.MOVING
 	var dir_x: float = -1.0 if unit.team == Unit.Team.PLAYER else 1.0
 	var next_pos: Vector2 = unit.position + Vector2(dir_x * unit.retreat_speed * scenario_delta, 0.0)
@@ -9398,9 +9422,9 @@ func _mortar_edge_run_legs(m: Unit) -> Array[Vector2]:
 		var next: Vector2 = Vector2.INF
 		for y_offset in [steer * leg, 0.0, leg * 0.5, -leg * 0.5, leg, -leg]:
 			var candidate: Vector2 = GameConfig.clamp_to_operating_area(Vector2(from.x + dir_x * leg, from.y + y_offset))
-			if GameConfig.is_building_at(candidate):
+			if GameConfig.mortar_barred_at(candidate, m.team):
 				continue
-			if GameConfig.path_crosses_building(from, candidate) or GameConfig.path_crosses_river(from, candidate):
+			if GameConfig.mortar_path_barred(from, candidate, m.team) or GameConfig.path_crosses_river(from, candidate):
 				continue
 			next = candidate
 			break
