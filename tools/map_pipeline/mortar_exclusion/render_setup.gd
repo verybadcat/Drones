@@ -4,11 +4,13 @@ extends SceneTree
 var map_id := "pishchane"
 var out_path := ""
 var scale_px_per_m := 0.3
+var drag_mortar := false # the red wash shows only while the mortar is being dragged
 func _initialize():
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--map="): map_id = a.substr(6)
 		elif a.begins_with("--out="): out_path = a.substr(6)
 		elif a.begins_with("--scale="): scale_px_per_m = float(a.substr(8))
+		elif a == "--drag": drag_mortar = true
 	call_deferred("run")
 func run():
 	GameConfig.set_active_map(map_id)
@@ -27,7 +29,11 @@ func run():
 	holder.scale = Vector2(k, k)
 	holder.position = -crop.position * scale_px_per_m
 	vp.add_child(holder)
-	holder.add_child(DeploymentScreen.new())
+	var screen := DeploymentScreen.new()
+	holder.add_child(screen)
+	if drag_mortar:
+		screen._dragging = screen._mortar_token
+		screen.queue_redraw()
 	for i in 6:
 		await process_frame
 	await RenderingServer.frame_post_draw

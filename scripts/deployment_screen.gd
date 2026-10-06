@@ -50,6 +50,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					break
 		else:
 			_dragging = null
+		queue_redraw() # the mortar-exclusion wash shows only while the mortar is being placed
 	elif event is InputEventMouseMotion and _dragging != null:
 		var zone := _dragging.deployment_zone
 		var mouse_pos := get_global_mouse_position()
@@ -94,11 +95,13 @@ func get_positions() -> Dictionary:
 
 func _draw() -> void:
 	GameConfig.draw_terrain(self)
-	GameConfig.draw_mortar_exclusion(self) # the ground the mortar will not go: within 200 m of a populated place
 	draw_rect(GameConfig.CURRENT_MAP.player.mortar_deployment_zone, Color(1.0, 0.55, 0.15, 0.5), false, 2.0)
 	draw_rect(GameConfig.CURRENT_MAP.player.deployment_zone, Color(1.0, 1.0, 0.2, 0.7), false, 2.0)
 	draw_rect(_recon_deployment_zone(), Color(0.3, 1.0, 1.0, 0.6), false, 2.0)
-	if not GameConfig.mortar_exclusion_rects().is_empty():
+	# The ground the mortar will not go (within 200 m of a populated place) is shown only while the mortar is being
+	# placed — direct user request: "The red can be visible only when setting up the mortar."
+	if _dragging != null and _dragging.kind == Unit.Kind.MORTAR and not GameConfig.mortar_exclusion_rects().is_empty():
+		GameConfig.draw_mortar_exclusion(self)
 		var font: Font = ThemeDB.fallback_font
 		var at := Vector2(-GameConfig.WEST_FLANK_WIDTH_PX + 12.0, 22.0)
 		var text := "Red: the mortar will not go within 200 m of a populated place"
