@@ -32,6 +32,7 @@ func run() -> void:
 	test_the_multiplier_reaches_the_hit_chance()
 	test_the_hit_rate_really_scales()
 	test_the_real_fire_path_applies_it()
+	test_mortar_hits_are_totally_unaffected()
 	print("Crossfire damage multiplier tests: %d failures" % failures)
 	quit(1 if failures else 0)
 
@@ -208,4 +209,38 @@ func test_the_real_fire_path_applies_it() -> void:
 	var ratio: float = float(four_sides) / float(maxi(one_side, 1))
 	check(near(bm._safe_arc_of(target), 90.0), "Setup: four sides leave 90 safe (%.1f)" % bm._safe_arc_of(target))
 	check(ratio > 2.8 and ratio < 3.7, "Four sides do about 3.25 times the hits of one through the real fire path (observed %.2f: %d vs %d of %d shots)" % [ratio, four_sides, one_side, shots])
+	cleanup(bm)
+
+
+## Direct user ruling: "Mortar hits should be totally unaffected." A unit in full four-sided rifle crossfire
+## takes exactly the old chance from a mortar round — both in the chance itself and in the observed hit rate
+## through the real fire path.
+func test_mortar_hits_are_totally_unaffected() -> void:
+	seed(99)
+	var bm := make_battle()
+	var target: Unit = squad(bm, Unit.Team.PLAYER, Vector2(0.0, 0.0))
+	target.max_pips = 1000000
+	target.pips = 1000000
+	target.took_hit.connect(_count_hit)
+	var mortar: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, m(0.0, 900.0))
+	bm.enemy_units.append(mortar)
+	mortar.base_hit_chance = 0.05
+	var base: float = CombatResolver.hit_probability(mortar, target)
+	check(near(CombatResolver.hit_probability(mortar, target, 1.0, Vector2.INF, Vector2.INF, 4.0), base, 0.0000001), "A crossfire multiplier handed to the hit chance of a mortar round changes nothing")
+	# Put the target into four-sided rifle crossfire.
+	for p in [Vector2(0.0, -300.0), Vector2(0.0, 300.0), Vector2(300.0, 0.0), Vector2(-300.0, 0.0)]:
+		var s: Unit = squad(bm, Unit.Team.ENEMY, p)
+		bm._resolve_fire_and_check_bunching(s, target, target.global_position)
+	check(near(bm._safe_arc_of(target), 90.0), "Setup: the target is in four-sided crossfire (%.1f)" % bm._safe_arc_of(target))
+	_hits_taken = 0
+	var shots := 12000
+	for i in shots:
+		# A mortar hit takes a share of the unit's strength, so put it back each time (and keep it standing
+		# where it was) or a million-pip target is soon destroyed and stops counting.
+		target.pips = 1000000
+		target.state = Unit.State.ACTIVE
+		target.activity = Unit.Activity.STATIONARY
+		bm._resolve_fire_and_check_bunching(mortar, target, target.global_position)
+	var observed: float = float(_hits_taken) / float(shots)
+	check(absf(observed - base) < 0.012, "Mortar hit rate in crossfire is the plain rate (observed %.3f, expected %.3f)" % [observed, base])
 	cleanup(bm)

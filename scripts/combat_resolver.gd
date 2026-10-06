@@ -408,10 +408,12 @@ static func hit_probability(attacker: Unit, defender: Unit, drone_directing_mult
 				chance *= GameConfig.MOVING_HIT_MULTIPLIER
 		if attacker.kind == Unit.Kind.MORTAR:
 			chance *= drone_directing_multiplier
-		# Being fired on from several directions at once multiplies the expected damage taken — see
-		# safe_arc_deg/crossfire_multiplier. A chance already at 1.0 (a moving target at point-blank)
-		# cannot go higher: one shot is at most one hit.
-		chance *= crossfire_multiplier
+		# Being fired on from several directions at once multiplies the expected damage taken from DIRECT fire —
+		# see safe_arc_deg/crossfire_multiplier. Direct user ruling: "Mortar hits should be totally
+		# unaffected" — a plunging round has no direction to be caught in crossfire from. A chance already at
+		# 1.0 (a moving target at point-blank) cannot go higher: one shot is at most one hit.
+		if attacker.kind != Unit.Kind.MORTAR:
+			chance *= crossfire_multiplier
 	return clampf(chance, 0.0, 1.0)
 
 

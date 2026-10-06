@@ -2305,11 +2305,12 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit, impact_point
 	unit_combat_stats.register(attacker)
 	var target_was_active := target.state == Unit.State.ACTIVE
 	# This shot counts as the shooter "taking fire" from its direction BEFORE the roll, so a unit being
-	# shot at from a second side feels it on that very shot. Mortar rounds neither count toward the arc nor
-	# are exempt from the multiplier it produces.
+	# shot at from a second side feels it on that very shot. Mortar rounds are outside the whole mechanism:
+	# they do not count toward the arc and their hits are not multiplied by it (direct user ruling).
+	var crossfire := 1.0
 	if attacker.kind != Unit.Kind.MORTAR:
 		_record_direct_fire(attacker, target)
-	var crossfire: float = _crossfire_multiplier_against(target)
+		crossfire = _crossfire_multiplier_against(target)
 	CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team), _drone_directing_multiplier(attacker), target.global_position.distance_to(impact_point), crossfire)
 	unit_combat_stats.damage(attacker, target, before)
 	_log_hit_consequence(target, target_was_active)

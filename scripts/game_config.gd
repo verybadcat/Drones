@@ -4852,7 +4852,7 @@ const SQUAD_CLOSE_RANGE_HIT_MULTIPLIER: float = 2.0
 ## taking fire. Fire from one direction leaves 360 (a ten-degree spread of shooters, 350), two opposite sides
 ## 180, four sides 90. Expected damage taken scales with it, linearly: x1 at a 360 safe arc, x2 at 240, x3 at
 ## 120, x4 at 0 (which can't actually happen). "Taking fire" means DIRECT fire (not mortar rounds, which plunge
-## from anywhere and have no meaningful direction) from a shooter that has fired at the unit within the last
+## from anywhere and have no meaningful direction; mortar hits are also not multiplied) from a shooter that has fired at the unit within the last
 ## CROSSFIRE_MEMORY_S tactical seconds, at the bearing it fired from. JUDGMENT: there is no quantitative source
 ## for the size (a long search found only qualitative agreement that being hit from several sides is much
 ## worse: Ardant du Picq, Dupuy, US Army FM 7-8's "frontal protection" fighting positions, the Wehrmacht
