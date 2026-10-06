@@ -86,7 +86,15 @@ func _record_score_and_annotate(report_text: String) -> String:
 func _score_tab_text() -> String:
 	if battle_manager == null or battle_manager.battle_result.is_empty():
 		return "No score is available for this battle."
-	return BattleScore.breakdown_text(battle_manager.battle_result.inputs, _scenario_average_line)
+	# Direct user request: "You can duplicate the verdict line at the top of the 'score' page." The same
+	# "Verdict: ..." line the After Action Report opens with (BattleScore.verdict_line builds both), above
+	# the score.
+	var text: String = BattleScore.breakdown_text(battle_manager.battle_result.inputs, _scenario_average_line)
+	var verdict: String = str(battle_manager.battle_result.get("verdict", ""))
+	if verdict.is_empty():
+		return text
+	return "%s
+%s" % [BattleScore.verdict_line(verdict), text]
 
 
 ## The Seed tab: the seed this battle ran on, and what using it again does and does not do.

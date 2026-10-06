@@ -271,7 +271,11 @@ func test_report_has_three_tabs_in_order() -> void:
 	var score: float = built[0].battle_result.score
 	var body: String = report_body(report)
 	var lines: PackedStringArray = body.split("\n")
-	check(lines[0] == "Battle score: %s" % BattleScore.format(score), "It opens on the Score tab, headed by the score, got: %s" % lines[0])
+	# Direct user request: "You can duplicate the verdict line at the top of the 'score' page" — e.g.
+	# "Verdict: TACTICAL WITHDRAWAL — favorable exchange". The score follows it directly.
+	var verdict_text: String = str(built[0].battle_result.verdict)
+	check(not verdict_text.is_empty() and lines[0] == "Verdict: %s" % verdict_text, "It opens on the Score tab, headed by the verdict, got: %s" % lines[0])
+	check(lines[1] == "Battle score: %s" % BattleScore.format(score), "...with the score directly under it, got: %s" % lines[1])
 	check("  Position held: 20.0" in lines, "The position line item is shown: %s" % [lines])
 	check("  Russian killed: 4 \u00d7 5 = 20.0" in lines, "...each event as count x points = points")
 	check("  Russian walking wounded: 5 \u00d7 0.5 = 2.5" in lines, "...including fractional values")
@@ -284,6 +288,8 @@ func test_report_has_three_tabs_in_order() -> void:
 	report_tab.pressed.emit()
 	var report_text: String = report_body(report)
 	check("=== AFTER-ACTION REPORT ===" in report_text and "Verdict:" in report_text, "The After Action Report tab is the report it always was")
+	check(lines[0] in report_text.split("
+"), "The verdict line on the Score tab is the very same line the After Action Report carries")
 	# Direct user request: "the AAR should not mention scores at all. It is how things look to in-world
 	# command, not to a player." The score line used to also appear here, duplicated from the Score tab;
 	# it no longer does.

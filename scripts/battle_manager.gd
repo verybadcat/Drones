@@ -10781,7 +10781,7 @@ func _end_battle() -> void:
 	# computed from the true results).
 	lines.append(AFTER_ACTION_REPORT_DISCLAIMER)
 	lines.append("")
-	lines.append("Verdict: %s" % verdict)
+	lines.append(BattleScore.verdict_line(verdict))
 	if _ended_by_stalemate:
 		lines.append("%s: stalemate — neither side broke contact before the fight was called" % GameConfig.CURRENT_MAP.name)
 	else:

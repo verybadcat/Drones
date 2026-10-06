@@ -115,6 +115,12 @@ static func line_items(inputs: Dictionary) -> Array[Dictionary]:
 ## actually happened as "label: count x points-each = points" (position always
 ## shown), then the total again. `scenario_line` (the running scenario
 ## average) goes under the headline if given.
+## The battle's verdict as a line of text, e.g. "Verdict: TACTICAL WITHDRAWAL — favorable exchange". One
+## builder for the After Action Report and the Score tab, so the two can never read differently.
+static func verdict_line(verdict: String) -> String:
+	return "Verdict: %s" % verdict
+
+
 static func breakdown_text(inputs: Dictionary, scenario_line: String = "") -> String:
 	var lines: PackedStringArray = []
 	lines.append("Battle score: %s" % format(score(inputs)))

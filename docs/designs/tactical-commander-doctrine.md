@@ -4440,3 +4440,13 @@ Direct user request, right after the 80% small-arms change: "Then do the risk fo
 **Verified.** New `test_crossfire_in_risk_forecast.gd`: two shooters in the same direction leave the forecast exactly as it was (arc 360, x1); north and south give arc 180, x2.5 and a forecast equal to the plain per-shot chances times 2.5 pushed through the same distribution; four sides give arc 90, x3.25; the arc is judged at the assessed point (at 200 m off to one side it is 247 degrees, not the 180 of where the unit stands); a mortar on the far side opens no second direction and its own chance is untouched. With the multiplier not applied to the threats three checks fail; with the arc taken at the unit instead of the point one fails.
 
 **Not seen in a live battle.** This changes the decisions the squads make under fire from several enemies, which is exactly where it matters most; the doctrine characterization baselines were not re-run.
+
+### 2026-10-06 — The Score tab opens with the verdict line
+
+Direct user request: "You can duplicate the verdict line at the top of the 'score' page. For example, Verdict: TACTICAL WITHDRAWAL — favorable exchange".
+
+**What changed.** `BattleReport._score_tab_text` now puts the battle's verdict (`battle_result.verdict`) on the first line, directly above "Battle score: ...". The line is built by one new function, `BattleScore.verdict_line`, which the After Action Report now also uses (`_end_battle`), so the two cannot drift apart. The After Action Report is unchanged (it still opens with its disclaimer and carries the verdict line); with no finished battle the Score tab still says there is no score.
+
+**Verified.** `test_battle_score_display.gd`: the Score tab's first line is the verdict, the score is directly under it, and the verdict line is the very same line the After Action Report carries; with the verdict not shown the test fails three ways.
+
+**Not seen in a live battle** — a look at a finished battle's Score tab to see the line in place.
