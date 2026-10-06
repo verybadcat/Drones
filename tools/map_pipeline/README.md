@@ -31,3 +31,11 @@ Things learned: the public Overpass servers time out or return an HTML error pag
 Overture); DuckDuckGo puts a captcha in front of scripted searches; the game's river mechanic (one crossing) failed
 for a big diagonal river (units crossed it anyway, resupply runs stuck at the bridge), so the Voznesensk map is cut
 short just north of the river instead.
+
+## Redoing an existing map's buildings (done for Pervomaiske, Pishchane and Svystunivka, October 2026)
+
+`older_maps/`: `oldmaps.py` (reads a map's anchor, road and blocks out of game_config.gd), `fetch_old.py` (Overture buildings
+and roads for the map's frame), `calibrate.py` / `calibrate_bld.py` (find the small offset between the real data and the map's
+own frame by matching the old road and the old blocks), `build_old_maps.py` (footprints + cover blocks), `apply_old_maps.py`
+(writes them into game_config.gd and copies the footprint files), `verify_old.py` (footprints and old blocks drawn on
+Esri imagery: look at it).

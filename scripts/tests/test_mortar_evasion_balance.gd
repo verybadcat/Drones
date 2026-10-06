@@ -191,6 +191,7 @@ func test_mortar_with_persistent_target_still_relocates_and_keeps_fighting() -> 
 	# signature of genuine relocation actually happening BETWEEN
 	# engagements — the core claim under test.
 	var target_start_pos: Vector2 = enemy_mortar.global_position
+	var spotter_start_pos: Vector2 = spotter.global_position
 	var shot_positions: Array[Vector2] = []
 	var last_rounds: int = mortar.mortar_rounds_remaining
 	var ticks := 0
@@ -218,6 +219,17 @@ func test_mortar_with_persistent_target_still_relocates_and_keeps_fighting() -> 
 			enemy_mortar.has_move_target = false
 			enemy_mortar.mortar_gun_abandoned = false
 			enemy_mortar.is_visible = true
+		# The fixture units are meant to be a fixed observer and a fixed target, but they are real units: left alone the
+		# enemy mortar (out of ammo, visible) walks off to conceal itself and the spotter seeks cover, and on a map whose
+		# buildings put a block between them the spotter loses sight, the target stops being known, and the mortar under
+		# test has nothing to shoot for the rest of the run. That is the map's geometry, not the mechanic under test, so
+		# hold both where this test put them, as it already does when the target is knocked out of ACTIVE.
+		if is_instance_valid(enemy_mortar):
+			enemy_mortar.global_position = target_start_pos
+			enemy_mortar.has_move_target = false
+		if is_instance_valid(spotter):
+			spotter.global_position = spotter_start_pos
+			spotter.has_move_target = false
 		ticks += 1
 
 	check(shot_positions.size() >= 2,

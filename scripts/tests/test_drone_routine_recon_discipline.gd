@@ -88,7 +88,11 @@ func test_far_sweep_pick_does_not_outrank_a_squad_near_the_mortar() -> void:
 	friendly(bm2, Unit.Kind.MORTAR, Vector2(m(300), m(1700)))
 	friendly(bm2, Unit.Kind.SQUAD, Vector2(m(2000), m(1700)))
 	enemy(bm2, Unit.Kind.SQUAD, Vector2(m(950), m(1700)))
-	bm2.active_drone = bm2._make_unit(Unit.Team.PLAYER, Unit.Kind.DRONE, Vector2(m(1000), m(1700)))
+	# The drone starts over the first flank gap, so reaching it costs nothing: whether it is the pool's best pick then
+	# rests on the flank gap's own value, not on how the map's buildings happen to shade a nearby sweep cell (cells
+	# the squads cannot see into keep their full value, and the first version of this check, with the drone at the
+	# squad, lost to one of them the day the buildings were redone).
+	bm2.active_drone = bm2._make_unit(Unit.Team.PLAYER, Unit.Kind.DRONE, bm2._flank_watch_candidates()[0].point)
 	for c in bm2._sweep_candidates():
 		bm2._drone_destination_last_visited[c.key] = bm2.scenario_elapsed_time # so the flank gap is the pool's best
 	bm2._drone_search_target()
