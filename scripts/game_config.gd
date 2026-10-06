@@ -4847,6 +4847,19 @@ const MOVING_HIT_MULTIPLIER: float = 1.6
 ## fire only — a mortar's plunging indirect fire doesn't get easier to aim
 ## just because the target happens to be closer to the tube.
 const SQUAD_CLOSE_RANGE_HIT_MULTIPLIER: float = 2.0
+
+## Crossfire. Direct user design: a unit's "safe arc" is the largest circular arc (degrees) from which it is NOT
+## taking fire. Fire from one direction leaves 360 (a ten-degree spread of shooters, 350), two opposite sides
+## 180, four sides 90. Expected damage taken scales with it, linearly: x1 at a 360 safe arc, x2 at 240, x3 at
+## 120, x4 at 0 (which can't actually happen). "Taking fire" means DIRECT fire (not mortar rounds, which plunge
+## from anywhere and have no meaningful direction) from a shooter that has fired at the unit within the last
+## CROSSFIRE_MEMORY_S tactical seconds, at the bearing it fired from. JUDGMENT: there is no quantitative source
+## for the size (a long search found only qualitative agreement that being hit from several sides is much
+## worse: Ardant du Picq, Dupuy, US Army FM 7-8's "frontal protection" fighting positions, the Wehrmacht
+## handbook).
+const CROSSFIRE_FULL_ARC_DEG: float = 360.0
+const CROSSFIRE_ARC_PER_EXTRA_MULTIPLE_DEG: float = 120.0
+const CROSSFIRE_MEMORY_S: float = 10.0
 const SQUAD_CLOSE_RANGE_DECAY_M: float = 150.0 * PIXELS_PER_METER
 
 # MORTAR fire against a moving target is the opposite story: indirect fire

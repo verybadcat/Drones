@@ -499,6 +499,10 @@ var enemy_mortar_isolated_retreat_ordered: bool = false
 # _resolve_mortar_counter_battery / _resolve_pending_counter_battery.
 # {"target": Unit, "impact_position": Vector2, "impact_time": float}
 var _pending_counter_battery: Array[Dictionary] = []
+## Who has fired DIRECT fire at each unit lately, for the crossfire multiplier (see _crossfire_multiplier_against):
+## target -> {shooter -> {"from": Vector2 (where the shooter stood when it fired), "time": float (scenario seconds)}}.
+## Mortar rounds are never recorded here (they have no meaningful direction).
+var _recent_direct_fire: Dictionary = {}
 
 # Mortar shots fired but not yet landed — see _launch_mortar_shot /
 # _resolve_pending_mortar_shots. {"mortar": Unit, "target": Unit,
@@ -888,6 +892,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_known_enemy_mortar_lead_unit = null
 	_drone_fallback_mortar_watch_unit = null
 	_pending_counter_battery.clear()
+	_recent_direct_fire.clear()
 	_pending_mortar_shots.clear()
 	recon_mode = doctrine.get("recon_mode", GameConfig.ReconMode.SPOTTER)
 	drone_team = null
@@ -2299,7 +2304,13 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit, impact_point
 	var before := UnitCombatStats.before_hit(target)
 	unit_combat_stats.register(attacker)
 	var target_was_active := target.state == Unit.State.ACTIVE
-	CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team), _drone_directing_multiplier(attacker), target.global_position.distance_to(impact_point))
+	# This shot counts as the shooter "taking fire" from its direction BEFORE the roll, so a unit being
+	# shot at from a second side feels it on that very shot. Mortar rounds neither count toward the arc nor
+	# are exempt from the multiplier it produces.
+	if attacker.kind != Unit.Kind.MORTAR:
+		_record_direct_fire(attacker, target)
+	var crossfire: float = _crossfire_multiplier_against(target)
+	CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team), _drone_directing_multiplier(attacker), target.global_position.distance_to(impact_point), crossfire)
 	unit_combat_stats.damage(attacker, target, before)
 	_log_hit_consequence(target, target_was_active)
 	# Collateral risk is about who else is near the actual impact point,
@@ -2334,6 +2345,33 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit, impact_point
 	else:
 		combat_log.log_bunching_spillover(target, victim)
 	_log_hit_consequence(victim, victim_was_active)
+
+
+## Notes that `attacker` just fired direct fire at `target`, from where it stands. One entry per shooter (a
+## shooter that fires again just refreshes its entry); entries older than GameConfig.CROSSFIRE_MEMORY_S are
+## dropped here and ignored on read.
+func _record_direct_fire(attacker: Unit, target: Unit) -> void:
+	var shooters: Dictionary = _recent_direct_fire.get(target, {})
+	shooters[attacker] = {"from": attacker.global_position, "time": scenario_elapsed_time}
+	for s in shooters.keys():
+		if scenario_elapsed_time - shooters[s].time > GameConfig.CROSSFIRE_MEMORY_S:
+			shooters.erase(s)
+	_recent_direct_fire[target] = shooters
+
+
+## The unit's current "safe arc" (largest circular arc, degrees, from which it is not taking direct fire) —
+## see CombatResolver.safe_arc_deg. 360 with nobody, or one direction, firing at it.
+func _safe_arc_of(target: Unit) -> float:
+	var positions: Array[Vector2] = []
+	for s in _recent_direct_fire.get(target, {}).values():
+		if scenario_elapsed_time - s.time <= GameConfig.CROSSFIRE_MEMORY_S:
+			positions.append(s.from)
+	return CombatResolver.safe_arc_deg(target.global_position, positions)
+
+
+## Expected-damage multiplier from crossfire (x1 at a 360 safe arc up to x4 at none) for shots at `target`.
+func _crossfire_multiplier_against(target: Unit) -> float:
+	return CombatResolver.crossfire_multiplier(_safe_arc_of(target))
 
 
 ## The accuracy multiplier `attacker`'s shot gets from the drone feed: 1.0 (none) except for

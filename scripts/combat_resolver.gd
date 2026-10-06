@@ -376,7 +376,7 @@ static func has_live_observer(target: Unit, observers: Array[Unit], ignore_trees
 ## ask "what's the risk to this drone," and the honest answer is now none
 ## from ground fire), so the two paths can't silently disagree.
 ## The same hit model used for resolution and read-only forecasts.
-static func hit_probability(attacker: Unit, defender: Unit, drone_directing_multiplier: float = 1.0, defender_position: Vector2 = Vector2.INF, attacker_position: Vector2 = Vector2.INF) -> float:
+static func hit_probability(attacker: Unit, defender: Unit, drone_directing_multiplier: float = 1.0, defender_position: Vector2 = Vector2.INF, attacker_position: Vector2 = Vector2.INF, crossfire_multiplier: float = 1.0) -> float:
 	var point: Vector2 = defender.global_position if is_inf(defender_position.x) else defender_position
 	var origin: Vector2 = attacker.global_position if is_inf(attacker_position.x) else attacker_position
 	var chance: float
@@ -408,12 +408,42 @@ static func hit_probability(attacker: Unit, defender: Unit, drone_directing_mult
 				chance *= GameConfig.MOVING_HIT_MULTIPLIER
 		if attacker.kind == Unit.Kind.MORTAR:
 			chance *= drone_directing_multiplier
+		# Being fired on from several directions at once multiplies the expected damage taken — see
+		# safe_arc_deg/crossfire_multiplier. A chance already at 1.0 (a moving target at point-blank)
+		# cannot go higher: one shot is at most one hit.
+		chance *= crossfire_multiplier
 	return clampf(chance, 0.0, 1.0)
 
 
-static func resolve_fire(attacker: Unit, defender: Unit, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], drone_directing_multiplier: float = 1.0, impact_distance: float = 0.0) -> bool:
-	var chance := hit_probability(attacker, defender, drone_directing_multiplier)
+static func resolve_fire(attacker: Unit, defender: Unit, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], drone_directing_multiplier: float = 1.0, impact_distance: float = 0.0, crossfire_multiplier: float = 1.0) -> bool:
+	var chance := hit_probability(attacker, defender, drone_directing_multiplier, Vector2.INF, Vector2.INF, crossfire_multiplier)
 	var hit: bool = randf() < chance
 	if hit:
 		defender.take_hit(attacker.kind == Unit.Kind.MORTAR, ally_positions, known_enemy_positions, impact_distance)
 	return hit
+
+
+## The largest circular arc, in degrees, around `defender_position` from which no shooter is firing: the
+## biggest gap between the bearings of `shooter_positions` as seen from the defender. No shooter, or one
+## (all in one direction), leaves the whole circle: 360. Two opposite sides leave 180, four evenly spaced
+## sides 90. A shooter standing on the defender's own spot has no bearing and is ignored.
+static func safe_arc_deg(defender_position: Vector2, shooter_positions: Array) -> float:
+	var bearings: Array[float] = []
+	for p in shooter_positions:
+		var offset: Vector2 = p - defender_position
+		if offset.length_squared() < 0.0001:
+			continue
+		bearings.append(rad_to_deg(offset.angle()))
+	if bearings.size() <= 1:
+		return GameConfig.CROSSFIRE_FULL_ARC_DEG
+	bearings.sort()
+	var widest: float = bearings[0] + 360.0 - bearings[bearings.size() - 1] # the wrap-around gap
+	for i in range(1, bearings.size()):
+		widest = maxf(widest, bearings[i] - bearings[i - 1])
+	return clampf(widest, 0.0, GameConfig.CROSSFIRE_FULL_ARC_DEG)
+
+
+## Expected-damage multiplier for a given safe arc: x1 at 360, x2 at 240, x3 at 120, x4 at 0 (linear).
+static func crossfire_multiplier(safe_arc: float) -> float:
+	var arc: float = clampf(safe_arc, 0.0, GameConfig.CROSSFIRE_FULL_ARC_DEG)
+	return 1.0 + (GameConfig.CROSSFIRE_FULL_ARC_DEG - arc) / GameConfig.CROSSFIRE_ARC_PER_EXTRA_MULTIPLE_DEG
