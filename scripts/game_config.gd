@@ -105,6 +105,18 @@ const MAPS: Dictionary = {
 
 	"village_center": Vector2(1534.0, 1731.0) * PIXELS_PER_METER,
 
+	# The named villages on the map, drawn as English over Ukrainian text (see _draw_settlement_labels). Positions
+	# are in meters and come from real data: this map's anchor coordinates sit at village_center, so a place's
+	# OpenStreetMap position maps to village_center + (east, south) offset. Myrne is the OSM village node
+	# (49.666645, 37.255434 is its building-cluster centroid, the node is 145 m east and 54 m south of it); the
+	# hamlet of Pervomaiske, the map's namesake and the crossroads this map was first built around
+	# (49.657741, 37.270141, 1.06 km east and 0.98 km south), is where the small block of buildings at the south-east
+	# of the map stands. OSM has no place node for the hamlet, so its position is that older anchor.
+	"settlements": [
+		{"name_en": "Myrne", "name_uk": "Мирне", "position_m": Vector2(1679.0, 1785.0)},
+		{"name_en": "Pervomaiske", "name_uk": "Первомайське", "position_m": Vector2(2593.0, 2716.0)},
+	],
+
 	# The fitted model's own constant term — see this dictionary's own doc
 	# comment for the real elevation sourcing.
 	"elevation_baseline_m": 159.5,
@@ -1266,6 +1278,12 @@ const MAPS: Dictionary = {
 	"west_flank_width_m": 1500.0,
 
 	"village_center": Vector2(1425.0, 1728.0) * PIXELS_PER_METER,
+
+	# The named village on the map (see _draw_settlement_labels): the OpenStreetMap place node for Pishchane is
+	# 594 m west and 389 m north of this map's anchor coordinates, which sit at village_center.
+	"settlements": [
+		{"name_en": "Pishchane", "name_uk": "Піщане", "position_m": Vector2(831.0, 1339.0)},
+	],
 
 	# The fitted model's own constant term — see this dictionary's own doc
 	# comment for the real elevation sourcing.
@@ -2460,6 +2478,14 @@ const MAPS: Dictionary = {
 	# The defended position — what the enemy advances toward when no mortar
 	# is known — on the plateau rim, not the village down in the valley.
 	"village_center": Vector2(1500.0, 1750.0) * PIXELS_PER_METER,
+
+	# The named village on the map (see _draw_settlement_labels). The village the buildings here belong to is
+	# Svystunivka, down in the valley to the east of the plateau: its OpenStreetMap place node is 4.3 km east of
+	# this map's anchor (off the edge of the map), so the label sits on the middle of the part of the village that
+	# is on the map, the densest cluster of its buildings.
+	"settlements": [
+		{"name_en": "Svystunivka", "name_uk": "Свистунівка", "position_m": Vector2(3312.0, 2078.0)},
+	],
 
 	# The fitted model's own constant term — roughly the valley floor (the
 	# real ground runs 83-192m ASL across the footprint; the hills below add
@@ -8210,6 +8236,32 @@ static func draw_terrain(ci: CanvasItem) -> void:
 			_draw_village(ci, zone.rect)
 	for patch in CURRENT_MAP.forest_patches:
 		_draw_forest_patch(ci, patch)
+	_draw_settlement_labels(ci) # last, so no tree or building covers a name
+
+
+## The name of every village on the map, English over Ukrainian, centered on its position (CURRENT_MAP.settlements,
+## in meters). Direct user request: "For all maps, if there is a city, put its name on the map in both English and
+## Ukrainian letters." Dark text with a light outline so it reads over buildings, trees and contours alike.
+static func _draw_settlement_labels(ci: CanvasItem) -> void:
+	var font: Font = ThemeDB.fallback_font
+	for settlement in CURRENT_MAP.get("settlements", []):
+		var at: Vector2 = settlement.position_m * PIXELS_PER_METER
+		var lines: Array = [[settlement.name_en, SETTLEMENT_LABEL_SIZE_EN], [settlement.name_uk, SETTLEMENT_LABEL_SIZE_UK]]
+		var y: float = at.y - 2.0
+		for entry in lines:
+			var origin := Vector2(at.x - SETTLEMENT_LABEL_WIDTH * 0.5, y)
+			ci.draw_string_outline(font, origin, entry[0], HORIZONTAL_ALIGNMENT_CENTER, SETTLEMENT_LABEL_WIDTH, entry[1], 4, SETTLEMENT_LABEL_OUTLINE)
+			ci.draw_string(font, origin, entry[0], HORIZONTAL_ALIGNMENT_CENTER, SETTLEMENT_LABEL_WIDTH, entry[1], SETTLEMENT_LABEL_COLOR)
+			y += float(entry[1]) + 2.0
+		settlement_labels_drawn += 1
+
+
+static var settlement_labels_drawn: int = 0 # how many village labels have been drawn so far (tests read it)
+const SETTLEMENT_LABEL_SIZE_EN: int = 14
+const SETTLEMENT_LABEL_SIZE_UK: int = 12
+const SETTLEMENT_LABEL_WIDTH: float = 220.0
+const SETTLEMENT_LABEL_COLOR: Color = Color(0.1, 0.09, 0.05, 1.0)
+const SETTLEMENT_LABEL_OUTLINE: Color = Color(0.95, 0.92, 0.8, 0.9)
 
 
 ## Drawn by following CURRENT_MAP.river's own path_m, not the blocking

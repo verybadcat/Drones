@@ -4450,3 +4450,18 @@ Direct user request: "You can duplicate the verdict line at the top of the 'scor
 **Verified.** `test_battle_score_display.gd`: the Score tab's first line is the verdict, the score is directly under it, and the verdict line is the very same line the After Action Report carries; with the verdict not shown the test fails three ways.
 
 **Not seen in a live battle** — a look at a finished battle's Score tab to see the line in place.
+
+### 2026-10-06 — Village names on the maps, in English and Ukrainian
+
+Direct user request: "For all maps, if there is a city, put its name on the map in both English and Ukrainian letters." (Confirmed that "villages, yes" count: none of the three maps has a city.)
+
+**What changed.** Each map entry gained `"settlements"`: a list of `{name_en, name_uk, position_m}`. `GameConfig.draw_terrain` ends with the new `_draw_settlement_labels`, which draws every village's name centered on its position, English over Ukrainian (14 and 12 px), in dark text with a light outline so it reads over buildings, trees and contours. It is the last thing drawn, so nothing covers a name, and because it lives in `draw_terrain` it shows on the battle map, the deployment map and the deployment loupe alike.
+
+**Where the names and positions come from (real data, OpenStreetMap place nodes via Overpass, checked against the maps' own building blocks):** this map's anchor coordinates sit at `village_center` (the densest building cluster on Pervomaiske and Svystunivka lies on it or where the maps' own comments say; Pishchane's lies 400 m from the OSM node), so a place's position is `village_center` plus its east/south offset.
+- **Pervomaiske map:** Myrne / Мирне (the village this map's buildings were actually built from; the OSM node is 145 m east and 54 m south of the anchor) and Pervomaiske / Первомайське, the hamlet the map is named after and was first built around (the old anchor, 1.06 km east and 0.98 km south, which is exactly where the small block of buildings at the south-east of the map stands). OSM has no place node for the hamlet, so its position is that older anchor and its Ukrainian spelling is the standard one for the game's English transliteration; both are less certain than the others.
+- **Pishchane map:** Pishchane / Піщане (OSM node 594 m west and 389 m north of the anchor).
+- **Svystunivka map:** Svystunivka / Свистунівка. The real place node is 4.3 km east of the anchor, off the edge of the map; the label sits on the densest cluster of the village's buildings that are on the map. The map is called "Svystunivka Heights" but the village is down in the valley, east of the plateau.
+
+**Verified.** New `test_map_settlement_labels.gd`: every map lists at least one village; each name is plain English letters and the other is Ukrainian (Cyrillic) letters; the two differ; each village stands inside the map; the font the game draws with (`ThemeDB.fallback_font`) has every one of those letters (so no empty boxes); and the real drawing routine runs on every map and draws every label (with the drawing call removed it fails on all three maps).
+
+**Not seen on screen.** The sizes (14 px and 12 px, the same range as the existing hill-height labels and unit names) and the placement were not looked at on a rendered map. They are one constant each (`SETTLEMENT_LABEL_SIZE_EN/UK`) and a position per village if they want adjusting.
