@@ -1,0 +1,71 @@
+"voznesensk": {
+	"name": "Voznesensk Approach",
+	"location_subtitle": "Voznesensk Raion, Mykolaiv Oblast",
+	# The real coordinates this map was built around (the Ukrnafta station on the H-24, at village_center) -
+	# shown on the map's own location readout (see main.gd's _location_label).
+	"coordinates": "47.5445, 31.3695",
+	# Real north on screen: the frame is turned so the road from Rakove (bearing 113 degrees) runs due east.
+	"compass_north_screen_direction": Vector2(-0.3907, -0.9205),
+
+	"width_m": 5000.0,
+	"height_m": 2200.0,
+	"west_flank_width_m": 1500.0,
+
+	"village_center": Vector2(1500.0, 1750.0) * PIXELS_PER_METER,
+
+	# The named places on the map, drawn as English over Ukrainian text (see _draw_settlement_labels). Real
+	# OpenStreetMap place nodes mapped through the anchor: Rakove (village), Bolharka (the town's south-east
+	# suburb), and Voznesensk itself at the centre point of the city.
+	"settlements": [
+		{"name_en": "Rakove", "name_uk": "Ракове", "position_m": Vector2(3934.0, 1753.0)},
+		{"name_en": "Bolharka", "name_uk": "Болгарка", "position_m": Vector2(-340.0, 1166.0)},
+		{"name_en": "Voznesensk", "name_uk": "Вознесенськ", "position_m": Vector2(-826.0, 1248.0)},
+	],
+
+	# Real footprints, drawn as they are (see this entry's doc comment); terrain_zones below are the coarse
+	# cover blocks the game logic uses.
+	"building_footprints_file": "res://assets/maps/voznesensk_buildings.json",
+
+	# The constant term of the elevation fit (about the Southern Bug's own level).
+	"elevation_baseline_m": @@BASELINE@@,
+
+	## Least-squares fit to real SRTM data (see the doc comment). Ordered nearest the station first.
+	"hills": [
+@@HILLS@@	],
+
+	"terrain_zones": [
+@@ZONES@@	],
+
+	"forest_patches": [
+@@TREES@@	],
+
+	"road_width_m": 8.0,
+	"road_waypoints_m": [
+@@ROAD@@	],
+
+	"player": {
+		"deployment_zone": Rect2(150.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 2200.0 * PIXELS_PER_METER, 1950.0 * PIXELS_PER_METER),
+		"mortar_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 1950.0 * PIXELS_PER_METER, 2000.0 * PIXELS_PER_METER),
+		"spotter_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 30.0 * PIXELS_PER_METER, 4940.0 * PIXELS_PER_METER, 2030.0 * PIXELS_PER_METER),
+		# Chosen by scanning the deployment area with the game's own has_direct_los/elevation model: each
+		# squad the point near the station that sees the most of the real road, clear of the road bed itself
+		# and of any building.
+		"default_squad_positions": [
+@@SQUADS@@		],
+		"mortar_default_position": @@MORTAR@@ * PIXELS_PER_METER,
+		"spotter_default_position": @@SPOTTER@@ * PIXELS_PER_METER,
+	},
+
+	"enemy": {
+		"spawn_x": 4900.0 * PIXELS_PER_METER, # matches the road's own easternmost waypoint
+		# Asymmetric on purpose: the Southern Bug floodplain starts a few hundred metres south of the road.
+		"squad_spread_min_offset_m": -300.0,
+		"squad_spread_max_offset_m": 60.0,
+		"mortar_rear_x_m": 4700.0, # 200m behind spawn_x, same offset as every other map
+		# 1300 m span on the north side of the road (the other maps use 1600 m: here the south side is the river).
+		"mortar_spread_min_y_m": @@MORTAR_MIN_Y@@,
+		"mortar_spread_max_y_m": @@MORTAR_MAX_Y@@,
+		"flank_waypoint_x": -1000.0 * PIXELS_PER_METER,
+		"flank_waypoint_arrival_radius": 350.0 * PIXELS_PER_METER, # must stay > ENEMY_SURROUND_STANDOFF_RADIUS (300m) - see that constant's own doc comment
+	},
+},

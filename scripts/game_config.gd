@@ -3597,6 +3597,1970 @@ const MAPS: Dictionary = {
 		"flank_waypoint_arrival_radius": 350.0 * PIXELS_PER_METER, # must stay > ENEMY_SURROUND_STANDOFF_RADIUS (300m) — see that constant's own doc comment
 	},
 },
+
+## This map depicts the south-eastern approach to Voznesensk (Mykolaiv Oblast), where on 2-3 March 2022
+## a Russian column of the 126th Coastal Defence Brigade (about 400 men and 43 vehicles, coming from the
+## Mykolaiv direction) was stopped. The fighting was on the approaches, not in the city: the column came up
+## the H-24 highway, staged at the village of Rakove, entered the south-east edge of town, drove in and out
+## several times and was caught packed together at the last filling station on the highway, where Ukrainian
+## artillery hit it for about twenty minutes; the Mertvovod bridge in the city was blown as it arrived.
+## The map is anchored on that filling station (the Ukrnafta on the H-24, 47.5445, 31.3695), which is where
+## the user chose to place the defence. Sources for the account: English Wikipedia ("Battle of Voznesensk")
+## and a Krym.Realii interview with Ukrainian defenders (2023); the station's position is OpenStreetMap's.
+##
+## BUILT from real data (2026-10), with the building layer done differently from the older maps: those
+## aggregate OpenStreetMap footprints into a few dozen blocks, and OpenStreetMap is nearly empty here (about
+## 330 buildings tagged in the whole frame where the satellite picture shows several thousand houses), so the
+## buildings come from Overture Maps (Microsoft ML Buildings plus OpenStreetMap): 5,465 real footprints,
+## checked against Esri World Imagery by overlaying them on it (they line up with the houses along the H-24
+## and the south-east suburb). Every footprint is DRAWN as itself (a resource file, listed under
+## "building_footprints_file"), so the picture matches the satellite; the GAME LOGIC (cover, line of sight)
+## still uses coarse rectangles (terrain_zones): the footprints merged with a 14 m buffer and rasterised to
+## 32 m cells, axis-aligned blocks, only east of x = -150 (the far-west town is the rear area and has no
+## cover logic, only the picture).
+## ELEVATION: SRTM 30m (OpenTopoData) on a 100m grid, 28 Gaussian hills, about 5.7 m RMS overall and 4.3 m
+## near the station; the ground is a plateau of 50-70 m falling in a bluff to the Southern Bug floodplain
+## (about sea level) just south of the highway.
+## TREES: Overture land cover (forest) packed into circles; its shrub and grass classes are far too coarse
+## to use as trees, and it has no tree rows or hedges.
+## ROAD: the real H-24 centreline (Overture transportation segments), from the map's east edge to the
+## east edge of the town.
+## THE FRAME IS CUT SHORT: the map is 2,200 m tall, not the usual 3,500 m. A large river, the Southern Bug,
+## runs south of the highway (its north bank is 450-600 m south of the station, the floodplain even nearer),
+## and the game's river mechanic (one crossing, units routed to it) did not work for it: in test battles units
+## crossed it anyway, and mortar resupply runs that began on the far bank were sent to a bridge 4 km away and
+## stuck. So the map ends just north of the river's bank (the bluff and the edge of the floodplain are in);
+## everything south of y = 2,200 is left out, the river included.
+##
+## The attack comes from the east-south-east (bearing 113 degrees from the station, toward Rakove), so the
+## map frame is turned: north on screen points up-left (compass_north_screen_direction).
+"voznesensk": {
+	"name": "Voznesensk Approach",
+	"location_subtitle": "Voznesensk Raion, Mykolaiv Oblast",
+	# The real coordinates this map was built around (the Ukrnafta station on the H-24, at village_center) -
+	# shown on the map's own location readout (see main.gd's _location_label).
+	"coordinates": "47.5445, 31.3695",
+	# Real north on screen: the frame is turned so the road from Rakove (bearing 113 degrees) runs due east.
+	"compass_north_screen_direction": Vector2(-0.3907, -0.9205),
+
+	"width_m": 5000.0,
+	"height_m": 2200.0,
+	"west_flank_width_m": 1500.0,
+
+	"village_center": Vector2(1500.0, 1750.0) * PIXELS_PER_METER,
+
+	# The named places on the map, drawn as English over Ukrainian text (see _draw_settlement_labels). Real
+	# OpenStreetMap place nodes mapped through the anchor: Rakove (village), Bolharka (the town's south-east
+	# suburb), and Voznesensk itself at the centre point of the city.
+	"settlements": [
+		{"name_en": "Rakove", "name_uk": "Ракове", "position_m": Vector2(3934.0, 1753.0)},
+		{"name_en": "Bolharka", "name_uk": "Болгарка", "position_m": Vector2(-340.0, 1166.0)},
+		{"name_en": "Voznesensk", "name_uk": "Вознесенськ", "position_m": Vector2(-826.0, 1248.0)},
+	],
+
+	# Real footprints, drawn as they are (see this entry's doc comment); terrain_zones below are the coarse
+	# cover blocks the game logic uses.
+	"building_footprints_file": "res://assets/maps/voznesensk_buildings.json",
+
+	# The constant term of the elevation fit (about the Southern Bug's own level).
+	"elevation_baseline_m": -2.0,
+
+	## Least-squares fit to real SRTM data (see the doc comment). Ordered nearest the station first.
+	"hills": [
+		{"center_m": Vector2(1400.0, 1700.0), "radius_m": 130.0, "height_m": 26.3, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.06, "phase": 1.5},
+			{"frequency": 2, "amplitude": 0.06, "phase": 1.8},
+		]},
+		{"center_m": Vector2(1700.0, 1800.0), "radius_m": 130.0, "height_m": 19.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.10, "phase": 2.7},
+			{"frequency": 4, "amplitude": 0.05, "phase": 6.0},
+		]},
+		{"center_m": Vector2(1800.0, 1400.0), "radius_m": 280.0, "height_m": 53.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 4.9},
+			{"frequency": 2, "amplitude": 0.04, "phase": 5.8},
+		]},
+		{"center_m": Vector2(1000.0, 1800.0), "radius_m": 130.0, "height_m": 18.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 2.9},
+			{"frequency": 2, "amplitude": 0.05, "phase": 3.7},
+		]},
+		{"center_m": Vector2(1100.0, 1400.0), "radius_m": 190.0, "height_m": 39.3, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.06, "phase": 0.8},
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.4},
+		]},
+		{"center_m": Vector2(2100.0, 1800.0), "radius_m": 130.0, "height_m": 34.1, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 5.0},
+			{"frequency": 4, "amplitude": 0.06, "phase": 1.1},
+		]},
+		{"center_m": Vector2(1500.0, 900.0), "radius_m": 190.0, "height_m": 25.6, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.05, "phase": 1.7},
+			{"frequency": 3, "amplitude": 0.04, "phase": 5.3},
+		]},
+		{"center_m": Vector2(2500.0, 1600.0), "radius_m": 190.0, "height_m": 50.8, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 0.9},
+			{"frequency": 2, "amplitude": 0.07, "phase": 2.2},
+		]},
+		{"center_m": Vector2(2500.0, 1900.0), "radius_m": 90.0, "height_m": 23.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.07, "phase": 2.0},
+			{"frequency": 3, "amplitude": 0.04, "phase": 3.8},
+		]},
+		{"center_m": Vector2(1800.0, 700.0), "radius_m": 130.0, "height_m": 12.8, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 1.6},
+			{"frequency": 3, "amplitude": 0.07, "phase": 6.3},
+		]},
+		{"center_m": Vector2(700.0, 1000.0), "radius_m": 280.0, "height_m": 13.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.2},
+			{"frequency": 2, "amplitude": 0.09, "phase": 3.2},
+		]},
+		{"center_m": Vector2(2200.0, 900.0), "radius_m": 280.0, "height_m": 37.4, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.10, "phase": 5.7},
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.9},
+		]},
+		{"center_m": Vector2(2500.0, 1200.0), "radius_m": 130.0, "height_m": 22.4, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 0.0},
+			{"frequency": 2, "amplitude": 0.07, "phase": 3.9},
+		]},
+		{"center_m": Vector2(200.0, 1600.0), "radius_m": 280.0, "height_m": 27.6, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 5.7},
+			{"frequency": 3, "amplitude": 0.04, "phase": 3.1},
+		]},
+		{"center_m": Vector2(2900.0, 1800.0), "radius_m": 130.0, "height_m": 49.1, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 1.3},
+			{"frequency": 2, "amplitude": 0.06, "phase": 2.0},
+		]},
+		{"center_m": Vector2(2000.0, 300.0), "radius_m": 190.0, "height_m": 36.9, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.3},
+			{"frequency": 2, "amplitude": 0.08, "phase": 0.2},
+		]},
+		{"center_m": Vector2(1200.0, 0.0), "radius_m": 560.0, "height_m": 58.7, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 2.0},
+			{"frequency": 4, "amplitude": 0.08, "phase": 4.2},
+		]},
+		{"center_m": Vector2(1300.0, 3600.0), "radius_m": 280.0, "height_m": 28.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.1},
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.8},
+		]},
+		{"center_m": Vector2(3200.0, 900.0), "radius_m": 400.0, "height_m": 28.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.05, "phase": 2.0},
+			{"frequency": 4, "amplitude": 0.07, "phase": 5.6},
+		]},
+		{"center_m": Vector2(-100.0, 700.0), "radius_m": 560.0, "height_m": 58.7, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.06, "phase": 0.8},
+			{"frequency": 4, "amplitude": 0.04, "phase": 1.2},
+		]},
+		{"center_m": Vector2(2200.0, -100.0), "radius_m": 1600.0, "height_m": 20.7, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 5.9},
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.4},
+		]},
+		{"center_m": Vector2(2800.0, 100.0), "radius_m": 190.0, "height_m": 34.9, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.09, "phase": 1.2},
+			{"frequency": 2, "amplitude": 0.08, "phase": 1.0},
+		]},
+		{"center_m": Vector2(100.0, -100.0), "radius_m": 190.0, "height_m": 47.4, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 1.3},
+			{"frequency": 2, "amplitude": 0.08, "phase": 4.0},
+		]},
+		{"center_m": Vector2(4000.0, 1400.0), "radius_m": 280.0, "height_m": 32.4, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 3.6},
+			{"frequency": 3, "amplitude": 0.07, "phase": 2.1},
+		]},
+		{"center_m": Vector2(3500.0, -100.0), "radius_m": 400.0, "height_m": 61.8, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 5.9},
+			{"frequency": 4, "amplitude": 0.03, "phase": 0.6},
+		]},
+		{"center_m": Vector2(4400.0, 600.0), "radius_m": 560.0, "height_m": 62.1, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 2.8},
+			{"frequency": 4, "amplitude": 0.10, "phase": 2.9},
+		]},
+		{"center_m": Vector2(4800.0, 1800.0), "radius_m": 280.0, "height_m": 40.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 4.2},
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.9},
+		]},
+		{"center_m": Vector2(4600.0, -100.0), "radius_m": 280.0, "height_m": 31.1, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 2.2},
+			{"frequency": 3, "amplitude": 0.07, "phase": 2.0},
+		]},
+	],
+
+	"terrain_zones": [
+		{"rect": Rect2(-151 * PIXELS_PER_METER, 71 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-119 * PIXELS_PER_METER, 103 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-87 * PIXELS_PER_METER, 135 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-170 * PIXELS_PER_METER, 298 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-146 * PIXELS_PER_METER, 409 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-163 * PIXELS_PER_METER, 459 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-163 * PIXELS_PER_METER, 491 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-131 * PIXELS_PER_METER, 523 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-170 * PIXELS_PER_METER, 555 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-170 * PIXELS_PER_METER, 779 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-170 * PIXELS_PER_METER, 619 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-170 * PIXELS_PER_METER, 683 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 96 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-170 * PIXELS_PER_METER, 811 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-138 * PIXELS_PER_METER, 843 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-170 * PIXELS_PER_METER, 875 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 96 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-42 * PIXELS_PER_METER, 875 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(22 * PIXELS_PER_METER, 907 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(86 * PIXELS_PER_METER, 939 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-131 * PIXELS_PER_METER, 953 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-163 * PIXELS_PER_METER, 1017 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-67 * PIXELS_PER_METER, 1049 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-157 * PIXELS_PER_METER, 1148 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(88 * PIXELS_PER_METER, 1243 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(56 * PIXELS_PER_METER, 1275 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(56 * PIXELS_PER_METER, 1307 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(184 * PIXELS_PER_METER, 1307 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(56 * PIXELS_PER_METER, 1339 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 1371 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 1819 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(24 * PIXELS_PER_METER, 1371 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(152 * PIXELS_PER_METER, 1371 * PIXELS_PER_METER, 320 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 1403 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-8 * PIXELS_PER_METER, 1403 * PIXELS_PER_METER, 480 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 1435 * PIXELS_PER_METER, 640 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 1467 * PIXELS_PER_METER, 544 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(408 * PIXELS_PER_METER, 1467 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-104 * PIXELS_PER_METER, 1499 * PIXELS_PER_METER, 576 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-104 * PIXELS_PER_METER, 1531 * PIXELS_PER_METER, 608 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-104 * PIXELS_PER_METER, 1563 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(24 * PIXELS_PER_METER, 1563 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(344 * PIXELS_PER_METER, 1563 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-72 * PIXELS_PER_METER, 1595 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(88 * PIXELS_PER_METER, 1595 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 1627 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 1851 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(152 * PIXELS_PER_METER, 1627 * PIXELS_PER_METER, 416 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(120 * PIXELS_PER_METER, 1659 * PIXELS_PER_METER, 448 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-136 * PIXELS_PER_METER, 1691 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(120 * PIXELS_PER_METER, 1691 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(344 * PIXELS_PER_METER, 1691 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 1723 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(152 * PIXELS_PER_METER, 1723 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(344 * PIXELS_PER_METER, 1723 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(344 * PIXELS_PER_METER, 1851 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(536 * PIXELS_PER_METER, 1723 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(536 * PIXELS_PER_METER, 2107 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-136 * PIXELS_PER_METER, 1755 * PIXELS_PER_METER, 576 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(568 * PIXELS_PER_METER, 1755 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(632 * PIXELS_PER_METER, 1755 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 1787 * PIXELS_PER_METER, 864 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-72 * PIXELS_PER_METER, 1819 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(88 * PIXELS_PER_METER, 1819 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(312 * PIXELS_PER_METER, 1819 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(664 * PIXELS_PER_METER, 1819 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(664 * PIXELS_PER_METER, 2075 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(88 * PIXELS_PER_METER, 1851 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(472 * PIXELS_PER_METER, 1851 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-104 * PIXELS_PER_METER, 1883 * PIXELS_PER_METER, 384 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(600 * PIXELS_PER_METER, 1883 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 1915 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(56 * PIXELS_PER_METER, 1915 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(120 * PIXELS_PER_METER, 1915 * PIXELS_PER_METER, 576 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(152 * PIXELS_PER_METER, 1947 * PIXELS_PER_METER, 544 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-168 * PIXELS_PER_METER, 1979 * PIXELS_PER_METER, 512 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(376 * PIXELS_PER_METER, 1979 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-136 * PIXELS_PER_METER, 2011 * PIXELS_PER_METER, 768 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-8 * PIXELS_PER_METER, 2043 * PIXELS_PER_METER, 704 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(184 * PIXELS_PER_METER, 2075 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(280 * PIXELS_PER_METER, 2075 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-167 * PIXELS_PER_METER, 2123 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(409 * PIXELS_PER_METER, 2123 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-71 * PIXELS_PER_METER, 2155 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(89 * PIXELS_PER_METER, 2155 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(217 * PIXELS_PER_METER, 2155 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(39 * PIXELS_PER_METER, 39 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(135 * PIXELS_PER_METER, 39 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(39 * PIXELS_PER_METER, 71 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(7 * PIXELS_PER_METER, 103 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-25 * PIXELS_PER_METER, 135 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-57 * PIXELS_PER_METER, 167 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-89 * PIXELS_PER_METER, 199 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-121 * PIXELS_PER_METER, 231 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-121 * PIXELS_PER_METER, 263 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-89 * PIXELS_PER_METER, 295 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-105 * PIXELS_PER_METER, 411 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-64 * PIXELS_PER_METER, 940 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(49 * PIXELS_PER_METER, -2 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-6 * PIXELS_PER_METER, 395 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(26 * PIXELS_PER_METER, 427 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(6 * PIXELS_PER_METER, 465 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(38 * PIXELS_PER_METER, 497 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-31 * PIXELS_PER_METER, 570 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(74 * PIXELS_PER_METER, 579 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(42 * PIXELS_PER_METER, 611 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(42 * PIXELS_PER_METER, 643 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(74 * PIXELS_PER_METER, 675 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(106 * PIXELS_PER_METER, 707 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(24 * PIXELS_PER_METER, 662 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(25 * PIXELS_PER_METER, 789 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(-27 * PIXELS_PER_METER, 796 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(121 * PIXELS_PER_METER, -25 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(89 * PIXELS_PER_METER, 7 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(89 * PIXELS_PER_METER, 39 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(86 * PIXELS_PER_METER, 510 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(86 * PIXELS_PER_METER, 542 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(141 * PIXELS_PER_METER, 557 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(109 * PIXELS_PER_METER, 589 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(114 * PIXELS_PER_METER, 957 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(155 * PIXELS_PER_METER, 1048 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(123 * PIXELS_PER_METER, 1080 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(187 * PIXELS_PER_METER, 1112 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(193 * PIXELS_PER_METER, 70 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(178 * PIXELS_PER_METER, 606 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(194 * PIXELS_PER_METER, 666 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(194 * PIXELS_PER_METER, 698 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(258 * PIXELS_PER_METER, 730 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(163 * PIXELS_PER_METER, 728 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(197 * PIXELS_PER_METER, 758 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(197 * PIXELS_PER_METER, 790 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(179 * PIXELS_PER_METER, 865 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(187 * PIXELS_PER_METER, 1215 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(219 * PIXELS_PER_METER, 43 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(422 * PIXELS_PER_METER, 1220 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(358 * PIXELS_PER_METER, 1252 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(294 * PIXELS_PER_METER, 1284 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(294 * PIXELS_PER_METER, 1316 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(332 * PIXELS_PER_METER, 850 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(317 * PIXELS_PER_METER, 934 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(432 * PIXELS_PER_METER, 812 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(432 * PIXELS_PER_METER, 844 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(459 * PIXELS_PER_METER, 850 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(427 * PIXELS_PER_METER, 882 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(568 * PIXELS_PER_METER, 930 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(443 * PIXELS_PER_METER, 1077 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(609 * PIXELS_PER_METER, 972 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(755 * PIXELS_PER_METER, 1158 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(663 * PIXELS_PER_METER, 1251 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(695 * PIXELS_PER_METER, 1283 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(756 * PIXELS_PER_METER, 1232 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(724 * PIXELS_PER_METER, 1264 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(724 * PIXELS_PER_METER, 1296 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(735 * PIXELS_PER_METER, 1337 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(763 * PIXELS_PER_METER, 1566 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(763 * PIXELS_PER_METER, 1598 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1083 * PIXELS_PER_METER, 1598 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1179 * PIXELS_PER_METER, 1598 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(859 * PIXELS_PER_METER, 1630 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(859 * PIXELS_PER_METER, 1758 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1275 * PIXELS_PER_METER, 1630 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(731 * PIXELS_PER_METER, 1662 * PIXELS_PER_METER, 704 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(731 * PIXELS_PER_METER, 1694 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 192 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(859 * PIXELS_PER_METER, 1694 * PIXELS_PER_METER, 480 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(859 * PIXELS_PER_METER, 1726 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1051 * PIXELS_PER_METER, 1726 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1275 * PIXELS_PER_METER, 1758 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1371 * PIXELS_PER_METER, 1758 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(891 * PIXELS_PER_METER, 1790 * PIXELS_PER_METER, 416 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1339 * PIXELS_PER_METER, 1790 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(891 * PIXELS_PER_METER, 1822 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(987 * PIXELS_PER_METER, 1822 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1051 * PIXELS_PER_METER, 1822 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(891 * PIXELS_PER_METER, 1854 * PIXELS_PER_METER, 384 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(763 * PIXELS_PER_METER, 1886 * PIXELS_PER_METER, 480 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(731 * PIXELS_PER_METER, 1918 * PIXELS_PER_METER, 352 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(731 * PIXELS_PER_METER, 1950 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(827 * PIXELS_PER_METER, 1950 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(699 * PIXELS_PER_METER, 1982 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(699 * PIXELS_PER_METER, 2014 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(684 * PIXELS_PER_METER, 1622 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(744 * PIXELS_PER_METER, 1629 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1020 * PIXELS_PER_METER, 66 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1369 * PIXELS_PER_METER, 1890 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1298 * PIXELS_PER_METER, 1893 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1298 * PIXELS_PER_METER, 1925 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1177 * PIXELS_PER_METER, 1958 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1809 * PIXELS_PER_METER, 170 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1777 * PIXELS_PER_METER, 202 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1777 * PIXELS_PER_METER, 234 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2095 * PIXELS_PER_METER, 361 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1633 * PIXELS_PER_METER, 1361 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1581 * PIXELS_PER_METER, 1382 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1549 * PIXELS_PER_METER, 1414 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1677 * PIXELS_PER_METER, 1414 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1677 * PIXELS_PER_METER, 1510 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 96 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1549 * PIXELS_PER_METER, 1446 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1529 * PIXELS_PER_METER, 1500 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1521 * PIXELS_PER_METER, 1552 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1575 * PIXELS_PER_METER, 1553 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1463 * PIXELS_PER_METER, 1568 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1642 * PIXELS_PER_METER, 1607 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1484 * PIXELS_PER_METER, 1669 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1626 * PIXELS_PER_METER, 1689 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1438 * PIXELS_PER_METER, 1738 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1563 * PIXELS_PER_METER, 1790 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1444 * PIXELS_PER_METER, 1794 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1604 * PIXELS_PER_METER, 1794 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1444 * PIXELS_PER_METER, 1826 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(1444 * PIXELS_PER_METER, 1890 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2754 * PIXELS_PER_METER, 787 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3023 * PIXELS_PER_METER, 793 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3055 * PIXELS_PER_METER, 825 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3101 * PIXELS_PER_METER, 828 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3101 * PIXELS_PER_METER, 860 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3101 * PIXELS_PER_METER, 892 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3133 * PIXELS_PER_METER, 924 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3197 * PIXELS_PER_METER, 924 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3229 * PIXELS_PER_METER, 956 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3261 * PIXELS_PER_METER, 988 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2730 * PIXELS_PER_METER, 890 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2997 * PIXELS_PER_METER, 925 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3044 * PIXELS_PER_METER, 931 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3110 * PIXELS_PER_METER, 980 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2765 * PIXELS_PER_METER, 984 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2790 * PIXELS_PER_METER, 1014 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2989 * PIXELS_PER_METER, 1025 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3021 * PIXELS_PER_METER, 1057 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3053 * PIXELS_PER_METER, 1089 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2885 * PIXELS_PER_METER, 1081 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2776 * PIXELS_PER_METER, 1116 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3111 * PIXELS_PER_METER, 1153 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2755 * PIXELS_PER_METER, 1161 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2755 * PIXELS_PER_METER, 1193 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2787 * PIXELS_PER_METER, 1225 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2819 * PIXELS_PER_METER, 1257 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2984 * PIXELS_PER_METER, 1250 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2840 * PIXELS_PER_METER, 1291 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2840 * PIXELS_PER_METER, 1355 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2960 * PIXELS_PER_METER, 1373 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2960 * PIXELS_PER_METER, 1469 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2928 * PIXELS_PER_METER, 1405 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2992 * PIXELS_PER_METER, 1501 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2992 * PIXELS_PER_METER, 1533 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3024 * PIXELS_PER_METER, 1565 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3024 * PIXELS_PER_METER, 1597 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3056 * PIXELS_PER_METER, 1629 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3088 * PIXELS_PER_METER, 1661 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3120 * PIXELS_PER_METER, 1693 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3152 * PIXELS_PER_METER, 1757 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3184 * PIXELS_PER_METER, 1821 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2155 * PIXELS_PER_METER, 1511 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2155 * PIXELS_PER_METER, 1543 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3127 * PIXELS_PER_METER, 1853 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3095 * PIXELS_PER_METER, 1885 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3095 * PIXELS_PER_METER, 1917 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2648 * PIXELS_PER_METER, 2041 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2294 * PIXELS_PER_METER, 2067 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(2764 * PIXELS_PER_METER, 2073 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3317 * PIXELS_PER_METER, 993 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3317 * PIXELS_PER_METER, 1057 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3164 * PIXELS_PER_METER, 1015 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3394 * PIXELS_PER_METER, 1018 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3517 * PIXELS_PER_METER, 1073 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3168 * PIXELS_PER_METER, 1252 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3207 * PIXELS_PER_METER, 1319 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3733 * PIXELS_PER_METER, 1381 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3252 * PIXELS_PER_METER, 1380 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3638 * PIXELS_PER_METER, 1391 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3670 * PIXELS_PER_METER, 1423 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3813 * PIXELS_PER_METER, 1414 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3650 * PIXELS_PER_METER, 1444 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3650 * PIXELS_PER_METER, 1476 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3747 * PIXELS_PER_METER, 1464 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3319 * PIXELS_PER_METER, 1469 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3741 * PIXELS_PER_METER, 1504 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3709 * PIXELS_PER_METER, 1536 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3709 * PIXELS_PER_METER, 1568 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3663 * PIXELS_PER_METER, 1582 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3858 * PIXELS_PER_METER, 1596 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3858 * PIXELS_PER_METER, 1628 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3858 * PIXELS_PER_METER, 1660 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4018 * PIXELS_PER_METER, 1660 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4114 * PIXELS_PER_METER, 1660 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3922 * PIXELS_PER_METER, 1692 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3753 * PIXELS_PER_METER, 1611 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3785 * PIXELS_PER_METER, 1643 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3459 * PIXELS_PER_METER, 1657 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3312 * PIXELS_PER_METER, 1678 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3312 * PIXELS_PER_METER, 1710 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3734 * PIXELS_PER_METER, 1698 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3495 * PIXELS_PER_METER, 1743 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3527 * PIXELS_PER_METER, 1775 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3595 * PIXELS_PER_METER, 1789 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3775 * PIXELS_PER_METER, 1791 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3775 * PIXELS_PER_METER, 1823 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3877 * PIXELS_PER_METER, 1791 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3845 * PIXELS_PER_METER, 1823 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3717 * PIXELS_PER_METER, 1855 * PIXELS_PER_METER, 224 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3749 * PIXELS_PER_METER, 1887 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3358 * PIXELS_PER_METER, 1796 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3722 * PIXELS_PER_METER, 1799 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3461 * PIXELS_PER_METER, 1850 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3244 * PIXELS_PER_METER, 1849 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3244 * PIXELS_PER_METER, 1881 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3631 * PIXELS_PER_METER, 1852 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3631 * PIXELS_PER_METER, 1884 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3200 * PIXELS_PER_METER, 1854 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3420 * PIXELS_PER_METER, 1853 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3484 * PIXELS_PER_METER, 1908 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4559 * PIXELS_PER_METER, 1224 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4574 * PIXELS_PER_METER, 1273 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4574 * PIXELS_PER_METER, 1401 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4574 * PIXELS_PER_METER, 1305 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4574 * PIXELS_PER_METER, 1465 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4574 * PIXELS_PER_METER, 1593 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4606 * PIXELS_PER_METER, 1337 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4606 * PIXELS_PER_METER, 1497 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4606 * PIXELS_PER_METER, 1561 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4606 * PIXELS_PER_METER, 1657 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4638 * PIXELS_PER_METER, 1689 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3994 * PIXELS_PER_METER, 1403 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3994 * PIXELS_PER_METER, 1435 * PIXELS_PER_METER, 288 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4026 * PIXELS_PER_METER, 1467 * PIXELS_PER_METER, 256 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4090 * PIXELS_PER_METER, 1499 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4250 * PIXELS_PER_METER, 1499 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4329 * PIXELS_PER_METER, 1428 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4329 * PIXELS_PER_METER, 1460 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3943 * PIXELS_PER_METER, 1435 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4333 * PIXELS_PER_METER, 1510 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4301 * PIXELS_PER_METER, 1574 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 96 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4301 * PIXELS_PER_METER, 1670 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4242 * PIXELS_PER_METER, 1546 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4152 * PIXELS_PER_METER, 1635 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4184 * PIXELS_PER_METER, 1699 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4246 * PIXELS_PER_METER, 1643 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4254 * PIXELS_PER_METER, 1690 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4011 * PIXELS_PER_METER, 1712 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4011 * PIXELS_PER_METER, 1744 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4581 * PIXELS_PER_METER, 1707 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4581 * PIXELS_PER_METER, 1771 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4549 * PIXELS_PER_METER, 1739 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4201 * PIXELS_PER_METER, 1774 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4201 * PIXELS_PER_METER, 1806 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4055 * PIXELS_PER_METER, 1782 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4023 * PIXELS_PER_METER, 1814 * PIXELS_PER_METER, 192 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4055 * PIXELS_PER_METER, 1846 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4409 * PIXELS_PER_METER, 1817 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4569 * PIXELS_PER_METER, 1817 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4473 * PIXELS_PER_METER, 1849 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4569 * PIXELS_PER_METER, 1881 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4213 * PIXELS_PER_METER, 1835 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(3944 * PIXELS_PER_METER, 1839 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4375 * PIXELS_PER_METER, 1857 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4449 * PIXELS_PER_METER, 1880 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4449 * PIXELS_PER_METER, 1912 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4504 * PIXELS_PER_METER, 1901 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4727 * PIXELS_PER_METER, 1348 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4700 * PIXELS_PER_METER, 1386 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4700 * PIXELS_PER_METER, 1450 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4700 * PIXELS_PER_METER, 1482 * PIXELS_PER_METER, 128 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4732 * PIXELS_PER_METER, 1514 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4764 * PIXELS_PER_METER, 1578 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4828 * PIXELS_PER_METER, 1537 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4756 * PIXELS_PER_METER, 1625 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4756 * PIXELS_PER_METER, 1657 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4788 * PIXELS_PER_METER, 1721 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4788 * PIXELS_PER_METER, 1753 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4819 * PIXELS_PER_METER, 1760 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4821 * PIXELS_PER_METER, 1799 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 64 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4777 * PIXELS_PER_METER, 1862 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4680 * PIXELS_PER_METER, 1905 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4712 * PIXELS_PER_METER, 1937 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4575 * PIXELS_PER_METER, 1920 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4607 * PIXELS_PER_METER, 1952 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4773 * PIXELS_PER_METER, 1933 * PIXELS_PER_METER, 96 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4805 * PIXELS_PER_METER, 1965 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4695 * PIXELS_PER_METER, 1962 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(5006 * PIXELS_PER_METER, 1976 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4974 * PIXELS_PER_METER, 2008 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4974 * PIXELS_PER_METER, 2040 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4879 * PIXELS_PER_METER, 1977 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4911 * PIXELS_PER_METER, 2009 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4747 * PIXELS_PER_METER, 1976 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4747 * PIXELS_PER_METER, 2008 * PIXELS_PER_METER, 160 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4779 * PIXELS_PER_METER, 2040 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4843 * PIXELS_PER_METER, 2040 * PIXELS_PER_METER, 64 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4925 * PIXELS_PER_METER, 2036 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+		{"rect": Rect2(4972 * PIXELS_PER_METER, 2069 * PIXELS_PER_METER, 32 * PIXELS_PER_METER, 32 * PIXELS_PER_METER), "type": TerrainType.BUILDING},
+	],
+
+	"forest_patches": [
+		{"center_m": Vector2(1835.0, 1915.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 6.1},
+			{"frequency": 4, "amplitude": 0.08, "phase": 0.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2105.0, 1935.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 0.4},
+			{"frequency": 2, "amplitude": 0.07, "phase": 2.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2925.0, 1935.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 5.0},
+			{"frequency": 3, "amplitude": 0.06, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2435.0, 1945.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 2.1},
+			{"frequency": 2, "amplitude": 0.05, "phase": 2.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4995.0, 1395.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.16, "phase": 1.5},
+			{"frequency": 2, "amplitude": 0.09, "phase": 4.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2905.0, 715.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 5.4},
+			{"frequency": 2, "amplitude": 0.05, "phase": 4.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2705.0, 625.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 5.9},
+			{"frequency": 3, "amplitude": 0.09, "phase": 4.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2635.0, 1925.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.0},
+			{"frequency": 2, "amplitude": 0.08, "phase": 1.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2275.0, 1865.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 0.8},
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4995.0, 1585.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 2.9},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2935.0, 1755.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.7},
+			{"frequency": 4, "amplitude": 0.12, "phase": 5.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1965.0, 2025.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 4.5},
+			{"frequency": 4, "amplitude": 0.12, "phase": 3.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1695.0, 2005.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 2.4},
+			{"frequency": 4, "amplitude": 0.11, "phase": 3.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2535.0, 835.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 5.3},
+			{"frequency": 4, "amplitude": 0.06, "phase": 5.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2855.0, 885.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 5.8},
+			{"frequency": 4, "amplitude": 0.09, "phase": 1.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1975.0, 1835.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 3.8},
+			{"frequency": 3, "amplitude": 0.12, "phase": 0.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2235.0, 2025.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 3.1},
+			{"frequency": 2, "amplitude": 0.08, "phase": 0.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(975.0, 855.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 1.3},
+			{"frequency": 4, "amplitude": 0.05, "phase": 6.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2775.0, 1995.0), "radius_m": 76.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 4.8},
+			{"frequency": 2, "amplitude": 0.12, "phase": 5.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3015.0, 595.0), "radius_m": 74.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 4.5},
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1245.0, 165.0), "radius_m": 72.3, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 1.9},
+			{"frequency": 4, "amplitude": 0.07, "phase": 3.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3055.0, 2015.0), "radius_m": 72.3, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 3.3},
+			{"frequency": 3, "amplitude": 0.05, "phase": 4.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4995.0, 1795.0), "radius_m": 69.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 5.8},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2425.0, 485.0), "radius_m": 68.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 0.4},
+			{"frequency": 2, "amplitude": 0.12, "phase": 2.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2605.0, 495.0), "radius_m": 68.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 3.2},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(945.0, 575.0), "radius_m": 67.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 2.1},
+			{"frequency": 4, "amplitude": 0.11, "phase": 4.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2925.0, 1605.0), "radius_m": 67.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 3.4},
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4385.0, 1755.0), "radius_m": 67.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 4.2},
+			{"frequency": 2, "amplitude": 0.12, "phase": 3.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1985.0, 125.0), "radius_m": 66.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 4.2},
+			{"frequency": 3, "amplitude": 0.06, "phase": 3.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2695.0, 775.0), "radius_m": 63.7, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 2.2},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2915.0, 1015.0), "radius_m": 63.7, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.16, "phase": 2.4},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1755.0, 1795.0), "radius_m": 63.7, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 3.2},
+			{"frequency": 3, "amplitude": 0.08, "phase": 5.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2575.0, 2055.0), "radius_m": 63.7, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 3.4},
+			{"frequency": 4, "amplitude": 0.10, "phase": 3.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2005.0, 355.0), "radius_m": 60.8, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 3.1},
+			{"frequency": 2, "amplitude": 0.08, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3935.0, 1935.0), "radius_m": 60.1, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 3.5},
+			{"frequency": 2, "amplitude": 0.10, "phase": 3.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4145.0, 1945.0), "radius_m": 60.1, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 1.8},
+			{"frequency": 2, "amplitude": 0.05, "phase": 5.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2005.0, 505.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 1.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 3.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2145.0, 1805.0), "radius_m": 57.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 2.5},
+			{"frequency": 3, "amplitude": 0.06, "phase": 0.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2455.0, 665.0), "radius_m": 55.4, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 2.1},
+			{"frequency": 2, "amplitude": 0.09, "phase": 5.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1835.0, 2055.0), "radius_m": 55.4, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 2.9},
+			{"frequency": 3, "amplitude": 0.13, "phase": 2.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1265.0, 1995.0), "radius_m": 53.7, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 1.1},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1665.0, 255.0), "radius_m": 51.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 5.1},
+			{"frequency": 3, "amplitude": 0.10, "phase": 4.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3045.0, 725.0), "radius_m": 51.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 5.1},
+			{"frequency": 2, "amplitude": 0.12, "phase": 3.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4865.0, 1345.0), "radius_m": 51.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 4.6},
+			{"frequency": 2, "amplitude": 0.06, "phase": 4.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4445.0, 1635.0), "radius_m": 51.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 4.5},
+			{"frequency": 2, "amplitude": 0.05, "phase": 1.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1595.0, 1645.0), "radius_m": 51.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 0.5},
+			{"frequency": 4, "amplitude": 0.10, "phase": 4.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2885.0, 2065.0), "radius_m": 51.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 2.0},
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2085.0, 2075.0), "radius_m": 51.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 1.9},
+			{"frequency": 4, "amplitude": 0.07, "phase": 0.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2455.0, 2075.0), "radius_m": 51.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 1.3},
+			{"frequency": 2, "amplitude": 0.11, "phase": 1.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2975.0, 825.0), "radius_m": 48.4, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 1.0},
+			{"frequency": 2, "amplitude": 0.12, "phase": 4.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2395.0, 1825.0), "radius_m": 48.4, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 1.7},
+			{"frequency": 4, "amplitude": 0.08, "phase": 5.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-435.0, 95.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 0.8},
+			{"frequency": 3, "amplitude": 0.09, "phase": 2.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1865.0, 535.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 5.4},
+			{"frequency": 3, "amplitude": 0.12, "phase": 4.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2575.0, 635.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.7},
+			{"frequency": 4, "amplitude": 0.07, "phase": 6.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1055.0, 955.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 5.6},
+			{"frequency": 2, "amplitude": 0.10, "phase": 2.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2955.0, 1135.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 3.1},
+			{"frequency": 3, "amplitude": 0.10, "phase": 0.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4975.0, 1265.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 4.2},
+			{"frequency": 4, "amplitude": 0.07, "phase": 1.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4525.0, 1445.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 4.6},
+			{"frequency": 4, "amplitude": 0.10, "phase": 2.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1865.0, 1775.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 5.9},
+			{"frequency": 4, "amplitude": 0.05, "phase": 3.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2495.0, 1835.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.9},
+			{"frequency": 2, "amplitude": 0.12, "phase": 4.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2835.0, 1835.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.16, "phase": 5.5},
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3025.0, 1855.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 5.6},
+			{"frequency": 4, "amplitude": 0.07, "phase": 4.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1135.0, 1975.0), "radius_m": 47.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 2.1},
+			{"frequency": 2, "amplitude": 0.10, "phase": 6.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(215.0, 5.0), "radius_m": 42.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 2.5},
+			{"frequency": 3, "amplitude": 0.07, "phase": 4.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-555.0, 65.0), "radius_m": 42.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.16, "phase": 6.0},
+			{"frequency": 2, "amplitude": 0.12, "phase": 2.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1125.0, 95.0), "radius_m": 42.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.10, "phase": 2.4},
+			{"frequency": 4, "amplitude": 0.06, "phase": 0.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(225.0, 165.0), "radius_m": 42.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 2.9},
+			{"frequency": 4, "amplitude": 0.10, "phase": 5.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2485.0, 295.0), "radius_m": 42.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 3.1},
+			{"frequency": 3, "amplitude": 0.06, "phase": 1.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2825.0, 605.0), "radius_m": 42.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 5.9},
+			{"frequency": 2, "amplitude": 0.12, "phase": 2.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2695.0, 945.0), "radius_m": 42.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 3.1},
+			{"frequency": 4, "amplitude": 0.08, "phase": 2.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1125.0, 955.0), "radius_m": 42.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 4.4},
+			{"frequency": 4, "amplitude": 0.11, "phase": 2.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1675.0, 1875.0), "radius_m": 42.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 3.9},
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2745.0, 1875.0), "radius_m": 42.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 3.7},
+			{"frequency": 2, "amplitude": 0.12, "phase": 5.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2535.0, 405.0), "radius_m": 40.3, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.16, "phase": 1.7},
+			{"frequency": 2, "amplitude": 0.06, "phase": 3.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4915.0, 1485.0), "radius_m": 40.3, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 1.4},
+			{"frequency": 3, "amplitude": 0.12, "phase": 4.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2365.0, 2045.0), "radius_m": 40.3, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 2.8},
+			{"frequency": 4, "amplitude": 0.12, "phase": 4.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(255.0, 1275.0), "radius_m": 39.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 1.2},
+			{"frequency": 2, "amplitude": 0.11, "phase": 5.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1745.0, 1375.0), "radius_m": 39.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 4.8},
+			{"frequency": 3, "amplitude": 0.10, "phase": 4.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4045.0, 1915.0), "radius_m": 39.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 2.9},
+			{"frequency": 2, "amplitude": 0.10, "phase": 1.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-345.0, 1985.0), "radius_m": 39.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 2.0},
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1975.0, 595.0), "radius_m": 38.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 1.5},
+			{"frequency": 2, "amplitude": 0.12, "phase": 4.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2785.0, 715.0), "radius_m": 38.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 2.8},
+			{"frequency": 2, "amplitude": 0.06, "phase": 4.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2865.0, 1145.0), "radius_m": 38.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 5.8},
+			{"frequency": 2, "amplitude": 0.09, "phase": 1.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1505.0, 1635.0), "radius_m": 38.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 3.7},
+			{"frequency": 2, "amplitude": 0.11, "phase": 2.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3165.0, 1985.0), "radius_m": 38.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 5.6},
+			{"frequency": 2, "amplitude": 0.08, "phase": 6.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1585.0, 2055.0), "radius_m": 38.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 1.2},
+			{"frequency": 4, "amplitude": 0.09, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-715.0, 35.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 1.5},
+			{"frequency": 3, "amplitude": 0.11, "phase": 5.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1065.0, 45.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 3.9},
+			{"frequency": 2, "amplitude": 0.07, "phase": 2.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1575.0, 225.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 4.0},
+			{"frequency": 3, "amplitude": 0.12, "phase": 2.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-615.0, 385.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 1.5},
+			{"frequency": 3, "amplitude": 0.05, "phase": 0.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-645.0, 635.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 3.3},
+			{"frequency": 3, "amplitude": 0.10, "phase": 2.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(955.0, 745.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 3.5},
+			{"frequency": 3, "amplitude": 0.10, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-75.0, 915.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 4.2},
+			{"frequency": 2, "amplitude": 0.13, "phase": 2.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2835.0, 1075.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 4.6},
+			{"frequency": 3, "amplitude": 0.06, "phase": 6.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1115.0, 1195.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 3.3},
+			{"frequency": 4, "amplitude": 0.11, "phase": 4.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4955.0, 1695.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 5.3},
+			{"frequency": 3, "amplitude": 0.12, "phase": 4.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1395.0, 1855.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 3.4},
+			{"frequency": 2, "amplitude": 0.11, "phase": 3.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4335.0, 1875.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 3.2},
+			{"frequency": 4, "amplitude": 0.07, "phase": 1.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4995.0, 1905.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 1.4},
+			{"frequency": 3, "amplitude": 0.09, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(955.0, 2015.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 5.2},
+			{"frequency": 4, "amplitude": 0.08, "phase": 0.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1525.0, 2015.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 1.2},
+			{"frequency": 2, "amplitude": 0.09, "phase": 4.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-355.0, 2125.0), "radius_m": 34.3, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 5.1},
+			{"frequency": 4, "amplitude": 0.07, "phase": 3.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1345.0, 345.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 3.5},
+			{"frequency": 4, "amplitude": 0.11, "phase": 1.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1125.0, 365.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 1.3},
+			{"frequency": 3, "amplitude": 0.11, "phase": 5.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1055.0, 365.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 0.3},
+			{"frequency": 4, "amplitude": 0.11, "phase": 3.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-955.0, 365.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 0.4},
+			{"frequency": 3, "amplitude": 0.09, "phase": 2.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2715.0, 515.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 0.5},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2465.0, 575.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 3.2},
+			{"frequency": 2, "amplitude": 0.06, "phase": 3.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2905.0, 595.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 4.7},
+			{"frequency": 4, "amplitude": 0.12, "phase": 6.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-965.0, 695.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 3.5},
+			{"frequency": 2, "amplitude": 0.11, "phase": 3.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2815.0, 775.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.09, "phase": 3.4},
+			{"frequency": 2, "amplitude": 0.12, "phase": 2.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2735.0, 865.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.16, "phase": 3.1},
+			{"frequency": 2, "amplitude": 0.06, "phase": 3.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-65.0, 1095.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 5.8},
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1605.0, 1345.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.0},
+			{"frequency": 4, "amplitude": 0.11, "phase": 5.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1745.0, 1455.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 4.7},
+			{"frequency": 2, "amplitude": 0.08, "phase": 1.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1675.0, 1665.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 2.4},
+			{"frequency": 2, "amplitude": 0.12, "phase": 4.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3795.0, 1925.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 5.1},
+			{"frequency": 3, "amplitude": 0.05, "phase": 3.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2325.0, 1965.0), "radius_m": 30.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 4.7},
+			{"frequency": 2, "amplitude": 0.13, "phase": 3.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2475.0, 225.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 1.9},
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1915.0, 315.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 0.2},
+			{"frequency": 3, "amplitude": 0.12, "phase": 2.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1265.0, 375.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 5.4},
+			{"frequency": 4, "amplitude": 0.11, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1925.0, 465.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 1.8},
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-5.0, 535.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 3.8},
+			{"frequency": 4, "amplitude": 0.06, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2625.0, 705.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 0.3},
+			{"frequency": 3, "amplitude": 0.09, "phase": 2.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2455.0, 745.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.10, "phase": 1.6},
+			{"frequency": 4, "amplitude": 0.09, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2825.0, 985.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 0.3},
+			{"frequency": 4, "amplitude": 0.08, "phase": 6.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4875.0, 1425.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 2.1},
+			{"frequency": 2, "amplitude": 0.10, "phase": 1.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(485.0, 1465.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 0.6},
+			{"frequency": 4, "amplitude": 0.07, "phase": 5.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(745.0, 1555.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 1.4},
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1025.0, 1595.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 2.2},
+			{"frequency": 4, "amplitude": 0.10, "phase": 0.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1245.0, 1625.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.09, "phase": 2.7},
+			{"frequency": 2, "amplitude": 0.08, "phase": 2.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2065.0, 1775.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 1.0},
+			{"frequency": 2, "amplitude": 0.11, "phase": 1.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2575.0, 1825.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 5.7},
+			{"frequency": 4, "amplitude": 0.11, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2665.0, 1825.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 4.4},
+			{"frequency": 4, "amplitude": 0.10, "phase": 5.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1275.0, 1915.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 6.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 2.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3455.0, 1925.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 0.3},
+			{"frequency": 4, "amplitude": 0.07, "phase": 3.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(855.0, 2035.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.09, "phase": 2.7},
+			{"frequency": 4, "amplitude": 0.10, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(775.0, 2075.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 6.0},
+			{"frequency": 3, "amplitude": 0.10, "phase": 2.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2965.0, 2075.0), "radius_m": 28.5, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 1.8},
+			{"frequency": 2, "amplitude": 0.06, "phase": 4.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1895.0, 145.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 5.3},
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-465.0, 305.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 3.4},
+			{"frequency": 4, "amplitude": 0.07, "phase": 5.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-595.0, 465.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.10, "phase": 0.6},
+			{"frequency": 4, "amplitude": 0.09, "phase": 4.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-855.0, 545.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 2.6},
+			{"frequency": 2, "amplitude": 0.09, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2775.0, 545.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.16, "phase": 2.9},
+			{"frequency": 2, "amplitude": 0.12, "phase": 0.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(55.0, 555.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 0.7},
+			{"frequency": 3, "amplitude": 0.13, "phase": 4.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-775.0, 595.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 2.0},
+			{"frequency": 2, "amplitude": 0.06, "phase": 0.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-925.0, 625.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 3.0},
+			{"frequency": 3, "amplitude": 0.10, "phase": 5.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3095.0, 655.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 5.2},
+			{"frequency": 3, "amplitude": 0.12, "phase": 3.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2515.0, 725.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 3.2},
+			{"frequency": 3, "amplitude": 0.09, "phase": 4.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1025.0, 755.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 6.1},
+			{"frequency": 3, "amplitude": 0.06, "phase": 1.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1195.0, 1025.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 2.1},
+			{"frequency": 4, "amplitude": 0.05, "phase": 5.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1245.0, 1075.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 5.3},
+			{"frequency": 4, "amplitude": 0.10, "phase": 1.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1085.0, 1305.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 5.1},
+			{"frequency": 4, "amplitude": 0.06, "phase": 4.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4575.0, 1375.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 0.9},
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1545.0, 1425.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 3.9},
+			{"frequency": 3, "amplitude": 0.11, "phase": 0.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1525.0, 1485.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 6.0},
+			{"frequency": 2, "amplitude": 0.11, "phase": 3.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4505.0, 1515.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 4.7},
+			{"frequency": 3, "amplitude": 0.08, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(965.0, 1575.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.16, "phase": 3.4},
+			{"frequency": 2, "amplitude": 0.08, "phase": 4.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(525.0, 1595.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 1.7},
+			{"frequency": 3, "amplitude": 0.11, "phase": 4.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4585.0, 1695.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 0.2},
+			{"frequency": 4, "amplitude": 0.09, "phase": 2.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1685.0, 1725.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 4.5},
+			{"frequency": 4, "amplitude": 0.07, "phase": 4.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-715.0, 1755.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 1.8},
+			{"frequency": 4, "amplitude": 0.09, "phase": 5.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-645.0, 1795.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 5.2},
+			{"frequency": 4, "amplitude": 0.09, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2535.0, 1905.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.10, "phase": 4.7},
+			{"frequency": 3, "amplitude": 0.08, "phase": 1.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3085.0, 1905.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 5.4},
+			{"frequency": 3, "amplitude": 0.09, "phase": 6.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4365.0, 1925.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.16, "phase": 3.7},
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-405.0, 1945.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 4.3},
+			{"frequency": 3, "amplitude": 0.09, "phase": 4.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2535.0, 1965.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 3.7},
+			{"frequency": 4, "amplitude": 0.07, "phase": 1.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4015.0, 1975.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.16, "phase": 0.6},
+			{"frequency": 3, "amplitude": 0.10, "phase": 4.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2285.0, 2115.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.16, "phase": 3.4},
+			{"frequency": 4, "amplitude": 0.06, "phase": 5.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2365.0, 2115.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 2.1},
+			{"frequency": 3, "amplitude": 0.10, "phase": 2.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2825.0, 2115.0), "radius_m": 26.9, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 6.2},
+			{"frequency": 2, "amplitude": 0.05, "phase": 1.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-675.0, 65.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 0.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 3.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1285.0, 75.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 2.2},
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-505.0, 105.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.09, "phase": 4.3},
+			{"frequency": 4, "amplitude": 0.10, "phase": 0.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(255.0, 105.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 0.7},
+			{"frequency": 3, "amplitude": 0.12, "phase": 3.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2075.0, 115.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 1.2},
+			{"frequency": 2, "amplitude": 0.09, "phase": 6.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-585.0, 215.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 5.2},
+			{"frequency": 2, "amplitude": 0.08, "phase": 4.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1735.0, 275.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 2.2},
+			{"frequency": 4, "amplitude": 0.10, "phase": 1.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-525.0, 325.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 0.9},
+			{"frequency": 2, "amplitude": 0.08, "phase": 2.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1395.0, 365.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 4.0},
+			{"frequency": 3, "amplitude": 0.08, "phase": 0.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1205.0, 365.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 1.7},
+			{"frequency": 3, "amplitude": 0.10, "phase": 4.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2495.0, 365.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 1.9},
+			{"frequency": 2, "amplitude": 0.12, "phase": 2.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-835.0, 475.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 5.6},
+			{"frequency": 2, "amplitude": 0.11, "phase": 1.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-715.0, 515.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 1.0},
+			{"frequency": 2, "amplitude": 0.10, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2405.0, 575.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 1.8},
+			{"frequency": 3, "amplitude": 0.10, "phase": 2.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-615.0, 585.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 0.9},
+			{"frequency": 3, "amplitude": 0.11, "phase": 1.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1015.0, 755.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 5.5},
+			{"frequency": 2, "amplitude": 0.11, "phase": 5.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2625.0, 875.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 3.7},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(885.0, 895.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.10, "phase": 1.0},
+			{"frequency": 3, "amplitude": 0.11, "phase": 0.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2785.0, 955.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 4.7},
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2745.0, 985.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 4.4},
+			{"frequency": 3, "amplitude": 0.13, "phase": 4.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2775.0, 1045.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 4.0},
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-95.0, 1055.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 0.3},
+			{"frequency": 2, "amplitude": 0.11, "phase": 2.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1285.0, 1115.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 5.1},
+			{"frequency": 4, "amplitude": 0.08, "phase": 3.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3015.0, 1175.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 0.0},
+			{"frequency": 2, "amplitude": 0.07, "phase": 3.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(175.0, 1245.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 5.2},
+			{"frequency": 3, "amplitude": 0.10, "phase": 2.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(425.0, 1355.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.16, "phase": 5.1},
+			{"frequency": 4, "amplitude": 0.06, "phase": 1.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4645.0, 1395.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 1.9},
+			{"frequency": 4, "amplitude": 0.10, "phase": 2.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1715.0, 1505.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 0.0},
+			{"frequency": 3, "amplitude": 0.10, "phase": 0.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(505.0, 1515.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 2.1},
+			{"frequency": 2, "amplitude": 0.12, "phase": 3.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4595.0, 1515.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 4.1},
+			{"frequency": 2, "amplitude": 0.10, "phase": 4.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1505.0, 1545.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 3.0},
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(815.0, 1565.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 0.4},
+			{"frequency": 2, "amplitude": 0.09, "phase": 2.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1695.0, 1615.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 1.2},
+			{"frequency": 3, "amplitude": 0.09, "phase": 1.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4375.0, 1655.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 4.6},
+			{"frequency": 3, "amplitude": 0.05, "phase": 4.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2865.0, 1685.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 4.6},
+			{"frequency": 3, "amplitude": 0.10, "phase": 2.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1615.0, 1725.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 2.2},
+			{"frequency": 2, "amplitude": 0.10, "phase": 1.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4295.0, 1725.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 1.6},
+			{"frequency": 4, "amplitude": 0.10, "phase": 1.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3035.0, 1745.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 3.8},
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2335.0, 1785.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 3.0},
+			{"frequency": 2, "amplitude": 0.08, "phase": 4.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4105.0, 1785.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 2.1},
+			{"frequency": 4, "amplitude": 0.09, "phase": 1.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4275.0, 1875.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 3.5},
+			{"frequency": 4, "amplitude": 0.07, "phase": 0.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1735.0, 1905.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 2.4},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2815.0, 1905.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 0.1},
+			{"frequency": 3, "amplitude": 0.11, "phase": 3.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1935.0, 1925.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 2.8},
+			{"frequency": 2, "amplitude": 0.10, "phase": 1.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1195.0, 1935.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 6.0},
+			{"frequency": 4, "amplitude": 0.11, "phase": 4.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1505.0, 1965.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 2.6},
+			{"frequency": 4, "amplitude": 0.05, "phase": 4.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4065.0, 1975.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 2.3},
+			{"frequency": 3, "amplitude": 0.13, "phase": 5.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4675.0, 1995.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.3},
+			{"frequency": 4, "amplitude": 0.09, "phase": 3.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1045.0, 2005.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 0.2},
+			{"frequency": 2, "amplitude": 0.08, "phase": 1.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2675.0, 2015.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 4.9},
+			{"frequency": 4, "amplitude": 0.06, "phase": 5.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4725.0, 2015.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 3.0},
+			{"frequency": 4, "amplitude": 0.08, "phase": 3.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1185.0, 2025.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 0.5},
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2705.0, 2065.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 4.7},
+			{"frequency": 3, "amplitude": 0.12, "phase": 4.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2165.0, 2095.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 3.6},
+			{"frequency": 3, "amplitude": 0.10, "phase": 1.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-355.0, 2185.0), "radius_m": 21.2, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 4.0},
+			{"frequency": 3, "amplitude": 0.12, "phase": 5.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-495.0, 45.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.10, "phase": 3.8},
+			{"frequency": 3, "amplitude": 0.12, "phase": 4.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-805.0, 75.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 5.0},
+			{"frequency": 2, "amplitude": 0.05, "phase": 0.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-375.0, 75.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 3.6},
+			{"frequency": 4, "amplitude": 0.08, "phase": 6.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1145.0, 155.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 1.1},
+			{"frequency": 2, "amplitude": 0.10, "phase": 0.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1845.0, 155.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.09, "phase": 4.8},
+			{"frequency": 2, "amplitude": 0.06, "phase": 2.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(165.0, 165.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 5.7},
+			{"frequency": 4, "amplitude": 0.12, "phase": 3.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2005.0, 205.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 5.6},
+			{"frequency": 4, "amplitude": 0.10, "phase": 5.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1725.0, 225.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 4.6},
+			{"frequency": 4, "amplitude": 0.08, "phase": 6.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-635.0, 305.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 1.5},
+			{"frequency": 3, "amplitude": 0.10, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1005.0, 345.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 2.1},
+			{"frequency": 3, "amplitude": 0.10, "phase": 5.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-705.0, 365.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 2.3},
+			{"frequency": 4, "amplitude": 0.05, "phase": 5.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1925.0, 365.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 3.1},
+			{"frequency": 3, "amplitude": 0.12, "phase": 3.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1985.0, 435.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 4.8},
+			{"frequency": 4, "amplitude": 0.11, "phase": 4.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2025.0, 435.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 0.6},
+			{"frequency": 3, "amplitude": 0.12, "phase": 2.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-705.0, 475.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 0.3},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(945.0, 485.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 5.4},
+			{"frequency": 2, "amplitude": 0.07, "phase": 1.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-595.0, 505.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 4.6},
+			{"frequency": 4, "amplitude": 0.08, "phase": 2.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(95.0, 505.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 3.1},
+			{"frequency": 4, "amplitude": 0.10, "phase": 4.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3025.0, 505.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 2.8},
+			{"frequency": 4, "amplitude": 0.08, "phase": 0.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1925.0, 515.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 6.1},
+			{"frequency": 2, "amplitude": 0.09, "phase": 3.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-725.0, 555.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 3.1},
+			{"frequency": 3, "amplitude": 0.09, "phase": 1.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1925.0, 565.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.10, "phase": 5.5},
+			{"frequency": 4, "amplitude": 0.09, "phase": 1.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2025.0, 575.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 4.6},
+			{"frequency": 3, "amplitude": 0.08, "phase": 3.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2805.0, 665.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 1.4},
+			{"frequency": 3, "amplitude": 0.06, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-645.0, 685.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 0.8},
+			{"frequency": 2, "amplitude": 0.07, "phase": 0.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-555.0, 685.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 3.9},
+			{"frequency": 3, "amplitude": 0.07, "phase": 1.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-985.0, 745.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 5.7},
+			{"frequency": 2, "amplitude": 0.13, "phase": 1.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2615.0, 755.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 1.3},
+			{"frequency": 3, "amplitude": 0.12, "phase": 2.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2445.0, 795.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 5.0},
+			{"frequency": 4, "amplitude": 0.08, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2675.0, 855.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 1.2},
+			{"frequency": 4, "amplitude": 0.08, "phase": 4.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3035.0, 855.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 0.9},
+			{"frequency": 3, "amplitude": 0.07, "phase": 4.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1135.0, 895.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 1.5},
+			{"frequency": 2, "amplitude": 0.11, "phase": 3.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-25.0, 925.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 2.8},
+			{"frequency": 2, "amplitude": 0.10, "phase": 3.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1075.0, 995.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.09, "phase": 4.4},
+			{"frequency": 4, "amplitude": 0.10, "phase": 4.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(15.0, 995.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 5.9},
+			{"frequency": 4, "amplitude": 0.09, "phase": 6.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(25.0, 1035.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 3.3},
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1015.0, 1065.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.16, "phase": 5.6},
+			{"frequency": 2, "amplitude": 0.08, "phase": 6.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-15.0, 1095.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 3.8},
+			{"frequency": 2, "amplitude": 0.06, "phase": 2.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1125.0, 1145.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 1.2},
+			{"frequency": 3, "amplitude": 0.09, "phase": 6.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1085.0, 1265.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 3.7},
+			{"frequency": 3, "amplitude": 0.06, "phase": 1.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(315.0, 1265.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 5.2},
+			{"frequency": 2, "amplitude": 0.09, "phase": 4.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4915.0, 1295.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 2.5},
+			{"frequency": 2, "amplitude": 0.11, "phase": 5.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1675.0, 1355.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 1.4},
+			{"frequency": 4, "amplitude": 0.08, "phase": 1.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1565.0, 1375.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.09, "phase": 4.7},
+			{"frequency": 4, "amplitude": 0.10, "phase": 2.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1635.0, 1405.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.09, "phase": 2.7},
+			{"frequency": 4, "amplitude": 0.10, "phase": 3.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4395.0, 1445.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 1.0},
+			{"frequency": 2, "amplitude": 0.06, "phase": 0.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4635.0, 1455.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 0.5},
+			{"frequency": 3, "amplitude": 0.09, "phase": 5.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4975.0, 1485.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 0.5},
+			{"frequency": 2, "amplitude": 0.10, "phase": 1.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4385.0, 1505.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 0.9},
+			{"frequency": 4, "amplitude": 0.09, "phase": 4.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-1075.0, 1525.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 0.9},
+			{"frequency": 3, "amplitude": 0.12, "phase": 5.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2975.0, 1535.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 4.9},
+			{"frequency": 2, "amplitude": 0.12, "phase": 2.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4385.0, 1545.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 0.3},
+			{"frequency": 2, "amplitude": 0.05, "phase": 4.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3005.0, 1565.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 1.6},
+			{"frequency": 3, "amplitude": 0.07, "phase": 0.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(905.0, 1575.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 3.5},
+			{"frequency": 3, "amplitude": 0.09, "phase": 2.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1655.0, 1575.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 5.4},
+			{"frequency": 2, "amplitude": 0.10, "phase": 1.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-975.0, 1585.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 0.3},
+			{"frequency": 3, "amplitude": 0.11, "phase": 4.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4685.0, 1585.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 2.2},
+			{"frequency": 3, "amplitude": 0.06, "phase": 1.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(485.0, 1595.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 4.0},
+			{"frequency": 4, "amplitude": 0.09, "phase": 4.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1075.0, 1595.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 5.8},
+			{"frequency": 2, "amplitude": 0.07, "phase": 2.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1295.0, 1615.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 5.2},
+			{"frequency": 3, "amplitude": 0.11, "phase": 2.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4085.0, 1615.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 4.0},
+			{"frequency": 3, "amplitude": 0.11, "phase": 2.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4125.0, 1625.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 5.3},
+			{"frequency": 3, "amplitude": 0.05, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-895.0, 1635.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.16, "phase": 6.1},
+			{"frequency": 3, "amplitude": 0.11, "phase": 1.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-755.0, 1725.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 0.2},
+			{"frequency": 2, "amplitude": 0.12, "phase": 1.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2845.0, 1735.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 4.6},
+			{"frequency": 3, "amplitude": 0.07, "phase": 3.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1665.0, 1765.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 5.8},
+			{"frequency": 2, "amplitude": 0.10, "phase": 3.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2215.0, 1775.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 3.6},
+			{"frequency": 2, "amplitude": 0.06, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2255.0, 1775.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.12, "phase": 0.2},
+			{"frequency": 3, "amplitude": 0.05, "phase": 1.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2295.0, 1775.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 1.2},
+			{"frequency": 2, "amplitude": 0.08, "phase": 0.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3025.0, 1785.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.09, "phase": 5.8},
+			{"frequency": 2, "amplitude": 0.09, "phase": 5.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3375.0, 1785.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.09, "phase": 5.9},
+			{"frequency": 4, "amplitude": 0.13, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3415.0, 1785.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.16, "phase": 4.4},
+			{"frequency": 2, "amplitude": 0.05, "phase": 4.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2715.0, 1815.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.13, "phase": 0.2},
+			{"frequency": 3, "amplitude": 0.08, "phase": 4.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2075.0, 1825.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 6.1},
+			{"frequency": 4, "amplitude": 0.11, "phase": 2.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3495.0, 1825.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 0.9},
+			{"frequency": 4, "amplitude": 0.06, "phase": 4.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2905.0, 1845.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 3.5},
+			{"frequency": 4, "amplitude": 0.11, "phase": 0.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2955.0, 1845.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 6.0},
+			{"frequency": 4, "amplitude": 0.06, "phase": 3.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4375.0, 1845.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 5.8},
+			{"frequency": 2, "amplitude": 0.07, "phase": 0.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-575.0, 1855.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.11, "phase": 2.6},
+			{"frequency": 4, "amplitude": 0.09, "phase": 4.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2555.0, 1865.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 2.5},
+			{"frequency": 3, "amplitude": 0.09, "phase": 3.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4605.0, 1865.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 3.4},
+			{"frequency": 3, "amplitude": 0.05, "phase": 4.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1305.0, 1875.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.10, "phase": 3.9},
+			{"frequency": 3, "amplitude": 0.12, "phase": 3.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4955.0, 1875.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 3.6},
+			{"frequency": 2, "amplitude": 0.12, "phase": 4.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2185.0, 1885.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.10, "phase": 1.1},
+			{"frequency": 4, "amplitude": 0.11, "phase": 2.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1425.0, 1895.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 5.0},
+			{"frequency": 3, "amplitude": 0.12, "phase": 5.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3205.0, 1905.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.11, "phase": 1.3},
+			{"frequency": 2, "amplitude": 0.05, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3855.0, 1905.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.08, "phase": 2.2},
+			{"frequency": 4, "amplitude": 0.11, "phase": 5.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3045.0, 1915.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.14, "phase": 2.6},
+			{"frequency": 3, "amplitude": 0.07, "phase": 5.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1995.0, 1925.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 2.9},
+			{"frequency": 3, "amplitude": 0.12, "phase": 1.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4405.0, 1925.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 3.6},
+			{"frequency": 3, "amplitude": 0.10, "phase": 5.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2205.0, 1935.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.11, "phase": 0.6},
+			{"frequency": 4, "amplitude": 0.13, "phase": 0.3},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3185.0, 1935.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.15, "phase": 5.5},
+			{"frequency": 4, "amplitude": 0.11, "phase": 2.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3475.0, 1965.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 1.3},
+			{"frequency": 4, "amplitude": 0.08, "phase": 3.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1605.0, 1975.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.16, "phase": 5.0},
+			{"frequency": 3, "amplitude": 0.10, "phase": 2.1},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4585.0, 1975.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.08, "phase": 2.5},
+			{"frequency": 4, "amplitude": 0.11, "phase": 0.2},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(895.0, 2015.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 5.4},
+			{"frequency": 3, "amplitude": 0.11, "phase": 3.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2135.0, 2025.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.14, "phase": 3.8},
+			{"frequency": 3, "amplitude": 0.09, "phase": 5.8},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2945.0, 2025.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.16, "phase": 1.8},
+			{"frequency": 4, "amplitude": 0.09, "phase": 5.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(3145.0, 2035.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.13, "phase": 2.8},
+			{"frequency": 4, "amplitude": 0.06, "phase": 2.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1145.0, 2045.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.10, "phase": 5.6},
+			{"frequency": 4, "amplitude": 0.10, "phase": 4.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(815.0, 2055.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.12, "phase": 5.6},
+			{"frequency": 3, "amplitude": 0.09, "phase": 2.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(715.0, 2075.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 2, "amplitude": 0.13, "phase": 3.3},
+			{"frequency": 4, "amplitude": 0.10, "phase": 4.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(1765.0, 2075.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 6.2},
+			{"frequency": 2, "amplitude": 0.07, "phase": 4.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-385.0, 2085.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.12, "phase": 1.3},
+			{"frequency": 4, "amplitude": 0.11, "phase": 1.5},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(4875.0, 2085.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 2.4},
+			{"frequency": 2, "amplitude": 0.13, "phase": 1.4},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2655.0, 2095.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.15, "phase": 4.7},
+			{"frequency": 3, "amplitude": 0.07, "phase": 0.7},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-305.0, 2125.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.14, "phase": 0.3},
+			{"frequency": 4, "amplitude": 0.12, "phase": 1.6},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(2325.0, 2135.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.09, "phase": 4.8},
+			{"frequency": 3, "amplitude": 0.12, "phase": 2.9},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-255.0, 2155.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 3, "amplitude": 0.15, "phase": 2.9},
+			{"frequency": 4, "amplitude": 0.08, "phase": 2.0},
+		]}, # wooded block / thicket
+		{"center_m": Vector2(-465.0, 2165.0), "radius_m": 19.0, "warp_harmonics": [
+			{"frequency": 4, "amplitude": 0.08, "phase": 2.7},
+			{"frequency": 2, "amplitude": 0.09, "phase": 3.1},
+		]}, # wooded block / thicket
+	],
+
+	"road_width_m": 8.0,
+	"road_waypoints_m": [
+		Vector2(4900, 2013),
+		Vector2(4291, 1831),
+		Vector2(2685, 1856),
+		Vector2(1773, 1797),
+		Vector2(948, 1656),
+		Vector2(745, 1661),
+	],
+
+	"player": {
+		"deployment_zone": Rect2(150.0 * PIXELS_PER_METER, 100.0 * PIXELS_PER_METER, 2200.0 * PIXELS_PER_METER, 1950.0 * PIXELS_PER_METER),
+		"mortar_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 1950.0 * PIXELS_PER_METER, 2000.0 * PIXELS_PER_METER),
+		"spotter_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 30.0 * PIXELS_PER_METER, 4940.0 * PIXELS_PER_METER, 2030.0 * PIXELS_PER_METER),
+		# Chosen by scanning the deployment area with the game's own has_direct_los/elevation model: each
+		# squad the point near the station that sees the most of the real road, clear of the road bed itself
+		# and of any building.
+		"default_squad_positions": [
+			Vector2(1750, 1750) * PIXELS_PER_METER,
+			Vector2(1650, 1750) * PIXELS_PER_METER,
+			Vector2(1800, 1825) * PIXELS_PER_METER,
+		],
+		"mortar_default_position": Vector2(850.0, 1500.0) * PIXELS_PER_METER,
+		"spotter_default_position": Vector2(1685.0, 1725.0) * PIXELS_PER_METER,
+	},
+
+	"enemy": {
+		"spawn_x": 4900.0 * PIXELS_PER_METER, # matches the road's own easternmost waypoint
+		# Asymmetric on purpose: the Southern Bug floodplain starts a few hundred metres south of the road.
+		"squad_spread_min_offset_m": -300.0,
+		"squad_spread_max_offset_m": 60.0,
+		"mortar_rear_x_m": 4700.0, # 200m behind spawn_x, same offset as every other map
+		# 1300 m span on the north side of the road (the other maps use 1600 m: here the south side is the river).
+		"mortar_spread_min_y_m": 812.7,
+		"mortar_spread_max_y_m": 2112.7,
+		"flank_waypoint_x": -1000.0 * PIXELS_PER_METER,
+		"flank_waypoint_arrival_radius": 350.0 * PIXELS_PER_METER, # must stay > ENEMY_SURROUND_STANDOFF_RADIUS (300m) - see that constant's own doc comment
+	},
+},
 }
 
 ## The map actually loaded right now — see MAPS/DEFAULT_MAP_ID's own doc
@@ -3724,6 +5688,8 @@ static func _recompute_map_derived_state() -> void:
 	_hill_cache_built = false
 	_canopy_built = false
 	_tree_sight_cache.clear()
+	_footprints_built = false
+	_footprint_cache.clear()
 
 
 ## Runs automatically the first time this script is loaded/referenced —
@@ -8231,9 +10197,18 @@ static func draw_terrain(ci: CanvasItem) -> void:
 	_draw_hills(ci)
 	_draw_river(ci)
 	_draw_road(ci)
+	# A map that carries real building footprints (CURRENT_MAP.building_footprints_file) draws those as
+	# themselves; its terrain_zones are then only the coarse cover blocks the game logic uses, shown as a faint
+	# tint, not as the stylised houses the older maps' blocks stand for.
+	var footprints: Array = _footprint_polygons()
 	for zone in CURRENT_MAP.terrain_zones:
 		if zone.type == TerrainType.BUILDING:
-			_draw_village(ci, zone.rect)
+			if footprints.is_empty():
+				_draw_village(ci, zone.rect)
+			else:
+				ci.draw_rect(zone.rect, Color(0.65, 0.58, 0.45, 0.22))
+	for poly in footprints:
+		ci.draw_colored_polygon(poly, Color(0.55, 0.47, 0.4))
 	for patch in CURRENT_MAP.forest_patches:
 		_draw_forest_patch(ci, patch)
 	_draw_settlement_labels(ci) # last, so no tree or building covers a name
@@ -8242,6 +10217,37 @@ static func draw_terrain(ci: CanvasItem) -> void:
 ## The name of every village on the map, English over Ukrainian, centered on its position (CURRENT_MAP.settlements,
 ## in meters). Direct user request: "For all maps, if there is a city, put its name on the map in both English and
 ## Ukrainian letters." Dark text with a light outline so it reads over buildings, trees and contours alike.
+## The real building footprints of a map that has them (CURRENT_MAP.building_footprints_file: a JSON resource
+## listing each building as a flat [x0, y0, x1, y1, ...] in meters), as polygons in pixel space, loaded once per
+## map. A polygon that cannot be triangulated is left out rather than drawn wrong. Empty for a map without the
+## key (or if the file cannot be read), in which case the older stylised blocks are drawn.
+static var _footprints_built: bool = false
+static var _footprint_cache: Array = []
+
+static func _footprint_polygons() -> Array:
+	if _footprints_built:
+		return _footprint_cache
+	_footprints_built = true
+	_footprint_cache = _load_footprint_file(CURRENT_MAP.get("building_footprints_file", ""))
+	return _footprint_cache
+
+
+static func _load_footprint_file(path: String) -> Array:
+	var out: Array = []
+	if path.is_empty() or not FileAccess.file_exists(path):
+		return out
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return out
+	for flat in parsed.get("buildings", []):
+		var poly := PackedVector2Array()
+		for i in range(0, flat.size() - 1, 2):
+			poly.append(Vector2(float(flat[i]), float(flat[i + 1])) * PIXELS_PER_METER)
+		if poly.size() >= 3 and not Geometry2D.triangulate_polygon(poly).is_empty():
+			out.append(poly)
+	return out
+
+
 static func _draw_settlement_labels(ci: CanvasItem) -> void:
 	var font: Font = ThemeDB.fallback_font
 	for settlement in CURRENT_MAP.get("settlements", []):

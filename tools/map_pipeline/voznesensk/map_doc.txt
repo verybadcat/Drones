@@ -1,0 +1,36 @@
+## This map depicts the south-eastern approach to Voznesensk (Mykolaiv Oblast), where on 2-3 March 2022
+## a Russian column of the 126th Coastal Defence Brigade (about 400 men and 43 vehicles, coming from the
+## Mykolaiv direction) was stopped. The fighting was on the approaches, not in the city: the column came up
+## the H-24 highway, staged at the village of Rakove, entered the south-east edge of town, drove in and out
+## several times and was caught packed together at the last filling station on the highway, where Ukrainian
+## artillery hit it for about twenty minutes; the Mertvovod bridge in the city was blown as it arrived.
+## The map is anchored on that filling station (the Ukrnafta on the H-24, 47.5445, 31.3695), which is where
+## the user chose to place the defence. Sources for the account: English Wikipedia ("Battle of Voznesensk")
+## and a Krym.Realii interview with Ukrainian defenders (2023); the station's position is OpenStreetMap's.
+##
+## BUILT from real data (2026-10), with the building layer done differently from the older maps: those
+## aggregate OpenStreetMap footprints into a few dozen blocks, and OpenStreetMap is nearly empty here (about
+## 330 buildings tagged in the whole frame where the satellite picture shows several thousand houses), so the
+## buildings come from Overture Maps (Microsoft ML Buildings plus OpenStreetMap): 5,465 real footprints,
+## checked against Esri World Imagery by overlaying them on it (they line up with the houses along the H-24
+## and the south-east suburb). Every footprint is DRAWN as itself (a resource file, listed under
+## "building_footprints_file"), so the picture matches the satellite; the GAME LOGIC (cover, line of sight)
+## still uses coarse rectangles (terrain_zones): the footprints merged with a 14 m buffer and rasterised to
+## 32 m cells, axis-aligned blocks, only east of x = -150 (the far-west town is the rear area and has no
+## cover logic, only the picture).
+## ELEVATION: SRTM 30m (OpenTopoData) on a 100m grid, 28 Gaussian hills, about 5.7 m RMS overall and 4.3 m
+## near the station; the ground is a plateau of 50-70 m falling in a bluff to the Southern Bug floodplain
+## (about sea level) just south of the highway.
+## TREES: Overture land cover (forest) packed into circles; its shrub and grass classes are far too coarse
+## to use as trees, and it has no tree rows or hedges.
+## ROAD: the real H-24 centreline (Overture transportation segments), from the map's east edge to the
+## east edge of the town.
+## THE FRAME IS CUT SHORT: the map is 2,200 m tall, not the usual 3,500 m. A large river, the Southern Bug,
+## runs south of the highway (its north bank is 450-600 m south of the station, the floodplain even nearer),
+## and the game's river mechanic (one crossing, units routed to it) did not work for it: in test battles units
+## crossed it anyway, and mortar resupply runs that began on the far bank were sent to a bridge 4 km away and
+## stuck. So the map ends just north of the river's bank (the bluff and the edge of the floodplain are in);
+## everything south of y = 2,200 is left out, the river included.
+##
+## The attack comes from the east-south-east (bearing 113 degrees from the station, toward Rakove), so the
+## map frame is turned: north on screen points up-left (compass_north_screen_direction).
