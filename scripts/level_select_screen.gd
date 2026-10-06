@@ -37,6 +37,10 @@ var _records: Array[Dictionary] = []
 var _detail_panel: PanelContainer = null
 var _detail_box: VBoxContainer = null
 
+## The "Credits" button and the page it opens (see _toggle_credits); the panel is built the first time it is wanted.
+var credits_button: Button = null
+var credits_panel: PanelContainer = null
+
 const SETUP_WIDTH: float = 820.0
 const CELL_SIZE := Vector2(200, 58)
 const ROW_HEADING_WIDTH: float = 190.0
@@ -73,6 +77,8 @@ func _ready() -> void:
 		"Replaces the spotter with a 3-person team equipped with four Mavic-3 scout drones, plus spare batteries",
 		GameConfig.ReconMode.DRONE_TEAM
 	))
+
+	root.add_child(_build_credits_button())
 
 	columns.add_child(_build_score_history())
 
@@ -377,6 +383,78 @@ const MAX_SEED: int = 2147483647
 ## by listing the details: some of those (the commander's breaking point) are secret from the player. And
 ## where the enemy STARTS is stated separately because it is the one part that does follow the map.
 const SEED_NOTE: String = "Using the same seed again gives you the same weather and the same enemy force (how many squads and mortars, and how each is set up) whichever location and reconnaissance setup you choose. Where the enemy starts follows the map, so a different location puts that same force in that location's places. On the same location and setup, the game's other dice also start from the same place. It does not replay the battle: what happens after that depends on what you do and on the exact timing of the game's frames, so the fight will still go its own way."
+
+
+## The credits page, opened from the "Credits" button under the setup options (direct user request: "Add a
+## credits page to the opening screen"). Plain facts about where the map data, the sounds and the engine came
+## from, with the licences the sources publish them under. Kept as one function so a test can read it.
+##
+## What it must NOT do is claim more than is known: the sound files' licence terms were never looked up (see
+## assets/audio/*/SOURCES.md), and the mortar-shot recordings have no recorded source at all, so the page says
+## exactly that rather than naming a licence.
+static func credits_text() -> String:
+	return "\n".join([
+		"CREDITS",
+		"",
+		"MAP DATA",
+		"Building footprints: Overture Maps Foundation (overturemaps.org), which combines Microsoft's Global ML Building Footprints with OpenStreetMap. Open Database Licence (ODbL) 1.0.",
+		"Roads, rivers, place names and the map locations: © OpenStreetMap contributors (openstreetmap.org/copyright), ODbL 1.0; a few road segments from TomTom, supplied through Overture Maps.",
+		"Tree cover: ESA WorldCover © European Space Agency, CC BY 4.0, supplied through Overture Maps.",
+		"Ground elevation: NASA Shuttle Radar Topography Mission (SRTM) 30 m data, supplied through OpenTopoData (opentopodata.org).",
+		"Satellite pictures used only to check the maps against reality (they are not part of the game): Esri World Imagery (Esri, Maxar, Earthstar Geographics, and the GIS User Community).",
+		"The account of the fighting at Voznesensk follows English Wikipedia (\"Battle of Voznesensk\") and a Krym.Realii interview with Ukrainian defenders (2023).",
+		"",
+		"SOUNDS",
+		"Wind and rain: recordings from Pixabay (pixabay.com/sound-effects) by the contributors storegraphic, soundreality, eryliaa, boons_freak, dragon-studio and freesound_community, used under Pixabay's licence terms as Pixabay publishes them.",
+		"Gunfire: a recording supplied by the developer (contributor handle freesound_community, ID 32155); where it came from and its licence terms were not recorded.",
+		"Mortar shots: recordings whose source was not recorded.",
+		"",
+		"ENGINE",
+		"Made with the Godot Engine (godotengine.org), MIT licence.",
+	])
+
+
+func _build_credits_button() -> Control:
+	credits_button = Button.new()
+	credits_button.text = "Credits"
+	credits_button.custom_minimum_size = Vector2(120, 0)
+	credits_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	credits_button.pressed.connect(_toggle_credits)
+	return credits_button
+
+
+## Opens the credits page over the setup (or closes it again). Built on first use.
+func _toggle_credits() -> void:
+	if credits_panel == null:
+		credits_panel = PanelContainer.new()
+		credits_panel.position = Vector2(60, 50)
+		credits_panel.custom_minimum_size = Vector2(900, 640)
+		credits_panel.z_index = 100
+		var style := StyleBoxFlat.new()
+		style.bg_color = Color(0.1, 0.1, 0.1, 0.98)
+		style.set_content_margin_all(18.0)
+		style.set_corner_radius_all(6.0)
+		credits_panel.add_theme_stylebox_override("panel", style)
+		var box := VBoxContainer.new()
+		box.add_theme_constant_override("separation", 12)
+		credits_panel.add_child(box)
+		var scroll := ScrollContainer.new()
+		scroll.custom_minimum_size = Vector2(860, 540)
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		box.add_child(scroll)
+		var body := GameConfig.make_selectable_label(credits_text())
+		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		body.custom_minimum_size = Vector2(840, 0)
+		scroll.add_child(body)
+		var close := Button.new()
+		close.text = "Close"
+		close.custom_minimum_size = Vector2(120, 0)
+		close.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		close.pressed.connect(_toggle_credits)
+		box.add_child(close)
+		add_child(credits_panel)
+		credits_panel.visible = false
+	credits_panel.visible = not credits_panel.visible
 
 
 func _build_option(title_text: String, body_text: String, mode: GameConfig.ReconMode) -> Control:
