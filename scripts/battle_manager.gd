@@ -2262,10 +2262,14 @@ func _ally_units_for(unit: Unit) -> Array[Unit]:
 	return out
 
 
+## Where `unit`'s allies are, and where the squads among them are going: a squad on its way to a cover patch holds it as much as one standing
+## in it, so a second squad choosing cover sees the destination too (two squads walked to the same tree patch and arrived 10 m apart).
 func _ally_positions_for(unit: Unit) -> Array[Vector2]:
 	var out: Array[Vector2] = []
 	for u in _ally_units_for(unit):
 		out.append(u.global_position)
+		if u.kind == Unit.Kind.SQUAD and u.has_move_target and u.move_target.distance_to(u.global_position) > Unit.MOVE_ARRIVE_RADIUS:
+			out.append(u.move_target)
 	return out
 
 
@@ -6251,7 +6255,10 @@ func _mortar_troubled_only_by_unarmed_observers(m: Unit) -> bool:
 			unarmed_observers.append(u)
 		else:
 			others.append(u)
-	return CombatResolver.has_live_observer(m, unarmed_observers) and not CombatResolver.has_live_observer(m, others)
+	# Judged at the same, retained range the crew's own is_visible flag is kept at: a drone just beyond the ordinary range of a mortar in cover
+	# (250 m) but inside 1.5 times it still has the crew spotted, and treating that as "nobody is watching, yet it is spotted" made a mortar that
+	# only a drone could see flee the map as a last resort (a live battle, 2026-10-07: the drone's distance crossed 250 m on the last sample).
+	return CombatResolver.has_live_observer(m, unarmed_observers, false, true) and not CombatResolver.has_live_observer(m, others, false, true)
 
 
 ## Whether `m`'s own side has, in turn, spotted the drone or spotter that has them in sight — "It might be
@@ -6270,6 +6277,84 @@ func _mortar_has_seen_an_unarmed_observer(m: Unit) -> bool:
 		if (u.kind == Unit.Kind.DRONE or u.kind == Unit.Kind.SPOTTER) and u.is_visible:
 			return true
 	return false
+
+
+## A mortar crew that a drone (or spotter) has in view, and knows it, does not hide: concealment from an aircraft overhead is
+## unlikely to work, and the rounds it draws take MORTAR_FLIGHT_TIME to land, so what keeps it alive is NOT BEING WHERE THEY ARE AIMED:
+## it keeps moving, changing direction every EVASION_TURN_INTERVAL_S, for as long as it is watched and EVASION_HOLD_S after. Direct user
+## instruction: "A mortar that a drone has spotted should not conceal itself unless it can do so effectively. This seems unlikely. Rather, it
+## should act in a way that makes it least likely to be hit. This might mean taking cover. It also might mean continually moving in
+## unpredictable directions. It's a reasonable research question which is better." The answer, from the game's own numbers (see the
+## doctrine log's entry of 2026-10-07): moving, if it turns often enough; straight-line movement and cover alone do not save a crew from
+## fire that a drone is walking onto it. A crew that moves cannot fire (it must sit MORTAR_SETUP_TEARDOWN_TIME first), which is the price.
+const EVASION_TURN_INTERVAL_S: float = 4.0
+## Mortar -> the last time a counter-battery near-miss or hit sent it relocating (kept for the flee reason; see _mortar_flee_as_last_resort).
+var _mortar_counter_battery_time: Dictionary = {}
+const EVASION_LEG: float = 60.0 * GameConfig.PIXELS_PER_METER # each leg's target, never reached (the heading changes first)
+const EVASION_HOLD_S: float = 90.0
+const EVASION_WANDER: float = 300.0 * GameConfig.PIXELS_PER_METER # how far from where it began it may stray before heading back
+const EVASION_HEADING_TRIES: int = 12
+## Mortar -> {"until": time the evasion lapses, "next_turn": time of the next heading change, "origin": where it began}.
+var _mortar_evasion: Dictionary = {}
+
+## Whether `m` is being watched only by an unarmed observer and has seen it (the case this applies to).
+func _mortar_observed_by_drone_and_aware(m: Unit) -> bool:
+	return m.state == Unit.State.ACTIVE and m.is_visible and _mortar_troubled_only_by_unarmed_observers(m) and _mortar_has_seen_an_unarmed_observer(m)
+
+
+## One tick of the evasive manoeuvre for `m`; true if it is evading this tick (the caller returns), false if it is not (or an armed threat
+## has taken over: then the ordinary ladder decides).
+func _mortar_evasion_step(m: Unit) -> bool:
+	var st: Dictionary = _mortar_evasion.get(m, {})
+	if _mortar_observed_by_drone_and_aware(m):
+		if st.is_empty():
+			st = {"next_turn": -INF, "origin": m.global_position}
+		st["until"] = scenario_elapsed_time + EVASION_HOLD_S
+		_mortar_evasion[m] = st
+	if st.is_empty():
+		return false
+	if scenario_elapsed_time > st.until or m.state != Unit.State.ACTIVE or _unwatched_threat_closing(m):
+		_mortar_evasion.erase(m)
+		if _mortar_move_intent.get(m, "") == "evade_observed":
+			_clear_mortar_move(m)
+		return false
+	if scenario_elapsed_time >= st.next_turn or not m.has_move_target:
+		var heading: Vector2 = _pick_evasive_heading(m, st.origin)
+		if heading != Vector2.ZERO:
+			_issue_mortar_move(m, m.global_position + heading * EVASION_LEG, GameConfig.MORTAR_RELOCATE_SPEED_URGENT, "evade_observed")
+			m.movement_predictable = false
+		st["next_turn"] = scenario_elapsed_time + EVASION_TURN_INTERVAL_S
+		_mortar_evasion[m] = st
+	_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Seen by a drone, which concealment would not beat: moving unpredictably so the rounds, 40 s in the air, land where it no longer is."}
+	return true
+
+
+## A fresh random heading for an evasive leg: any direction where the next stretch is ground it may stand on (not a building, the river, the
+## edge of the map, or for the Ukrainian crew the red area), not toward the nearest known ground threat, and heading back toward where the
+## manoeuvre began once it has strayed EVASION_WANDER. Vector2.ZERO if nothing qualifies (it then stands).
+func _pick_evasive_heading(m: Unit, origin: Vector2) -> Vector2:
+	var pos: Vector2 = m.global_position
+	var threats: Array[Vector2] = _known_enemy_positions(m.team, false, false)
+	var nearest_threat := Vector2.INF
+	for t in threats:
+		if is_inf(nearest_threat.x) or pos.distance_to(t) < pos.distance_to(nearest_threat):
+			nearest_threat = t
+	var strayed: bool = pos.distance_to(origin) > EVASION_WANDER
+	for i in EVASION_HEADING_TRIES:
+		var angle: float = randf() * TAU
+		if strayed:
+			angle = (origin - pos).angle() + randf_range(-1.0, 1.0)
+		var dir := Vector2(cos(angle), sin(angle))
+		var ahead: Vector2 = pos + dir * EVASION_LEG * 0.75
+		if ahead != GameConfig.clamp_to_operating_area(ahead):
+			continue
+		if GameConfig.mortar_barred_at(ahead, m.team) or GameConfig.is_river_at(ahead) or GameConfig.path_crosses_building(pos, ahead):
+			continue
+		if not is_inf(nearest_threat.x) and pos.distance_to(nearest_threat) < 1500.0 * GameConfig.PIXELS_PER_METER:
+			if dir.dot((nearest_threat - pos).normalized()) > 0.64:
+				continue # not toward it (within about 50 degrees)
+		return dir
+	return Vector2.ZERO
 
 
 ## Whether `m`'s crew is aware, right now, that it has been seen: spotted by anything other than an
@@ -6462,6 +6547,10 @@ func _decide_mortar_action(m: Unit) -> void:
 			_issue_mortar_move(m, nearest, GameConfig.MORTAR_RELOCATE_SPEED, "conceal")
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Standing in a populated area, where the crew will not set up: walking out to the nearest place it can fire from."}
 			return
+
+	# Watched by a drone and knows it: keep moving unpredictably rather than hide (see _mortar_evasion_step).
+	if _mortar_evasion_step(m):
+		return
 
 	# Step 0b — an in-progress EMERGENCY self-preservation walk isn't
 	# interruptible by a lower tier (hunting): evade/conceal/out_of_ammo/
@@ -9508,6 +9597,8 @@ func _clear_mortar_move(m: Unit) -> void:
 ## occasionally not fast or far enough to actually get clear.
 func _relocate_mortar(mortar: Unit, intent: String, force_urgent: bool = false) -> bool:
 	var urgent: bool = mortar.evading_counter_battery or force_urgent
+	if mortar.evading_counter_battery:
+		_mortar_counter_battery_time[mortar] = scenario_elapsed_time # remembered: the flag is consumed just below, and a later flee reports it
 	mortar.evading_counter_battery = false
 	# A real, reported oscillation, confirmed by tracing the FRIENDLY
 	# mortar's own out-of-ammo relocations directly: unspotted and
@@ -9640,6 +9731,17 @@ func _mortar_flee_as_last_resort(m: Unit) -> void:
 		why.append("under counter-battery fire")
 	if why.is_empty():
 		why.append("a threat closing")
+	# Who had it in sight, and whether counter-battery fire had found it lately, so "why did it flee" can be answered from the snapshot.
+	var seen_by: PackedStringArray = []
+	var opposing_units: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
+	for u in opposing_units:
+		var one: Array[Unit] = [u]
+		if u.state == Unit.State.ACTIVE and CombatResolver.has_live_observer(m, one, false, true):
+			seen_by.append(u.display_name() + (" (unarmed)" if u.kind == Unit.Kind.DRONE or u.kind == Unit.Kind.SPOTTER else " (armed)"))
+	if not seen_by.is_empty():
+		why.append("in sight of " + ", ".join(seen_by))
+	if scenario_elapsed_time - float(_mortar_counter_battery_time.get(m, -INF)) < 120.0:
+		why.append("counter-battery fire in the last two minutes")
 	m.order_retreat(_known_enemy_positions_for_retreat(m.team), [], "Fled off the map as a last resort: %s, and no safe place to relocate to." % ", ".join(why))
 	if m.team == Unit.Team.PLAYER:
 		combat_log.log_mortar_fled_off_map(m)

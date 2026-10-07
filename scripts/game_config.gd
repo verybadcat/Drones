@@ -9630,6 +9630,25 @@ static func _random_point_in_cover_zone(zone: Dictionary) -> Vector2:
 	return patch.center_m * PIXELS_PER_METER + Vector2(cos(theta), sin(theta)) * r_m * PIXELS_PER_METER
 
 
+## How far apart squads prefer to stand. User: "I would discourage squads from taking up positions within 50 meters of each other for sure ...
+## prefer 50m away. It should scale with distance. For example, if there is no plausible cover 50m away, but there is a plausible spot 35m
+## away, that should be better than being in the same place."
+const SQUAD_SPACING_PREFERRED: float = 50.0 * PIXELS_PER_METER
+## What standing on top of another unit costs, in metres of walking: the cost of a spot is this times the shortfall from the preferred spacing
+## (linear: 35 m from a neighbour is 30% short, so costs 45 m of walking; 10 m is 80% short, 120 m).
+const SQUAD_SPACING_WEIGHT: float = 150.0 * PIXELS_PER_METER
+const SQUAD_SPACING_ZONES_JUDGED: int = 10
+const SQUAD_SPACING_POINT_SAMPLES: int = 8
+
+static func squad_spacing_cost(point: Vector2, others: Array[Vector2]) -> float:
+	var nearest: float = INF
+	for p in others:
+		nearest = minf(nearest, point.distance_to(p))
+	if is_inf(nearest):
+		return 0.0
+	return SQUAD_SPACING_WEIGHT * clampf(1.0 - nearest / SQUAD_SPACING_PREFERRED, 0.0, 1.0)
+
+
 static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_buildings: bool = false, avoid_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], bunch_avoid_positions: Array[Vector2] = [], no_reversal_positions: Array[Vector2] = [], travel_direction: Vector2 = Vector2.ZERO, firing_point: Vector2 = Vector2.INF, reference_point: Vector2 = Vector2.INF, avoid_populated: bool = false) -> Vector2:
 	var candidates: Array[Dictionary] = []
 	for zone in _all_cover_zones():
@@ -9777,6 +9796,27 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 
 	candidates.sort_custom(func(a, b): return a.dist < b.dist)
 
+	# Squads prefer to stand SQUAD_SPACING_PREFERRED from each other, and the preference scales with distance rather than being a wall: of the
+	# nearest zones, each is judged by the best point sampled inside it (the farthest from the other units), and its cost is its walking distance
+	# plus SQUAD_SPACING_WEIGHT times the shortfall from the preferred separation (none at 50 m, all of it on top of another unit). So a spot 35 m
+	# from a neighbour beats the same place, and 50 m beats 35 m, while a cover zone far away is not worth a long walk for the last few metres.
+	# Only where the caller names the units to keep clear of (avoid_positions, and not the mortar's bunching list).
+	if not avoid_positions.is_empty() and bunch_avoid_positions.is_empty():
+		var judged: int = min(SQUAD_SPACING_ZONES_JUDGED, candidates.size())
+		for i in judged:
+			var c: Dictionary = candidates[i]
+			var best_point: Vector2 = _random_point_in_cover_zone(c.zone)
+			var best_cost: float = squad_spacing_cost(best_point, avoid_positions)
+			for k in SQUAD_SPACING_POINT_SAMPLES - 1:
+				var p: Vector2 = _random_point_in_cover_zone(c.zone)
+				var cost: float = squad_spacing_cost(p, avoid_positions)
+				if cost < best_cost:
+					best_cost = cost
+					best_point = p
+			c["point"] = best_point
+			c.dist = c.dist + best_cost
+		candidates.sort_custom(func(a, b): return a.dist < b.dist)
+
 	var pool_size: int = min(3, candidates.size())
 	var weights: Array[float] = [0.55, 0.3, 0.15]
 	var roll := randf()
@@ -9788,6 +9828,8 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 			chosen_index = i
 			break
 	var chosen_zone: Dictionary = candidates[chosen_index].zone
+	if candidates[chosen_index].has("point"):
+		return candidates[chosen_index].point
 
 	# A real, previously-reported gap: the reversal checks above filter
 	# by the ZONE'S OWN CENTER, but the actual destination handed back is
