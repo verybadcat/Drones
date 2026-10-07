@@ -50,29 +50,45 @@ func run() -> void:
 	var bm: BattleManager = c.bm
 	var em: Unit = c.em
 	var origin: Vector2 = em.global_position
-	# 1. watched by a drone and aware of it: it keeps moving, changing direction
+	# 1. watched by a drone and aware of it: it keeps moving, changing direction at random intervals of 15-30 s (a shooter aiming at
+	# where it stands would hit a crew that turns every few seconds, since it never gets 40 m away in the 40 s a round is in the air)
 	var headings: Array[float] = []
+	var turn_times: Array[float] = []
+	var last_target := Vector2.ZERO
 	var moving_ticks := 0
 	var in_building := 0
 	var max_stray := 0.0
-	for i in 80:
+	var ticks := 400
+	for i in ticks:
 		bm.scenario_elapsed_time += 1.0
 		em.is_visible = true
 		bm._decide_mortar_action(em)
 		if em.has_move_target:
 			moving_ticks += 1
+			if not headings.is_empty() and not em.move_target.is_equal_approx(last_target):
+				turn_times.append(float(i)) # a new leg was issued: a change of heading (some are by only a few degrees)
+			last_target = em.move_target
 			headings.append((em.move_target - em.global_position).angle())
 			bm._step_toward_target(em, 1.0)
 		if GameConfig.is_building_at(em.global_position):
 			in_building += 1
 		max_stray = maxf(max_stray, em.global_position.distance_to(origin))
-	check(moving_ticks >= 70, "A mortar watched by a drone it has seen keeps moving (%d of 80 ticks)" % moving_ticks)
+	check(moving_ticks >= ticks - 5, "A mortar watched by a drone it has seen keeps moving (%d of %d ticks)" % [moving_ticks, ticks])
 	check(bm._mortar_move_intent.get(em, "") == "evade_observed", "...as an evasive manoeuvre, not a concealment (%s)" % str(bm._mortar_move_intent.get(em, "")))
-	var turns := 0
-	for i in range(1, headings.size()):
-		if absf(angle_difference(headings[i], headings[i - 1])) > deg_to_rad(30.0):
-			turns += 1
-	check(turns >= 8, "...turning to a new direction every few seconds (%d turns of more than 30 degrees in 80 s)" % turns)
+	var gaps: Array[float] = []
+	for k in range(1, turn_times.size()):
+		gaps.append(turn_times[k] - turn_times[k - 1])
+	var shortest := 999.0
+	var longest := 0.0
+	var gap_sum := 0.0
+	for g in gaps:
+		shortest = minf(shortest, g)
+		longest = maxf(longest, g)
+		gap_sum += g
+	check(turn_times.size() >= 9 and turn_times.size() <= 26, "...turning to a new direction now and then (%d turns in %d s)" % [turn_times.size(), ticks])
+	check(gaps.size() >= 8 and shortest >= BattleManager.EVASION_TURN_MIN_S - 1.0 and longest <= BattleManager.EVASION_TURN_MAX_S + 1.0, "...never sooner than %d s or later than %d s after the last turn (shortest %.0f, longest %.0f)" % [int(BattleManager.EVASION_TURN_MIN_S), int(BattleManager.EVASION_TURN_MAX_S), shortest, longest])
+	check(longest - shortest >= 5.0, "...at random intervals, not a fixed one (%.0f to %.0f s)" % [shortest, longest])
+	check(not gaps.is_empty() and gap_sum / float(gaps.size()) > 19.0 and gap_sum / float(gaps.size()) < 26.0, "...about 22 s apart on average (%.1f)" % (gap_sum / float(maxi(gaps.size(), 1))))
 	check(in_building == 0, "...never through a building")
 	check(max_stray < m(450, 0).x, "...and staying near where it began (%.0f m at most)" % (max_stray / GameConfig.PIXELS_PER_METER))
 	check(str(bm._mortar_reasoning.get(em, {}).get("detail", "")).contains("unpredictably"), "...and says why in its reasoning")

@@ -11490,6 +11490,20 @@ const CIVILIAN_KILLED_SHARE: float = 0.25
 const CIVILIAN_HEAVILY_WOUNDED_SHARE: float = 0.35 # the rest, 40%, are walking wounded
 
 
+## An enemy mortar seen moving unpredictably (turning more than OBSERVED_EVASIVE_TURN_DEGREES at least OBSERVED_EVASIVE_TURNS times within
+## OBSERVED_EVASIVE_WINDOW_S: see BattleManager._mortar_looks_evasive) is dodging, and a round that takes 40 s to land mostly falls where
+## it no longer is: research (tools/research/mortar_evasion_interval_sim.gd) puts the casualties of a dodging crew at a quarter to a half of
+## a stationary one's. So to a mortar choosing a target it is worth that fraction of an ordinary mortar (MORTAR_EVASIVE_TARGET_VALUE_
+## MULTIPLIER: 150 becomes 15, comparable to a squad in contact), and a round at it that is picked anyway is held back
+## MORTAR_EVASIVE_HOLD_FIRE_CHANCE of the time. Direct user instruction: "our mortar should fire at it less and might even choose to go
+## after squads. If there were another enemy mortar, it would make sense to go after that."
+const MORTAR_EVASIVE_TARGET_VALUE_MULTIPLIER: float = 0.1
+const MORTAR_EVASIVE_HOLD_FIRE_CHANCE: float = 0.75
+const OBSERVED_EVASIVE_WINDOW_S: float = 75.0
+const OBSERVED_EVASIVE_TURNS: int = 2
+const OBSERVED_EVASIVE_TURN_DEGREES: float = 50.0
+const OBSERVED_STEP_M: float = 10.0 # the distance moved between two looks at its heading
+
 ## The Ukrainian mortar is reluctant to fire at a target inside a town, "within 50 meters of a building. Not the 200 meter exclusion zone.
 ## 'Reluctant' doesn't mean they can't. Just that they are less likely to." Two effects, both only for the player's mortar and only for
 ## squads (an enemy mortar in the town is still a counter-battery target): a target there is worth this fraction of what it would be in the

@@ -911,6 +911,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_enemy_stance_decided = false
 	_enemy_consolidation = Vector2.INF
 	_mortar_tick_shot.clear()
+	_observed_mortar_track.clear()
 	_mortar_move_intent.clear()
 	_mortar_reasoning.clear()
 	_joint_mortar_hunt_target = null
@@ -6296,21 +6297,86 @@ func _mortar_has_seen_an_unarmed_observer(m: Unit) -> bool:
 
 ## A mortar crew that a drone (or spotter) has in view, and knows it, does not hide: concealment from an aircraft overhead is
 ## unlikely to work, and the rounds it draws take MORTAR_FLIGHT_TIME to land, so what keeps it alive is NOT BEING WHERE THEY ARE AIMED:
-## it keeps moving, changing direction every EVASION_TURN_INTERVAL_S, for as long as it is watched and EVASION_HOLD_S after. Direct user
+## it keeps moving, changing direction at random intervals (EVASION_TURN_MIN_S to EVASION_TURN_MAX_S), for as long as it is watched and EVASION_HOLD_S after. Direct user
 ## instruction: "A mortar that a drone has spotted should not conceal itself unless it can do so effectively. This seems unlikely. Rather, it
 ## should act in a way that makes it least likely to be hit. This might mean taking cover. It also might mean continually moving in
 ## unpredictable directions. It's a reasonable research question which is better." The answer, from the game's own numbers (see the
 ## doctrine log's entry of 2026-10-07): moving, if it turns often enough; straight-line movement and cover alone do not save a crew from
 ## fire that a drone is walking onto it. A crew that moves cannot fire (it must sit MORTAR_SETUP_TEARDOWN_TIME first), which is the price.
-const EVASION_TURN_INTERVAL_S: float = 4.0
+##
+## How often it turns was first set at 4 s, which is far too often (user: "Our mortar could hit it by shooting at its current position."):
+## a crew turning that often never gets 40 m from where it stands in the 40 s a round is in the air. Now a random time between
+## EVASION_TURN_MIN_S and EVASION_TURN_MAX_S: against a shooter who leads along its heading, aims at where it stands, or aims along its
+## recent movement, the best worst case is 15-30 s (tools/research/mortar_evasion_interval_sim.gd), so a change is nearly always due
+## while a round is in flight, yet it moves far enough in between to be somewhere else when the round lands.
+const EVASION_TURN_MIN_S: float = 15.0
+const EVASION_TURN_MAX_S: float = 30.0
 ## Mortar -> the last time a counter-battery near-miss or hit sent it relocating (kept for the flee reason; see _mortar_flee_as_last_resort).
 var _mortar_counter_battery_time: Dictionary = {}
-const EVASION_LEG: float = 60.0 * GameConfig.PIXELS_PER_METER # each leg's target, never reached (the heading changes first)
+const EVASION_LEG: float = 100.0 * GameConfig.PIXELS_PER_METER # each leg's target, never reached (the heading changes first: 30 s at 2.6 m/s is 78 m)
 const EVASION_HOLD_S: float = 90.0
 const EVASION_WANDER: float = 300.0 * GameConfig.PIXELS_PER_METER # how far from where it began it may stray before heading back
 const EVASION_HEADING_TRIES: int = 12
 ## Mortar -> {"until": time the evasion lapses, "next_turn": time of the next heading change, "origin": where it began}.
 var _mortar_evasion: Dictionary = {}
+
+## What an observer can see of how an enemy mortar moves: mortar -> {"anchor": where it was last looked at, "heading": the direction it
+## was then going, "turns": [the times it was seen to change direction]}. Kept only while it is in sight, from its visible positions
+## alone, so it is the watching side's knowledge, not the crew's orders.
+var _observed_mortar_track: Dictionary = {}
+
+
+## Updates _observed_mortar_track from every mortar currently in sight of the other side. A direction change is a heading, taken over at
+## least OBSERVED_STEP_M of movement, more than OBSERVED_EVASIVE_TURN_DEGREES from the last one.
+func _update_observed_movement() -> void:
+	for side in [player_units, enemy_units]:
+		for u in side:
+			if u.kind != Unit.Kind.MORTAR:
+				continue
+			var tr: Dictionary = _observed_mortar_track.get(u, {})
+			var turns: Array = tr.get("turns", [])
+			while not turns.is_empty() and scenario_elapsed_time - turns[0] > GameConfig.OBSERVED_EVASIVE_WINDOW_S:
+				turns.pop_front()
+			if u.state != Unit.State.ACTIVE or not u.is_visible:
+				_observed_mortar_track[u] = {"turns": turns} # out of sight: the thread of its movement is lost
+				continue
+			if not tr.has("anchor"):
+				_observed_mortar_track[u] = {"anchor": u.global_position, "turns": turns}
+				continue
+			if u.global_position.distance_to(tr.anchor) >= GameConfig.OBSERVED_STEP_M * GameConfig.PIXELS_PER_METER:
+				var heading: float = (u.global_position - tr.anchor).angle()
+				if tr.has("heading") and absf(angle_difference(heading, tr.heading)) > deg_to_rad(GameConfig.OBSERVED_EVASIVE_TURN_DEGREES):
+					turns.append(scenario_elapsed_time)
+				tr["heading"] = heading
+				tr["anchor"] = u.global_position
+			tr["turns"] = turns
+			_observed_mortar_track[u] = tr
+
+
+## Whether the side that can see `u` has seen it change direction enough, recently enough, to call it dodging (see
+## GameConfig.MORTAR_EVASIVE_TARGET_VALUE_MULTIPLIER). Only what an observer could see: positions while in sight.
+func _mortar_looks_evasive(u: Unit) -> bool:
+	if u.kind != Unit.Kind.MORTAR or u.state != Unit.State.ACTIVE or not u.is_visible:
+		return false
+	var turns: Array = _observed_mortar_track.get(u, {}).get("turns", [])
+	var recent := 0
+	for t in turns:
+		if scenario_elapsed_time - t <= GameConfig.OBSERVED_EVASIVE_WINDOW_S:
+			recent += 1
+	return recent >= GameConfig.OBSERVED_EVASIVE_TURNS
+
+
+## Whether a remembered mortar fix (from _mortar_hunt_fix_for) is on a mortar that looks evasive: its own unit if the fix names one, else the
+## opposing mortar standing at the fixed position.
+func _mortar_fix_is_evasive(shooter: Unit, fix: Dictionary) -> bool:
+	var named = fix.get("unit")
+	if named is Unit and is_instance_valid(named):
+		return _mortar_looks_evasive(named)
+	var opposing: Array[Unit] = enemy_units if shooter.team == Unit.Team.PLAYER else player_units
+	for o in opposing:
+		if o.kind == Unit.Kind.MORTAR and o.global_position.distance_to(fix.position) <= 40.0 * GameConfig.PIXELS_PER_METER:
+			return _mortar_looks_evasive(o)
+	return false
 
 ## Whether `m` is being watched only by an unarmed observer and has seen it (the case this applies to).
 func _mortar_observed_by_drone_and_aware(m: Unit) -> bool:
@@ -6338,7 +6404,7 @@ func _mortar_evasion_step(m: Unit) -> bool:
 		if heading != Vector2.ZERO:
 			_issue_mortar_move(m, m.global_position + heading * EVASION_LEG, GameConfig.MORTAR_RELOCATE_SPEED_URGENT, "evade_observed")
 			m.movement_predictable = false
-		st["next_turn"] = scenario_elapsed_time + EVASION_TURN_INTERVAL_S
+		st["next_turn"] = scenario_elapsed_time + randf_range(EVASION_TURN_MIN_S, EVASION_TURN_MAX_S)
 		_mortar_evasion[m] = st
 	_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Seen by a drone, which concealment would not beat: moving unpredictably so the rounds, 40 s in the air, land where it no longer is."}
 	return true
@@ -7067,6 +7133,7 @@ func _process(delta: float) -> void:
 	_tick_movement(scenario_delta)
 	_resolve_resupply_run_arrivals()
 	_update_spotting(scenario_delta)
+	_update_observed_movement()
 	_update_joint_mortar_hunt()
 	_update_enemy_squad_advance()
 	_update_friendly_squad_positioning()
@@ -10369,6 +10436,14 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		return _record_target_choice(unit, candidates, null, "No eligible visible target.")
 
 	var mortar_candidates: Array[Unit] = candidates.filter(func(c): return c.kind == Unit.Kind.MORTAR and c.state == Unit.State.ACTIVE)
+	# A mortar choosing among targets does not count an enemy mortar it has watched dodging as one to be shot at first: see
+	# GameConfig.MORTAR_EVASIVE_TARGET_VALUE_MULTIPLIER. It stays a candidate (at a fraction of its value), but another mortar, or a squad,
+	# is chosen ahead of it.
+	var evasive_mortars: Array[Unit] = []
+	if unit.kind == Unit.Kind.MORTAR:
+		evasive_mortars = mortar_candidates.filter(func(c): return _mortar_looks_evasive(c))
+		if not evasive_mortars.is_empty():
+			mortar_candidates = mortar_candidates.filter(func(c): return not evasive_mortars.has(c))
 	if not mortar_candidates.is_empty() and profile_for(unit.team).id == "baseline" and unit_doctrine_for(unit).targeting == "inherit":
 		var chosen: Unit = mortar_candidates[randi() % mortar_candidates.size()]
 		return _record_target_choice(unit, candidates, chosen, "Original rule: active mortars override other targets; uniform choice among mortars.", {"conditional_probability": 1.0 / mortar_candidates.size()})
@@ -10429,7 +10504,7 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# kind. The only reason today's only such opportunity happens to
 		# be an enemy mortar is that mortars are the only kind anything
 		# currently tracks a remembered, out-of-reach fix on at all.
-		if not enemy_mortar_fix.is_empty() and unit_doctrine_for(unit).targeting in ["inherit", "mortars"] and mortar_candidates.is_empty() and not any_overrun:
+		if not enemy_mortar_fix.is_empty() and unit_doctrine_for(unit).targeting in ["inherit", "mortars"] and mortar_candidates.is_empty() and not any_overrun and not _mortar_fix_is_evasive(unit, enemy_mortar_fix):
 			# A remembered position, not a live Unit — its value is
 			# discounted by how much this side actually trusts the fix, a
 			# confidence axis _enemy_target_value has no notion of (that
@@ -10462,7 +10537,7 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		# place. See GameConfig.MORTAR_UNKNOWN_ENEMY_HOLD_FIRE_CHANCE's own
 		# doc comment for why this scales with _mortar_existence_confidence()
 		# rather than a flat timer, and why it's player-only for now.
-		if unit.team == Unit.Team.PLAYER and mortar_candidates.is_empty() and not any_overrun:
+		if unit.team == Unit.Team.PLAYER and mortar_candidates.is_empty() and evasive_mortars.is_empty() and not any_overrun:
 			var unknown_mortar_hold_chance: float = GameConfig.MORTAR_UNKNOWN_ENEMY_HOLD_FIRE_CHANCE * _mortar_existence_confidence()
 			unknown_mortar_hold_chance *= _mortar_squad_order_hold_factor(unit)
 			var unknown_mortar_roll: float = 0.5 if profile_for(unit.team).deterministic else randf()
@@ -10519,6 +10594,11 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 			return _record_target_choice(unit, candidates, null, "Hold fire to conserve ammunition.", {"hold_probability": hold_fire_chance, "roll_or_cutoff": ammo_roll, "scarcity": scarcity, "resupply_urgency": urgency})
 		gate_evidence["ammunition"] = {"hold_probability": hold_fire_chance, "roll_or_cutoff": ammo_roll, "scarcity": scarcity, "resupply_urgency": urgency}
 		var picked: Unit = _weighted_mortar_target_pick(unit, candidates, gate_evidence)
+		if picked != null and evasive_mortars.has(picked) and not any_overrun:
+			var dodge_roll: float = 0.5 if profile_for(unit.team).deterministic else randf()
+			gate_evidence["target_dodging"] = {"hold_probability": GameConfig.MORTAR_EVASIVE_HOLD_FIRE_CHANCE, "roll_or_cutoff": dodge_roll}
+			if dodge_roll < GameConfig.MORTAR_EVASIVE_HOLD_FIRE_CHANCE:
+				return _record_target_choice(unit, candidates, null, "Holding fire: the mortar has been seen moving unpredictably, so a round 40 s in the air would land where it no longer is.", gate_evidence)
 		return _apply_town_reluctance(unit, candidates, picked, any_overrun, gate_evidence)
 	if profile_for(unit.team).id != "baseline" or unit_doctrine_for(unit).targeting != "inherit":
 		return _weighted_mortar_target_pick(unit, candidates)
@@ -10744,6 +10824,13 @@ func _target_danger_to_force(assessing_unit: Unit, target: Unit) -> float:
 ## weighs engaging any of them this way) reads as 0, not because they're
 ## worthless in reality, just because nothing needs an opinion on them yet.
 func _enemy_target_value(assessing_unit: Unit, target: Unit) -> float:
+	var value: float = _enemy_target_value_unscaled(assessing_unit, target)
+	if assessing_unit.kind == Unit.Kind.MORTAR and _mortar_looks_evasive(target):
+		value *= GameConfig.MORTAR_EVASIVE_TARGET_VALUE_MULTIPLIER # a mortar seen dodging is worth a fraction: see its constant
+	return value
+
+
+func _enemy_target_value_unscaled(assessing_unit: Unit, target: Unit) -> float:
 	if unit_doctrine_for(assessing_unit).targeting != "inherit":
 		return _type_target_score(assessing_unit, target)
 	if profile_for(assessing_unit.team).id != "baseline":
