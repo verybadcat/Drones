@@ -34,6 +34,10 @@ func run() -> void:
 		if s.label == "Squad 2":
 			check(s.offset.is_equal_approx(Vector2(20.0, 0.0) * DeploymentMagnifier.ZOOM), "A unit 20 map px away is drawn 20 x zoom window px from the centre (%s)" % str(s.offset))
 	check(DeploymentMagnifier.others_in_view(focus, []).is_empty(), "With nobody else placed nothing extra is drawn")
+	# the 50 m ring: 50 m is 10 map px, 40 loupe px at 4x; squads only
+	check(absf(DeploymentMagnifier.separation_ring_radius() - 40.0) < 0.01, "The separation ring is 50 m across the loupe's scale (%.1f px)" % DeploymentMagnifier.separation_ring_radius())
+	check(DeploymentMagnifier.shows_separation_ring(Unit.Kind.SQUAD) and not DeploymentMagnifier.shows_separation_ring(Unit.Kind.MORTAR) and not DeploymentMagnifier.shows_separation_ring(Unit.Kind.SPOTTER), "...drawn for a squad being placed, not for the mortar or the recon unit")
+	check(DeploymentMagnifier.SEPARATION_RING_COLOR.a < 0.4, "...and faint (alpha %.2f)" % DeploymentMagnifier.SEPARATION_RING_COLOR.a)
 	# the phase feeds the loupe: open the real deployment screen, mark a squad as the one shown, and read what the loupe was given
 	var main = load("res://scripts/main.gd").new()
 	root.add_child(main)

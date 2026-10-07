@@ -38,6 +38,17 @@ var others: Array = []
 ## Hollow rings, not the placed unit's translucent disc, so the unit being placed is the only filled marker with a crosshair on it; each
 ## ring is tinted by kind and carries its short name beside it.
 const OTHER_RING_WIDTH: float = 2.0
+## A faint ring 50 m from the squad being placed, so the other squads' distance from it can be judged at a glance: a squad whose ring sits
+## inside this one is closer than the 50 m the user wants discouraged. Direct user request: "Yes add the 50m ring. Keep it subtle." Squads only.
+const SEPARATION_RING_M: float = 50.0
+const SEPARATION_RING_COLOR: Color = Color(1.0, 1.0, 1.0, 0.28)
+
+static func separation_ring_radius() -> float:
+	return SEPARATION_RING_M * GameConfig.PIXELS_PER_METER * ZOOM
+
+
+static func shows_separation_ring(kind: Unit.Kind) -> bool:
+	return kind == Unit.Kind.SQUAD
 const OTHER_LABEL_SIZE: int = 11
 
 ## The whole map's terrain, drawn ONCE (see terrain_layer.gd) at ZOOM x and
@@ -95,6 +106,10 @@ static func others_in_view(focus: Vector2, tokens: Array) -> Array:
 
 func draw_overlay(ci: CanvasItem) -> void:
 	var center: Vector2 = WINDOW_SIZE / 2.0
+
+	# The 50 m ring around the squad being placed: thin and faint, under everything else.
+	if shows_separation_ring(unit_kind):
+		ci.draw_arc(center, separation_ring_radius(), 0.0, TAU, 64, SEPARATION_RING_COLOR, 1.0, true)
 
 	# The other placed units: hollow rings in their own colours with a short name, drawn under the unit being placed.
 	for o in others_in_view(focus_position, others):
