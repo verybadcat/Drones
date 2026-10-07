@@ -43,28 +43,82 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
-			var mouse_pos := get_global_mouse_position()
-			for token in _tokens:
-				if token.contains_point(mouse_pos):
-					_dragging = token
-					break
+			begin_drag(get_global_mouse_position())
 		else:
-			_dragging = null
+			end_drag()
 		queue_redraw() # the mortar-exclusion wash shows only while the mortar is being placed
 	elif event is InputEventMouseMotion and _dragging != null:
-		var zone := _dragging.deployment_zone
-		var mouse_pos := get_global_mouse_position()
-		var candidate := Vector2(
-			clamp(mouse_pos.x, zone.position.x, zone.end.x),
-			clamp(mouse_pos.y, zone.position.y, zone.end.y)
-		)
-		# A mortar can never be set up inside a building (no overhead
-		# clearance to fire from one) — the token simply stops at the
-		# building's edge instead of following the cursor inside it.
-		if _dragging.kind == Unit.Kind.MORTAR and GameConfig.mortar_barred_at(candidate, Unit.Team.PLAYER):
-			return
-		_dragging.position = candidate
-		_dragging.queue_redraw() # cover ring must update live as it crosses terrain
+		drag_to(get_global_mouse_position())
+
+
+## The mortar token's last legal spot on this drag: the place it started, then the latest spot it passed through that the Ukrainian mortar
+## may be set up at (not in a building, not in the red area). Where it goes back to if the drag ends somewhere it may not stay.
+var _last_legal_position: Vector2 = Vector2.ZERO
+
+
+func _mortar_may_stand_at(point: Vector2) -> bool:
+	return not GameConfig.mortar_barred_at(point, Unit.Team.PLAYER)
+
+
+func begin_drag(point: Vector2) -> void:
+	_dragging = token_at(point)
+	if _dragging != null:
+		_last_legal_position = _dragging.position
+
+
+## The dragged token follows the cursor, clamped to its deployment zone. The mortar follows it through buildings and the red area too (a
+## drag may pass through them); where it may not be set up it simply must not be left: see end_drag. Direct user instruction: "Let's even
+## allow it to be dragged through the red during setup, but not placed. If the user stops dragging inside the red, the mortar goes to the
+## last legal spot it passed through."
+func drag_to(mouse_pos: Vector2) -> void:
+	if _dragging == null:
+		return
+	var zone := _dragging.deployment_zone
+	var candidate := Vector2(
+		clamp(mouse_pos.x, zone.position.x, zone.end.x),
+		clamp(mouse_pos.y, zone.position.y, zone.end.y)
+	)
+	if _dragging.kind == Unit.Kind.MORTAR:
+		if _mortar_may_stand_at(candidate):
+			_last_legal_position = candidate
+		else:
+			# The cursor moves in jumps: of the stretch it just covered, the latest legal point is the last place the mortar passed through.
+			var from: Vector2 = _dragging.position
+			for i in range(1, DRAG_LEGAL_SAMPLES + 1):
+				var along: Vector2 = from.lerp(candidate, float(i) / float(DRAG_LEGAL_SAMPLES))
+				if _mortar_may_stand_at(along):
+					_last_legal_position = along
+	_dragging.position = candidate
+	_dragging.queue_redraw() # cover ring must update live as it crosses terrain
+
+
+## Where the mortar token ends a drag: where the cursor left it if it may be set up there, otherwise the last legal spot it passed through.
+func end_drag() -> void:
+	if _dragging != null and _dragging.kind == Unit.Kind.MORTAR and not _mortar_may_stand_at(_dragging.position):
+		_dragging.position = _last_legal_position
+		_dragging.queue_redraw()
+	_dragging = null
+
+
+const DRAG_LEGAL_SAMPLES: int = 24
+
+
+## The token a press at `point` picks up: the one whose centre is nearest the press, the one drawn on top (the later one) when two are
+## equally near, null if none is under it. Direct user report: "It was difficult to drag my units during setup. I made multiple tries to
+## click on a unit." Several tokens start within one token's width of each other (on Voznesensk the spotter sits 9-14 px from two
+## squads, circles 32 px across), and the old rule took the FIRST token in the list that the press touched, so a press on the spotter
+## on top (drawn last) grabbed a squad underneath it instead.
+func token_at(point: Vector2) -> UnitToken:
+	var best: UnitToken = null
+	var best_distance := INF
+	for token in _tokens:
+		if not token.contains_point(point):
+			continue
+		var distance: float = token.position.distance_to(point)
+		if distance <= best_distance:
+			best = token
+			best_distance = distance
+	return best
 
 
 ## The recon asset's own zone: the ordinary spotter zone, or — for the drone
