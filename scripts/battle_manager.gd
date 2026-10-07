@@ -8372,6 +8372,23 @@ func _enemy_advance_objective(u: Unit = null) -> Vector2:
 		if not u.village_reached and u.global_position.distance_to(village) <= GameConfig.ENEMY_SURROUND_STANDOFF_RADIUS * ENEMY_VILLAGE_REACHED_SLACK:
 			u.village_reached = true
 		if u.village_reached and _friendly_force_still_in_the_field():
+			# Direct user report, live: "Right now, enemy squads are headed towards the bottom left corner. This is not rational. They know
+			# where at least some of our squads are. They have a general idea where they last saw the mortar. None of this is the bottom left
+			# corner." The blind push west along the squad's own line is for when nothing is known; with something known, go for it: the
+			# nearest of where the mortar was last seen or heard (no expiry) and, if the force has the numbers to attack (_enemy_attack_stance),
+			# where the nearest known friendly squad was last seen; with squads known but no stance to attack them, gather (as above).
+			var known_target := Vector2.INF
+			var last_mortar := _last_known_friendly_mortar_position()
+			if not is_inf(last_mortar.x):
+				known_target = last_mortar
+			var known_squad := _known_friendly_squad_objective(u)
+			if not is_inf(known_squad.x) and _enemy_attack_stance():
+				if is_inf(known_target.x) or u.global_position.distance_to(known_squad) < u.global_position.distance_to(known_target):
+					known_target = known_squad
+			if not is_inf(known_target.x):
+				return known_target
+			if not is_inf(known_squad.x):
+				return _enemy_consolidation_point()
 			return Vector2(GameConfig.PLAYER_SAFE_X, u.global_position.y)
 	return village
 
