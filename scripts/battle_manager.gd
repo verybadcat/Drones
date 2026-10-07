@@ -494,6 +494,9 @@ var _fire_flashes: Array[Dictionary] = []
 ## IMPACT_EFFECT_DURATION's own doc comment for why the two use different
 ## fade times.
 var _mortar_impacts: Array[Dictionary] = []
+## Civilians killed and wounded by mortar shells this battle, by whose shell it was: {"player": {killed, heavily_wounded, walking_wounded},
+## "enemy": {...}}. Scored by the totals alone (the side that fired makes no difference to the score); the split is for display only.
+var civilian_casualties_by_shell: Dictionary = _empty_civilian_tally()
 var _seconds_since_last_shot: float = 0.0
 
 # Word travels fast: the moment ANY enemy squad comes under fire, every
@@ -893,6 +896,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	is_paused = false
 	_fire_flashes.clear()
 	_mortar_impacts.clear()
+	civilian_casualties_by_shell = _empty_civilian_tally()
 	_seconds_since_last_shot = 0.0
 	enemy_alerted = false
 	player_general_retreat_ordered = false
@@ -7831,6 +7835,22 @@ func _mortar_dispersion_offset(mortar: Unit, target: Unit, aim_point: Vector2) -
 	return Vector2(randfn(0.0, sigma), randfn(0.0, sigma)) + wind_bias
 
 
+static func _empty_civilian_tally() -> Dictionary:
+	return {
+		"player": {"killed": 0, "heavily_wounded": 0, "walking_wounded": 0},
+		"enemy": {"killed": 0, "heavily_wounded": 0, "walking_wounded": 0},
+	}
+
+
+## A shell has landed at `point`: any civilians it killed or wounded are added to the tally of the side that fired it (see
+## GameConfig.civilian_casualties_at). Every landed shell is assessed, whatever it did to its target.
+func _assess_civilian_casualties(point: Vector2, firing_team: Unit.Team) -> void:
+	var hurt: Dictionary = GameConfig.civilian_casualties_at(point)
+	var tally: Dictionary = civilian_casualties_by_shell["player" if firing_team == Unit.Team.PLAYER else "enemy"]
+	for key in hurt:
+		tally[key] += hurt[key]
+
+
 ## Resolves any mortar shots whose flight time has elapsed. A target that's
 ## since been destroyed or reached safety leaves nothing for the shell to
 ## hit. Otherwise, the shell lands at its impact_point regardless — set at
@@ -7854,6 +7874,7 @@ func _resolve_pending_mortar_shots() -> void:
 		# up unconditionally, before any of the below can skip the rest
 		# of this resolution.
 		_mortar_impacts.append({"position": shot.impact_point, "time": elapsed_time})
+		_assess_civilian_casualties(shot.impact_point, shot.mortar.team)
 		# Checked on the raw Variant, BEFORE assigning to a typed `Unit`
 		# variable — assigning an already-freed instance to a typed var is
 		# itself what throws "Trying to assign invalid previously freed
@@ -9488,6 +9509,7 @@ func _resolve_pending_counter_battery() -> void:
 		# See _resolve_pending_mortar_shots' own identical comment — the
 		# round lands here regardless of the target's own state by now.
 		_mortar_impacts.append({"position": strike.impact_position, "time": elapsed_time})
+		_assess_civilian_casualties(strike.impact_position, strike.attacker.team)
 		var target: Unit = strike.target
 		if target.state != Unit.State.ACTIVE:
 			continue # withdrawn/destroyed since the strike was called in — nothing to hit
@@ -11198,6 +11220,11 @@ func _build_battle_result(verdict: String, held: bool, player_stats: Dictionary,
 		"enemy_heavily_wounded": true_enemy_stats.heavily_wounded,
 		"enemy_walking_wounded": true_enemy_stats.walking_wounded,
 		"enemy_mortar_out": enemy_mortar_out,
+		# civilians, whoever's shell it was (the score does not care), then the split by firing side, for display only
+		"civilian_killed": civilian_casualties_by_shell.player.killed + civilian_casualties_by_shell.enemy.killed,
+		"civilian_heavily_wounded": civilian_casualties_by_shell.player.heavily_wounded + civilian_casualties_by_shell.enemy.heavily_wounded,
+		"civilian_walking_wounded": civilian_casualties_by_shell.player.walking_wounded + civilian_casualties_by_shell.enemy.walking_wounded,
+		"civilian_by_shell": civilian_casualties_by_shell.duplicate(true),
 	}
 	return {
 		"verdict": verdict,

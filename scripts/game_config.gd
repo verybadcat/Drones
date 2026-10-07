@@ -11427,6 +11427,69 @@ static func near_building(point: Vector2, within_m: float) -> bool:
 	return false
 
 
+## How many buildings stand within `radius_m` of `point` (their nearest edge): the measure of how built-up the ground around a shell's
+## impact is.
+static func buildings_within(point: Vector2, radius_m: float) -> int:
+	if not _terrain_grid_built:
+		_build_terrain_grid()
+	var reach: float = radius_m * PIXELS_PER_METER
+	var count := 0
+	for rect in _building_rects:
+		var nearest := Vector2(clampf(point.x, rect.position.x, rect.end.x), clampf(point.y, rect.position.y, rect.end.y))
+		if nearest.distance_to(point) <= reach:
+			count += 1
+	return count
+
+
+## Civilians hit by a mortar shell that lands at `point`: a random draw, and most shells hurt no one. {killed, heavily_wounded,
+## walking_wounded} (all zero for most impacts). Direct user request: "track civilian dead and wounded, using your best estimate. It's a
+## random thing. Most impacts don't cause any." Civilians are assumed to know a battle is on and most to be sheltering (cellars, interior
+## rooms), so only a fraction of those a shell lands among are hurt.
+##
+## Estimate, from the one dataset found that fits (2014 Gaza War, Israeli side, a sheltering population with safe rooms; Wikipedia citing
+## OCHA/IDF/Magen David Adom): 224 of 4,564 projectiles fell in built-up areas and 6 civilians were killed and 87 wounded, about 0.4
+## casualties per built-up impact, with deaths almost all among people outdoors or without a shelter. Taken here as CIVILIAN_CASUALTY_
+## CHANCE_DENSE (the chance a shell in a close-packed block hurts anyone, 20%) times a mean of two people hurt when it does (0.4 per impact).
+## It scales with how built-up the ground is: the building blocks (the map's BUILDING zones, about 64 m across) within
+## CIVILIAN_BLAST_RADIUS_M of the impact, full at CIVILIAN_FULL_DENSITY_BUILDINGS (four, the densest ground on the maps: around a block
+## the median is three and the 90th percentile four), so a shell beside one block is a quarter as likely to hurt anyone. The split of those hurt is the war's
+## own killed-to-injured picture, not the sheltered Israeli one (which was 1 in 15 killed): CIVILIAN_KILLED_SHARE etc. Judgement calls, not
+## measurements; open ground (no building within the blast radius) never hurts anyone.
+static func civilian_casualties_at(point: Vector2) -> Dictionary:
+	return civilian_casualties_draw(buildings_within(point, CIVILIAN_BLAST_RADIUS_M))
+
+
+## The random part of civilian_casualties_at, given how many buildings stand within the blast radius.
+static func civilian_casualties_draw(buildings: int) -> Dictionary:
+	var result := {"killed": 0, "heavily_wounded": 0, "walking_wounded": 0}
+	if buildings == 0:
+		return result
+	var chance: float = CIVILIAN_CASUALTY_CHANCE_DENSE * minf(float(buildings) / float(CIVILIAN_FULL_DENSITY_BUILDINGS), 1.0)
+	if randf() >= chance:
+		return result
+	var hurt := 1
+	while hurt < CIVILIAN_MAX_PER_IMPACT and randf() < CIVILIAN_MORE_HURT_CHANCE:
+		hurt += 1
+	for i in hurt:
+		var roll: float = randf()
+		if roll < CIVILIAN_KILLED_SHARE:
+			result.killed += 1
+		elif roll < CIVILIAN_KILLED_SHARE + CIVILIAN_HEAVILY_WOUNDED_SHARE:
+			result.heavily_wounded += 1
+		else:
+			result.walking_wounded += 1
+	return result
+
+
+const CIVILIAN_BLAST_RADIUS_M: float = 35.0
+const CIVILIAN_FULL_DENSITY_BUILDINGS: int = 4
+const CIVILIAN_CASUALTY_CHANCE_DENSE: float = 0.2
+const CIVILIAN_MORE_HURT_CHANCE: float = 0.5 # each further person hurt by the same shell; with the first, two on average
+const CIVILIAN_MAX_PER_IMPACT: int = 6
+const CIVILIAN_KILLED_SHARE: float = 0.25
+const CIVILIAN_HEAVILY_WOUNDED_SHARE: float = 0.35 # the rest, 40%, are walking wounded
+
+
 ## The Ukrainian mortar is reluctant to fire at a target inside a town, "within 50 meters of a building. Not the 200 meter exclusion zone.
 ## 'Reluctant' doesn't mean they can't. Just that they are less likely to." Two effects, both only for the player's mortar and only for
 ## squads (an enemy mortar in the town is still a counter-battery target): a target there is worth this fraction of what it would be in the

@@ -74,6 +74,11 @@ const TERMS: Array = [
 	["enemy_heavily_wounded", "Russian heavily wounded", ENEMY_HEAVILY_WOUNDED],
 	["enemy_walking_wounded", "Russian walking wounded", ENEMY_WALKING_WOUNDED],
 	["enemy_mortar_out", "Russian mortar destroyed or abandoned", ENEMY_MORTAR_OUT],
+	# Civilians hurt by mortar shells count exactly like military dead and wounded, whichever side's shell it was (user, 2026-10-07:
+	# "Civilian dead and wounded are just as negative as military dead and wounded ... for score purposes, it should not matter").
+	["civilian_killed", "Civilians killed", FRIENDLY_DEATH],
+	["civilian_heavily_wounded", "Civilians heavily wounded", FRIENDLY_HEAVILY_WOUNDED],
+	["civilian_walking_wounded", "Civilians walking wounded", FRIENDLY_WALKING_WOUNDED],
 ]
 
 
@@ -133,10 +138,38 @@ static func breakdown_text(inputs: Dictionary, scenario_line: String = "") -> St
 			lines.append("  %s: %s" % [item.label, _format_points(item.points)])
 		elif item.count != 0:
 			lines.append("  %s: %d × %s = %s" % [item.label, item.count, _format_value(item.value), _format_points(item.points)])
+	var civilians_by_shell: String = civilian_attribution_text(inputs)
+	if not civilians_by_shell.is_empty():
+		lines.append(civilians_by_shell)
 	lines.append("")
 	lines.append("Total: %s" % format(score(inputs)))
 	return "
 ".join(lines)
+
+
+## Whose shells hurt the civilians, for display only (the score does not care): "Civilians hurt by our shells: 1 killed, 2 wounded."
+## and the same for Russian shells, a side left out if its shells hurt none, and an empty string if there were no civilian dead or
+## wounded at all (nothing about civilians is shown then).
+static func civilian_attribution_text(inputs: Dictionary) -> String:
+	var by_shell = inputs.get("civilian_by_shell")
+	if not (by_shell is Dictionary):
+		return ""
+	var parts: PackedStringArray = []
+	for side in [["player", "our"], ["enemy", "Russian"]]:
+		var tally = by_shell.get(side[0])
+		if not (tally is Dictionary):
+			continue
+		var killed: int = int(tally.get("killed", 0))
+		var wounded: int = int(tally.get("heavily_wounded", 0)) + int(tally.get("walking_wounded", 0))
+		if killed == 0 and wounded == 0:
+			continue
+		var pieces: PackedStringArray = []
+		if killed > 0:
+			pieces.append("%d killed" % killed)
+		if wounded > 0:
+			pieces.append("%d wounded" % wounded)
+		parts.append("Civilians hurt by %s shells: %s." % [side[1], ", ".join(pieces)])
+	return "\n".join(parts)
 
 
 static func position_key(held: bool, stalemate: bool) -> String:
