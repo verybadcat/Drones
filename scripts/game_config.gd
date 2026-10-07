@@ -1366,10 +1366,12 @@ const MAPS: Dictionary = {
 		# has_direct_los/elevation model (siting.js): each squad the point
 		# within ~350m of the village that sees the most of the real road,
 		# clear of the road bed itself and of any building.
+		# Spread (2026-10) so that no two tokens on the setup screen are closer than 190 m (38 px): closer than a token is wide and a click on one
+		# lands on its neighbour half the time (only the squads and the recon token moved, by at most 150 m).
 		"default_squad_positions": [
-			Vector2(1502.0, 2030.0) * PIXELS_PER_METER,
-			Vector2(1412.0, 2005.0) * PIXELS_PER_METER,
-			Vector2(1313.0, 1976.0) * PIXELS_PER_METER,
+			Vector2(1592.0, 2054.0) * PIXELS_PER_METER,
+			Vector2(1408.0, 2007.0) * PIXELS_PER_METER,
+			Vector2(1227.0, 1949.0) * PIXELS_PER_METER,
 		],
 		# The least-exposed point found within reach of the village — real
 		# flat-to-gently-rolling farmland has no spot hidden from a 5km
@@ -2656,10 +2658,12 @@ const MAPS: Dictionary = {
 		# has_direct_los/elevation model (siting.js): each squad the point
 		# within ~350m of the village that sees the most of the real road,
 		# clear of the road bed itself and of any building.
+		# Spread (2026-10) so that no two tokens on the setup screen are closer than 190 m (38 px): closer than a token is wide and a click on one
+		# lands on its neighbour half the time (only the squads and the recon token moved, by at most 150 m).
 		"default_squad_positions": [
-			Vector2(1589.0, 1655.0) * PIXELS_PER_METER,
-			Vector2(1548.0, 1558.0) * PIXELS_PER_METER,
-			Vector2(1689.0, 1672.0) * PIXELS_PER_METER,
+			Vector2(1555.0, 1707.0) * PIXELS_PER_METER,
+			Vector2(1532.0, 1519.0) * PIXELS_PER_METER,
+			Vector2(1739.0, 1659.0) * PIXELS_PER_METER,
 		],
 		# The least-exposed point found within reach of the village — real
 		# flat-to-gently-rolling farmland has no spot hidden from a 5km
@@ -4022,15 +4026,17 @@ const MAPS: Dictionary = {
 		"mortar_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 60.0 * PIXELS_PER_METER, 1950.0 * PIXELS_PER_METER, 3400.0 * PIXELS_PER_METER),
 		"spotter_deployment_zone": Rect2(30.0 * PIXELS_PER_METER, 30.0 * PIXELS_PER_METER, 4940.0 * PIXELS_PER_METER, 3440.0 * PIXELS_PER_METER),
 		# Three squads spaced along the plateau rim in tree cover, ~170m up and 1.5-2km west of the village, each seeing 7-14 of the 28 points along the attackers' route and up to a third of the village blocks (chosen by scanning the deployment area with the game's own line of sight).
+		# Spread (2026-10) so that no two tokens on the setup screen are closer than 190 m (38 px): closer than a token is wide and a click on one
+		# lands on its neighbour half the time (only the squads and the recon token moved, by at most 150 m).
 		"default_squad_positions": [
-			Vector2(1550.0, 1350.0) * PIXELS_PER_METER,
-			Vector2(1550.0, 1500.0) * PIXELS_PER_METER,
+			Vector2(1550.0, 1383.0) * PIXELS_PER_METER,
+			Vector2(1550.0, 1573.0) * PIXELS_PER_METER,
 			Vector2(1600.0, 1850.0) * PIXELS_PER_METER,
 		],
 		# In trees about 450m behind the rim, masked from every point along the attackers' route and from every village block (scanned the same way) — the mortar covers the valley from cover.
 		"mortar_default_position": Vector2(1100.0, 1500.0) * PIXELS_PER_METER,
 		# The best tree-covered vantage found on the rim (about 179m): it sees 15 of the 28 route points and 9 of the 29 village blocks.
-		"spotter_default_position": Vector2(1550.0, 1300.0) * PIXELS_PER_METER,
+		"spotter_default_position": Vector2(1550.0, 1193.0) * PIXELS_PER_METER,
 	},
 
 	"enemy": {
@@ -6552,14 +6558,16 @@ const MAPS: Dictionary = {
 		# Chosen by scanning the deployment area with the game's own has_direct_los/elevation model: each
 		# squad the point near the station that sees the most of the real road, clear of the road bed itself
 		# and of any building.
+		# Spread (2026-10) so that no two tokens on the setup screen are closer than 190 m (38 px): closer than a token is wide and a click on one
+		# lands on its neighbour half the time (only the squads and the recon token moved, by at most 150 m).
 		"default_squad_positions": [
-			Vector2(1750, 3550.0) * PIXELS_PER_METER,
-			Vector2(1650, 3550.0) * PIXELS_PER_METER,
-			Vector2(1800, 3625.0) * PIXELS_PER_METER,
+			Vector2(1875.0, 3468.0) * PIXELS_PER_METER,
+			Vector2(1513.0, 3580.0) * PIXELS_PER_METER,
+			Vector2(1804.0, 3683.0) * PIXELS_PER_METER,
 		],
 		# (Moved from (850, 1500), which is inside the town the mortar now keeps 200 m clear of.)
 		"mortar_default_position": Vector2(1030.0, 3160.0) * PIXELS_PER_METER,
-		"spotter_default_position": Vector2(1685.0, 3525.0) * PIXELS_PER_METER,
+		"spotter_default_position": Vector2(1693.0, 3520.0) * PIXELS_PER_METER,
 	},
 
 	"enemy": {

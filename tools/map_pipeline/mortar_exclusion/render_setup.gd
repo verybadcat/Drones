@@ -32,8 +32,7 @@ func run():
 	var screen := DeploymentScreen.new()
 	holder.add_child(screen)
 	if drag_mortar:
-		screen._dragging = screen._mortar_token
-		screen.queue_redraw()
+		screen.begin_drag(screen._mortar_token.position)
 	for i in 6:
 		await process_frame
 	await RenderingServer.frame_post_draw

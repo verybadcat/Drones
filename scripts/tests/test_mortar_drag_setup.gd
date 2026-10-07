@@ -70,6 +70,18 @@ func run() -> void:
 	check(mortar.position.distance_to(beyond) < 0.5, "Dragged through the red and let go on open ground beyond it, the mortar stays there")
 	screen.free()
 
+	# 2b. The red layer shows only while the mortar is held (a layer shown or hidden, not the whole screen redrawn: that took about a second).
+	screen = make_screen()
+	check(not screen._red_layer.visible, "The red is not shown before anything is picked up")
+	screen.begin_drag(screen._squad_tokens[1].position)
+	check(not screen._red_layer.visible, "...nor while a squad is held")
+	screen.end_drag()
+	screen.begin_drag(screen._mortar_token.position)
+	check(screen._red_layer.visible, "...but is shown while the mortar is held")
+	screen.end_drag()
+	check(not screen._red_layer.visible, "...and hidden again when it is let go")
+	screen.free()
+
 	# 3. A squad is not held to any of it: it may be set down in the red.
 	screen = make_screen()
 	var squad: UnitToken = screen._squad_tokens[0]

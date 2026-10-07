@@ -36,6 +36,14 @@ func run() -> void:
 					nearest = other
 			check(got == nearest, "%s: a press 3 px off %s picks the nearest token" % [map_id, token.label_text])
 		check(screen.token_at(Vector2(-99999.0, -99999.0)) == null, "%s: a press on nothing picks nothing" % map_id)
+		# No two tokens start closer than a token is wide (and a little more): inside that, a press on one lands on its neighbour about half the
+		# time even with the nearest-centre rule. Direct user report: "when I click squad 2 to drag it, it only responds about half the time".
+		var too_close := 0
+		for a in tokens.size():
+			for b in range(a + 1, tokens.size()):
+				if tokens[a].position.distance_to(tokens[b].position) < 2.0 * UnitToken.RADIUS + 4.0:
+					too_close += 1
+		check(too_close == 0, "%s: no two tokens start closer than 36 px (%d pairs do)" % [map_id, too_close])
 		screen.free()
 	# Two tokens exactly on top of each other: the one drawn on top (the later) wins.
 	GameConfig.set_active_map("pishchane")

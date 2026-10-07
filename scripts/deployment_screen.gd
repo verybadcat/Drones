@@ -15,7 +15,23 @@ var _spotter_token: UnitToken
 var _dragging: UnitToken = null
 
 
+## The red wash and its legend, in a layer of their own (see _draw_mortar_red): showing or hiding a layer costs nothing, whereas asking the
+## screen itself to redraw runs the whole terrain drawing again (5,700 building outlines on Voznesensk: about a second), which is what made
+## picking up a unit feel delayed. Direct user report: "when it does respond, it does so in a slightly delayed manner".
+class MortarRedLayer extends Node2D:
+	var screen: DeploymentScreen
+
+	func _draw() -> void:
+		screen._draw_mortar_red(self)
+
+var _red_layer: MortarRedLayer
+
+
 func _ready() -> void:
+	_red_layer = MortarRedLayer.new()
+	_red_layer.screen = self
+	_red_layer.visible = false
+	add_child(_red_layer) # first child: above the terrain this node draws, below every token added after it
 	for i in GameConfig.CURRENT_MAP.player.default_squad_positions.size():
 		var token := UnitToken.new()
 		add_child(token)
@@ -46,7 +62,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			begin_drag(get_global_mouse_position())
 		else:
 			end_drag()
-		queue_redraw() # the mortar-exclusion wash shows only while the mortar is being placed
 	elif event is InputEventMouseMotion and _dragging != null:
 		drag_to(get_global_mouse_position())
 
@@ -64,6 +79,7 @@ func begin_drag(point: Vector2) -> void:
 	_dragging = token_at(point)
 	if _dragging != null:
 		_last_legal_position = _dragging.position
+	_red_layer.visible = _dragging != null and _dragging.kind == Unit.Kind.MORTAR # shown only while the mortar is being placed
 
 
 ## The dragged token follows the cursor, clamped to its deployment zone. The mortar follows it through buildings and the red area too (a
@@ -98,6 +114,7 @@ func end_drag() -> void:
 		_dragging.position = _last_legal_position
 		_dragging.queue_redraw()
 	_dragging = null
+	_red_layer.visible = false
 
 
 const DRAG_LEGAL_SAMPLES: int = 24
@@ -152,12 +169,16 @@ func _draw() -> void:
 	draw_rect(GameConfig.CURRENT_MAP.player.mortar_deployment_zone, Color(1.0, 0.55, 0.15, 0.5), false, 2.0)
 	draw_rect(GameConfig.CURRENT_MAP.player.deployment_zone, Color(1.0, 1.0, 0.2, 0.7), false, 2.0)
 	draw_rect(_recon_deployment_zone(), Color(0.3, 1.0, 1.0, 0.6), false, 2.0)
-	# The ground the mortar will not go (within 200 m of a populated place) is shown only while the mortar is being
-	# placed — direct user request: "The red can be visible only when setting up the mortar."
-	if _dragging != null and _dragging.kind == Unit.Kind.MORTAR and not GameConfig.mortar_exclusion_rects().is_empty():
-		GameConfig.draw_mortar_exclusion(self)
-		var font: Font = ThemeDB.fallback_font
-		var at := Vector2(-GameConfig.WEST_FLANK_WIDTH_PX + 12.0, 22.0)
-		var text := "Red: the mortar will not go within 200 m of a populated place"
-		draw_string_outline(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 4, Color(1.0, 1.0, 1.0, 0.9))
-		draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.6, 0.05, 0.05))
+
+
+## The ground the mortar will not go (within 200 m of a populated place) and a line saying so, drawn on `ci` (the red layer) once; the layer is
+## shown only while the mortar is being placed (user: "The red can be visible only when setting up the mortar.").
+func _draw_mortar_red(ci: CanvasItem) -> void:
+	if GameConfig.mortar_exclusion_rects().is_empty():
+		return
+	GameConfig.draw_mortar_exclusion(ci)
+	var font: Font = ThemeDB.fallback_font
+	var at := Vector2(-GameConfig.WEST_FLANK_WIDTH_PX + 12.0, 22.0)
+	var text := "Red: the mortar will not set up within 200 m of a populated place"
+	ci.draw_string_outline(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 4, Color(1.0, 1.0, 1.0, 0.9))
+	ci.draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.6, 0.05, 0.05))
