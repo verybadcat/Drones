@@ -4681,6 +4681,8 @@ func _drone_search_target() -> Vector2:
 			candidate_is_fire = false
 		if is_inf(candidate_pos.x):
 			continue
+		if _drone_lead_is_spent(u, candidate_pos, candidate_time):
+			continue
 		if not _in_friendly_mortar_range(candidate_pos) or not _squad_order_permits_mortar_watch(candidate_pos):
 			continue
 		if candidate_time > best_lead_time:
@@ -4894,6 +4896,8 @@ func _drone_search_target() -> Vector2:
 			_drone_pilot_reasoning = {"tier": "Routine background recon", "detail": "No urgent lead — checking %s (candidate value %.2f, mortar-existence confidence %.2f)." % [kind, routine_pick.value, _mortar_existence_confidence()], "target": best_pos}
 			if routine_pick.key.begins_with("force:"):
 				_drone_pilot_reasoning = {"tier": "Watching the enemy force", "detail": "%d enemy squad%s in sight here: tracking them rather than searching elsewhere." % [routine_pick.count, "" if routine_pick.count == 1 else "s"], "target": best_pos}
+			if routine_pick.key.begins_with("look:"):
+				_drone_pilot_reasoning = {"tier": "Looking around an empty mortar lead", "detail": "The spot of the last mortar fix was watched and is empty: checking the ground around it, where the crew can have moved to.", "target": best_pos}
 			if routine_pick.key.begins_with("lost:"):
 				_drone_pilot_reasoning = {"tier": "Regaining contact with a lost squad", "detail": "%s was last seen %.0f s ago near here and has not been found since: going to look." % [routine_pick.unit.display_name(), routine_pick.age], "target": best_pos}
 
@@ -5238,6 +5242,52 @@ func _point_currently_observed(point: Vector2, count_drone_camera: bool = true) 
 	return false
 
 
+## Whether the drone has already flown to this mortar lead (a muzzle-flash fix or a last-seen position) and watched the spot for
+## DRONE_LEAD_EMPTY_DWELL_S with the mortar not in view: then the lead is spent, and the drone goes back to searching (the ground
+## around a fresh contact still draws it, see _contact_search_bonus) instead of hovering over an empty spot until the lead expires.
+## Direct user report, live: "the drone is hovering over a spot the enemy mortar fired from. But no enemy mortar is visible on
+## screen." The crew had fired and moved off 290 m into a wood, where a mortar in cover is only noticed inside 250 m. A NEWER fix or
+## sighting of the same mortar is a new lead and counts again. Uses only what the player's side has (the lead, and whether the mortar is
+## in view right now).
+func _drone_lead_is_spent(mortar: Unit, lead_pos: Vector2, lead_time: float) -> bool:
+	if _drone_checked_leads.get(mortar, -INF) >= lead_time:
+		return true
+	if active_drone == null or active_drone.state != Unit.State.ACTIVE or mortar.is_visible 			or active_drone.global_position.distance_to(lead_pos) > DRONE_SWEEP_WAYPOINT_RADIUS:
+		_drone_lead_arrival.erase(mortar)
+		return false
+	var arrival: Dictionary = _drone_lead_arrival.get(mortar, {})
+	if arrival.is_empty() or arrival.lead != lead_time:
+		arrival = {"lead": lead_time, "since": scenario_elapsed_time}
+		_drone_lead_arrival[mortar] = arrival
+	if scenario_elapsed_time - arrival.since >= DRONE_LEAD_EMPTY_DWELL_S:
+		_drone_checked_leads[mortar] = lead_time
+		_drone_lead_searches[mortar] = {"center": lead_pos, "lead": lead_time, "created": scenario_elapsed_time}
+		return true
+	return false
+
+
+## The places around a spent mortar lead the drone still means to look, as candidates in the routine-recon pool (with the sweep cells, flank
+## gaps and lost squads): four points of a diamond LEAD_SEARCH_RADIUS out. A point stops being offered once the drone has been to it; the
+## whole search lapses after LEAD_SEARCH_LIFETIME_S, or the moment a newer fix or sighting of that mortar gives a new lead.
+func _lead_search_candidates() -> Array:
+	var out: Array = []
+	for mortar in _drone_lead_searches.keys():
+		var search: Dictionary = _drone_lead_searches[mortar]
+		var newest: float = _last_detected_mortar_fire.get(mortar, {}).get("time", -INF)
+		if is_instance_valid(mortar) and mortar.player_has_been_sighted:
+			newest = maxf(newest, mortar.player_known_position_time)
+		if scenario_elapsed_time - search.created > LEAD_SEARCH_LIFETIME_S or newest > search.lead:
+			_drone_lead_searches.erase(mortar)
+			continue
+		var directions: Array[Vector2] = [Vector2.RIGHT, Vector2.DOWN, Vector2.LEFT, Vector2.UP]
+		for k in directions.size():
+			var key := "look:%d:%d" % [mortar.get_instance_id(), k]
+			if _drone_destination_last_visited.get(key, -INF) >= search.created:
+				continue
+			out.append({"key": key, "point": _clamp_to_drone_operating_area(search.center + directions[k] * LEAD_SEARCH_RADIUS), "value": LEAD_SEARCH_VALUE})
+	return out
+
+
 ## Read-only introspection into the drone's current reasoning — "what is
 ## the drone pilot thinking right now, and why" — for the player-
 ## toggleable debug overlay (see BattleScreen's DronePilotDebugPanel) and, while
@@ -5530,6 +5580,21 @@ func _in_friendly_mortar_range(pos: Vector2) -> bool:
 ## early, cutting each one badly short — this stays a comfortably smaller
 ## fraction of a leg's own length instead.
 const DRONE_SWEEP_WAYPOINT_RADIUS: float = 200.0 * GameConfig.PIXELS_PER_METER
+## How long the drone watches a mortar lead's spot, nothing in view, before the lead counts as checked and spent (tactical seconds).
+const DRONE_LEAD_EMPTY_DWELL_S: float = 60.0
+## Mortar lead (the unit) -> {"lead": the lead's time, "since": when the drone first came within DRONE_SWEEP_WAYPOINT_RADIUS of it}.
+var _drone_lead_arrival: Dictionary = {}
+## Mortar lead (the unit) -> the time of the newest lead the drone has flown to and found empty.
+var _drone_checked_leads: Dictionary = {}
+## Mortar lead (the unit) -> {"center": the spent lead's position, "lead": its time, "created": when it was spent}: the places the drone
+## still means to look around it (see _lead_search_candidates).
+var _drone_lead_searches: Dictionary = {}
+## "If the drone doesn't see the mortar, it would look around a bit" (user): the four points of a diamond this far from a spent lead. A
+## mortar in cover is noticed within 250 m (GameConfig.MORTAR_HIDDEN_DETECTION_RANGE), and a crew that fired and moved had a few hundred
+## metres to go, so points ~300 m out cover the ground it can have reached.
+const LEAD_SEARCH_RADIUS: float = 300.0 * GameConfig.PIXELS_PER_METER
+const LEAD_SEARCH_VALUE: float = 2.0
+const LEAD_SEARCH_LIFETIME_S: float = 240.0
 
 ## True once some enemy unit confirmed no longer any kind of threat
 ## (DESTROYED/WITHDRAWN/SURRENDERED — the same boundary _known_enemy_
@@ -5855,7 +5920,7 @@ func _drone_mortar_search_weight() -> float:
 ## tier is worth entering in the first place) rather than recomputing them.
 func _drone_routine_recon_target(flank_candidates: Array) -> Dictionary:
 	_drone_routine_pool_unaffordable = false
-	var candidates: Array = _sweep_candidates(_drone_current_destination_key) + flank_candidates + _lost_contact_candidates() + _visible_force_candidates()
+	var candidates: Array = _sweep_candidates(_drone_current_destination_key) + flank_candidates + _lost_contact_candidates() + _visible_force_candidates() + _lead_search_candidates()
 	if candidates.is_empty():
 		return {}
 	# Only places the drone can actually reach AND get home from, on the
@@ -6271,6 +6336,14 @@ func _decide_mortar_action(m: Unit) -> void:
 	# exactly as if no shot had been available this tick at all — the
 	# spotted/threat_closing branch there is what actually issues the
 	# relocation order.
+
+	# The Ukrainian crew will not set up a firing position within 200 m of a populated place (GameConfig.mortar_excluded_at), and cannot fire
+	# from one (_tick_fire). One that is standing in the region with nothing to do (a fall-back run ended there, say) walks out to a legal
+	# spot rather than sitting where it can do nothing.
+	if _keeps_clear_of_populated(m) and not m.has_move_target and GameConfig.mortar_excluded_at(m.global_position):
+		if _relocate_mortar(m, "conceal", true):
+			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Standing in a populated area, where the crew will not set up: moving out to a firing position."}
+			return
 
 	# Step 0b — an in-progress EMERGENCY self-preservation walk isn't
 	# interruptible by a lower tier (hunting): evade/conceal/out_of_ammo/
@@ -6901,16 +6974,6 @@ func _step_toward_target(unit: Unit, scenario_delta: float) -> void:
 	var step: float = unit.move_speed * scenario_delta
 	if unit.kind == Unit.Kind.DRONE and dist > 0.001:
 		step = _drone_ground_speed(unit.move_speed, to_target / dist) * scenario_delta
-	# The Ukrainian mortar never walks INTO the populated-place region (the planners above already keep its orders out of it;
-	# this is the wall behind them, for a leg of a path or a clamp that slipped through): the crew halts at the edge and the
-	# decision loop plans again from there. A crew already inside is left free to walk out.
-	if _keeps_clear_of_populated(unit) and dist > 0.001 and not GameConfig.mortar_excluded_at(unit.position):
-		if GameConfig.mortar_excluded_at(unit.position + to_target.normalized() * minf(step, dist)):
-			unit.has_move_target = false
-			unit.move_queue.clear()
-			unit.activity = Unit.Activity.STATIONARY
-			_mortar_move_intent.erase(unit)
-			return
 	if step >= dist or dist <= Unit.MOVE_ARRIVE_RADIUS:
 		unit.position = unit.move_target
 		if not unit.move_queue.is_empty():
@@ -6923,14 +6986,15 @@ func _step_toward_target(unit: Unit, scenario_delta: float) -> void:
 		unit.position += to_target.normalized() * step
 
 
-## The player's mortar crew retreating to the west edge goes AROUND the populated-place region (GameConfig.mortar_exclusion_rects)
-## rather than through it: when the straight dash would enter it, the route (GameConfig.mortar_route_to_x) is queued as ordinary
-## legs and the straight dash resumes where the way is clear. Direct user report, Voznesensk: "The mortar also has no retreat path."
-## False (nothing issued) for any other crew, one already inside the region, a clear straight run, or a crew boxed in with no route.
-func _route_mortar_retreat_around_populated(m: Unit) -> bool:
-	if not _keeps_clear_of_populated(m) or GameConfig.mortar_excluded_at(m.position):
+## The player's mortar crew retreating to the west edge is routed AROUND buildings, through the streets, when the straight dash would
+## run into one: the route (GameConfig.mortar_route_to_x) is queued as ordinary legs and the straight dash resumes where the way is
+## clear. It may cross the populated-place region (a retreat is a move, not setting up). Without it a dash across Voznesensk's dense
+## blocks stalls: the crew stood at x = 430 m for 40,000 ticks. False (nothing issued) for any other crew (the enemy's retreat is left as
+## it was), a clear straight run, or a crew boxed in with no route.
+func _route_mortar_retreat_around_buildings(m: Unit) -> bool:
+	if m.team != Unit.Team.PLAYER:
 		return false
-	if not GameConfig.path_enters_mortar_exclusion(m.position, Vector2(m.retreat_target_x, m.position.y)):
+	if not GameConfig.path_crosses_building(m.position, Vector2(m.retreat_target_x, m.position.y)):
 		return false
 	var route: Array[Vector2] = GameConfig.mortar_route_to_x(m.position, m.retreat_target_x)
 	if route.is_empty():
@@ -6954,7 +7018,7 @@ func _route_mortar_retreat_around_populated(m: Unit) -> bool:
 ## building is blocking it, until clear, then the normal dash resumes on
 ## its own — see _sidestep_building.
 func _step_retreat(unit: Unit, scenario_delta: float) -> void:
-	if unit.kind == Unit.Kind.MORTAR and _route_mortar_retreat_around_populated(unit):
+	if unit.kind == Unit.Kind.MORTAR and _route_mortar_retreat_around_buildings(unit):
 		_step_toward_target(unit, scenario_delta)
 		return
 	unit.activity = Unit.Activity.MOVING
@@ -7238,8 +7302,8 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		# enough that walking past unarmed wouldn't be realistic. A MORTAR
 		# gets its own, broader exception below — see the has_move_target
 		# check right before _launch_mortar_shot.
-	if unit.kind == Unit.Kind.MORTAR and GameConfig.is_building_at(unit.global_position):
-		return # no overhead clearance to lob a round from inside a building
+	if unit.kind == Unit.Kind.MORTAR and GameConfig.mortar_barred_at(unit.global_position, unit.team):
+		return # no overhead clearance to lob a round from inside a building; and the Ukrainian crew will not set up in a populated area
 	if unit.kind == Unit.Kind.MORTAR and unit.mortar_rounds_remaining <= 0:
 		return # out of ammunition — see _spawn_resupply_run for how it eventually gets more
 
@@ -9422,9 +9486,9 @@ func _mortar_edge_run_legs(m: Unit) -> Array[Vector2]:
 		var next: Vector2 = Vector2.INF
 		for y_offset in [steer * leg, 0.0, leg * 0.5, -leg * 0.5, leg, -leg]:
 			var candidate: Vector2 = GameConfig.clamp_to_operating_area(Vector2(from.x + dir_x * leg, from.y + y_offset))
-			if GameConfig.mortar_barred_at(candidate, m.team):
+			if GameConfig.is_building_at(candidate):
 				continue
-			if GameConfig.mortar_path_barred(from, candidate, m.team) or GameConfig.path_crosses_river(from, candidate):
+			if GameConfig.path_crosses_building(from, candidate) or GameConfig.path_crosses_river(from, candidate):
 				continue
 			next = candidate
 			break

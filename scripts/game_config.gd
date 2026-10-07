@@ -4086,7 +4086,7 @@ const MAPS: Dictionary = {
 ## edge had to run through the city. The user: "Could including more areas fix this?" The map is now 4,000 m tall: the whole earlier
 ## map sits 1,800 m lower (every y below is the old y + 1,800), and a strip of open farmland north of the city, on the plateau, was added above it
 ## (the city's own north edge is about 1,000 m above the old top; with the 200 m margin the strip leaves a free band 700-900 m
-## wide to the west edge, which is the retreat route). The strip's ground is real data in the same frame: SRTM elevation (14 more hills, the
+## wide to the west edge). The strip's ground is real data in the same frame: SRTM elevation (14 more hills, the
 ## plateau there is 40-100 m above the old map's, 6.2 m RMS over the strip), Overture footprints (+490, a small village in the north-centre
 ## and the city's fringe at the west), cover blocks from them by the same rule (+50), forest (+111 patches). Its deployment zones for the
 ## mortar and the spotter reach up into it; the squads' did not move. The drone's sweep rows are this map's own (drone_search_rows_m).
@@ -6704,6 +6704,8 @@ static func _recompute_map_derived_state() -> void:
 	_tree_sight_cache.clear()
 	_footprints_built = false
 	_footprint_cache.clear()
+	_highest_ground_cache = -INF
+	_ground_cache.clear()
 	_exclusion_built = false
 	_exclusion_rects.clear()
 	_exclusion_grid = PackedByteArray()
@@ -9716,7 +9718,7 @@ static func nearest_cover_point(from: Vector2, retreat_dir: float = 0.0, avoid_b
 
 	candidates = _exclude_dangerous(candidates, known_enemy_positions)
 	candidates = _prefer_retreat_direction(candidates, from, retreat_dir)
-	candidates = _prefer_clear_path(candidates, from, avoid_buildings, avoid_populated)
+	candidates = _prefer_clear_path(candidates, from, avoid_buildings)
 
 	if not avoid_positions.is_empty():
 		var unclaimed: Array[Dictionary] = []
@@ -10029,8 +10031,8 @@ static func _prefer_retreat_direction(candidates: Array[Dictionary], from: Vecto
 ## "give up, return everything" fallback) is a real but minor routing
 ## inconvenience (an actual detour around a building), never a step
 ## toward the enemy the way running this first could produce.
-static func _prefer_clear_path(candidates: Array[Dictionary], from: Vector2, avoid_buildings: bool, avoid_populated: bool = false) -> Array[Dictionary]:
-	if not (avoid_buildings or avoid_populated) or candidates.is_empty():
+static func _prefer_clear_path(candidates: Array[Dictionary], from: Vector2, avoid_buildings: bool) -> Array[Dictionary]:
+	if not avoid_buildings or candidates.is_empty():
 		return candidates
 	var nearest_overall: float = INF
 	for c in candidates:
@@ -10039,7 +10041,7 @@ static func _prefer_clear_path(candidates: Array[Dictionary], from: Vector2, avo
 	var clear: Array[Dictionary] = []
 	for c in candidates:
 		var dist: float = from.distance_to(c.zone.center)
-		if dist <= budget and not (avoid_buildings and path_crosses_building(from, c.zone.center)) and not (avoid_populated and path_enters_mortar_exclusion(from, c.zone.center)):
+		if dist <= budget and not path_crosses_building(from, c.zone.center):
 			clear.append(c)
 	return clear if not clear.is_empty() else candidates
 
@@ -10095,7 +10097,7 @@ static func safest_cover_point(from: Vector2, known_enemy_positions: Array[Vecto
 
 	candidates = _exclude_dangerous(candidates, known_enemy_positions)
 	candidates = _prefer_retreat_direction(candidates, from, retreat_dir)
-	candidates = _prefer_clear_path(candidates, from, avoid_buildings, avoid_populated)
+	candidates = _prefer_clear_path(candidates, from, avoid_buildings)
 	for c in candidates:
 		var center: Vector2 = c.zone.center
 		var nearest_enemy_dist: float = INF
@@ -10146,7 +10148,7 @@ static func retreat_cover_point_toward(from: Vector2, reference_point: Vector2, 
 
 	candidates = _exclude_dangerous(candidates, known_enemy_positions)
 	candidates = _prefer_retreat_direction(candidates, from, retreat_dir)
-	candidates = _prefer_clear_path(candidates, from, avoid_buildings, avoid_populated)
+	candidates = _prefer_clear_path(candidates, from, avoid_buildings)
 	return _random_point_in_cover_zone(_best_cover_zone_by_total_trip(candidates, reference_point).zone)
 
 
@@ -10643,7 +10645,7 @@ static func _ring_search_hidden_point(from: Vector2, threat_positions: Array[Vec
 			# — a real tactical limit, not just a preference).
 			if avoid_buildings and (is_building_at(candidate) or path_crosses_building(from, candidate)):
 				continue
-			if avoid_populated and (mortar_excluded_at(candidate) or path_enters_mortar_exclusion(from, candidate)):
+			if avoid_populated and mortar_excluded_at(candidate):
 				continue
 			if home_position.distance_to(candidate) > home_leash:
 				continue
@@ -10989,7 +10991,7 @@ static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vect
 			continue
 		if avoid_buildings and (is_building_at(candidate) or path_crosses_building(from, candidate)):
 			continue
-		if avoid_populated and (mortar_excluded_at(candidate) or path_enters_mortar_exclusion(from, candidate)):
+		if avoid_populated and mortar_excluded_at(candidate):
 			continue
 		var hidden := true
 		for t in threat_positions:
@@ -11019,19 +11021,85 @@ static func _reverse_slope_candidate(from: Vector2, threat_positions: Array[Vect
 ##   you see over/down its own slope just fine, in either direction; two
 ##   points in the lowland on opposite sides of a hill genuinely cannot see
 ##   each other.
+## How high a building's roof stands above the ground it is on, for line of sight. Direct user instruction: "In general, line of
+## sight should respect 3 dimensional math." A cover block is a house or a cluster of them: a judgment call, between a cottage's
+## ridge (4-5 m) and a block of flats.
+const BUILDING_HEIGHT_M: float = 6.0
+
+## The stretch of the segment from `from` to `to` (as fractions of it, x <= y) that lies inside `rect`, by Liang-Barsky clipping;
+## x > y when it misses the rectangle altogether.
+static func _segment_rect_range(from: Vector2, to: Vector2, rect: Rect2) -> Vector2:
+	var t0: float = 0.0
+	var t1: float = 1.0
+	var d: Vector2 = to - from
+	var lo: Vector2 = rect.position
+	var hi: Vector2 = rect.position + rect.size
+	for axis in 2:
+		var p: float = d.x if axis == 0 else d.y
+		var q_lo: float = (from.x - lo.x) if axis == 0 else (from.y - lo.y)
+		var q_hi: float = (hi.x - from.x) if axis == 0 else (hi.y - from.y)
+		if absf(p) < 1e-9:
+			if q_lo < 0.0 or q_hi < 0.0:
+				return Vector2(1.0, 0.0)
+			continue
+		var ta: float = -q_lo / p
+		var tb: float = q_hi / p
+		if ta > tb:
+			var swap: float = ta
+			ta = tb
+			tb = swap
+		t0 = maxf(t0, ta)
+		t1 = minf(t1, tb)
+		if t0 > t1:
+			return Vector2(1.0, 0.0)
+	return Vector2(t0, t1)
+
+
+## Whether this building rectangle bars a sightline whose height above sea level is `from_h` at `from` and `to_h` at `to` (a straight line
+## in three dimensions): it does if the line passes below the roof (the ground there plus BUILDING_HEIGHT_M) anywhere it crosses the
+## building. The line is straight, so the two ends of the crossing are the places to look. At eye level on the flat that is every
+## building the line crosses, as always; a drone 300 m up looking 300 m out is barred only by a building within a few metres of its target;
+## an observer high on a hillside sees over a village below.
+static func _building_blocks_sightline(from: Vector2, to: Vector2, rect: Rect2, from_h: float, to_h: float) -> bool:
+	var span: Vector2 = _segment_rect_range(from, to, rect)
+	if span.x > span.y:
+		return false
+	# the line is straight, so the lower of its two heights over the building decides; the roof's ground is read once, mid-crossing
+	var lowest: float = minf(lerpf(from_h, to_h, span.x), lerpf(from_h, to_h, span.y))
+	return lowest < elevation_m(from.lerp(to, (span.x + span.y) * 0.5)) + BUILDING_HEIGHT_M
+
+
 const LOS_SAMPLE_COUNT: int = 20
+## The drone's look samples the ground less finely: it is a slanting line that clears everything but a hill right beside its target.
+const AERIAL_LOS_SAMPLE_COUNT: int = 10
+
+## The ground's height at a point, remembered: the same observers and targets are asked about again and again within a tick and from one
+## tick to the next (a unit that has not moved), and an elevation lookup sums every hill on the map. Emptied when it grows large, and
+## with the map.
+static var _ground_cache: Dictionary = {}
+
+static func _ground_at(point: Vector2) -> float:
+	if _ground_cache.has(point):
+		return _ground_cache[point]
+	if _ground_cache.size() > 6000:
+		_ground_cache.clear()
+	var h: float = elevation_m(point)
+	_ground_cache[point] = h
+	return h
 const LOS_TERRAIN_TOLERANCE_M: float = 2.0 # slack so a sample dead-level with the sightline doesn't falsely block
 
 static func has_direct_los(from: Vector2, to: Vector2) -> bool:
 	if not _terrain_grid_built:
 		_build_terrain_grid()
+	var from_eye: float = _ground_at(from) + EYE_HEIGHT_M
+	var to_eye: float = _ground_at(to) + EYE_HEIGHT_M
 	var segment_box: Rect2 = Rect2(from, to - from).abs()
 	for rect in _building_rects:
 		if not rect.intersects(segment_box, true):
-			continue # far from the sightline — the four-edge crossing test below can't matter
+			continue # far from the sightline — the crossing test below can't matter
 		if rect.has_point(from) or rect.has_point(to):
 			continue # firing from/into this building doesn't block itself
-		if _line_crosses_rect(from, to, rect):
+		if _building_blocks_sightline(from, to, rect, from_eye, to_eye):
 			return false
 
 	# The river's own banks and reed-lined floodplain block a ground-level
@@ -11042,8 +11110,6 @@ static func has_direct_los(from: Vector2, to: Vector2) -> bool:
 	if path_crosses_river(from, to):
 		return false
 
-	var from_eye: float = elevation_m(from) + EYE_HEIGHT_M
-	var to_eye: float = elevation_m(to) + EYE_HEIGHT_M
 	for i in range(1, LOS_SAMPLE_COUNT):
 		var t: float = float(i) / float(LOS_SAMPLE_COUNT)
 		var sample_pos: Vector2 = from.lerp(to, t)
@@ -11063,15 +11129,47 @@ static func has_direct_los(from: Vector2, to: Vector2) -> bool:
 static func has_aerial_los(from: Vector2, to: Vector2) -> bool:
 	if not _terrain_grid_built:
 		_build_terrain_grid()
+	var from_alt: float = _ground_at(from) + DRONE_ALTITUDE_M # the drone holds a fixed height above the ground under it
+	var to_eye: float = _ground_at(to) + EYE_HEIGHT_M
 	var segment_box: Rect2 = Rect2(from, to - from).abs()
 	for rect in _building_rects:
 		if not rect.intersects(segment_box, true):
 			continue
 		if rect.has_point(from) or rect.has_point(to):
 			continue
-		if _line_crosses_rect(from, to, rect):
+		if _building_blocks_sightline(from, to, rect, from_alt, to_eye):
+			return false
+	# The ground in three dimensions too: a slanting look from 300 m up still cannot see a target on the reverse slope of a steep
+	# hill close beside it. Only the part of the line that dips below the map's highest ground can be blocked, so on a map of gentle
+	# hills almost nothing is sampled.
+	var ceiling: float = _highest_ground_m() + LOS_TERRAIN_TOLERANCE_M
+	for i in range(1, AERIAL_LOS_SAMPLE_COUNT):
+		var t: float = float(i) / float(AERIAL_LOS_SAMPLE_COUNT)
+		var sightline_height: float = lerpf(from_alt, to_eye, t)
+		if sightline_height > ceiling:
+			continue
+		if elevation_m(from.lerp(to, t)) > sightline_height + LOS_TERRAIN_TOLERANCE_M:
 			return false
 	return true
+
+
+## The highest ground anywhere on the map loaded now, found once by sampling it on a 100 m grid (and a metre of margin, since the true peak
+## can fall between grid points).
+static var _highest_ground_cache: float = -INF
+
+static func _highest_ground_m() -> float:
+	if _highest_ground_cache > -INF:
+		return _highest_ground_cache
+	var best: float = -INF
+	var x: float = -WEST_FLANK_WIDTH_M
+	while x <= MAP_WIDTH_M:
+		var y: float = 0.0
+		while y <= MAP_HEIGHT_M:
+			best = maxf(best, elevation_m(Vector2(x, y) * PIXELS_PER_METER))
+			y += 100.0
+		x += 100.0
+	_highest_ground_cache = best + 1.0
+	return _highest_ground_cache
 
 
 ## SEEING THROUGH TREES. Trees never block a sightline outright (has_direct_los
@@ -11330,34 +11428,24 @@ static func mortar_excluded_at(point: Vector2) -> bool:
 	return _exclusion_grid[row * _exclusion_cols + col] != 0
 
 
-## True if walking the straight segment from `from` to `to` would take a mortar INTO the region from outside it. A mortar
-## already inside (it never should be) is free to walk out: only where it ends up is then judged.
-static func path_enters_mortar_exclusion(from: Vector2, to: Vector2) -> bool:
-	_ensure_exclusion()
-	if _exclusion_grid.is_empty() or mortar_excluded_at(from):
-		return false
-	var steps: int = int(ceil(from.distance_to(to) / (_exclusion_cell * 0.9)))
-	for i in range(1, steps + 1):
-		if mortar_excluded_at(from.lerp(to, float(i) / float(steps))):
-			return true
-	return false
-
-
-## The one question every "may this mortar stand here" check asks: a building bars any mortar (no overhead clearance);
-## the populated-place region bars the player's only.
+## The one question every "may this mortar set up here" check asks: a building bars any mortar (no overhead clearance);
+## the populated-place region bars the player's only. It is about where the gun goes into action, not the way there: a crew may
+## walk through the region (a retreat, a long move) but may not fire from it, start in it, or finish a relocation in it.
 static func mortar_barred_at(point: Vector2, team: int) -> bool:
 	return is_building_at(point) or (team == Unit.Team.PLAYER and mortar_excluded_at(point))
 
 
-static func mortar_path_barred(from: Vector2, to: Vector2, team: int) -> bool:
-	return path_crosses_building(from, to) or (team == Unit.Team.PLAYER and path_enters_mortar_exclusion(from, to))
+## The way there is not barred by the region (a crew may cross it, in a retreat or on any move); only a building bars the way.
+static func mortar_path_barred(from: Vector2, to: Vector2, _team: int) -> bool:
+	return path_crosses_building(from, to)
 
 
-## A route for a mortar crew that has to get to the west edge (x = target_x) without entering the populated-place region (or a
-## building or the river): an A* over a 20 m grid of the map, each cell solid if its centre is in the region, a building or the
-## river, then pulled straight wherever a straight run is clear. Direct user report: "The mortar also has no retreat path"
-## (Voznesensk, where the city fills the whole west). Waypoints in pixels, not including the start; empty if the crew is
-## boxed in (the caller then runs straight, as before) or the edge cannot be reached.
+## A route for a mortar crew that has to get to the west edge (x = target_x) without entering a building or the river: an A* over a
+## 20 m grid of the map, each cell solid if its centre is in a building block or the river, then pulled straight wherever a straight run
+## is clear. Added when the populated-place region first barred the crew from crossing a town ("The mortar also has no retreat path");
+## kept after the rule changed so that it may cross the region, because a straight dash across Voznesensk's dense blocks stalls (the
+## crew stood at x = 430 m for 40,000 ticks). Waypoints in pixels, not including the start; empty if the crew is boxed in (the caller
+## then runs straight, as before) or the edge cannot be reached.
 const MORTAR_ROUTE_CELL_M: float = 20.0
 static var _route_grid: AStarGrid2D = null
 
@@ -11389,7 +11477,7 @@ static func _ensure_route_grid() -> void:
 	for j in rows:
 		for i in cols:
 			var centre: Vector2 = _route_point_of(Vector2i(i, j))
-			if mortar_excluded_at(centre) or is_building_at(centre) or is_river_at(centre):
+			if is_building_at(centre) or is_river_at(centre):
 				_route_grid.set_point_solid(Vector2i(i, j), true)
 
 
