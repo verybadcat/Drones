@@ -175,6 +175,8 @@ static func roll_spot(observer: Unit, target: Unit, scenario_delta: float) -> bo
 	# feed: slightly less likely to notice what is in its view.
 	if observer_is_drone and observer.drone_operator_moving:
 		chance *= GameConfig.DRONE_TEAM_MOVING_SPOT_CHANCE_MULTIPLIER
+	if observer_is_drone and observer.drone_operator_casualties > 0:
+		chance *= pow(GameConfig.DRONE_TEAM_CASUALTY_SPOT_MULTIPLIER, float(observer.drone_operator_casualties))
 	var target_hidden_spotter := target.kind == Unit.Kind.SPOTTER and GameConfig.is_in_cover(target.terrain_type())
 	if target.kind == Unit.Kind.SPOTTER and not target_hidden_spotter:
 		chance *= GameConfig.SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER

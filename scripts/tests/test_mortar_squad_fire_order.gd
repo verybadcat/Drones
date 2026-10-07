@@ -35,7 +35,9 @@ func make_battle(rounds: int, hidden_mortar: bool):
 	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2(m(-1000), m(1500)))
 	bm.player_units.append(mortar)
 	mortar.mortar_rounds_remaining = rounds
-	var squad: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(m(1000), m(1500)))
+	# Out in the open, east of the village: a squad within 50 m of a building is one the Ukrainian mortar is reluctant to fire at (see
+	# test_mortar_town_reluctance.gd), which would add its own hold to the one this test measures.
+	var squad: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(m(2800), m(1500)))
 	bm.enemy_units.append(squad)
 	squad.is_visible = true
 	if hidden_mortar:

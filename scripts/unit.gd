@@ -268,6 +268,7 @@ var drone_battery_charge: float = 1.0
 ## BattleManager._update_drone_operations): the drone is then operated with degraded
 ## performance — see GameConfig.DRONE_TEAM_MOVING_*.
 var drone_operator_moving: bool = false
+var drone_operator_casualties: int = 0 # how many of its team are down: a slightly weaker feed (see GameConfig.DRONE_TEAM_CASUALTY_*)
 
 # MORTAR only: a small crew-served weapon, GameConfig.mortar_crew_size(team)
 # people including ammunition carriers — see that function's own doc comment

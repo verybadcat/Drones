@@ -263,6 +263,117 @@ func test_a_retreating_crew_crosses_the_town_to_the_west_edge() -> void:
 	bm2.combat_log.free()
 	GameConfig.set_active_map("pishchane")
 
+## Deep in a town the ordinary hide-and-relocate search (rings of 75-160 m) never reaches open ground. Direct user report: "Mortar moved
+## into the town to meet the resupply run ... But on top of that, it is now staying in town even though it has ammo. It should move to some
+## place it can fire."
+func test_a_crew_deep_in_town_walks_out_to_a_place_it_can_fire() -> void:
+	GameConfig.set_active_map("voznesensk")
+	var deep := Vector2.INF
+	for r in GameConfig.mortar_exclusion_rects():
+		var c: Vector2 = r.get_center()
+		if GameConfig.is_building_at(c):
+			continue
+		var out: Vector2 = GameConfig.nearest_legal_setup_point(c, Unit.Team.PLAYER)
+		if c.distance_to(out) > m(400.0).x and c.x > m(-100.0).x and not GameConfig.mortar_route_to_point(c, out).is_empty():
+			deep = c
+			break
+	check(not is_inf(deep.x), "Setup: a spot at least 400 m inside the red area with a walkable way out")
+	if is_inf(deep.x):
+		return
+	var bm = make_battle()
+	bm._friendly_mortar_home_position = deep
+	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, deep)
+	bm.player_units.append(mortar)
+	mortar.mortar_rounds_remaining = 10 # it has ammunition
+	mortar.seconds_stationary = 1e9
+	bm.unit_type_doctrines[Unit.Team.PLAYER] = preload("res://scripts/unit_doctrine.gd").sanitize({})
+	bm._decide_mortar_action(mortar)
+	check(mortar.has_move_target or bm._pending_mortar_displacement.has(mortar), "A crew deep in the red area, with ammunition, sets about leaving it")
+	# let the displacement run: resolve any packing-up delay, then walk
+	for i in 3000:
+		if bm._pending_mortar_displacement.has(mortar) and not mortar.has_move_target:
+			bm.scenario_elapsed_time += 1.0e6
+			bm._resolve_pending_mortar_displacement()
+		if mortar.has_move_target:
+			bm._step_toward_target(mortar, 20.0)
+			if GameConfig.is_building_at(mortar.position):
+				check(false, "The walk out never goes through a building")
+				break
+		else:
+			break
+	check(not GameConfig.mortar_barred_at(mortar.position, Unit.Team.PLAYER), "...and it ends somewhere it may set up and fire from (at %.0f, %.0f m)" % [mortar.position.x / GameConfig.PIXELS_PER_METER, mortar.position.y / GameConfig.PIXELS_PER_METER])
+	bm.combat_log.free()
+	check(GameConfig.nearest_legal_setup_point(deep, Unit.Team.ENEMY) == deep, "The Russian crew has nowhere it must leave")
+	GameConfig.set_active_map("pishchane")
+
+
+func test_it_meets_a_resupply_run_where_it_can_fire() -> void:
+	var pair := edge_pair()
+	if pair.size() < 2:
+		return
+	var outside: Vector2 = pair[0]
+	var inside: Vector2 = pair[1]
+	var same: Vector2 = GameConfig.legal_meeting_point(outside, outside - m(100.0), Unit.Team.PLAYER)
+	check(same == outside - m(100.0), "A run on open ground is met where it is")
+	var meet: Vector2 = GameConfig.legal_meeting_point(outside, inside, Unit.Team.PLAYER)
+	check(not GameConfig.mortar_barred_at(meet, Unit.Team.PLAYER), "A run inside the red area is met at the nearest legal point on the way to it, not inside")
+	check(meet.distance_to(inside) < inside.distance_to(outside), "...which is toward the run, not back at the start")
+	check(GameConfig.legal_meeting_point(outside, inside, Unit.Team.ENEMY) == inside, "The Russian crew meets it wherever it is")
+
+
+## "The crew would think about different places it could go and form an idea about what would be tactically good. Distance should also be a
+## consideration." The places are scored (concealment from the known enemies, cover, standoff, reach, leash) less the walk there.
+func test_the_crew_weighs_places_by_tactical_value_and_distance() -> void:
+	GameConfig.set_active_map("pishchane")
+	var bm = make_battle()
+	var start: Vector2 = m(700.0, 2400.0)
+	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, start)
+	bm.player_units.append(mortar)
+	var none: Array[Vector2] = []
+	# 1. With nothing known, only cover, leash and the walk count: a nearer open spot beats a farther one.
+	var near_open := start + m(100.0)
+	var far_open := start + m(0.0, 900.0)
+	check(not GameConfig.is_in_cover(GameConfig.get_terrain_type_at(near_open)) and not GameConfig.is_in_cover(GameConfig.get_terrain_type_at(far_open)), "Setup: two open spots")
+	check(bm._setup_position_value(mortar, near_open, none, Vector2.INF, INF) > bm._setup_position_value(mortar, far_open, none, Vector2.INF, INF), "Other things equal, the nearer place is worth more (distance counts)")
+	# 2. A known enemy: a place inside the range a crew is overrun in is far worse than one comfortably clear of it, even if the clear one is farther.
+	var enemy: Array[Vector2] = [start + m(300.0)]
+	var close_to_enemy := start + m(250.0, 50.0)
+	var clear_of_enemy := start + m(-500.0, 100.0)
+	check(bm._setup_position_value(mortar, clear_of_enemy, enemy, Vector2.INF, INF) > bm._setup_position_value(mortar, close_to_enemy, enemy, Vector2.INF, INF), "A place inside the overrun range of a known enemy is worth far less than one clear of it, though farther")
+	# 3. Leash: beyond how far from home it may stray costs heavily.
+	var home := start
+	check(bm._setup_position_value(mortar, start + m(100.0), none, home, m(3000.0).x) > bm._setup_position_value(mortar, start + m(100.0), none, home, m(10.0).x), "Beyond the leash from home costs")
+	# 4. The choice itself: a legal, reachable place with a walk ending at it, not inside the red or a building, from a point deep in a town.
+	GameConfig.set_active_map("voznesensk")
+	var deep := Vector2.INF
+	for r in GameConfig.mortar_exclusion_rects():
+		var c: Vector2 = r.get_center()
+		if GameConfig.is_building_at(c):
+			continue
+		var out: Vector2 = GameConfig.nearest_legal_setup_point(c, Unit.Team.PLAYER)
+		if c.distance_to(out) > m(400.0).x and c.x > m(-100.0).x and not GameConfig.mortar_route_to_point(c, out).is_empty():
+			deep = c
+			break
+	if not is_inf(deep.x):
+		bm.free()
+		bm = make_battle()
+		var crew: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, deep)
+		bm.player_units.append(crew)
+		var hostile: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, deep + m(900.0))
+		bm.enemy_units.append(hostile)
+		hostile.is_visible = true
+		bm._update_player_intel()
+		var choice: Dictionary = bm._best_setup_position(crew, deep, 1800.0)
+		check(not choice.is_empty(), "The crew finds somewhere to go from deep in the town")
+		if not choice.is_empty():
+			check(not GameConfig.mortar_barred_at(choice.point, Unit.Team.PLAYER), "...a place it may set up")
+			check(choice.legs[choice.legs.size() - 1] == choice.point, "...with a walk that ends there")
+			check(choice.point.distance_to(hostile.global_position) >= GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE, "...and not inside the range at which the known enemy would overrun it (%.0f m)" % (choice.point.distance_to(hostile.global_position) / GameConfig.PIXELS_PER_METER))
+	bm.combat_log.free()
+	bm.free()
+	GameConfig.set_active_map("pishchane")
+
+
 
 func run() -> void:
 	test_every_map_has_a_sensible_region()
@@ -272,5 +383,8 @@ func run() -> void:
 	test_it_cannot_fire_from_inside_the_region()
 	test_a_crew_standing_in_the_region_moves_out()
 	test_a_retreating_crew_crosses_the_town_to_the_west_edge()
+	test_a_crew_deep_in_town_walks_out_to_a_place_it_can_fire()
+	test_it_meets_a_resupply_run_where_it_can_fire()
+	test_the_crew_weighs_places_by_tactical_value_and_distance()
 	print("Mortar exclusion region tests: %d failures" % failures)
 	quit(1 if failures else 0)

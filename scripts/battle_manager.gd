@@ -2414,9 +2414,12 @@ func _drone_directing_multiplier(attacker: Unit) -> float:
 		return 1.0
 	if active_drone == null and backup_drone == null:
 		return 1.0
-	if _drone_team_on_the_move():
-		return GameConfig.DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER_MOVING
-	return GameConfig.DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER
+	var multiplier: float = GameConfig.DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER_MOVING if _drone_team_on_the_move() else GameConfig.DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER
+	# a team with someone down gives a slightly weaker feed: part of the edge over a plain spotter is lost, never more than all of it
+	if drone_team != null and drone_team.crew_casualties > 0:
+		var kept: float = clampf(1.0 - GameConfig.DRONE_TEAM_CASUALTY_DIRECTING_LOSS * float(drone_team.crew_casualties), 0.0, 1.0)
+		multiplier = 1.0 + (multiplier - 1.0) * kept
+	return multiplier
 
 
 ## Whether the drone team is itself under way (a move order standing — repositioning, evading, an
@@ -3392,9 +3395,11 @@ func _update_drone_operations(scenario_delta: float) -> void:
 
 	# Every drone in the air is flown by this team, so it is operated on the move whenever the team is.
 	var on_the_move := _drone_team_on_the_move()
+	var crew_down: int = drone_team.crew_casualties if drone_team != null else 0
 	for d in [active_drone, backup_drone] + returning_drones:
 		if d != null:
 			d.drone_operator_moving = on_the_move
+			d.drone_operator_casualties = crew_down
 
 	_update_drone_weather(scenario_delta)
 	_update_returning_drones(scenario_delta)
@@ -6341,8 +6346,24 @@ func _decide_mortar_action(m: Unit) -> void:
 	# from one (_tick_fire). One that is standing in the region with nothing to do (a fall-back run ended there, say) walks out to a legal
 	# spot rather than sitting where it can do nothing.
 	if _keeps_clear_of_populated(m) and not m.has_move_target and GameConfig.mortar_excluded_at(m.global_position):
+		# Think about the places it could go (concealment, standoff, reach, leash) and what the walk there costs (_best_setup_position). The
+		# ordinary relocation search looks only 75-160 m around, which deep in a town never reaches open ground (user: "it is now staying in
+		# town even though it has ammo. It should move to some place it can fire."), so it is the fallback, then the nearest legal point.
+		var choice: Dictionary = _best_setup_position(m, m.global_position, 1800.0)
+		if not choice.is_empty():
+			var legs: Array = choice.legs
+			_issue_mortar_move(m, legs[0], GameConfig.MORTAR_RELOCATE_SPEED, "conceal")
+			for i in range(1, legs.size()):
+				m.move_queue.append(legs[i])
+			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Standing in a populated area, where the crew will not set up: walking out to the best place it can fire from (concealment, standoff, reach, and the walk there weighed)."}
+			return
 		if _relocate_mortar(m, "conceal", true):
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Standing in a populated area, where the crew will not set up: moving out to a firing position."}
+			return
+		var nearest: Vector2 = GameConfig.nearest_legal_setup_point(m.global_position, m.team)
+		if nearest != m.global_position:
+			_issue_mortar_move(m, nearest, GameConfig.MORTAR_RELOCATE_SPEED, "conceal")
+			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Standing in a populated area, where the crew will not set up: walking out to the nearest place it can fire from."}
 			return
 
 	# Step 0b — an in-progress EMERGENCY self-preservation walk isn't
@@ -6391,7 +6412,20 @@ func _decide_mortar_action(m: Unit) -> void:
 			# this trigger's old precedence — a crew that can't fire back
 			# anyway has no reason to walk TOWARD a linkup instead of
 			# AWAY from what's actually bearing down on it.
-			_issue_mortar_move(m, run.global_position, GameConfig.MORTAR_RELOCATE_SPEED, "linkup")
+			# Meet it where the crew can fire from once it has the rounds: not in the red area or a building (user: "Mortar moved into the
+			# town to meet the resupply run. Probably a bad move in the first place as this means it can't fire when it gets the ammo.")
+			var meeting: Vector2 = run.global_position
+			var legs: Array = []
+			if _keeps_clear_of_populated(m):
+				var choice: Dictionary = _best_setup_position(m, run.global_position, SETUP_LINKUP_RADIUS_M)
+				if choice.is_empty():
+					meeting = GameConfig.legal_meeting_point(m.global_position, run.global_position, m.team)
+				else:
+					meeting = choice.point
+					legs = choice.legs
+			_issue_mortar_move(m, meeting if legs.is_empty() else legs[0], GameConfig.MORTAR_RELOCATE_SPEED, "linkup")
+			for i in range(1, legs.size()):
+				m.move_queue.append(legs[i])
 			_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Out of ammunition — closing on an inbound resupply run."}
 			return
 		# With no rounds to trade for standing and fighting, there is no
@@ -9561,6 +9595,82 @@ func _mortar_relocation_actually_helps(m: Unit) -> bool:
 ## of the position it exists to help defend, any more than chasing an
 ## enemy mortar is. Player-only — there's no tracked home position for
 ## the enemy's own mortar(s) at all to check against.
+## Where a Ukrainian mortar crew that has to move in order to set up should go. Direct user instruction: "The crew would think about
+## different places it could go and form an idea about what would be tactically good. Distance should also be a consideration."
+## It looks at places in rings around `center` out to `radius` (and `center` itself), keeps those it may set up at (not a building, the red
+## area or the river), gives each a value (see _setup_position_value) less what the walk there costs, and takes the best that it can
+## actually walk to (a route exists, or a straight line crosses no building). Returns {"point": p, "legs": [...]} (legs: the waypoints to
+## walk, ending at the point), or {} if there is nowhere.
+const SETUP_RING_RADII_M: Array[float] = [0.0, 150.0, 350.0, 600.0, 900.0, 1300.0, 1800.0]
+const SETUP_ANGLES_PER_RING: int = 14
+const SETUP_FINALISTS: int = 6
+const SETUP_HIDDEN_WEIGHT: float = 1.5 # a place no known enemy can see, against one they all can
+const SETUP_COVER_WEIGHT: float = 0.4 # standing in trees
+const SETUP_STANDOFF_WEIGHT: float = 1.0 # distance from the nearest known enemy, up to the overrun range's worth
+const SETUP_OVERRUN_PENALTY: float = 2.0 # inside the range at which a crew is overrun
+const SETUP_IN_RANGE_WEIGHT: float = 0.8 # able to reach the nearest known enemy with its rounds, but not so close it is overrun
+const SETUP_LEASH_PENALTY: float = 3.0 # beyond how far from home the crew is allowed to stray
+const SETUP_DISTANCE_COST_PER_KM: float = 1.0 # a kilometre's walk costs two-thirds of what concealment from every known enemy is worth
+const SETUP_KNOWN_ENEMIES_CONSIDERED: int = 5
+const SETUP_LINKUP_RADIUS_M: float = 350.0 # how far from an inbound run's position the crew will look for a better place to take delivery
+
+func _best_setup_position(m: Unit, center: Vector2, radius_m: float) -> Dictionary:
+	var known: Array[Vector2] = _known_enemy_positions(m.team)
+	known.sort_custom(func(a, b): return a.distance_to(m.global_position) < b.distance_to(m.global_position))
+	if known.size() > SETUP_KNOWN_ENEMIES_CONSIDERED:
+		known.resize(SETUP_KNOWN_ENEMIES_CONSIDERED)
+	var home: Vector2 = _mortar_home_position(m)
+	var leash: float = GameConfig.mortar_home_leash(m.team) if not is_inf(home.x) else INF
+	var scored: Array = []
+	for radius in SETUP_RING_RADII_M:
+		if radius > radius_m:
+			break
+		var count: int = 1 if radius == 0.0 else SETUP_ANGLES_PER_RING
+		for k in count:
+			var angle: float = TAU * float(k) / float(count)
+			var p: Vector2 = GameConfig.clamp_to_operating_area(center + Vector2(cos(angle), sin(angle)) * radius * GameConfig.PIXELS_PER_METER)
+			if GameConfig.mortar_barred_at(p, m.team) or GameConfig.is_river_at(p):
+				continue
+			scored.append({"point": p, "value": _setup_position_value(m, p, known, home, leash)})
+	scored.sort_custom(func(a, b): return a.value > b.value)
+	for i in mini(scored.size(), SETUP_FINALISTS):
+		var p: Vector2 = scored[i].point
+		var legs: Array[Vector2] = GameConfig.mortar_route_to_point(m.global_position, p)
+		if legs.is_empty():
+			if GameConfig.path_crosses_building(m.global_position, p):
+				continue # no way to walk there
+			legs.append(p)
+		return {"point": p, "legs": legs, "value": scored[i].value}
+	return {}
+
+
+## How good `p` is as a place for `m` to set up, less the walk there from where it stands: concealment from the known enemies (the
+## fraction that cannot see it), cover, standoff from the nearest one (and a heavy penalty inside the range it overruns a crew), whether
+## its rounds reach the nearest one, and staying within its leash of home. With no known enemy the first and last three terms
+## carry no information and only cover, leash and distance count.
+func _setup_position_value(m: Unit, p: Vector2, known: Array[Vector2], home: Vector2, leash: float) -> float:
+	var value := 0.0
+	if not known.is_empty():
+		var hidden := 0
+		var nearest := INF
+		for e in known:
+			if not GameConfig.has_direct_los(p, e):
+				hidden += 1
+			nearest = minf(nearest, p.distance_to(e))
+		value += SETUP_HIDDEN_WEIGHT * float(hidden) / float(known.size())
+		value += SETUP_STANDOFF_WEIGHT * clampf(nearest / GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE, 0.0, 1.0)
+		if nearest < GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE:
+			value -= SETUP_OVERRUN_PENALTY
+		elif nearest <= GameConfig.mortar_max_range(m.team) * 0.9:
+			value += SETUP_IN_RANGE_WEIGHT
+	if GameConfig.is_in_cover(GameConfig.get_terrain_type_at(p)):
+		value += SETUP_COVER_WEIGHT
+	if not is_inf(home.x) and p.distance_to(home) > leash:
+		value -= SETUP_LEASH_PENALTY
+	value -= SETUP_DISTANCE_COST_PER_KM * m.global_position.distance_to(p) / GameConfig.PIXELS_PER_METER / 1000.0
+	return value
+
+
 func _mortar_relocation_plan(mortar: Unit, urgent: bool) -> Dictionary:
 	var threats := _known_enemy_positions(mortar.team)
 	var recent: Array[Vector2] = []
@@ -10135,7 +10245,8 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		if ammo_roll < hold_fire_chance:
 			return _record_target_choice(unit, candidates, null, "Hold fire to conserve ammunition.", {"hold_probability": hold_fire_chance, "roll_or_cutoff": ammo_roll, "scarcity": scarcity, "resupply_urgency": urgency})
 		gate_evidence["ammunition"] = {"hold_probability": hold_fire_chance, "roll_or_cutoff": ammo_roll, "scarcity": scarcity, "resupply_urgency": urgency}
-		return _weighted_mortar_target_pick(unit, candidates, gate_evidence)
+		var picked: Unit = _weighted_mortar_target_pick(unit, candidates, gate_evidence)
+		return _apply_town_reluctance(unit, candidates, picked, any_overrun, gate_evidence)
 	if profile_for(unit.team).id != "baseline" or unit_doctrine_for(unit).targeting != "inherit":
 		return _weighted_mortar_target_pick(unit, candidates)
 	var chosen: Unit = candidates[randi() % candidates.size()]
@@ -10372,8 +10483,30 @@ func _enemy_target_value(assessing_unit: Unit, target: Unit) -> float:
 	if target.kind == Unit.Kind.SQUAD:
 		var casualty_value: float = float(target.pips)
 		var danger_value: float = _target_danger_to_force(assessing_unit, target)
-		return GameConfig.MORTAR_TARGET_CASUALTY_WEIGHT * casualty_value + GameConfig.MORTAR_TARGET_DANGER_WEIGHT * danger_value
+		var value: float = GameConfig.MORTAR_TARGET_CASUALTY_WEIGHT * casualty_value + GameConfig.MORTAR_TARGET_DANGER_WEIGHT * danger_value
+		if _mortar_is_reluctant_toward(assessing_unit, target):
+			value *= GameConfig.MORTAR_TOWN_TARGET_VALUE_MULTIPLIER # two squads, one in the town: probably the one outside
+		return value
 	return 0.0
+
+
+## Whether `shooter` (the Ukrainian mortar) is reluctant to fire at `target`: a squad within GameConfig.MORTAR_TOWN_RADIUS_M of a building.
+func _mortar_is_reluctant_toward(shooter: Unit, target: Unit) -> bool:
+	return shooter.kind == Unit.Kind.MORTAR and shooter.team == Unit.Team.PLAYER and target.kind == Unit.Kind.SQUAD 		and GameConfig.near_building(target.global_position, GameConfig.MORTAR_TOWN_RADIUS_M)
+
+
+## The Ukrainian mortar's reluctance to fire into a town, as a held-back shot: when the target it picked is a squad in a town, the round is
+## held MORTAR_TOWN_HOLD_FIRE_CHANCE of the time, less as that squad is a danger to our own people (a squad about to overrun them is shot at
+## regardless), and never when the crew itself is in overrun danger. Reluctant, not forbidden.
+func _apply_town_reluctance(unit: Unit, candidates: Array[Unit], picked: Unit, overrun: bool, evidence: Dictionary) -> Unit:
+	if picked == null or overrun or not _mortar_is_reluctant_toward(unit, picked):
+		return picked
+	var danger_share: float = clampf(_target_danger_to_force(unit, picked) / GameConfig.TARGET_PRIORITY_SQUAD_MAX, 0.0, 1.0)
+	var hold: float = GameConfig.MORTAR_TOWN_HOLD_FIRE_CHANCE * (1.0 - danger_share)
+	var roll: float = 0.5 if profile_for(unit.team).deterministic else randf()
+	if roll < hold:
+		return _record_target_choice(unit, candidates, null, "Reluctant to fire into the town: the target is within %d m of a building." % int(GameConfig.MORTAR_TOWN_RADIUS_M), evidence.merged({"town_hold_probability": hold, "roll_or_cutoff": roll}))
+	return picked
 
 
 ## A genuine weighted-random choice among `candidates` — not a
