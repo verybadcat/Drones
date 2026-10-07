@@ -134,16 +134,26 @@ func _ready() -> void:
 ## GameConfig.set_active_map, not just at startup. Idempotent: safe to call
 ## again with the same map already active (LevelSelectScreen only actually
 ## calls this when the selection changes, but nothing here assumes that).
+## The window, and the area of it that is drawn, for the screen about to be shown. A screen with the map on it needs the map's whole height
+## (Voznesensk is 800 px tall now: its compass and weather gauge sit at the map's bottom edge and were half cut off when the drawn area
+## stayed at project.godot's 1660 x 760); the scenario picker is the same size whichever map is selected in it, so choosing a taller map
+## there must not zoom it (user: "the opening screen zooms weirdly when I switch to that map"). Where the window cannot actually grow (the
+## game embedded in the editor), the drawn area is scaled to fit it instead, which is the only time the map screens are smaller.
+func _fit_window(for_map: bool) -> void:
+	var height: float = GameConfig.MIN_WINDOW_HEIGHT_PX
+	if for_map:
+		height = max(GameConfig.MAP_HEIGHT_PX, GameConfig.MIN_WINDOW_HEIGHT_PX)
+	var window_size := Vector2i(int(GameConfig.SIDEBAR_X + GameConfig.SIDEBAR_COLUMN_WIDTH), int(height))
+	get_window().size = window_size
+	get_window().content_scale_size = window_size
+
+
 func _apply_map_dimensions() -> void:
 	# Sized from GameConfig's own map-derived state, not project.godot's
 	# fixed viewport_width/height — those were hand-set for one specific
 	# map's own dimensions and would silently stop matching the moment a
 	# differently-sized real map was loaded (see GameConfig.
 	# SIDEBAR_COLUMN_WIDTH/MIN_WINDOW_HEIGHT_PX's own doc comments).
-	get_window().size = Vector2i(
-		int(GameConfig.SIDEBAR_X + GameConfig.SIDEBAR_COLUMN_WIDTH),
-		int(max(GameConfig.MAP_HEIGHT_PX, GameConfig.MIN_WINDOW_HEIGHT_PX)))
-
 	# map_viewport's own size isn't set directly — map_container.stretch
 	# (set once in _ready) keeps it locked to the container's own size
 	# automatically; setting it here too, after the viewport is already a
@@ -232,6 +242,7 @@ func _open_screen(screen: GameScreen) -> void:
 
 
 func _show_level_select() -> void:
+	_fit_window(false)
 	var screen := LevelSelectScreen.new()
 	screen.score_log = score_log # one history, one path (and the same headless guard)
 	screen.last_battle_seed = battle_seed # -1 until a battle has been set up this session; enables "Use seed from last battle"
@@ -248,6 +259,7 @@ func _on_recon_mode_chosen(mode: GameConfig.ReconMode) -> void:
 
 
 func _show_deployment() -> void:
+	_fit_window(true)
 	# The battle's seed: the one typed on the first screen, or a random one — always a real number, so
 	# the report can show it and it can be used again. The March weather is drawn from it (the
 	# offset is the one BattleManager has always used), shown on the map from the moment

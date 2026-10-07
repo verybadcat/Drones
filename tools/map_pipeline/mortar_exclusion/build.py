@@ -19,7 +19,7 @@ MAPS = {  # x from the west edge of the west flank to the east edge, y from the 
     "pervomaiske": (-1500.0, 5000.0, 0.0, 3500.0),
     "pishchane": (-1500.0, 5000.0, 0.0, 3500.0),
     "svystunivka": (-1500.0, 5000.0, 0.0, 3500.0),
-    "voznesensk": (-1500.0, 5000.0, 0.0, 4000.0),
+    "voznesensk": (-1500.0, 5000.0, 0.0, 3800.0),
 }
 
 

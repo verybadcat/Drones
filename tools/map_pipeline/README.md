@@ -52,3 +52,5 @@ strip), `fit_hills_north.py` (extra hills fitted to what the old 28 leave over t
 `build_buildings_ext.py` / `pack_trees_ext.py` / `block_params_ext.py` (footprints, forest circles and cover blocks for the larger frame, by
 the same rules as the original), then `apply_north.py` (shifts the whole existing entry down 1,800 m, adds the strip's hills, blocks,
 trees and the footprint file, and grows `height_m`). Afterwards rebuild the mortar exclusion (`mortar_exclusion/build.py voznesensk`).
+
+`voznesensk_north/cut_top.py` then took 200 m off the top again (shifting every y up by 200, dropping what lay wholly above the new top, `height_m` 3,800 = 760 px, the window's standard height); rebuild the exclusion afterwards (`mortar_exclusion/build.py voznesensk`).

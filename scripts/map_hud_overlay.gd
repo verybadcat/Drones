@@ -34,8 +34,18 @@ var weather_visible: bool = true:
 			queue_redraw()
 
 
+## The compass's centre, which anchors the weather block beside it (see _draw_weather). The block's last line of text hangs 58 px
+## below the wind circle's centre (plus its descenders): the compass must sit high enough that line is inside the map. Direct user
+## report: "it still looks like some text is cut off" (the wind/temperature and gust lines, once the map filled the window).
+const WEATHER_LAST_LINE_BASELINE_OFFSET: float = 58.0
+const TEXT_DESCENT: float = 4.0
+
+static func compass_center() -> Vector2:
+	return Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX - 50.0, GameConfig.MAP_HEIGHT_PX - 20.0 - WEATHER_LAST_LINE_BASELINE_OFFSET - TEXT_DESCENT)
+
+
 func _draw() -> void:
-	var compass_center := Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX - 50.0, GameConfig.MAP_HEIGHT_PX - 50.0)
+	var compass_center := compass_center()
 	if map_marks_visible:
 		_draw_scale_and_compass(compass_center)
 	if weather_visible:
