@@ -176,9 +176,8 @@ func test_dispatch_immediately_requests_the_next_run() -> void:
 	bm.free()
 
 
-## Same guarantee on the failure path — a real run that fails to get
-## through must not leave the mortar stranded waiting for a manual
-## re-request either.
+## Same guarantee on the failure path: a convoy that fails to get through (found out on its scheduled arrival, in transit) must not leave
+## the mortar stranded waiting for a manual re-request either.
 func test_failure_immediately_requests_the_next_run() -> void:
 	var bm = make_battle()
 	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2.ZERO)
@@ -186,20 +185,60 @@ func test_failure_immediately_requests_the_next_run() -> void:
 	bm._player_sighted_enemy = true
 	mortar.mortar_rounds_remaining = 2
 	_make_pending_run(bm, mortar)
-	# Find a seed that actually fails the 10% roll, so this test exercises
-	# the failure path specifically rather than the dispatch one.
-	var failure_seed := -1
-	for s in range(200):
-		seed(s)
-		if randf() < GameConfig.MORTAR_RESUPPLY_FAILURE_CHANCE:
-			failure_seed = s
-			break
-	check(failure_seed != -1, "Setup check: must find a seed that actually rolls a failure")
-	seed(failure_seed)
+	bm._mortar_resupply[mortar]["fails"] = true
 	bm._update_mortar_resupply()
-	check(_spawn_count(bm, Unit.Team.PLAYER) == 0, "Setup check: this specific roll must have failed, not dispatched")
-	check(bm._mortar_resupply.has(mortar),
-		"Even a failed run must immediately request the next one, not strand the mortar waiting for a manual re-request")
+	check(_spawn_count(bm, Unit.Team.PLAYER) == 0, "Setup check: a convoy that fails must not dispatch a run")
+	check(bm._mortar_resupply.has(mortar) and bm._mortar_resupply[mortar].arrival_time > bm.scenario_elapsed_time,
+		"Even a failed convoy must immediately request the next one, not strand the mortar waiting for a manual re-request")
+	bm.combat_log.free()
+	bm.free()
+
+
+## Direct user report: "I thought resupply was staged and ready. Then it changed to 41 minutes out... Resupply can get delayed when en
+## route. But when staged, it would not get delayed." A convoy that failed does so in transit and never reads "staged"; one that is staged
+## always goes out when the ammo draws down, however many times that is rolled.
+func test_staged_resupply_is_never_delayed() -> void:
+	var bm = make_battle()
+	var mortar: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2.ZERO)
+	bm.player_units.append(mortar)
+	bm._player_sighted_enemy = true
+	mortar.mortar_rounds_remaining = 20
+	# a convoy that fails: found out on arrival, even with ammo high, and never staged
+	_make_pending_run(bm, mortar)
+	bm._mortar_resupply[mortar]["fails"] = true
+	bm._update_mortar_resupply()
+	check(not bm._mortar_resupply[mortar].get("staged", false) and bm.mortar_resupply_status(mortar).get("staged", false) == false,
+		"A convoy that fails does so in transit: it is never shown as staged")
+	# a convoy that is staged is never lost, whatever the dice would have said
+	var lost := 0
+	for s in range(300):
+		seed(s)
+		_make_pending_run(bm, mortar)
+		mortar.mortar_rounds_remaining = 20
+		bm._update_mortar_resupply()
+		if not bm._mortar_resupply.has(mortar) or not bm._mortar_resupply[mortar].get("staged", false):
+			continue # this one failed in transit: not the case under test
+		check(bm.mortar_resupply_status(mortar).get("staged", false), "Setup: it reads as staged")
+		mortar.mortar_rounds_remaining = 8
+		bm._update_mortar_resupply()
+		if _spawn_count(bm, Unit.Team.PLAYER) == 0:
+			lost += 1
+		for u in bm.player_units.duplicate():
+			if u.kind == Unit.Kind.RESUPPLY_RUN:
+				bm.player_units.erase(u)
+				u.free()
+		bm._mortar_resupply.erase(mortar)
+	check(lost == 0, "A staged resupply always goes out once the ammo is down (%d of 300 were lost at that step; the old 10%% roll lost about 30)" % lost)
+	# and the in-transit failure rate is still about the stated 10%
+	var failed := 0
+	for s in range(2000):
+		seed(s)
+		_make_pending_run(bm, mortar)
+		mortar.mortar_rounds_remaining = 20
+		bm._update_mortar_resupply()
+		if not bm._mortar_resupply[mortar].get("staged", false):
+			failed += 1
+	check(failed > 120 and failed < 280, "...while about 10%% of convoys still fail in transit (%d of 2000)" % failed)
 	bm.combat_log.free()
 	bm.free()
 
@@ -212,6 +251,7 @@ func run() -> void:
 	test_held_run_stays_pending_and_dispatches_once_ammo_drops()
 	test_dispatch_immediately_requests_the_next_run()
 	test_failure_immediately_requests_the_next_run()
+	test_staged_resupply_is_never_delayed()
 	if failures == 0:
 		print("Mortar resupply tests: 0 failures")
 	else:

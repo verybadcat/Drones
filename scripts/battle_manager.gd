@@ -2565,12 +2565,14 @@ func request_mortar_resupply(mortar: Unit) -> bool:
 ## design was supposed to do ("a wave held back this way isn't lost...
 ## it simply never becomes a physical, spottable, targetable RESUPPLY_RUN
 ## unit"), which the old resolved-regardless code never actually
-## delivered on. The failure-chance roll is deferred to the moment the
-## run actually commits (ammo genuinely low enough), not rolled uselessly
-## against a run that was never going anywhere yet. The instant this run
-## commits — dispatched or failed, it doesn't matter which — the NEXT
-## request goes out immediately: a continuous one-run-at-a-time pipeline,
-## not "wait for this one to be used before asking again."
+## delivered on. Whether the convoy gets through is settled when it is
+## due to arrive and found out then, in transit (`fails`): a run that
+## has reached the ready position is never delayed or lost there (direct
+## user correction, 2026-10-07: the old code rolled the 10% at the moment
+## a staged run committed, which sent "staged" back to "41 minutes out").
+## The instant this run commits (dispatched, or failed in transit) the
+## NEXT request goes out immediately: a continuous one-run-at-a-time
+## pipeline, not "wait for this one to be used before asking again."
 func _update_mortar_resupply() -> void:
 	for m in _mortar_resupply.keys():
 		var record: Dictionary = _mortar_resupply[m]
@@ -2584,6 +2586,19 @@ func _update_mortar_resupply() -> void:
 			_mortar_resupply[m] = record
 		if scenario_elapsed_time < record.arrival_time:
 			continue # still in transit
+		# Whether the convoy got through is found out here, on its scheduled arrival, in transit, and not when a staged run is committed:
+		# a run that has reached the ready position is never delayed (direct user report: "I thought resupply was staged and ready.
+		# Then it changed to 41 minutes out... Resupply can get delayed when en route. But when staged, it would not get delayed.").
+		if not record.has("fails"):
+			record["fails"] = randf() < GameConfig.MORTAR_RESUPPLY_FAILURE_CHANCE
+			_mortar_resupply[m] = record
+		if record.fails:
+			# The convoy did not make it: found out in transit, so it never reaches the ready position. The next is already organised.
+			_mortar_resupply.erase(m)
+			if _should_narrate_mortar_logistics(m):
+				combat_log.log_mortar_resupply_failed(m)
+			request_mortar_resupply(m)
+			continue
 		if m.mortar_rounds_remaining > GameConfig.MORTAR_RESUPPLY_REORDER_POINT:
 			# Not "is the position already completely full" — see
 			# GameConfig.MORTAR_RESUPPLY_REORDER_POINT's own doc comment
@@ -2601,11 +2616,7 @@ func _update_mortar_resupply() -> void:
 		# before requesting the next one so request_mortar_resupply's own
 		# "already in flight" eligibility check doesn't block it.
 		_mortar_resupply.erase(m)
-		if randf() < GameConfig.MORTAR_RESUPPLY_FAILURE_CHANCE:
-			if _should_narrate_mortar_logistics(m):
-				combat_log.log_mortar_resupply_failed(m)
-		else:
-			_spawn_resupply_run(m)
+		_spawn_resupply_run(m)
 		request_mortar_resupply(m)
 
 
