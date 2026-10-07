@@ -30,6 +30,15 @@ const TerrainLayerScript = preload("res://scripts/terrain_layer.gd")
 
 var focus_position: Vector2 = Vector2.ZERO
 var unit_kind: Unit.Kind = Unit.Kind.SQUAD
+## The OTHER placed units, as {"position": map px, "kind": Unit.Kind, "label": String}, set each frame by DeploymentPhase. Direct user
+## request: "I want the blow-up diagram during squad placement to show other nearby squads. They should be visibly different from the squad
+## being placed." Only those inside the window are drawn (see others_in_view).
+var others: Array = []
+
+## Hollow rings, not the placed unit's translucent disc, so the unit being placed is the only filled marker with a crosshair on it; each
+## ring is tinted by kind and carries its short name beside it.
+const OTHER_RING_WIDTH: float = 2.0
+const OTHER_LABEL_SIZE: int = 11
 
 ## The whole map's terrain, drawn ONCE (see terrain_layer.gd) at ZOOM x and
 ## then just moved each frame so the focus sits at the window's center —
@@ -72,8 +81,35 @@ func _draw() -> void:
 	_overlay.queue_redraw()
 
 
+## Where each of `tokens` (dicts as in `others`) falls in the window (offset from the window's centre, in window pixels) if it falls in it
+## at all (its ring entirely or partly within the window). A static function of its inputs so a test can check it.
+static func others_in_view(focus: Vector2, tokens: Array) -> Array:
+	var half: Vector2 = WINDOW_SIZE / 2.0
+	var out: Array = []
+	for t in tokens:
+		var offset: Vector2 = (t.position - focus) * ZOOM
+		if absf(offset.x) <= half.x + TOKEN_RADIUS and absf(offset.y) <= half.y + TOKEN_RADIUS:
+			out.append({"offset": offset, "kind": t.kind, "label": t.label})
+	return out
+
+
 func draw_overlay(ci: CanvasItem) -> void:
 	var center: Vector2 = WINDOW_SIZE / 2.0
+
+	# The other placed units: hollow rings in their own colours with a short name, drawn under the unit being placed.
+	for o in others_in_view(focus_position, others):
+		var ring_color := Color(0.55, 0.75, 1.0, 0.95) # squads
+		if o.kind == Unit.Kind.MORTAR:
+			ring_color = Color(1.0, 0.65, 0.25, 0.95)
+		elif o.kind == Unit.Kind.SPOTTER or o.kind == Unit.Kind.DRONE_TEAM:
+			ring_color = Color(0.85, 0.95, 0.4, 0.95)
+		var at: Vector2 = center + o.offset
+		ci.draw_arc(at, TOKEN_RADIUS, 0.0, TAU, 24, Color(0.0, 0.0, 0.0, 0.7), OTHER_RING_WIDTH + 2.0, true) # dark edge so it reads on any ground
+		ci.draw_arc(at, TOKEN_RADIUS, 0.0, TAU, 24, ring_color, OTHER_RING_WIDTH, true)
+		var font: Font = ThemeDB.fallback_font
+		var text_at: Vector2 = at + Vector2(TOKEN_RADIUS + 3.0, 4.0)
+		ci.draw_string_outline(font, text_at, o.label, HORIZONTAL_ALIGNMENT_LEFT, -1, OTHER_LABEL_SIZE, 3, Color(0.0, 0.0, 0.0, 0.85))
+		ci.draw_string(font, text_at, o.label, HORIZONTAL_ALIGNMENT_LEFT, -1, OTHER_LABEL_SIZE, ring_color)
 
 	# The token itself, small and translucent — real placement precision
 	# comes from the zoomed TERRAIN underneath, not from the marker, which

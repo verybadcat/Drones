@@ -79,6 +79,12 @@ func _process(_delta: float) -> void:
 	if shown != null:
 		deployment_magnifier.focus_position = shown.position
 		deployment_magnifier.unit_kind = shown.kind
+		# the other placed units, so their spacing from this one can be judged (hollow rings in the loupe)
+		var others: Array = []
+		for token in deployment_screen._tokens:
+			if token != shown:
+				others.append({"position": token.position, "kind": token.kind, "label": token.label_text})
+		deployment_magnifier.others = others
 		deployment_magnifier.queue_redraw()
 
 
