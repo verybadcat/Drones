@@ -8813,6 +8813,30 @@ func _update_spotter_positioning() -> void:
 		u.movement_predictable = false
 
 
+const SCREEN_REASON: String = "Screen an open approach to the friendly mortar."
+## How far apart squads sent to screen the same approach are placed, side by side across it. Direct user guidance: "I would discourage squads
+## from taking up positions within 50 meters of each other for sure." A squad stops within MOVE_ARRIVE_RADIUS (25 m) of its point, so the
+## points are spaced a good deal wider than that minimum.
+const SCREEN_SQUAD_SPACING: float = 70.0 * GameConfig.PIXELS_PER_METER
+
+## The squads currently on their way to, or standing at, a screening point, in a fixed order.
+func _screening_squads() -> Array[Unit]:
+	var out: Array[Unit] = []
+	for u in player_units:
+		if u.kind == Unit.Kind.SQUAD and u.state == Unit.State.ACTIVE and u.has_move_target and u.last_order_reason == SCREEN_REASON:
+			out.append(u)
+	out.sort_custom(func(a, b): return a.get_instance_id() < b.get_instance_id())
+	return out
+
+
+## Where the `slot`-th of `count` squads screening the approach from `threat` to `mortar` goes: the point MORTAR_PROTECTIVE_RADIUS from the
+## mortar toward the threat, shifted sideways by SCREEN_SQUAD_SPACING per slot, centred on the line, so a lone squad takes the line itself.
+func _screen_point(mortar: Unit, threat: Vector2, slot: int, count: int) -> Vector2:
+	var dir: Vector2 = (threat - mortar.global_position).normalized()
+	var base: Vector2 = mortar.global_position + dir * GameConfig.MORTAR_PROTECTIVE_RADIUS
+	return base + dir.orthogonal() * (float(slot) - float(count - 1) * 0.5) * SCREEN_SQUAD_SPACING
+
+
 func _update_friendly_squad_positioning() -> void:
 	var known_enemies := _known_enemy_positions(Unit.Team.PLAYER)
 	var at_risk: Dictionary = {}
@@ -8893,20 +8917,16 @@ func _update_friendly_squad_positioning() -> void:
 	# mortar that's already pulling out of the fight needs no more
 	# screening than one with no threat left to screen against — both are
 	# "nothing left to do here," so both release the same way.
-	for u in player_units:
-		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE or not u.has_move_target:
-			continue
-		if u.last_order_reason != "Screen an open approach to the friendly mortar.":
-			continue
+	var screening: Array[Unit] = _screening_squads()
+	for u in screening:
 		if mortar == null or is_inf(threat.x):
 			u.has_move_target = false
 			u.last_order_reason = "Screening no longer needed; repositioning."
 			continue
-		u.move_target = mortar.global_position + (threat - mortar.global_position).normalized() * GameConfig.MORTAR_PROTECTIVE_RADIUS
+		u.move_target = _screen_point(mortar, threat, screening.find(u), screening.size())
 
 	if mortar == null or is_inf(threat.x):
 		return
-
 	var responder: Unit = null
 	var best_dist := INF
 	for u in player_units:
@@ -8921,8 +8941,12 @@ func _update_friendly_squad_positioning() -> void:
 	if responder == null:
 		return
 
-	var block_point: Vector2 = mortar.global_position + (threat - mortar.global_position).normalized() * GameConfig.MORTAR_PROTECTIVE_RADIUS
-	responder.last_order_reason = "Screen an open approach to the friendly mortar."
+	# Its own place along the screen, beside any squad already sent (see _screen_point): not the same coordinate as the others.
+	var with_responder: Array[Unit] = _screening_squads()
+	with_responder.append(responder)
+	with_responder.sort_custom(func(a, b): return a.get_instance_id() < b.get_instance_id())
+	var block_point: Vector2 = _screen_point(mortar, threat, with_responder.find(responder), with_responder.size())
+	responder.last_order_reason = SCREEN_REASON
 	responder.move_target = block_point
 	responder.has_move_target = true
 	responder.move_queue.clear()
