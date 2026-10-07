@@ -618,6 +618,11 @@ func _roll_crew_casualties(remaining: int, impact_distance: float, terrain: Game
 ## overrun_risk is 0 and the decision rests purely on how much crew is actually left.
 func _mortar_crew_holds_position(known_enemy_positions: Array[Vector2]) -> bool:
 	var remaining_fraction: float = float(crew_size - crew_casualties) / float(crew_size)
+	# Direct user instruction: "One casualty should not cause the drone team to withdraw." A drone team's crew is three, so one
+	# casualty used to leave a one-in-three chance of withdrawing on that alone (hold chance two-thirds with nothing near). The
+	# first casualty no longer counts against holding; an enemy closing to overrun range still does (that is danger, not the hit).
+	if kind == Kind.DRONE_TEAM and crew_casualties <= 1:
+		remaining_fraction = 1.0
 	var nearest_threat_dist := INF
 	for p in known_enemy_positions:
 		nearest_threat_dist = min(nearest_threat_dist, global_position.distance_to(p))

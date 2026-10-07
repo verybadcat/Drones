@@ -8800,6 +8800,9 @@ func _update_friendly_squad_positioning() -> void:
 	combat_log.log_squad_blocking_flank(responder)
 
 
+## How much of the capped step toward the rally point the cover chosen must actually cover (see _reposition_for_encirclement).
+const ENCIRCLEMENT_MIN_PROGRESS_FRACTION: float = 0.3
+
 ## Issues the actual repositioning move and returns its destination if `u`
 ## is genuinely at risk of being surrounded: known enemies within
 ## FRIENDLY_ENCIRCLEMENT_DETECT_RADIUS span at least FRIENDLY_ENCIRCLEMENT_
@@ -8905,8 +8908,16 @@ func _reposition_for_encirclement(u: Unit, known_enemies: Array[Vector2], claime
 	# nothing better is nearby (nearest_cover_point's own no-candidates
 	# convention).
 	var raw_step_destination: Vector2 = u.global_position + to_rally.normalized() * step
+	var cover_destination: Vector2 = GameConfig.nearest_cover_point(raw_step_destination, 0.0, false, claimed, known_enemies)
+	# The cover it settles on has to be a real step toward the rally point. Direct user report, live: "Friendly squad 3 is oscillating
+	# uselessly": the cover search throws out any zone near a known enemy and picks a random point in a random one of the nearest, and with
+	# the enemy between the squad and its friends what is left can be BEHIND it, so each arrival chose a new spot a few dozen metres away,
+	# sometimes farther from the rally point than before (reproduced: a squad 1,074 m out went 1,166, 1,159, 1,157, 1,144, 1,148, 1,159,
+	# 1,162). No cover that gets it closer means nowhere safe to consolidate to: it stays where it is.
+	if cover_destination.distance_to(rally_point) > u.global_position.distance_to(rally_point) - step * ENCIRCLEMENT_MIN_PROGRESS_FRACTION:
+		return u.global_position
 	u.last_order_reason = "Known enemies threaten encirclement: consolidate toward friendly units."
-	u.move_target = GameConfig.nearest_cover_point(raw_step_destination, 0.0, false, claimed, known_enemies)
+	u.move_target = cover_destination
 	u.has_move_target = true
 	u.move_queue.clear()
 	u.move_speed = GameConfig.REPOSITION_SPEED
