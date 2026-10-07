@@ -271,6 +271,7 @@ func _show_deployment() -> void:
 	screen.recon_mode = recon_mode
 	screen.map_viewport = map_viewport
 	screen.start_requested.connect(_on_start_requested)
+	screen.cancel_requested.connect(_show_level_select) # Cancel: back to the scenario picker
 	_open_screen(screen)
 
 

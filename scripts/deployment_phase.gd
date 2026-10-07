@@ -8,6 +8,8 @@ extends GameScreen
 ## main.gd sets `recon_mode` and `map_viewport` BEFORE adding this to the tree.
 
 signal start_requested(doctrine: Dictionary)
+## "Cancel": back to the screen before this one (the scenario picker), nothing started.
+signal cancel_requested
 
 var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
 var map_viewport: SubViewport
@@ -17,6 +19,7 @@ var battle_seed: int = -1
 var deployment_screen: DeploymentScreen
 var doctrine_panel: DoctrinePanel
 var start_button: Button
+var cancel_button: Button
 # Loupe overlay shown while dragging a deployment token — see deployment_magnifier.gd's
 # own doc comment. Screen-space, so a child of this screen rather than of the map's
 # SubViewport: it has to sit in a fixed screen position regardless of the map's own
@@ -57,6 +60,13 @@ func _ready() -> void:
 	start_button.pressed.connect(request_start)
 	add_child(start_button)
 
+	# Direct user request: "a 'cancel' button next to 'start battle' on that screen. 'Cancel' would take us back to the previous screen."
+	cancel_button = Button.new()
+	cancel_button.text = "Cancel"
+	cancel_button.position = start_button.position + Vector2(start_button.get_combined_minimum_size().x + 8.0, 0.0)
+	cancel_button.pressed.connect(request_cancel)
+	add_child(cancel_button)
+
 
 func map_mouse_world_position() -> Vector2:
 	return deployment_screen.get_global_mouse_position() if deployment_screen else Vector2.ZERO
@@ -92,6 +102,11 @@ func _process(_delta: float) -> void:
 ## battle is started from, and hands it on.
 func request_start() -> void:
 	start_requested.emit(build_doctrine())
+
+
+## "Cancel": gives up this setup and asks to go back to the previous screen.
+func request_cancel() -> void:
+	cancel_requested.emit()
 
 
 ## The dictionary the battle is started from (see request_start). Separate so a test can start
