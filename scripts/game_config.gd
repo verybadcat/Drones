@@ -11079,14 +11079,11 @@ static func has_aerial_los(from: Vector2, to: Vector2) -> bool:
 		_build_terrain_grid()
 	var from_alt: float = _ground_at(from) + DRONE_ALTITUDE_M # the drone holds a fixed height above the ground under it
 	var to_eye: float = _ground_at(to) + EYE_HEIGHT_M
-	var segment_box: Rect2 = Rect2(from, to - from).abs()
-	for rect in _building_rects:
-		if not rect.intersects(segment_box, true):
-			continue
-		if rect.has_point(from) or rect.has_point(to):
-			continue
-		if _building_blocks_sightline(from, to, rect, from_alt, to_eye):
-			return false
+	# Buildings are not obstacles to a look from the air. Direct user instruction: "For drone vision, I think we can just ignore buildings as
+	# obstacles. It is so rare that they will matter ... other than units INSIDE the building, which would indeed not be seen by the drone."
+	# (A 6 m roof hides only what is within about height / altitude of the line's length behind it: a few metres at 300 m up, up to some
+	# tens of metres at the far edge of its range in the lowered flight of rain.) What a roof does hide, the unit under it, is
+	# CombatResolver.hidden_from_drone's, not this function's.
 	# The ground in three dimensions too: a slanting look from 300 m up still cannot see a target on the reverse slope of a steep
 	# hill close beside it. Only the part of the line that dips below the map's highest ground can be blocked, so on a map of gentle
 	# hills almost nothing is sampled.

@@ -79,13 +79,7 @@ func _slow_direct_los(from: Vector2, to: Vector2) -> bool:
 func _slow_aerial_los(from: Vector2, to: Vector2) -> bool:
 	var from_alt: float = GameConfig.elevation_m(from) + GameConfig.DRONE_ALTITUDE_M
 	var to_eye: float = GameConfig.elevation_m(to) + GameConfig.EYE_HEIGHT_M
-	for zone in GameConfig.CURRENT_MAP.terrain_zones:
-		if zone.type != GameConfig.TerrainType.BUILDING:
-			continue
-		if zone.rect.has_point(from) or zone.rect.has_point(to):
-			continue
-		if GameConfig._building_blocks_sightline(from, to, zone.rect, from_alt, to_eye):
-			return false
+	# buildings are no obstacle to the drone's look (see has_aerial_los)
 	# every sample, with no shortcut for the part of the line above the map's highest ground
 	for i in range(1, GameConfig.AERIAL_LOS_SAMPLE_COUNT):
 		var t: float = float(i) / float(GameConfig.AERIAL_LOS_SAMPLE_COUNT)

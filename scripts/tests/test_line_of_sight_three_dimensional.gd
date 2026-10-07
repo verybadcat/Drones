@@ -4,7 +4,8 @@ extends SceneTree
 ## drone was. A sightline is a straight line in three dimensions, and a building bars it only where the line passes below its roof.
 ##
 ## What this checks, on Voznesensk (many cover blocks): a drone 300 m up looking across a building at a target well beyond it sees it; at a
-## target a metre or two behind the building's edge it does not (the roof shades that much); a ground observer at eye level is barred by
+## target a metre behind the building's edge it sees it too (user: "For drone vision, I think we can just ignore buildings as obstacles ...
+## other than units INSIDE the building"), though a unit inside a building is hidden from it; a ground observer at eye level is barred by
 ## the same building as before; a ground observer high enough above the roof is not; and the drone's look still respects a hill beside its
 ## target (a steep slanting line).
 ##
@@ -53,9 +54,11 @@ func test_a_drone_sees_across_a_building_but_not_from_right_behind_it() -> void:
 	var far := Vector2(rect.end.x + m(60, 0).x, west.y)
 	check(GameConfig.has_aerial_los(drone, far), "A drone 300 m up sees a target 60 m beyond a building (a 6 m roof shades only a few metres)")
 	check(not GameConfig.has_direct_los(west, far), "...which a man at ground level could not")
-	# Right behind the edge: inside the roof's shadow.
+	# Right behind the edge: buildings are no obstacle to the drone at all (user: "For drone vision, I think we can just ignore buildings as
+	# obstacles ... other than units INSIDE the building"). Only a unit under the roof is hidden.
 	var behind := Vector2(rect.end.x + m(1.0, 0).x, west.y)
-	check(not GameConfig.has_aerial_los(drone, behind), "A target 1 m behind the building's edge is in its shadow even from the air")
+	check(GameConfig.has_aerial_los(drone, behind), "A target 1 m behind the building's edge is seen by the drone: buildings are no obstacle to it")
+	check(GameConfig.has_aerial_los(drone, rect.get_center()), "...and even a point inside the block is not cut off by the line itself")
 
 
 func test_height_decides_a_ground_sightline_over_a_building() -> void:
@@ -78,9 +81,54 @@ func test_height_decides_a_ground_sightline_over_a_building() -> void:
 	check(miss.x > miss.y, "A line that misses the block clips to nothing")
 
 
+## Units INSIDE a building are the one thing a roof hides from the drone.
+func test_a_unit_inside_a_building_is_not_seen_by_the_drone() -> void:
+	GameConfig.set_active_map("voznesensk")
+	var found := find_block()
+	if found.size() < 3:
+		return
+	var rect: Rect2 = found[0]
+	var inside: Vector2 = rect.get_center()
+	var outside: Vector2 = Vector2(rect.end.x + m(30.0, 0).x, rect.get_center().y)
+	check(GameConfig.is_building_at(inside) and not GameConfig.is_building_at(outside), "Setup: one point inside a building block, one outside it")
+	var drone := Unit.new()
+	drone.kind = Unit.Kind.DRONE
+	drone.team = Unit.Team.PLAYER
+	drone.global_position = outside + m(-300.0, 0)
+	var hidden_squad := Unit.new()
+	hidden_squad.kind = Unit.Kind.SQUAD
+	hidden_squad.team = Unit.Team.ENEMY
+	hidden_squad.global_position = inside
+	var open_squad := Unit.new()
+	open_squad.kind = Unit.Kind.SQUAD
+	open_squad.team = Unit.Team.ENEMY
+	open_squad.global_position = outside
+	for u in [drone, hidden_squad, open_squad]:
+		root.add_child(u)
+	check(CombatResolver.hidden_from_drone(drone, hidden_squad), "A squad inside a building is hidden from a drone")
+	check(not CombatResolver.hidden_from_drone(drone, open_squad), "...one beside it is not")
+	check(not CombatResolver.hidden_from_drone(hidden_squad, open_squad), "...and the rule is about drones only (a ground observer is not affected by it)")
+	seed(5)
+	var seen_inside := 0
+	var seen_outside := 0
+	for i in 1500:
+		if CombatResolver.roll_spot(drone, hidden_squad, 30.0):
+			seen_inside += 1
+		if CombatResolver.roll_spot(drone, open_squad, 30.0):
+			seen_outside += 1
+	check(seen_outside > 100, "Setup: the drone does notice the squad beside the building (%d of 1500)" % seen_outside)
+	check(seen_inside == 0, "...and never the one inside it (%d of 1500)" % seen_inside)
+	var watchers: Array[Unit] = [drone]
+	check(not CombatResolver.has_live_observer(hidden_squad, watchers), "A squad already seen that steps inside a building is lost to the drone")
+	check(CombatResolver.has_live_observer(open_squad, watchers), "...while one beside it is kept")
+	for u in [drone, hidden_squad, open_squad]:
+		u.free()
+
+
 func run() -> void:
 	test_a_drone_sees_across_a_building_but_not_from_right_behind_it()
 	test_height_decides_a_ground_sightline_over_a_building()
+	test_a_unit_inside_a_building_is_not_seen_by_the_drone()
 	GameConfig.set_active_map("pishchane")
 	print("Three-dimensional line of sight tests: %d failures" % failures)
 	quit(1 if failures else 0)

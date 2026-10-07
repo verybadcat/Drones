@@ -131,7 +131,7 @@ func _type_target_score(unit: Unit, target: Unit) -> float:
 		"best_chance":
 			if unit.kind == Unit.Kind.DRONE:
 				var distance: float = unit.global_position.distance_to(target.global_position)
-				var visible_path := GameConfig.has_aerial_los(unit.global_position, target.global_position)
+				var visible_path := GameConfig.has_aerial_los(unit.global_position, target.global_position) and not CombatResolver.hidden_from_drone(unit, target)
 				var concealment: float = GameConfig.DRONE_CONCEALMENT_MULTIPLIER[target.terrain_type()]
 				return maxf(0.0, 1.0 - distance / GameConfig.DRONE_DETECTION_RANGE) * concealment if visible_path else 0.0
 			return CombatResolver.hit_probability(unit, target, _drone_directing_multiplier(unit))
@@ -2709,6 +2709,103 @@ func _active_resupply_run_for(mortar: Unit) -> Unit:
 ## with no extra coordination needed between the two systems. Must run
 ## before _tick_movement, which is what actually steps the run toward
 ## whatever move_target says this tick.
+## How far from a known enemy squad a resupply run keeps (a little more than a squad's engagement range, so it is never in reach of a
+## squad whose position its side knows).
+const RESUPPLY_AVOID_RADIUS: float = GameConfig.SQUAD_ENGAGEMENT_RANGE * 1.15
+
+## The positions of the enemy squads `team` currently knows about (its own side's knowledge, last seen if not now).
+func _known_squad_positions(team: Unit.Team) -> Array[Vector2]:
+	var opposing: Array[Unit] = enemy_units if team == Unit.Team.PLAYER else player_units
+	var positions: Array[Vector2] = []
+	for u in opposing:
+		if u.kind != Unit.Kind.SQUAD or (u.state != Unit.State.ACTIVE and u.state != Unit.State.RETREATING):
+			continue
+		if team == Unit.Team.PLAYER:
+			if u.player_has_been_sighted:
+				positions.append(u.player_known_position)
+		elif u.enemy_has_been_sighted:
+			positions.append(u.enemy_known_position)
+	return positions
+
+
+## Where a resupply run steers this tick on its way to `goal` (the mortar): the goal itself, unless a known enemy squad lies within
+## RESUPPLY_AVOID_RADIUS of the straight line there, in which case a point beside that squad, on whichever side leaves more room from the
+## others, so the run goes around rather than through its reach. Direct user instruction: "Resupply run should be smart enough to avoid
+## enemy squads." Uses only what the run's own side knows. A squad within that radius of the goal itself cannot be avoided by a detour (the
+## mortar is already in its reach), and the run then goes straight in. Recomputed each tick like the target itself, so it is dropped the moment
+## the way is clear. (And an enemy squad that gets a visible run in range and in sight fires on it like any other target: the run is an
+## ordinary visible unit to _pick_target.)
+func _resupply_run_destination(run: Unit, goal: Vector2) -> Vector2:
+	var threats: Array[Vector2] = _known_squad_positions(run.team)
+	var from: Vector2 = run.global_position
+	var seg: Vector2 = goal - from
+	if threats.is_empty() or seg.length_squared() < 1.0:
+		_resupply_detours.erase(run)
+		return goal
+	# A detour once chosen is kept until the run has reached its point or the way on is clear: choosing afresh each tick flips between
+	# "round it" and "straight at it" as the geometry shifts, and the run slips into the squad's reach.
+	var detour: Dictionary = _resupply_detours.get(run, {})
+	if not detour.is_empty():
+		if from.distance_to(detour.point) <= RESUPPLY_DETOUR_ARRIVAL and _resupply_line_depth(from, goal, threats) <= 0.0:
+			_resupply_detours.erase(run)
+		else:
+			return detour.point
+	var worst: Vector2 = _resupply_worst_threat(from, goal, threats)
+	if is_inf(worst.x):
+		return goal
+	# Beside the squad at 1.3 times its reach AND half a reach past it along the way, so once the run has rounded that point the line on to
+	# the mortar leads away from the squad rather than cutting back across its reach.
+	var ahead: Vector2 = seg.normalized() * RESUPPLY_AVOID_RADIUS * 0.5
+	var side: Vector2 = seg.normalized().orthogonal() * RESUPPLY_AVOID_RADIUS * 1.3
+	var best := Vector2.INF
+	var best_room := -INF
+	for candidate in [worst + ahead + side, worst + ahead - side]:
+		var p: Vector2 = GameConfig.clamp_to_operating_area(candidate)
+		var room := INF
+		for t in threats:
+			room = minf(room, p.distance_to(t))
+		if room > best_room:
+			best_room = room
+			best = p
+	_resupply_detours[run] = {"point": best}
+	return best
+
+
+## How far into any known squad's reach the straight line from `from` to `goal` runs (0 if it keeps clear of every one that the goal itself is
+## not already inside).
+func _resupply_line_depth(from: Vector2, goal: Vector2, threats: Array[Vector2]) -> float:
+	var seg: Vector2 = goal - from
+	var len2: float = seg.length_squared()
+	var worst := 0.0
+	for t in threats:
+		if goal.distance_to(t) < RESUPPLY_AVOID_RADIUS or len2 < 1.0:
+			continue
+		var u: float = clampf((t - from).dot(seg) / len2, 0.0, 1.0)
+		worst = maxf(worst, RESUPPLY_AVOID_RADIUS - (from + seg * u).distance_to(t))
+	return worst
+
+
+func _resupply_worst_threat(from: Vector2, goal: Vector2, threats: Array[Vector2]) -> Vector2:
+	var seg: Vector2 = goal - from
+	var len2: float = seg.length_squared()
+	var worst := Vector2.INF
+	var worst_depth := 0.0
+	for t in threats:
+		if goal.distance_to(t) < RESUPPLY_AVOID_RADIUS:
+			continue
+		var u: float = clampf((t - from).dot(seg) / len2, 0.0, 1.0)
+		var depth: float = RESUPPLY_AVOID_RADIUS - (from + seg * u).distance_to(t)
+		if depth > worst_depth:
+			worst_depth = depth
+			worst = t
+	return worst
+
+
+const RESUPPLY_DETOUR_ARRIVAL: float = 80.0 * GameConfig.PIXELS_PER_METER
+## Run -> {"point": the detour point it is steering for}, while one is in force.
+var _resupply_detours: Dictionary = {}
+
+
 func _update_resupply_run_targets() -> void:
 	for m in player_units + enemy_units:
 		if _risk_holds.has(m): continue
@@ -2718,7 +2815,7 @@ func _update_resupply_run_targets() -> void:
 			continue # homeward leg — a fixed destination set once at delivery, not re-tracked
 		if m.resupply_target_mortar == null or m.resupply_target_mortar.state != Unit.State.ACTIVE:
 			continue # handled by _resolve_resupply_run_arrivals below
-		m.move_target = m.resupply_target_mortar.global_position
+		m.move_target = _resupply_run_destination(m, m.resupply_target_mortar.global_position)
 		m.has_move_target = true
 
 
@@ -6948,7 +7045,7 @@ func _tick_movement(scenario_delta: float) -> void:
 			# mortar's truest, current-this-tick position — not a snapshot
 			# from before either of them moved — closing the staleness
 			# window entirely rather than just shrinking it.
-			unit.move_target = unit.resupply_target_mortar.global_position
+			unit.move_target = _resupply_run_destination(unit, unit.resupply_target_mortar.global_position)
 			unit.has_move_target = true
 		if unit.state == Unit.State.RETREATING:
 			if unit.has_move_target:

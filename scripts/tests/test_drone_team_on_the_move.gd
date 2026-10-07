@@ -39,8 +39,8 @@ func unit(bm, team: Unit.Team, kind: Unit.Kind, pos: Vector2) -> Unit:
 	(bm.player_units if team == Unit.Team.PLAYER else bm.enemy_units).append(u)
 	return u
 
-## A drone-team battle: the team at (-800, 1500) m, one drone airborne over (500, 1500) m, our mortar
-## at (-200, 1500) m and an enemy squad in the drone's view at (900, 1500) m.
+## A drone-team battle, all at y = 2700 m (south of the default map's village: a unit inside a building is hidden from a drone): the team at (-800, 2700) m, one drone airborne over (500, 2700) m, our mortar
+## at (-200, 2700) m and an enemy squad in the drone's view at (900, 2700) m.
 func make_battle(moving: bool) -> Dictionary:
 	seed(11)
 	Weather.current = calm_weather()
@@ -49,18 +49,18 @@ func make_battle(moving: bool) -> Dictionary:
 	bm.set_process(false)
 	bm.combat_log = Log.new()
 	bm.recon_mode = GameConfig.ReconMode.DRONE_TEAM
-	var team: Unit = unit(bm, Unit.Team.PLAYER, Unit.Kind.DRONE_TEAM, Vector2(m(-800), m(1500)))
+	var team: Unit = unit(bm, Unit.Team.PLAYER, Unit.Kind.DRONE_TEAM, Vector2(m(-800), m(2700)))
 	bm.drone_team = team
-	var drone: Unit = unit(bm, Unit.Team.PLAYER, Unit.Kind.DRONE, Vector2(m(500), m(1500)))
+	var drone: Unit = unit(bm, Unit.Team.PLAYER, Unit.Kind.DRONE, Vector2(m(500), m(2700)))
 	drone.drone_battery_charge = 0.9
 	bm.active_drone = drone
 	bm._drones_ready.clear()
 	bm._drones_ready.append(1.0)
 	bm._drones_ready.append(1.0)
-	var mortar: Unit = unit(bm, Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2(m(-200), m(1500)))
-	var target: Unit = unit(bm, Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(m(900), m(1500)))
+	var mortar: Unit = unit(bm, Unit.Team.PLAYER, Unit.Kind.MORTAR, Vector2(m(-200), m(2700)))
+	var target: Unit = unit(bm, Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2(m(900), m(2700)))
 	if moving:
-		team.move_target = Vector2(m(-1000), m(1500))
+		team.move_target = Vector2(m(-1000), m(2700))
 		team.has_move_target = true
 	return {"bm": bm, "team": team, "drone": drone, "mortar": mortar, "target": target}
 
@@ -83,7 +83,7 @@ func run() -> void:
 func test_the_team_is_on_the_move_only_while_a_move_order_stands() -> void:
 	var c := make_battle(false)
 	check(not c.bm._drone_team_on_the_move(), "A team standing still is not on the move")
-	c.team.move_target = Vector2(m(-1000), m(1500))
+	c.team.move_target = Vector2(m(-1000), m(2700))
 	c.team.has_move_target = true
 	check(c.bm._drone_team_on_the_move(), "...one with a move order standing is")
 	c.team.has_move_target = false
@@ -137,7 +137,7 @@ func test_the_spotting_value_is_between_a_stationary_team_and_a_spotter() -> voi
 	spotter_battle.drone.global_position = Vector2(m(-5000), m(-5000)) # far out of the picture
 	spotter_battle.bm.player_units.erase(spotter_battle.drone)
 	spotter_battle.drone.queue_free()
-	var spotter: Unit = unit(spotter_battle.bm, Unit.Team.PLAYER, Unit.Kind.SPOTTER, Vector2(m(500), m(1500)))
+	var spotter: Unit = unit(spotter_battle.bm, Unit.Team.PLAYER, Unit.Kind.SPOTTER, Vector2(m(500), m(2700)))
 	check(still.bm._mortar_fire_observation_quality(still.mortar, still.target) == "drone", "A stationary team's drone gives 'drone' quality")
 	check(moving.bm._mortar_fire_observation_quality(moving.mortar, moving.target) == "drone_moving", "A team on the move gives 'drone_moving' quality")
 	check(spotter_battle.bm._mortar_fire_observation_quality(spotter_battle.mortar, spotter_battle.target) == "spotter", "Setup: a spotter gives 'spotter' quality")
@@ -170,7 +170,7 @@ func test_the_accuracy_bonus_is_halfway_too() -> void:
 	# Only the player's own mortar with a drone in the air gets any of it.
 	moving.bm.active_drone = null
 	check(moving.bm._drone_directing_multiplier(moving.mortar) == 1.0, "With no drone in the air there is no bonus")
-	var enemy_mortar: Unit = unit(still.bm, Unit.Team.ENEMY, Unit.Kind.MORTAR, Vector2(m(3000), m(1500)))
+	var enemy_mortar: Unit = unit(still.bm, Unit.Team.ENEMY, Unit.Kind.MORTAR, Vector2(m(3000), m(2700)))
 	check(still.bm._drone_directing_multiplier(enemy_mortar) == 1.0, "The enemy's mortar never gets it")
 	cleanup(still)
 	cleanup(moving)
@@ -220,8 +220,8 @@ func test_a_moving_team_loses_drones_slightly_more_often() -> void:
 	stub.combat_log = Log.new()
 	Weather.current = calm_weather()
 	stub.recon_mode = GameConfig.ReconMode.DRONE_TEAM
-	stub.drone_team = unit(stub, Unit.Team.PLAYER, Unit.Kind.DRONE_TEAM, Vector2(m(-800), m(1500)))
-	var airframe: Unit = unit(stub, Unit.Team.PLAYER, Unit.Kind.DRONE, Vector2(m(500), m(1500)))
+	stub.drone_team = unit(stub, Unit.Team.PLAYER, Unit.Kind.DRONE_TEAM, Vector2(m(-800), m(2700)))
+	var airframe: Unit = unit(stub, Unit.Team.PLAYER, Unit.Kind.DRONE, Vector2(m(500), m(2700)))
 	stub.active_drone = airframe
 	stub._update_drone_weather(6.0)
 	check(stub.active_drone == null, "The in-flight failure roll is driven by _drone_failure_chance")

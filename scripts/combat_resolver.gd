@@ -145,8 +145,17 @@ static func effective_detection_range(observer: Unit, target: Unit) -> float:
 ## different question — "is anyone glancing at the right patch of sky right
 ## now" — answered separately by _roll_ground_notices_drone below rather
 ## than by any of this ground-spotting machinery.
+## A drone cannot see a unit INSIDE a building (under its roof), whatever its range or the weather: buildings are otherwise no obstacle to
+## it (GameConfig.has_aerial_los). Direct user instruction: "other than units INSIDE the building, which would indeed not be seen by the
+## drone." A drone is itself never hidden this way (it is in the air).
+static func hidden_from_drone(observer: Unit, target: Unit) -> bool:
+	return observer.kind == Unit.Kind.DRONE and target.kind != Unit.Kind.DRONE and GameConfig.is_building_at(target.global_position)
+
+
 static func roll_spot(observer: Unit, target: Unit, scenario_delta: float) -> bool:
 	var observer_is_drone := observer.kind == Unit.Kind.DRONE
+	if hidden_from_drone(observer, target):
+		return false
 	if target.kind == Unit.Kind.DRONE and not observer_is_drone:
 		return _roll_ground_notices_drone(observer, target, scenario_delta)
 
@@ -282,6 +291,8 @@ static func has_live_observer(target: Unit, observers: Array[Unit], ignore_trees
 		if retained:
 			live_range *= GameConfig.VISIBILITY_RETAIN_RANGE_FRACTION
 		if distance > live_range or live_range <= 0.0:
+			continue
+		if hidden_from_drone(observer, target):
 			continue
 		var has_los: bool = GameConfig.has_aerial_los(observer.global_position, target.global_position) if observer.kind == Unit.Kind.DRONE \
 			else GameConfig.has_direct_los(observer.global_position, target.global_position)
