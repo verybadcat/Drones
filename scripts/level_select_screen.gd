@@ -389,9 +389,10 @@ const SEED_NOTE: String = "Using the same seed again gives you the same weather 
 ## credits page to the opening screen"). Plain facts about where the map data, the sounds and the engine came
 ## from, with the licences the sources publish them under. Kept as one function so a test can read it.
 ##
-## What it must NOT do is claim more than is known: the sound files' licence terms were never looked up (see
-## assets/audio/*/SOURCES.md), and the mortar-shot recordings have no recorded source at all, so the page says
-## exactly that rather than naming a licence.
+## What it must NOT do is claim more than is known: the sounds are all from Pixabay (the developer's statement; the mortar shots'
+## source, "Mortar Shell 2" by TommyLynn, is confirmed from the file name and Pixabay's search page), but the Pixabay page
+## addresses were never recorded and the licence is only named as Pixabay's, as it publishes it, so the page says exactly that
+## (see assets/audio/*/SOURCES.md).
 static func credits_text() -> String:
 	return "\n".join([
 		"CREDITS",
@@ -405,9 +406,11 @@ static func credits_text() -> String:
 		"The account of the fighting at Voznesensk follows English Wikipedia (\"Battle of Voznesensk\") and a Krym.Realii interview with Ukrainian defenders (2023).",
 		"",
 		"SOUNDS",
-		"Wind and rain: recordings from Pixabay (pixabay.com/sound-effects) by the contributors storegraphic, soundreality, eryliaa, boons_freak, dragon-studio and freesound_community, used under Pixabay's licence terms as Pixabay publishes them.",
-		"Gunfire: a recording supplied by the developer (contributor handle freesound_community, ID 32155); where it came from and its licence terms were not recorded.",
-		"Mortar shots: recordings whose source was not recorded.",
+		"All of the game's sounds are from Pixabay (pixabay.com/sound-effects), used under Pixabay's licence terms as Pixabay publishes them (pixabay.com/service/license-summary). Each is listed as its title, its contributor on Pixabay and its Pixabay ID. The page address is given where it is known; for the others the exact address was not recorded, and their contributors' names are the handles in the file names.",
+		"Mortar shots: \"Mortar Shell 2\" by TommyLynn (Pixabay ID 371034, pixabay.com/sound-effects/film-special-effects-mortar-shell-2-371034), cut into six separate shots and made quieter.",
+		"Wind: \"soft wind\" by storegraphic (318856); \"wind blowing\" by soundreality (457954), edited into a seamless loop.",
+		"Rain and sleet: \"gentle rain for relaxation and sleep\" by eryliaa (337279), \"drizzle 4perspectives\" by freesound_community (23254) and \"rain sound\" by boons_freak (188158), each shortened to its first 30 seconds; \"cozy midnight rain 04\" by dragon-studio (448568); \"snow rain\" by freesound_community (35637, pixabay.com/sound-effects/nature-snow-rain-35637).",
+		"Gunfire: \"battle war zone gun fight\" by freesound_community (32155).",
 		"",
 		"ENGINE",
 		"Made with the Godot Engine (godotengine.org), MIT licence.",

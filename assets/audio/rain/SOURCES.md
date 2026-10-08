@@ -31,8 +31,10 @@ loop there is a brief lull — acceptable for rain, and left as is.
 **`dragon-studio-cozy-midnight-rain-04-448568.mp3`** was supplied by the user on 2026-09-25
 from their Downloads folder, for the drizzle class. It is a complete 30.02-second file, so
 nothing was trimmed and it has no `-first30s` in its name. Its name (contributor handle
-`dragon-studio`, ID `448568`) is in the same style as the Pixabay files above, but where it
-came from was not checked and its license terms were not looked up. Its level dips only about
+`dragon-studio`, ID `448568`) is in the same style as the Pixabay files above, and the developer
+states (2026-10-07) that all of the project's sounds came from Pixabay, so it is recorded as one;
+that was not checked independently, and the exact page address was not recorded. Its license terms
+are Pixabay's as published by Pixabay (not re-checked). Its level dips only about
 2 dB at the loop point, so it loops without a noticeable seam. It is played at -50 LUFS, 6 dB
 under the quietest of the other rain sounds (`RainAmbience.MIDNIGHT_FILE_LUFS` = -39.5 is its
 own measured loudness, from `ebur128` as for the others). The class names it by the name
@@ -42,7 +44,11 @@ clip, which plays for MODERATE rain.
 **`freesound_community-snow_rain-35637.mp3`** was supplied by the user on 2026-09-26 from their Downloads
 folder, for sleet. It is a complete 39.02-second file (mono, 48 kHz), so nothing was trimmed and it has no
 `-first30s` in its name. Its name (contributor handle `freesound_community`, ID `35637`) is in the same style as
-the Pixabay files above, but where it came from was not checked and its license terms were not looked up.
+the Pixabay files above, and the developer states (2026-10-07) that all of the project's sounds came from
+Pixabay, so it is recorded as one; that was not checked independently, and the exact page address was not
+recorded. Its license terms are Pixabay's as published by Pixabay (not re-checked).
+Its Pixabay page, given by the developer on 2026-10-07 (copied with a `/zh` language segment, which is dropped
+here): https://pixabay.com/sound-effects/nature-snow-rain-35637/ (category Nature).
 Measured with `ebur128`: **-32.7 LUFS** integrated (`RainAmbience.SLEET_FILE_LUFS`), peak -1.4 dBFS. It is
 steady throughout (about 1.5 dB from end to end, no fade in or out), so it loops without a seam. Sleet plays it
 at the same target loudness per class as rain (-50, -44, -40, -34 LUFS from drizzle to heavy), so slow sleet is

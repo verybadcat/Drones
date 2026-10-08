@@ -4,8 +4,9 @@ extends SceneTree
 ## OpenStreetMap, ESA WorldCover, SRTM, the satellite pictures used to check the maps), the sounds and the
 ## engine, and a Close button.
 ##
-## The page must not claim more than is known: the sounds' licence terms were never looked up and the mortar
-## shots have no recorded source, and the page says that.
+## The page must not claim more than is known: every sound is credited to Pixabay with its title, contributor and
+## Pixabay ID (the mortar shots to "Mortar Shell 2" by TommyLynn, ID 371034), but the page addresses were not
+## recorded and the licence is Pixabay's as it publishes it, and the page says that.
 ##
 ## Run: godot --headless --path . --script scripts/tests/test_credits_page.gd
 var failures := 0
@@ -36,6 +37,17 @@ func run() -> void:
 	for needle in ["Overture Maps", "Microsoft", "OpenStreetMap", "ODbL", "ESA WorldCover", "CC BY 4.0", "SRTM", "OpenTopoData", "Esri", "Pixabay", "Godot"]:
 		check(needle in text, "The credits name %s" % needle)
 	check("not recorded" in text, "...and say plainly where a source or licence was not recorded")
+	# every sound, with its title, contributor and Pixabay ID
+	for needle in ["Mortar Shell 2", "TommyLynn", "371034", "soft wind", "storegraphic", "318856", "wind blowing", "soundreality", "457954",
+			"gentle rain for relaxation and sleep", "eryliaa", "337279", "drizzle 4perspectives", "23254", "rain sound", "boons_freak", "188158",
+			"cozy midnight rain 04", "dragon-studio", "448568", "snow rain", "35637", "battle war zone gun fight", "freesound_community", "32155",
+			"pixabay.com/service/license-summary", "pixabay.com/sound-effects/film-special-effects-mortar-shell-2-371034", "pixabay.com/sound-effects/nature-snow-rain-35637"]:
+		check(needle in text, "The sounds credit lists %s" % needle)
+	check(not ("source was not recorded" in text) and not ("licence terms were not recorded" in text), "...and no sound is left as having no known source")
+	# the mortar shots' own note records the source, the contributor, the ID, what was done to it and the six clips
+	var note := FileAccess.get_file_as_string("res://assets/audio/mortar_fire/SOURCES.md")
+	for needle in ["Mortar Shell 2", "TommyLynn", "371034", "tommylynn-mortar-shell-2-371034.mp3", "12 dB", "split", "mortar_shot_1.wav", "mortar_shot_6.wav", "license-summary", "film-special-effects-mortar-shell-2-371034"]:
+		check(needle in note, "assets/audio/mortar_fire/SOURCES.md records %s" % needle)
 	# The page on the real screen.
 	var screen := LevelSelectScreen.new()
 	root.add_child(screen)
