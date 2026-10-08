@@ -4,6 +4,11 @@ Both files came from Pixabay's sound-effects search for "wind":
 
   https://pixabay.com/sound-effects/search/wind/
 
+The two pages (opened and confirmed by the developer, 2026-10-07):
+
+  - soft wind (`storegraphic`, 318856): https://pixabay.com/sound-effects/nature-soft-wind-318856/
+  - wind blowing (`soundreality`, 457954): https://pixabay.com/sound-effects/nature-wind-blowing-457954/
+
 They were downloaded by the developer on 2026-09-24. The soft-wind file is used
 **exactly as downloaded** (no editing, re-encoding or trimming). The blowing-wind file
 was **rebuilt as a seamless loop** (see below).

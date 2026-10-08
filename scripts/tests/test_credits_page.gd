@@ -5,8 +5,8 @@ extends SceneTree
 ## engine, and a Close button.
 ##
 ## The page must not claim more than is known: every sound is credited to Pixabay with its title, contributor and
-## Pixabay ID (the mortar shots to "Mortar Shell 2" by TommyLynn, ID 371034), but the page addresses were not
-## recorded and the licence is Pixabay's as it publishes it, and the page says that.
+## Pixabay ID and page address (the mortar shots to "Mortar Shell 2" by TommyLynn, ID 371034), and the licence is named as
+## Pixabay's as it publishes it, not quoted.
 ##
 ## Run: godot --headless --path . --script scripts/tests/test_credits_page.gd
 var failures := 0
@@ -36,7 +36,9 @@ func run() -> void:
 	var text: String = LevelSelectScreen.credits_text()
 	for needle in ["Overture Maps", "Microsoft", "OpenStreetMap", "ODbL", "ESA WorldCover", "CC BY 4.0", "SRTM", "OpenTopoData", "Esri", "Pixabay", "Godot"]:
 		check(needle in text, "The credits name %s" % needle)
-	check("not recorded" in text, "...and say plainly where a source or licence was not recorded")
+	check(not ("not recorded" in text), "...with nothing left as unknown (every sound has its page address)")
+	for address in ["film-special-effects-mortar-shell-2-371034", "nature-snow-rain-35637", "nature-soft-wind-318856", "nature-wind-blowing-457954", "nature-gentle-rain-for-relaxation-and-sleep-337279", "nature-drizzle-4perspectives-23254", "nature-rain-sound-188158", "nature-cozy-midnight-rain-04-448568", "film-special-effects-battle-war-zone-gun-fight-32155"]:
+		check("pixabay.com/sound-effects/" + address in text, "The credits give the page for %s" % address)
 	# every sound, with its title, contributor and Pixabay ID
 	for needle in ["Mortar Shell 2", "TommyLynn", "371034", "soft wind", "storegraphic", "318856", "wind blowing", "soundreality", "457954",
 			"gentle rain for relaxation and sleep", "eryliaa", "337279", "drizzle 4perspectives", "23254", "rain sound", "boons_freak", "188158",

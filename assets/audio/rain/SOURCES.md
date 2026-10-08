@@ -2,10 +2,17 @@
 
 These came from the same site as the wind recordings (see `../wind/SOURCES.md`):
 **Pixabay** sound effects, https://pixabay.com/sound-effects/ . They were downloaded
-by the developer on 2026-09-24. The exact Pixabay page addresses were not recorded;
-the file names carry the contributor handle (`freesound_community`, `eryliaa`,
-`boons_freak`) and the sound's Pixabay ID (`23254`, `337279`, `188158`), which is
-enough to find each one again. Use of the files is governed by Pixabay's license
+by the developer on 2026-09-24. The file names carry the contributor handle
+(`freesound_community`, `eryliaa`, `boons_freak`) and the sound's Pixabay ID (`23254`, `337279`,
+`188158`). The pages (opened and confirmed by the developer, 2026-10-07):
+
+- gentle rain for relaxation and sleep (`eryliaa`, 337279): https://pixabay.com/sound-effects/nature-gentle-rain-for-relaxation-and-sleep-337279/
+- drizzle 4perspectives (`freesound_community`, 23254): https://pixabay.com/sound-effects/nature-drizzle-4perspectives-23254/
+- rain sound (`boons_freak`, 188158): https://pixabay.com/sound-effects/nature-rain-sound-188158/
+- cozy midnight rain 04 (`dragon-studio`, 448568): https://pixabay.com/sound-effects/nature-cozy-midnight-rain-04-448568/
+- snow rain (`freesound_community`, 35637): https://pixabay.com/sound-effects/nature-snow-rain-35637/
+
+ Use of the files is governed by Pixabay's license
 terms as published by Pixabay (see https://pixabay.com/service/license-summary/); this
 note records where they came from and has not re-checked those terms.
 
@@ -33,8 +40,8 @@ from their Downloads folder, for the drizzle class. It is a complete 30.02-secon
 nothing was trimmed and it has no `-first30s` in its name. Its name (contributor handle
 `dragon-studio`, ID `448568`) is in the same style as the Pixabay files above, and the developer
 states (2026-10-07) that all of the project's sounds came from Pixabay, so it is recorded as one;
-that was not checked independently, and the exact page address was not recorded. Its license terms
-are Pixabay's as published by Pixabay (not re-checked). Its level dips only about
+that was not checked independently (the developer later opened its page, listed above). Its license
+terms are Pixabay's as published by Pixabay (not re-checked). Its level dips only about
 2 dB at the loop point, so it loops without a noticeable seam. It is played at -50 LUFS, 6 dB
 under the quietest of the other rain sounds (`RainAmbience.MIDNIGHT_FILE_LUFS` = -39.5 is its
 own measured loudness, from `ebur128` as for the others). The class names it by the name
@@ -45,8 +52,8 @@ clip, which plays for MODERATE rain.
 folder, for sleet. It is a complete 39.02-second file (mono, 48 kHz), so nothing was trimmed and it has no
 `-first30s` in its name. Its name (contributor handle `freesound_community`, ID `35637`) is in the same style as
 the Pixabay files above, and the developer states (2026-10-07) that all of the project's sounds came from
-Pixabay, so it is recorded as one; that was not checked independently, and the exact page address was not
-recorded. Its license terms are Pixabay's as published by Pixabay (not re-checked).
+Pixabay, so it is recorded as one; the developer later opened its page (listed above). Its license terms
+are Pixabay's as published by Pixabay (not re-checked).
 Its Pixabay page, given by the developer on 2026-10-07 (copied with a `/zh` language segment, which is dropped
 here): https://pixabay.com/sound-effects/nature-snow-rain-35637/ (category Nature).
 Measured with `ebur128`: **-32.7 LUFS** integrated (`RainAmbience.SLEET_FILE_LUFS`), peak -1.4 dBFS. It is
