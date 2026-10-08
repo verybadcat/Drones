@@ -42,6 +42,8 @@ var credits_button: Button = null
 var credits_panel: PanelContainer = null
 var designer_notes_button: Button = null
 var designer_notes_panel: PanelContainer = null
+var units_button: Button = null
+var units_panel: PanelContainer = null
 
 const SETUP_WIDTH: float = 820.0
 const CELL_SIZE := Vector2(200, 58)
@@ -428,16 +430,21 @@ static func credits_text() -> String:
 	])
 
 
-## "Designer notes" and, to its right, "Credits": the two pages that open over the setup.
+## "About this game", "Units" and "Credits", left to right: the three pages that open over the setup.
 func _build_page_buttons() -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	row.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	designer_notes_button = Button.new()
-	designer_notes_button.text = "Designer notes"
+	designer_notes_button.text = "About this game"
 	designer_notes_button.custom_minimum_size = Vector2(150, 0)
 	designer_notes_button.pressed.connect(_toggle_designer_notes)
 	row.add_child(designer_notes_button)
+	units_button = Button.new()
+	units_button.text = "Units"
+	units_button.custom_minimum_size = Vector2(120, 0)
+	units_button.pressed.connect(_toggle_units)
+	row.add_child(units_button)
 	credits_button = Button.new()
 	credits_button.text = "Credits"
 	credits_button.custom_minimum_size = Vector2(120, 0)
@@ -446,22 +453,33 @@ func _build_page_buttons() -> Control:
 	return row
 
 
-## Opens the credits page over the setup (or closes it again). Built on first use. Only one of the two pages shows at a time.
+## Opens the credits page over the setup (or closes it again). Built on first use. Only one of the pages shows at a time.
 func _toggle_credits() -> void:
 	if credits_panel == null:
 		credits_panel = _build_page_panel(credits_text(), _toggle_credits)
-	if designer_notes_panel != null:
-		designer_notes_panel.visible = false
-	credits_panel.visible = not credits_panel.visible
+	_toggle_page(credits_panel)
 
 
-## Opens the designer notes over the setup (or closes them again), the same way.
+## Opens the "About this game" page (the designer notes) over the setup, or closes it again, the same way.
 func _toggle_designer_notes() -> void:
 	if designer_notes_panel == null:
 		designer_notes_panel = _build_page_panel(designer_notes_text(), _toggle_designer_notes)
-	if credits_panel != null:
-		credits_panel.visible = false
-	designer_notes_panel.visible = not designer_notes_panel.visible
+	_toggle_page(designer_notes_panel)
+
+
+## Opens the Units page over the setup, or closes it again, the same way.
+func _toggle_units() -> void:
+	if units_panel == null:
+		units_panel = _build_page_panel(units_text(), _toggle_units)
+	_toggle_page(units_panel)
+
+
+## Shows `panel` if it is hidden (hiding the other pages), or hides it if it is showing.
+func _toggle_page(panel: PanelContainer) -> void:
+	for other in [credits_panel, designer_notes_panel, units_panel]:
+		if other != null and other != panel:
+			other.visible = false
+	panel.visible = not panel.visible
 
 
 ## A page over the setup: the text in a scrolling box and a Close button that calls `on_close`. Starts hidden.
@@ -536,6 +554,113 @@ static func designer_notes_text() -> String:
 		"What is scarce is information and foresight, not reflexes. The skill is in choosing where to stand, what to watch with, and when to give up ground, before the fighting starts, and in reading afterwards what happened and why. The aim is that after watching a squad hold or break, you want to change what you set up and try again, which is why the same seed gives the same weather and the same enemy force.",
 		"",
 	]) % [tactical_minute_per_second, shell_flight_s, squad_metres_per_second, fast_forward_ratio]
+
+
+## The Units page (direct user request: a "Units" button between "About this game" and "Credits" that "should bring up a screen which
+## documents the characteristics of squads, mortars, spotters, drone teams, and drones"). Every figure is read from the game's own
+## constants and from the units as the game sets them up, so the page cannot drift from the game.
+static func units_text() -> String:
+	var ppm: float = GameConfig.PIXELS_PER_METER
+	var squad_u: Unit = _sample_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD)
+	var squad_r: Unit = _sample_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD)
+	var mortar_u: Unit = _sample_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR)
+	var mortar_r: Unit = _sample_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR)
+	var drone_team: Unit = _sample_unit(Unit.Team.PLAYER, Unit.Kind.DRONE_TEAM)
+	var cover: Dictionary = CombatResolver.SQUAD_COVER_MULTIPLIER
+	var mortar_cover: Dictionary = CombatResolver.MORTAR_COVER_MULTIPLIER
+	var lines: PackedStringArray = []
+	lines.append("UNITS")
+	lines.append("")
+	lines.append("SQUADS")
+	lines.append("%d people, on both sides, armed with rifles: the only unit that fights at close quarters." % squad_u.max_pips)
+	lines.append("")
+	lines.append("Fire: at any enemy it can see within %s and has a clear line of sight to (buildings and hills block it). It cannot fire while it is moving with intent, on the march or dashing for cover." % _metres(GameConfig.SQUAD_ENGAGEMENT_RANGE / ppm))
+	lines.append("")
+	lines.append("Accuracy: before terrain and range, a Ukrainian squad hits with %s of its shots and a Russian one with %s (the Ukrainians are defending prepared positions). Cover multiplies that by %s in the open, %s in trees and %s in a building, so a squad in trees is hit one-eighth as often as one in the open. A moving target has no cover but is hit %s times as often. A shot at point-blank range is up to %s times as likely to hit, the bonus fading with distance. Fire from several directions at once multiplies the damage, up to %s times for a squad that is surrounded. Higher ground partly defeats the cover below it." % [_pct(squad_u.base_hit_chance), _pct(squad_r.base_hit_chance), _num(cover[GameConfig.TerrainType.OPEN]), _num(cover[GameConfig.TerrainType.TREES]), _num(cover[GameConfig.TerrainType.BUILDING]), _num(GameConfig.MOVING_HIT_MULTIPLIER), _num(GameConfig.SQUAD_CLOSE_RANGE_HIT_MULTIPLIER), _num(CombatResolver.crossfire_multiplier(0.0))])
+	lines.append("")
+	lines.append("Casualties: a rifle hit costs one person. A mortar round costs about %s of the people left in the squad, and at least one." % _pct(GameConfig.MORTAR_CASUALTY_FRACTION))
+	lines.append("")
+	lines.append("Morale: it breaks off and retreats once it has lost %s of its people (the standing order), and it may surrender if it is cut off." % _pct(squad_u.retreat_threshold))
+	lines.append("")
+	lines.append("Pace, in metres per second of battle time: it marches at %s, repositions at %s, and withdraws at %s (Ukrainian) or %s (Russian)." % [_num(GameConfig.ENEMY_ADVANCE_SPEED / ppm), _num(GameConfig.REPOSITION_SPEED / ppm), _num(GameConfig.PLAYER_RETREAT_SPEED / ppm), _num(GameConfig.ENEMY_RETREAT_SPEED / ppm)])
+	lines.append("")
+	lines.append("Eyes: it notices enemies out to %s in the open, %s farther from higher ground, and %s times as readily while they are moving. Enemies in trees or buildings are much harder to notice." % [_metres(GameConfig.DETECTION_BASE_RANGE / ppm), _metres(GameConfig.DETECTION_ELEVATION_BONUS / ppm), _num(GameConfig.MOVING_SPOT_MULTIPLIER)])
+	lines.append("")
+	lines.append("MORTARS")
+	lines.append("Crew-served indirect fire: it can hit whatever its side can see, from far beyond rifle range.")
+	lines.append("")
+	lines.append("Crew: %d for the Ukrainians, %d for the Russians. A hit is decisive: it wounds or kills several of the crew at once, and a crew that breaks usually abandons the gun." % [mortar_u.crew_size, mortar_r.crew_size])
+	lines.append("")
+	lines.append("Range: %s (Ukrainian) or %s (Russian). A round takes %d seconds to land, so a target that has moved more than %s by then is missed, and a target in cover is much harder to hit: a mortar round is hampered by cover less than a bullet is (%s in the open, %s in trees, %s in a building)." % [_metres(GameConfig.MORTAR_MAX_RANGE_PLAYER / ppm), _metres(GameConfig.MORTAR_MAX_RANGE_ENEMY / ppm), int(GameConfig.MORTAR_FLIGHT_TIME), _metres(GameConfig.MORTAR_EVASION_RADIUS / ppm), _num(mortar_cover[GameConfig.TerrainType.OPEN]), _num(mortar_cover[GameConfig.TerrainType.TREES]), _num(mortar_cover[GameConfig.TerrainType.BUILDING])])
+	lines.append("")
+	lines.append("Rate of fire: bursts of up to %d rounds (%d inside %s), then a reload of %d seconds. The crew must stand still for %d seconds before it can fire, so a mortar that is moving cannot fire." % [GameConfig.MORTAR_BURST_MAX_SHOTS, GameConfig.MORTAR_BURST_CLOSE_RANGE_MAX_SHOTS, _metres(GameConfig.MORTAR_BURST_CLOSE_RANGE / ppm), int(mortar_u.reload_time), int(GameConfig.MORTAR_SETUP_TEARDOWN_TIME)])
+	lines.append("")
+	lines.append("Ammunition: it starts with %d rounds and can hold %d. A resupply run brings %d. A run is requested at first contact, waits off the map until the mortar is down to %d rounds, takes about %d minutes to arrive, and about one in %d does not get through. The run is unarmed and can be shot." % [mortar_u.mortar_rounds_remaining, GameConfig.MORTAR_MAX_AMMO_ON_HAND, GameConfig.MORTAR_RESUPPLY_ROUNDS, GameConfig.MORTAR_RESUPPLY_REORDER_POINT, int(GameConfig.MORTAR_RESUPPLY_DELAY_MEDIAN / 60.0), int(round(1.0 / GameConfig.MORTAR_RESUPPLY_FAILURE_CHANCE))])
+	lines.append("")
+	lines.append("Accuracy: the typical miss distance (half the rounds land closer) of fire that nobody observes is about %s of the range, never less than %s, and it never improves. When someone watches where the rounds fall, it shrinks with each round, toward a floor of %s with a squad watching, %s with a spotter and %s with a drone. A round aimed with a drone's help is also %s times as likely to hit." % [_pct(GameConfig.MORTAR_DISPERSION_CEP_FRACTION_OF_RANGE), _metres(GameConfig.MORTAR_DISPERSION_UNADJUSTED_FLOOR / ppm), _metres(GameConfig.MORTAR_DISPERSION_SQUAD_FLOOR / ppm), _metres(GameConfig.MORTAR_DISPERSION_SPOTTER_FLOOR / ppm), _metres(GameConfig.MORTAR_DISPERSION_DRONE_FLOOR / ppm), _num(GameConfig.DRONE_DIRECTED_MORTAR_ACCURACY_MULTIPLIER)])
+	lines.append("")
+	lines.append("Movement and siting: it relocates at %s metres per second (%s when hurried). It cannot fire from inside a building, and the Ukrainian crew will not set up in the populated-area exclusion zone around a town." % [_num(GameConfig.MORTAR_RELOCATE_SPEED / ppm), _num(GameConfig.MORTAR_RELOCATE_SPEED_URGENT / ppm)])
+	lines.append("")
+	lines.append("Concealment: every round fired gives its position away, and the other side's mortar may answer with counter-battery fire. In cover the crew can only be noticed from within %s; in the open it is noticed much more easily." % _metres(GameConfig.MORTAR_HIDDEN_DETECTION_RANGE / ppm))
+	lines.append("")
+	lines.append("Targets: an enemy mortar before anything else, then squads, weighing how many people are in them and how much of a danger they are. It holds fire to save ammunition as it runs low.")
+	lines.append("")
+	lines.append("SPOTTERS")
+	lines.append("The Level 0 recon unit: a small ground team that calls in fire on whatever it can see. One hit puts it out of action. It is unarmed and never fires.")
+	lines.append("")
+	lines.append("Eyes: it notices enemies out to %s, which is %s farther than a squad. Hidden in cover it can only be noticed from within %s." % [_metres((GameConfig.DETECTION_BASE_RANGE + GameConfig.SPOTTER_DETECTION_RANGE_BONUS) / ppm), _metres(GameConfig.SPOTTER_DETECTION_RANGE_BONUS / ppm), _metres(GameConfig.SPOTTER_HIDDEN_DETECTION_RANGE / ppm)])
+	lines.append("")
+	lines.append("Use: it lets the mortar correct its fire onto what it sees, better than a squad can and not as well as a drone (see the mortar's accuracy above).")
+	lines.append("")
+	lines.append("DRONE TEAMS")
+	lines.append("The Level 1 recon unit, in place of the spotter: %d people, unarmed, with %d Mavic 3 drones and %d spare batteries. You place the team; its pilot decides where the drones look." % [drone_team.crew_size, GameConfig.DRONE_FLEET_SIZE, GameConfig.DRONE_SPARE_BATTERIES])
+	lines.append("")
+	lines.append("Casualties: a hit is decisive against the crew, as it is against a mortar crew. Losing one of them does not end the flying, but each casualty makes the drones about %s less likely to notice what is in view and directing fire a little less effective." % _pct(1.0 - GameConfig.DRONE_TEAM_CASUALTY_SPOT_MULTIPLIER))
+	lines.append("")
+	lines.append("On the move: when the team itself is moving, the drones are flown with divided attention. They notice about %s less, and corrections to mortar fire are less precise." % _pct(1.0 - GameConfig.DRONE_TEAM_MOVING_SPOT_CHANCE_MULTIPLIER))
+	lines.append("")
+	lines.append("Batteries: swapping one takes %d minutes and recharging a flat one takes %d minutes. A drone is not launched below %s charge." % [int(GameConfig.DRONE_BATTERY_SWAP_DURATION / 60.0), int(GameConfig.DRONE_RECHARGE_DURATION / 60.0), _pct(GameConfig.DRONE_MIN_LAUNCH_CHARGE_FLOOR)])
+	lines.append("")
+	lines.append("DRONES")
+	lines.append("A Mavic 3-class quadcopter: unarmed, pure reconnaissance.")
+	lines.append("")
+	lines.append("Flight: it flies at %d m and cruises at %s metres per second (%d km/h), up to %s. A battery lasts about %d minutes at cruise (the rated figure is %d), and the drone heads home, with a safety margin, before it runs flat. Climbing to its altitude takes about %d seconds." % [int(GameConfig.DRONE_ALTITUDE_M), _num(GameConfig.DRONE_CRUISE_SPEED / ppm), int(round(GameConfig.DRONE_CRUISE_SPEED / ppm * 3.6)), _num(GameConfig.DRONE_MAX_AIRSPEED / ppm), int(round(GameConfig.DRONE_FULL_CHARGE_FLIGHT_TIME / 60.0)), int(GameConfig.DRONE_MAX_FLIGHT_TIME / 60.0), int(round(GameConfig.DRONE_CLIMB_TIME))])
+	lines.append("")
+	lines.append("Eyes: it sees out to %s, the chance of noticing something falling off with the square of the distance from directly overhead. Buildings do not block its view, though it cannot see a unit inside one. A unit in trees is %s harder to notice from above." % [_metres(GameConfig.DRONE_DETECTION_RANGE / ppm), _pct(1.0 - GameConfig.DRONE_CONCEALMENT_MULTIPLIER[GameConfig.TerrainType.TREES])])
+	lines.append("")
+	lines.append("Risk: mortars and rifles cannot hit it. A person on the ground may notice it overhead, at about %s a minute within %s, which tells a crew it is being watched. Rain makes it fly lower or come home, and strong wind can keep it on the ground or, rarely, lose it." % [_pct(GameConfig.DRONE_GROUND_NOTICE_CHANCE_PER_MINUTE), _metres(GameConfig.DRONE_GROUND_NOTICE_MAX_RANGE_M)])
+	for u in [squad_u, squad_r, mortar_u, mortar_r, drone_team]:
+		u.free()
+	return "\n".join(lines)
+
+
+## A unit set up as the game sets it up, for reading its figures (freed by the caller).
+static func _sample_unit(team: Unit.Team, kind: Unit.Kind) -> Unit:
+	var u := Unit.new()
+	u.setup(team, kind, Vector2.ZERO)
+	return u
+
+
+## "4,500 m": whole metres with thousands separators.
+static func _metres(metres: float) -> String:
+	var digits := str(int(round(metres)))
+	var out := ""
+	while digits.length() > 3:
+		out = "," + digits.substr(digits.length() - 3) + out
+		digits = digits.substr(0, digits.length() - 3)
+	return "%s%s m" % [digits, out]
+
+
+## 0.26 -> "26%"
+static func _pct(fraction: float) -> String:
+	return "%d%%" % int(round(fraction * 100.0))
+
+
+## A figure as short as it can be: 1.6, 0.2, 2, 4.
+static func _num(value: float) -> String:
+	if is_equal_approx(value, roundf(value)):
+		return "%d" % int(value)
+	return ("%.2f" % value).rstrip("0")
 
 
 func _build_option(title_text: String, body_text: String, mode: GameConfig.ReconMode) -> Control:

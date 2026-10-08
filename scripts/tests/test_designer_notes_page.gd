@@ -77,7 +77,7 @@ func run() -> void:
 	await process_frame
 	var notes_button: Button = screen.designer_notes_button
 	var credits_button: Button = screen.credits_button
-	check(notes_button != null and notes_button.text == "Designer notes", "The opening screen has a Designer notes button")
+	check(notes_button != null and notes_button.text == "About this game", "The opening screen has an About this game button")
 	check(credits_button != null and credits_button.text == "Credits", "...and a Credits button")
 	check(notes_button.get_parent() == credits_button.get_parent(), "...in the same row")
 	check(notes_button.get_index() < credits_button.get_index(), "...with Credits to the right of Designer notes (index %d, %d)" % [notes_button.get_index(), credits_button.get_index()])
