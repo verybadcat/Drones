@@ -40,6 +40,8 @@ var _detail_box: VBoxContainer = null
 ## The "Credits" button and the page it opens (see _toggle_credits); the panel is built the first time it is wanted.
 var credits_button: Button = null
 var credits_panel: PanelContainer = null
+var designer_notes_button: Button = null
+var designer_notes_panel: PanelContainer = null
 
 const SETUP_WIDTH: float = 820.0
 const CELL_SIZE := Vector2(200, 58)
@@ -78,7 +80,7 @@ func _ready() -> void:
 		GameConfig.ReconMode.DRONE_TEAM
 	))
 
-	root.add_child(_build_credits_button())
+	root.add_child(_build_page_buttons())
 
 	columns.add_child(_build_score_history())
 
@@ -416,49 +418,105 @@ static func credits_text() -> String:
 	])
 
 
-func _build_credits_button() -> Control:
+## "Designer notes" and, to its right, "Credits": the two pages that open over the setup.
+func _build_page_buttons() -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	row.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	designer_notes_button = Button.new()
+	designer_notes_button.text = "Designer notes"
+	designer_notes_button.custom_minimum_size = Vector2(150, 0)
+	designer_notes_button.pressed.connect(_toggle_designer_notes)
+	row.add_child(designer_notes_button)
 	credits_button = Button.new()
 	credits_button.text = "Credits"
 	credits_button.custom_minimum_size = Vector2(120, 0)
-	credits_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	credits_button.pressed.connect(_toggle_credits)
-	return credits_button
+	row.add_child(credits_button)
+	return row
 
 
-## Opens the credits page over the setup (or closes it again). Built on first use.
+## Opens the credits page over the setup (or closes it again). Built on first use. Only one of the two pages shows at a time.
 func _toggle_credits() -> void:
 	if credits_panel == null:
-		credits_panel = PanelContainer.new()
-		credits_panel.position = Vector2(60, 50)
-		credits_panel.custom_minimum_size = Vector2(900, 640)
-		credits_panel.z_index = 100
-		var style := StyleBoxFlat.new()
-		style.bg_color = Color(0.1, 0.1, 0.1, 0.98)
-		style.set_content_margin_all(18.0)
-		style.set_corner_radius_all(6.0)
-		credits_panel.add_theme_stylebox_override("panel", style)
-		var box := VBoxContainer.new()
-		box.add_theme_constant_override("separation", 12)
-		credits_panel.add_child(box)
-		var scroll := ScrollContainer.new()
-		scroll.custom_minimum_size = Vector2(860, 540)
-		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		box.add_child(scroll)
-		var body := GameConfig.make_selectable_label(credits_text())
-		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		body.custom_minimum_size = Vector2(840, 0)
-		scroll.add_child(body)
-		var close := Button.new()
-		close.text = "Close"
-		close.custom_minimum_size = Vector2(120, 0)
-		close.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-		close.pressed.connect(_toggle_credits)
-		box.add_child(close)
-		add_child(credits_panel)
-		credits_panel.visible = false
+		credits_panel = _build_page_panel(credits_text(), _toggle_credits)
+	if designer_notes_panel != null:
+		designer_notes_panel.visible = false
 	credits_panel.visible = not credits_panel.visible
 
 
+## Opens the designer notes over the setup (or closes them again), the same way.
+func _toggle_designer_notes() -> void:
+	if designer_notes_panel == null:
+		designer_notes_panel = _build_page_panel(designer_notes_text(), _toggle_designer_notes)
+	if credits_panel != null:
+		credits_panel.visible = false
+	designer_notes_panel.visible = not designer_notes_panel.visible
+
+
+## A page over the setup: the text in a scrolling box and a Close button that calls `on_close`. Starts hidden.
+func _build_page_panel(text: String, on_close: Callable) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.position = Vector2(60, 50)
+	panel.custom_minimum_size = Vector2(900, 640)
+	panel.z_index = 100
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.1, 0.1, 0.1, 0.98)
+	style.set_content_margin_all(18.0)
+	style.set_corner_radius_all(6.0)
+	panel.add_theme_stylebox_override("panel", style)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 12)
+	panel.add_child(box)
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(860, 540)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	box.add_child(scroll)
+	var body := GameConfig.make_selectable_label(text)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.custom_minimum_size = Vector2(840, 0)
+	scroll.add_child(body)
+	var close := Button.new()
+	close.text = "Close"
+	close.custom_minimum_size = Vector2(120, 0)
+	close.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	close.pressed.connect(on_close)
+	box.add_child(close)
+	add_child(panel)
+	panel.visible = false
+	return panel
+
+
+## The designer notes page (direct user request: "a 'designer notes' page ... where the idea for the game came from, the different recon
+## roles, and also the role of the player as commander, and why it is not a twitch game"). Written from the design record (the first
+## design document and its revision log, docs/designs/tactical-commander-doctrine.md) and from the game's own rules; the figures
+## are taken from the constants so the page cannot drift from the game.
+static func designer_notes_text() -> String:
+	var tactical_minute_per_second: int = int(GameConfig.TIME_SCALE_NORMAL / 60.0)
+	var shell_flight_s: int = int(GameConfig.MORTAR_FLIGHT_TIME)
+	var fast_forward_ratio: int = int(GameConfig.TIME_SCALE_FAST_FORWARD / GameConfig.TIME_SCALE_NORMAL)
+	var squad_metres_per_second: int = int(round(GameConfig.ENEMY_ADVANCE_SPEED / GameConfig.PIXELS_PER_METER * GameConfig.TIME_SCALE_NORMAL / 10.0)) * 10
+	return "\n".join([
+		"DESIGNER NOTES",
+		"",
+		"WHERE THE IDEA CAME FROM",
+		"The game began as a question about command, not about drones or artillery. The designer wanted a wargame in which you cannot run every unit once the fight starts, because a real commander cannot either: \"my ability to make decisions during the battle may be limited. Sometimes my troops will make their own decisions based on general orders I give pre-battle.\" That sits between real-time micromanagement and the order-then-watch style of games like Combat Mission, and it is close to what armies call mission command: the commander says what is to be achieved and sets the limits, and the people on the ground decide how. Ukraine's army has been moving toward that way of fighting (planning centrally, acting locally), and the game is set in the opening of the 2022 invasion.",
+		"The first version had two infantry squads and a mortar a side, and no drones at all. Drones were to come later, \"to use recon and artillery spotting\", once the command idea had proved itself without them. The maps are made from real map data of Ukrainian villages, and the Voznesensk map follows the account of the real battle there.",
+		"",
+		"THE RECON ROLES",
+		"What your side knows decides everything, because every unit, yours and the enemy's, acts only on what its own side knows. Enemy units stay invisible until somebody sees them, and a mortar can fire at a target its side knows about, but its rounds only walk onto the target if someone is watching where they land. Fire that nobody observes never gets more accurate. So the question each setup asks is who does the watching.",
+		"Level 0, Artillery Spotter: a small ground team that calls in fire on whatever it can see from wherever you post it. It is unarmed and sees only what is in its own line of sight, so it has to be near enough to see the enemy, which puts it at risk of being seen.",
+		"Level 1, Drone Recon: a 3-person team with four Mavic 3 scout drones and spare batteries replaces the spotter. A drone sees much more ground, and one directly over a target lets the mortar's fire close in on it within a few rounds. The team's pilot decides where the drones look and flies them, so you do not. They are out of reach of ground fire in the game; what limits them is battery, wind and rain, and the team on the ground, which can still be found and lost.",
+		"Your squads watch too, and their eyes count for something, but they are the weakest observers of the fall of shot. Each setup is scored separately, so the two levels can be compared.",
+		"",
+		"YOU ARE THE COMMANDER",
+		"You are not a unit and you do not steer one. Before the battle you decide where the squads, the mortar and the recon team start. The standing orders are the ones a force would carry in: squads break off at 50%% casualties, and the mortar fires and moves rather than stay where it is found. After that the units decide: squads advance, take cover and fight, the mortar chooses its targets, when to move and when to hold fire, and the pilot flies.",
+		"During the battle you have a few blunt orders: click a unit for its orders card (fall back; for the mortar, whether it may spend ammunition on enemy squads), or order every unit to fall back, or withdraw the whole force, or clear what you have ordered. You can pause and think at any time. To see why units did what they did, the AI inspector (I), the enemy heat map (E) and the drone pilot's reasoning (D) are on keys. You are judged on the result: how well the setup and the few orders fit the situation.",
+		"",
+		"WHY IT IS NOT A TWITCH GAME",
+		"The pace rules it out. While the two sides are in contact, one second of your time is %d tactical minute. A mortar round takes %d tactical seconds to land, less than one second of yours, and a squad on foot covers about %d m in that second. No one could micromanage that, and no one could on a real battlefield: by the time a commander hears of something and answers, the situation has already changed. When nobody sees an enemy the clock runs %d times faster.",
+		"What is scarce is information and foresight, not reflexes. The skill is in choosing where to stand, what to watch with, and when to give up ground, before the fighting starts, and in reading afterwards what happened and why. The aim is that after watching a squad hold or break, you want to change what you set up and try again, which is why the same seed gives the same weather and the same enemy force.",
+	]) % [tactical_minute_per_second, shell_flight_s, squad_metres_per_second, fast_forward_ratio]
 func _build_option(title_text: String, body_text: String, mode: GameConfig.ReconMode) -> Control:
 	var box := PanelContainer.new()
 	box.custom_minimum_size = Vector2(820, 0)
