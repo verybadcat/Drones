@@ -7,6 +7,8 @@ extends SceneTree
 ## Close button, and only one page shows at a time. The notes cover the four subjects, and what they say about the game is tied to the
 ## game's own rules (the defaults, the keys, the pace), so it cannot quietly go out of date.
 ##
+## (The user later rewrote the first section, so the notes no longer have to quote the first design session or name mission
+## command or the 2022 setting; the test checks the headings and the facts the page states about the game.)
 ## Run: godot --headless --path . --script scripts/tests/test_designer_notes_page.gd
 var failures := 0
 
@@ -39,7 +41,7 @@ func run() -> void:
 	# the four subjects
 	for heading in ["WHERE THE IDEA CAME FROM", "THE RECON ROLES", "YOU ARE THE COMMANDER", "WHY IT IS NOT A TWITCH GAME"]:
 		check(heading in text, "The notes have a section: %s" % heading)
-	for needle in ["mission command", "my ability to make decisions during the battle may be limited", "2022", "Artillery Spotter", "Drone Recon", "Mavic 3", "micromanage", "pause"]:
+	for needle in ["drones", "Artillery Spotter", "Drone Recon", "Mavic 3", "micromanage", "pause"]:
 		check(needle in text, "The notes mention %s" % needle)
 	# no format codes left in the text, and the percentages are single
 	check(not ("%d" in text) and not ("%%" in text) and not ("%s" in text), "No unfilled format code is left in the text")

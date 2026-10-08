@@ -497,10 +497,11 @@ static func designer_notes_text() -> String:
 	var fast_forward_ratio: int = int(GameConfig.TIME_SCALE_FAST_FORWARD / GameConfig.TIME_SCALE_NORMAL)
 	var squad_metres_per_second: int = int(round(GameConfig.ENEMY_ADVANCE_SPEED / GameConfig.PIXELS_PER_METER * GameConfig.TIME_SCALE_NORMAL / 10.0)) * 10
 	return "\n".join([
-		"DESIGNER NOTES",
+		"ABOUT THIS GAME",
 		"",
 		"WHERE THE IDEA CAME FROM",
-		"The game began as a question about command, not about drones or artillery. The designer wanted a wargame in which you cannot run every unit once the fight starts, because a real commander cannot either: \"my ability to make decisions during the battle may be limited. Sometimes my troops will make their own decisions based on general orders I give pre-battle.\" That sits between real-time micromanagement and the order-then-watch style of games like Combat Mission, and it is close to what armies call mission command: the commander says what is to be achieved and sets the limits, and the people on the ground decide how. Ukraine's army has been moving toward that way of fighting (planning centrally, acting locally), and the game is set in the opening of the 2022 invasion.",
+		"The goal of this game is to illustrate why drones are so important in modern warfare. At Level 1, we show only the barest beginnings of the drone revolution, namely the use of drones for reconnaissance. Even with this limited use, they make a big difference, as the game illustrates. You should find that you can get significantly better average scores with drone recon than you can with artillery spotters.",
+		"The role of the commander is limited, as it is in a real war. In both NATO and Ukrainian doctrine, a commander of a small engagement should generally not give detailed orders to units. Rather, the commander should give units general instructions, which they are supposed to know how to implement. The available in-game orders reflect this.",
 		"The first version had two infantry squads and a mortar a side, and no drones at all. Drones were to come later, \"to use recon and artillery spotting\", once the command idea had proved itself without them. The maps are made from real map data of Ukrainian villages, and the Voznesensk map follows the account of the real battle there.",
 		"",
 		"THE RECON ROLES",
@@ -517,6 +518,8 @@ static func designer_notes_text() -> String:
 		"The pace rules it out. While the two sides are in contact, one second of your time is %d tactical minute. A mortar round takes %d tactical seconds to land, less than one second of yours, and a squad on foot covers about %d m in that second. No one could micromanage that, and no one could on a real battlefield: by the time a commander hears of something and answers, the situation has already changed. When nobody sees an enemy the clock runs %d times faster.",
 		"What is scarce is information and foresight, not reflexes. The skill is in choosing where to stand, what to watch with, and when to give up ground, before the fighting starts, and in reading afterwards what happened and why. The aim is that after watching a squad hold or break, you want to change what you set up and try again, which is why the same seed gives the same weather and the same enemy force.",
 	]) % [tactical_minute_per_second, shell_flight_s, squad_metres_per_second, fast_forward_ratio]
+
+
 func _build_option(title_text: String, body_text: String, mode: GameConfig.ReconMode) -> Control:
 	var box := PanelContainer.new()
 	box.custom_minimum_size = Vector2(820, 0)
