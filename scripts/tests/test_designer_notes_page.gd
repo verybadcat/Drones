@@ -39,7 +39,7 @@ func close_button(panel: Control) -> Button:
 func run() -> void:
 	var text: String = LevelSelectScreen.designer_notes_text()
 	# the four subjects
-	for heading in ["WHERE THE IDEA CAME FROM", "THE RECON ROLES", "YOU ARE THE COMMANDER", "WHY IT IS NOT A TWITCH GAME"]:
+	for heading in ["THE GOAL OF THE GAME", "THE RECON ROLES", "YOU ARE THE COMMANDER", "WHY IT IS NOT A TWITCH GAME"]:
 		check(heading in text, "The notes have a section: %s" % heading)
 	for needle in ["drones", "Artillery Spotter", "Drone Recon", "Mavic 3", "micromanage", "pause"]:
 		check(needle in text, "The notes mention %s" % needle)
