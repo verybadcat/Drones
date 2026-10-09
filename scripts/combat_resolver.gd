@@ -409,6 +409,10 @@ static func hit_probability(attacker: Unit, defender: Unit, drone_directing_mult
 		if attacker.kind != Unit.Kind.MORTAR and not moving:
 			if GameConfig.elevation_m(origin) > GameConfig.elevation_m(point) + GameConfig.ELEVATION_ADVANTAGE_THRESHOLD_M:
 				cover_multiplier = lerp(cover_multiplier, 1.0, GameConfig.ELEVATION_COVER_DEFEAT_FRACTION)
+			# Inside CLOSE_RANGE_COVER_DEFEAT_M the shooter is within reach of grenades and of clearing a room or a trench line: cover no
+			# longer protects (a target in the open keeps its exposure penalty, which is above 1).
+			if origin.distance_to(point) <= GameConfig.CLOSE_RANGE_COVER_DEFEAT_M * GameConfig.PIXELS_PER_METER:
+				cover_multiplier = maxf(cover_multiplier, 1.0)
 		chance = attacker.base_hit_chance * cover_multiplier
 		if attacker.kind != Unit.Kind.MORTAR:
 			var distance: float = origin.distance_to(point)

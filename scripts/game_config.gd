@@ -6740,6 +6740,13 @@ const ELEVATION_ADVANTAGE_THRESHOLD_M: float = 8.0
 ## "elevation alone raises hit chance," so this file doesn't claim one.
 const ELEVATION_COVER_DEFEAT_FRACTION: float = 0.4
 
+## Direct user ruling, after research on what a squad carries: "About cover being defeated inside of 25 meters. Yes do that." Within this
+## many metres of the shooter a target's cover (trees, a building) no longer reduces the chance to hit: a hand grenade is thrown 15-20 m and
+## wounds out to about 25 m (RGD-5), and at that distance a squad can clear a room or a trench line. A target in the open keeps its
+## exposure penalty. Applies to direct fire only (a mortar's plunging fire has its own cover table) and, like the elevation rule above,
+## to a target that is not moving (a moving target has no cover anyway).
+const CLOSE_RANGE_COVER_DEFEAT_M: float = 25.0
+
 
 ## How much a blob's effective radius is stretched (>1) or pinched (<1) in
 ## the direction `theta` (radians from its center) — a sum of cosine
