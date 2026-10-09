@@ -522,7 +522,8 @@ var enemy_mortar_isolated_retreat_ordered: bool = false
 
 # Counter-battery strikes triggered but not yet landed — see
 # _resolve_mortar_counter_battery / _resolve_pending_counter_battery.
-# {"target": Unit, "impact_position": Vector2, "impact_time": float}
+# {"attacker": Unit, "target": Unit, "aim_position": Vector2 (where the position was located), "impact_position": Vector2 (the aim point until the
+# round is fired, then where it will actually land: the aim point plus the same dispersion as any other mortar round), "fire_time", "impact_time", "fired"}
 var _pending_counter_battery: Array[Dictionary] = []
 ## Who has fired DIRECT fire at each unit lately, for the crossfire multiplier (see _crossfire_multiplier_against):
 ## target -> {shooter -> {"from": Vector2 (where the shooter stood when it fired), "time": float (scenario seconds)}}.
@@ -9534,6 +9535,7 @@ func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 			_pending_counter_battery.append({
 				"attacker": m,
 				"target": firing_mortar,
+				"aim_position": firing_mortar.global_position, # the located position (exact for now: see the design log on how good locating is)
 				"impact_position": firing_mortar.global_position,
 				"fire_time": scenario_elapsed_time + react_delay,
 				"impact_time": scenario_elapsed_time + react_delay + GameConfig.MORTAR_FLIGHT_TIME,
@@ -9603,7 +9605,13 @@ func _resolve_pending_counter_battery() -> void:
 			# (not when the mission was first called in at _resolve_mortar_counter_battery) — matching
 			# ordinary fire's own "spent the instant it's fired, hit or miss" rule exactly.
 			responder.mortar_rounds_remaining -= 1
-			_announce_mortar_shot(responder, strike.impact_position)
+			# The round scatters from the aim point exactly as every other mortar round does (direct user ruling: the variation of where
+			# a shot lands from its aim point "should apply in the same way to every mortar shot, regardless of whether or not it is a
+			# counter battery shot"): range, how well the fall of shot is observed, and the wind, through the one shared function.
+			var aim: Vector2 = strike.get("aim_position", strike.impact_position)
+			strike["aim_position"] = aim
+			strike["impact_position"] = aim + _mortar_dispersion_offset(responder, strike.target, aim)
+			_announce_mortar_shot(responder, aim)
 			combat_log.log_counter_battery_incoming(strike.target)
 			# The responder's own muzzle blast/trajectory gives ITS position
 			# away too, exactly like any other shot — recorded here so
