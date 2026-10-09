@@ -33,6 +33,10 @@ var max_pips: int = 4
 var pips: int = 4
 var base_hit_chance: float = 0.20
 var retreat_threshold: float = 0.50 # SQUAD only — fraction of pips lost that triggers retreat
+## SQUAD only: how thoroughly the fire it is under is keeping its heads down, 0 to 1 (see GameConfig.SUPPRESSION_*), and whether it is pinned
+## (from SUPPRESSION_PIN_LEVEL until it falls below SUPPRESSION_RELEASE_LEVEL).
+var suppression: float = 0.0
+var pinned: bool = false
 var state: State = State.ACTIVE
 var activity: Activity = Activity.STATIONARY
 # How long (tactical seconds) this unit has been STATIONARY, reset to 0

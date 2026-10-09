@@ -410,6 +410,19 @@ func log_spotted(unit: Unit) -> void:
 	add_entry("%s was spotted" % unit.display_name())
 
 
+## A squad (ours, or an enemy one in sight) has had its heads kept down by fire (see GameConfig.SUPPRESSION_*), or is free of it again.
+func log_pinned(unit: Unit) -> void:
+	if _unseen(unit):
+		return
+	add_entry("%s is pinned down by fire" % unit.display_name())
+
+
+func log_pin_lifted(unit: Unit) -> void:
+	if _unseen(unit):
+		return
+	add_entry("%s is no longer pinned down" % unit.display_name())
+
+
 func log_lost_contact(unit: Unit) -> void:
 	add_entry("Contact lost with %s" % unit.display_name())
 

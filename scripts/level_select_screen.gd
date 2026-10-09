@@ -580,6 +580,8 @@ static func units_text() -> String:
 	lines.append("")
 	lines.append("Casualties: a small-arms hit costs one person. A mortar round costs about %s of the people left in the squad, and at least one." % _pct(GameConfig.MORTAR_CASUALTY_FRACTION))
 	lines.append("")
+	lines.append("Suppression: fire that misses still keeps heads down. Each volley aimed at a squad adds %s to its suppression, and a mortar round landing within %s adds up to %s, less the further off it lands. It fades completely in %d minutes. From %s a squad is pinned, and an enemy squad that is pinned does not start a new advance, until it falls below %s. A suppressed squad also shoots worse, by up to %s." % [_pct(GameConfig.SUPPRESSION_PER_VOLLEY), _metres(GameConfig.SUPPRESSION_BLAST_RADIUS_M), _pct(GameConfig.SUPPRESSION_BLAST_MAX), int(round(1.0 / GameConfig.SUPPRESSION_DECAY_PER_S / 60.0)), _pct(GameConfig.SUPPRESSION_PIN_LEVEL), _pct(GameConfig.SUPPRESSION_RELEASE_LEVEL), _pct(GameConfig.SUPPRESSION_MAX_ACCURACY_LOSS)])
+	lines.append("")
 	lines.append("Morale: it breaks off and retreats once it has lost %s of its people (the standing order), and it may surrender if it is cut off." % _pct(squad_u.retreat_threshold))
 	lines.append("")
 	lines.append("Pace, in metres per second of battle time: it marches at %s, repositions at %s, and withdraws at %s (Ukrainian) or %s (Russian)." % [_num(GameConfig.ENEMY_ADVANCE_SPEED / ppm), _num(GameConfig.REPOSITION_SPEED / ppm), _num(GameConfig.PLAYER_RETREAT_SPEED / ppm), _num(GameConfig.ENEMY_RETREAT_SPEED / ppm)])

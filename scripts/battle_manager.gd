@@ -2302,6 +2302,42 @@ func _sibling_mortar_positions(mortar: Unit) -> Array[Vector2]:
 	return out
 
 
+## Raises a squad's suppression by `amount` (to at most 1). Only squads are suppressed. See GameConfig.SUPPRESSION_*.
+func _add_suppression(unit: Unit, amount: float) -> void:
+	if unit.kind != Unit.Kind.SQUAD or (unit.state != Unit.State.ACTIVE and unit.state != Unit.State.RETREATING):
+		return
+	unit.suppression = minf(unit.suppression + amount, 1.0)
+
+
+## A mortar round has landed at `point`: every squad within SUPPRESSION_BLAST_RADIUS_M of it, on either side, is suppressed, more the nearer it
+## landed. Whatever the round did to the unit it was aimed at, and whether or not that unit was in range.
+func _suppress_from_blast(point: Vector2) -> void:
+	var radius_px: float = GameConfig.SUPPRESSION_BLAST_RADIUS_M * GameConfig.PIXELS_PER_METER
+	for u in player_units + enemy_units:
+		if u.kind != Unit.Kind.SQUAD:
+			continue
+		var d: float = u.global_position.distance_to(point)
+		if d < radius_px:
+			_add_suppression(u, GameConfig.SUPPRESSION_BLAST_MAX * (1.0 - d / radius_px))
+
+
+## Once a tick: suppression fades with tactical time, and a squad becomes pinned at SUPPRESSION_PIN_LEVEL and stays so until it falls below
+## SUPPRESSION_RELEASE_LEVEL. The log says so when a squad the player can see (its own, or an enemy that is in sight) is pinned or freed.
+func _update_suppression(scenario_delta: float) -> void:
+	for u in player_units + enemy_units:
+		if u.kind != Unit.Kind.SQUAD:
+			continue
+		u.suppression = maxf(u.suppression - GameConfig.SUPPRESSION_DECAY_PER_S * scenario_delta, 0.0)
+		if u.state != Unit.State.ACTIVE and u.state != Unit.State.RETREATING:
+			u.suppression = 0.0
+		if not u.pinned and u.suppression >= GameConfig.SUPPRESSION_PIN_LEVEL:
+			u.pinned = true
+			combat_log.log_pinned(u)
+		elif u.pinned and u.suppression < GameConfig.SUPPRESSION_RELEASE_LEVEL:
+			u.pinned = false
+			combat_log.log_pin_lifted(u)
+
+
 ## Resolves one shot, logs its consequence, then checks for collateral
 ## damage at the ACTUAL impact point — real distance from where the shot
 ## really landed, not "is this unit specifically allied with the target,"
@@ -2342,6 +2378,8 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit, impact_point
 	if attacker.kind != Unit.Kind.MORTAR:
 		_record_direct_fire(attacker, target)
 		crossfire = _crossfire_multiplier_against(target)
+	if attacker.kind != Unit.Kind.MORTAR and target.kind == Unit.Kind.SQUAD:
+		_add_suppression(target, GameConfig.SUPPRESSION_PER_VOLLEY) # every volley aimed at a squad, hit or miss (mortar rounds do it by where they land)
 	CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team), _drone_directing_multiplier(attacker), target.global_position.distance_to(impact_point), crossfire)
 	unit_combat_stats.damage(attacker, target, before)
 	_log_hit_consequence(target, target_was_active)
@@ -7066,6 +7104,9 @@ func general_unit_debug_snapshot() -> Dictionary:
 			"max_pips": u.max_pips,
 			"fall_back_ordered": _fall_back_orders.has(u),
 		}
+		if u.kind == Unit.Kind.SQUAD:
+			entry["suppression"] = snappedf(u.suppression, 0.01)
+			entry["pinned"] = u.pinned
 		var combat_row: Dictionary = unit_combat_stats.rows.get(u.get_instance_id(), {})
 		if not combat_row.is_empty():
 			entry["shots_fired"] = combat_row.shots
@@ -7151,6 +7192,7 @@ func _process(delta: float) -> void:
 	_resolve_pending_counter_battery()
 	_resolve_pending_mortar_shots()
 	_resolve_pending_mortar_displacement()
+	_update_suppression(scenario_delta)
 	_update_player_intel()
 	_update_enemy_intel()
 	_check_enemy_commander_retreat()
@@ -7942,6 +7984,7 @@ func _resolve_pending_mortar_shots() -> void:
 		# of this resolution.
 		_mortar_impacts.append({"position": shot.impact_point, "time": elapsed_time})
 		_assess_civilian_casualties(shot.impact_point, shot.mortar.team)
+		_suppress_from_blast(shot.impact_point)
 		# Checked on the raw Variant, BEFORE assigning to a typed `Unit`
 		# variable — assigning an already-freed instance to a typed var is
 		# itself what throws "Trying to assign invalid previously freed
@@ -8133,6 +8176,9 @@ func _update_enemy_squad_advance() -> void:
 			u.last_order_reason = "Reached the end of the march route without contact: press on toward the objective."
 		if _risk_holds.has(u):
 			continue # an explicit risk-avoidance hold outranks everything below
+		if u.pinned:
+			u.last_order_reason = "Pinned down by fire: not starting a new advance until it eases."
+			continue
 		# Direct user correction: "Mortar should be a primary target for
 		# the enemy forces. They should chase it when they get close. In
 		# the latest battle, they were dancing back and forth, but not
@@ -9577,6 +9623,7 @@ func _resolve_pending_counter_battery() -> void:
 		# round lands here regardless of the target's own state by now.
 		_mortar_impacts.append({"position": strike.impact_position, "time": elapsed_time})
 		_assess_civilian_casualties(strike.impact_position, strike.attacker.team)
+		_suppress_from_blast(strike.impact_position)
 		var target: Unit = strike.target
 		if target.state != Unit.State.ACTIVE:
 			continue # withdrawn/destroyed since the strike was called in — nothing to hit

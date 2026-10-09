@@ -6748,6 +6748,26 @@ const ELEVATION_COVER_DEFEAT_FRACTION: float = 0.4
 const CLOSE_RANGE_COVER_DEFEAT_M: float = 25.0
 
 
+## SUPPRESSION: fire does more than kill. It makes the people under it keep their heads down, shoot worse and stop moving, for as long as
+## it lasts and a little after. Classic tactical wargames give every kind of fire three outcomes (casualties, a unit "discomfited" or
+## pinned, or none), and the 2026-10-09 research in the design log found no data on how big the effect is, so every number below is
+## judgement, set so that one squad's fire is not enough to pin another but three squads' fire is, and one mortar round near a squad pins it for
+## about the two minutes that artillery suppression is said to linger. Squads only. A squad's suppression runs from 0 to 1:
+##  - each volley aimed at it, hit or miss, adds SUPPRESSION_PER_VOLLEY (a squad fires about once in two minutes of battle time while in contact);
+##  - a mortar round landing within SUPPRESSION_BLAST_RADIUS_M of it adds up to SUPPRESSION_BLAST_MAX, less the further off it lands;
+##  - it falls by SUPPRESSION_DECAY_PER_S every tactical second (from full to nothing in three minutes);
+##  - it is "pinned" from SUPPRESSION_PIN_LEVEL until it falls below SUPPRESSION_RELEASE_LEVEL (so it does not flicker), and while pinned an
+##    enemy squad does not start a new advance;
+##  - its own fire is less accurate by up to SUPPRESSION_MAX_ACCURACY_LOSS at full suppression, in proportion.
+const SUPPRESSION_PER_VOLLEY: float = 0.25
+const SUPPRESSION_BLAST_MAX: float = 0.6
+const SUPPRESSION_BLAST_RADIUS_M: float = 60.0
+const SUPPRESSION_DECAY_PER_S: float = 1.0 / 180.0
+const SUPPRESSION_PIN_LEVEL: float = 0.6
+const SUPPRESSION_RELEASE_LEVEL: float = 0.35
+const SUPPRESSION_MAX_ACCURACY_LOSS: float = 0.5
+
+
 ## How much a blob's effective radius is stretched (>1) or pinched (<1) in
 ## the direction `theta` (radians from its center) — a sum of cosine
 ## harmonics, each blob's own fixed set giving it a distinct, irregular,

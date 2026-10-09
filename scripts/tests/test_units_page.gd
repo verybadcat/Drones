@@ -55,6 +55,8 @@ func run() -> void:
 	has_figure(text, "a Russian one with %d%%" % int(round(squad_r.base_hit_chance * 100.0)), "The Russian squad's accuracy")
 	check(squad_u.base_hit_chance > squad_r.base_hit_chance, "Setup: the defenders do shoot straighter (%.2f against %.2f)" % [squad_u.base_hit_chance, squad_r.base_hit_chance])
 	has_figure(text, "within %d m and has a clear line of sight" % int(round(GameConfig.SQUAD_ENGAGEMENT_RANGE / ppm)), "A squad's range")
+	has_figure(text, "adds %d%% to its suppression" % int(round(GameConfig.SUPPRESSION_PER_VOLLEY * 100.0)), "A volley's suppression")
+	has_figure(text, "From %d%% a squad is pinned" % int(round(GameConfig.SUPPRESSION_PIN_LEVEL * 100.0)), "The pin level")
 	has_figure(text, "lost %d%% of its people" % int(round(squad_u.retreat_threshold * 100.0)), "A squad's breaking point")
 	has_figure(text, "Crew: %d for the Ukrainians, %d for the Russians" % [mortar_u.crew_size, mortar_r.crew_size], "The mortar crews")
 	has_figure(text, "it starts with %d rounds and can hold %d" % [mortar_u.mortar_rounds_remaining, GameConfig.MORTAR_MAX_AMMO_ON_HAND], "The mortar's ammunition")
