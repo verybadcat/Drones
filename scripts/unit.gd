@@ -36,6 +36,9 @@ var retreat_threshold: float = 0.50 # SQUAD only — fraction of pips lost that 
 ## SQUAD only: how thoroughly the fire it is under is keeping its heads down, 0 to 1 (see GameConfig.SUPPRESSION_*), and whether it is pinned
 ## (from SUPPRESSION_PIN_LEVEL until it falls below SUPPRESSION_RELEASE_LEVEL).
 var suppression: float = 0.0
+## PLAYER MORTAR only: true while the mouse is over it in battle, which shows its range circle (the same circle the setup screen draws).
+## Set by BattleManager.update_hover.
+var show_range_ring: bool = false
 var pinned: bool = false
 var state: State = State.ACTIVE
 var activity: Activity = Activity.STATIONARY
@@ -1039,6 +1042,8 @@ func label_position() -> Vector2:
 
 
 func _draw() -> void:
+	if show_range_ring and kind == Kind.MORTAR and team == Team.PLAYER and state == State.ACTIVE:
+		GameConfig.draw_mortar_range_ring(self, GameConfig.mortar_max_range(team))
 	var color := Color(0.25, 0.55, 1.0) if team == Team.PLAYER else Color(1.0, 0.35, 0.25)
 	if kind == Kind.SPOTTER or kind == Kind.DRONE_TEAM:
 		color = Color(0.75, 0.9, 0.2) if team == Team.PLAYER else Color(0.9, 0.7, 0.15)

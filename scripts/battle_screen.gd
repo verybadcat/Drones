@@ -198,6 +198,8 @@ func _process(_delta: float) -> void:
 		return
 	if clear_orders_button:
 		clear_orders_button.disabled = not battle_manager.has_orders_to_clear()
+	# The mortar's range circle while the mouse is over the mortar (also while paused).
+	battle_manager.update_hover(map_mouse_world_position(), map_area.has_point(get_viewport().get_mouse_position()))
 	# Deliberately NOT gated on drone_debug_enabled (the human-facing visual
 	# overlay) or battle_manager.is_paused — these files are how an outside
 	# investigator (reading them directly, not watching the screen) gets

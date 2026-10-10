@@ -1905,6 +1905,18 @@ func _mortar_squad_order_hold_factor(mortar: Unit, squads_only: bool = true) -> 
 
 
 const UNIT_CLICK_RADIUS: float = 18.0
+
+
+## Shows the range circle of the player's mortar while the mouse is over it (the way the setup screen always shows it): `world_pos` is the
+## mouse in map space, `mouse_in_map` false when the mouse is over something else (the sidebar), which hides it.
+func update_hover(world_pos: Vector2, mouse_in_map: bool = true) -> void:
+	for u in player_units:
+		if u.kind != Unit.Kind.MORTAR:
+			continue
+		var hovered: bool = mouse_in_map and u.state == Unit.State.ACTIVE and u.global_position.distance_to(world_pos) <= UNIT_CLICK_RADIUS
+		if u.show_range_ring != hovered:
+			u.show_range_ring = hovered
+			u.queue_redraw()
 ## The friendly unit kinds a commander can give orders to: everything on the ground.
 ## (Drones fly a mission of their own and a resupply run is not one of ours to steer.)
 const ORDERABLE_KINDS: Array = [Unit.Kind.SQUAD, Unit.Kind.MORTAR, Unit.Kind.SPOTTER, Unit.Kind.DRONE_TEAM]

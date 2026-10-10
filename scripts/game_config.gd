@@ -11531,6 +11531,15 @@ const OBSERVED_EVASIVE_TURNS: int = 2
 const OBSERVED_EVASIVE_TURN_DEGREES: float = 50.0
 const OBSERVED_STEP_M: float = 10.0 # the distance moved between two looks at its heading
 
+## The mortar's range circle, the same drawing on the setup screen (always shown on the mortar's token) and in battle (shown while the mouse is
+## over the player's mortar). Drawn at the origin of `canvas`'s own coordinates; `radius_px` is the mortar's range in map pixels.
+const MORTAR_RANGE_RING_COLOR := Color(1.0, 0.55, 0.15, 0.35)
+const MORTAR_RANGE_RING_WIDTH: float = 1.5
+
+static func draw_mortar_range_ring(canvas: CanvasItem, radius_px: float) -> void:
+	canvas.draw_arc(Vector2.ZERO, radius_px, 0.0, TAU, 64, MORTAR_RANGE_RING_COLOR, MORTAR_RANGE_RING_WIDTH, true)
+
+
 ## The Ukrainian mortar is reluctant to fire at a target inside a town, "within 50 meters of a building. Not the 200 meter exclusion zone.
 ## 'Reluctant' doesn't mean they can't. Just that they are less likely to." Two effects, both only for the player's mortar and only for
 ## squads (an enemy mortar in the town is still a counter-battery target): a target there is worth this fraction of what it would be in the

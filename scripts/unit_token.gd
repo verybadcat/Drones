@@ -33,7 +33,7 @@ func _draw() -> void:
 	# PLAYER — see its own doc comment for why it differs from the
 	# enemy's).
 	if kind == Unit.Kind.MORTAR:
-		draw_arc(Vector2.ZERO, GameConfig.MORTAR_MAX_RANGE_PLAYER, 0.0, TAU, 64, Color(1.0, 0.55, 0.15, 0.35), 1.5, true)
+		GameConfig.draw_mortar_range_ring(self, GameConfig.MORTAR_MAX_RANGE_PLAYER)
 
 	var color := Color(0.25, 0.55, 1.0, 0.9)
 	if kind == Unit.Kind.SPOTTER or kind == Unit.Kind.DRONE_TEAM:
