@@ -3158,7 +3158,11 @@ func _known_enemy_mortar_lead() -> Dictionary:
 		elif retreating_visible == null:
 			retreating_visible = u
 	if not active_visible.is_empty():
-		var chosen: Unit = _closest_enemy_mortar(active_visible, _known_enemy_mortar_lead_unit)
+		# A mortar seen taking evasive action is a poor thing to hunt (our rounds mostly miss it): any other mortar in sight is the lead
+		# ahead of it, however much nearer it is; it is the lead only when it is the only one.
+		var steady: Array[Unit] = active_visible.filter(func(c): return not _mortar_looks_evasive(c))
+		var pool: Array[Unit] = steady if not steady.is_empty() else active_visible
+		var chosen: Unit = _closest_enemy_mortar(pool, _known_enemy_mortar_lead_unit)
 		_known_enemy_mortar_lead_unit = chosen
 		return {"position": chosen.global_position, "trusted": true, "unit": chosen}
 	if retreating_visible != null:
@@ -4823,6 +4827,11 @@ func _drone_search_target() -> Vector2:
 		else:
 			best_score = GameConfig.DRONE_NON_PRIORITY_MORTAR_WATCH_VALUE
 			_drone_pilot_reasoning = {"tier": "Live mortar contact (no near-term plan)", "detail": "Watching a visible enemy mortar, but nothing's currently oriented to actually engage it — discounted so a real squad threat can compete for attention.", "target": best_pos}
+		if watched_mortar.get("evasive", false):
+			# Only mortars that are dodging are in sight: still worth watching (above any squad if it is one we are oriented to
+			# engage) but at a fraction of an ordinary mortar's value; another known mortar, seen or a lead, outranks it.
+			best_score *= GameConfig.DRONE_EVASIVE_MORTAR_PRIORITY_MULTIPLIER
+			_drone_pilot_reasoning = {"tier": "Live mortar contact (taking evasive action)", "detail": "Watching a visible enemy mortar that is moving unpredictably, so our rounds mostly miss it: valued at %.0f%% of an ordinary mortar contact." % (GameConfig.DRONE_EVASIVE_MORTAR_PRIORITY_MULTIPLIER * 100.0), "target": best_pos}
 
 	var lead_pos := Vector2.INF
 	var best_lead_time := -INF
@@ -4834,6 +4843,8 @@ func _drone_search_target() -> Vector2:
 		# the mortar's real, possibly more current state, is what the player actually has to go on.
 		if u.kind != Unit.Kind.MORTAR or u.player_known_state != Unit.State.ACTIVE:
 			continue
+		if _mortar_looks_evasive(u):
+			continue # in sight and dodging: valued, discounted, by the live-contact tier above, not as a lead
 		var candidate_pos := Vector2.INF
 		var candidate_time := -INF
 		var candidate_is_fire := false
@@ -4885,8 +4896,9 @@ func _drone_search_target() -> Vector2:
 	# a target that isn't in range YET, was the actual bug.
 	if _joint_mortar_hunt_target != null:
 		var joint_pos: Vector2 = _joint_mortar_hunt_known_position()
-		if not is_inf(joint_pos.x) and GameConfig.TARGET_PRIORITY_MORTAR > best_score and _squad_order_permits_mortar_watch(joint_pos):
-			best_score = GameConfig.TARGET_PRIORITY_MORTAR
+		var joint_score: float = GameConfig.TARGET_PRIORITY_MORTAR * (GameConfig.DRONE_EVASIVE_MORTAR_PRIORITY_MULTIPLIER if _mortar_looks_evasive(_joint_mortar_hunt_target) else 1.0)
+		if not is_inf(joint_pos.x) and joint_score > best_score and _squad_order_permits_mortar_watch(joint_pos):
+			best_score = joint_score
 			best_pos = joint_pos
 			_drone_pilot_reasoning = {"tier": "Joint mortar hunt", "detail": "Staying on-station over a target the friendly mortar is still closing on but hasn't reached range of yet.", "target": best_pos}
 
@@ -4916,7 +4928,9 @@ func _drone_search_target() -> Vector2:
 		if _mortar_move_intent.get(fm, "") != "hunt":
 			continue
 		var own_fix: Dictionary = _mortar_hunt_fix_for(fm)
-		if own_fix.is_empty() or GameConfig.TARGET_PRIORITY_MORTAR <= best_score:
+		var hunted_unit: Unit = own_fix.get("unit", null)
+		var own_score: float = GameConfig.TARGET_PRIORITY_MORTAR * (GameConfig.DRONE_EVASIVE_MORTAR_PRIORITY_MULTIPLIER if hunted_unit != null and _mortar_looks_evasive(hunted_unit) else 1.0)
+		if own_fix.is_empty() or own_score <= best_score:
 			continue
 		# Direct user report from a live battle: "drone is now chasing fleeing
 		# mortar. It should not do that when there are squads." A mortar that is
@@ -4929,7 +4943,7 @@ func _drone_search_target() -> Vector2:
 		var hunted: Unit = own_fix.get("unit", null)
 		if hunted != null and hunted.state != Unit.State.ACTIVE and _enemy_squads_still_in_the_fight():
 			continue
-		best_score = GameConfig.TARGET_PRIORITY_MORTAR
+		best_score = own_score
 		best_pos = own_fix.position
 		_drone_pilot_reasoning = {"tier": "Supporting important friendly action", "detail": "The friendly mortar has committed to closing on a known enemy mortar (own lead, not yet a team-wide commitment) — staying on the same target.", "target": best_pos}
 
@@ -5680,16 +5694,27 @@ func _priority_visible_enemy_mortar() -> Dictionary:
 	# enemy_units" is spawn order, not distance, and was the actual bug
 	# behind the drone tracking the farther of two known mortars.
 	var fallback_candidates: Array[Unit] = []
+	var evasive_candidates: Array[Unit] = []
 	for u in enemy_units:
 		if u.kind != Unit.Kind.MORTAR or u.state != Unit.State.ACTIVE or not u.is_visible:
 			continue
 		if not _squad_order_permits_mortar_watch(u.global_position):
 			continue # squad-fire order in force and this mortar is out of reach, and not coming into it
+		if _mortar_looks_evasive(u):
+			evasive_candidates.append(u) # watched only if no other mortar is in sight, and then at a lower value
+			continue
 		if _is_priority_hunt_target(u):
 			return {"unit": u, "priority": true}
 		fallback_candidates.append(u)
 	if fallback_candidates.is_empty():
-		return {}
+		if evasive_candidates.is_empty():
+			return {}
+		for u in evasive_candidates:
+			if _is_priority_hunt_target(u):
+				return {"unit": u, "priority": true, "evasive": true}
+		var dodging: Unit = _closest_enemy_mortar(evasive_candidates, _drone_fallback_mortar_watch_unit)
+		_drone_fallback_mortar_watch_unit = dodging
+		return {"unit": dodging, "priority": false, "evasive": true}
 	var chosen: Unit = _closest_enemy_mortar(fallback_candidates, _drone_fallback_mortar_watch_unit)
 	_drone_fallback_mortar_watch_unit = chosen
 	return {"unit": chosen, "priority": false}

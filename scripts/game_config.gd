@@ -8330,6 +8330,12 @@ const TARGET_PRIORITY_SQUAD_MAX: float = 10.0
 ## indefinitely while a real threat goes unwatched.
 const DRONE_NON_PRIORITY_MORTAR_WATCH_VALUE: float = 6.0
 
+## A mortar the drone has watched taking evasive action (turning unpredictably: BattleManager._mortar_looks_evasive) is a poorer thing to
+## hang over, since our own mortar's rounds mostly miss it. Direct user ruling: "That should lower its priority for our drone. It could still
+## be higher than squads, but lower than other mortars that are known to exist." Its watch value is multiplied by this: 150 becomes 30,
+## still above any squad (TARGET_PRIORITY_SQUAD_MAX, 10) but far below another mortar's, whether seen (150) or a lead on one (120).
+const DRONE_EVASIVE_MORTAR_PRIORITY_MULTIPLIER: float = 0.2
+
 ## How worried the drone's routine background recon (BattleManager.
 ## _drone_search_target's tier 6) should be about a SECOND enemy mortar
 ## nobody's found yet — scaled by _mortar_existence_confidence(), which
