@@ -202,6 +202,12 @@ func log_drone_weather_loss(unit: Unit, cause: String) -> void:
 	add_entry("%s is lost to %s" % [unit.display_name(), cause])
 
 
+func log_drone_power_loss(unit: Unit) -> void:
+	if _unseen(unit):
+		return
+	add_entry("%s loses power with a nearly empty battery and goes down" % unit.display_name())
+
+
 func log_drone_returning(unit: Unit) -> void:
 	if _unseen(unit):
 		return

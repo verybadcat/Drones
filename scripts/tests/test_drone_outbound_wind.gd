@@ -193,8 +193,9 @@ func test_a_target_too_far_upwind_for_the_battery_is_not_affordable() -> void:
 
 
 func test_with_nothing_affordable_the_drone_heads_home() -> void:
-	# A nearly flat battery: every sweep cell needs more than it has.
-	var low = make_battle(pinned(0.0), 0.10)
+	# A nearly flat battery: just above the arrival reserve (a drone below that goes home at once, by a different rule), so every sweep cell
+	# needs more than it has. (The reserve is GameConfig.DRONE_ARRIVAL_CHARGE_RESERVE plus the letdown, about 14%.)
+	var low = make_battle(pinned(0.0), GameConfig.DRONE_ARRIVAL_CHARGE_RESERVE + GameConfig.DRONE_LANDING_CHARGE_COST + 0.005)
 	low.active_drone.global_position = low.drone_team.global_position
 	var d: Unit = low.active_drone
 	low._update_active_drone(1.0)

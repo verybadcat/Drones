@@ -7598,6 +7598,10 @@ const DRONE_ROUND_TRIP_RANGE: float = 30000.0 * PIXELS_PER_METER # DJI's rated M
 # figures don't quite agree in the first place).
 const DRONE_FULL_CHARGE_FLIGHT_TIME: float = DRONE_ROUND_TRIP_RANGE / DRONE_CRUISE_SPEED # ~35.7 minutes
 const DRONE_RTB_SAFETY_MARGIN: float = 300.0 * PIXELS_PER_METER # turn for home this much charge-equivalent before the battery is actually flat
+## The charge a drone should still have when it touches down (direct user decision, with the low-charge failure model in weather.gd: a drone
+## flown down to the old margin of a few percent would have lost about one sortie in five). Replaces DRONE_RTB_SAFETY_MARGIN as the margin in
+## BattleManager._drone_arrival_reserve_charge; the cost of the descent itself is on top of it. About 12% is roughly 4 minutes of flight.
+const DRONE_ARRIVAL_CHARGE_RESERVE: float = 0.12
 
 # A homebound drone may fly FASTER than DRONE_CRUISE_SPEED — a real pilot
 # fighting a headwind switches to Sport mode rather than crawling home at

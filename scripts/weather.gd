@@ -94,6 +94,17 @@ const DRONE_COLD_FLIGHT_TIME_LOSS_PER_DEGREE: float = 0.015 # JUDGMENT, loosely 
 const DRONE_COLD_FLIGHT_TIME_FLOOR: float = 0.5
 const DRONE_COLD_HAZARD_PER_DEGREE: float = 0.10 # JUDGMENT
 const DRONE_BASE_FAILURES_PER_FLIGHT_HOUR: float = 1.0 / 200.0 # JUDGMENT: no defensible published figure for small quadcopters
+## Low charge: a pack that is nearly empty sags under load (its internal resistance rises as it empties and as it gets cold) and can drop
+## below its cutoff voltage and shut the aircraft down while it still shows some charge: more so in the cold and in a hard wind. Below
+## DRONE_LOW_CHARGE_ONSET an airborne drone has an added failure rate per flight-minute that grows with the square of how far it is below it, to
+## DRONE_LOW_CHARGE_FAILURES_PER_MIN_AT_EMPTY at empty, multiplied by the wind and cold multipliers (as a measure of load), capped at
+## DRONE_LOW_CHARGE_LOAD_CAP. The onset rises with cold. The shape follows the battery physics; the numbers are JUDGMENT (no published figure
+## for failures against charge was found; DJI's own warnings are thresholds, understood to be about 25-30% and 10-15%, not verified).
+const DRONE_LOW_CHARGE_ONSET: float = 0.20
+const DRONE_LOW_CHARGE_ONSET_COLD_SHIFT_PER_DEGREE: float = 0.01
+const DRONE_LOW_CHARGE_FAILURES_PER_MIN_AT_EMPTY: float = 0.15
+const DRONE_LOW_CHARGE_EXPONENT: float = 2.0
+const DRONE_LOW_CHARGE_LOAD_CAP: float = 4.0
 const DRONE_WIND_HAZARD_SCALE: float = 20.0 # JUDGMENT: multiplier 1 + 20 (v/12)^8 — about 6% per 35-minute sortie at 12 m/s, 29% at 15
 const DRONE_WIND_HAZARD_EXPONENT: float = 8.0
 ## Below DRONE_BLIND_FROM_MM_H the failure chance is multiplied by 1 + 30 * I: water on a
@@ -439,14 +450,41 @@ func _drone_precip_type_factor() -> float:
 	return DRONE_DRY_SNOW_HAZARD_FACTOR if is_precipitating() and temperature_c < DRY_SNOW_BELOW_C else 1.0
 
 
+## The wind's multiplier on the drone failure rate at `altitude_m` (1 in calm air).
+func drone_wind_hazard_multiplier(altitude_m: float) -> float:
+	var wind: float = wind_speed_at(altitude_m) * gust_multiplier(altitude_m)
+	return 1.0 + DRONE_WIND_HAZARD_SCALE * pow(wind / DRONE_WIND_RATING_MPS, DRONE_WIND_HAZARD_EXPONENT)
+
+
+## The cold's multiplier on the drone failure rate (1 at or above DRONE_COLD_CAPACITY_ONSET_C).
+func drone_cold_hazard_multiplier() -> float:
+	return 1.0 + DRONE_COLD_HAZARD_PER_DEGREE * maxf(0.0, DRONE_COLD_CAPACITY_ONSET_C - temperature_c)
+
+
+## The charge fraction below which a drone's low-charge hazard begins: DRONE_LOW_CHARGE_ONSET, rising in the cold.
+func drone_low_charge_onset() -> float:
+	return DRONE_LOW_CHARGE_ONSET + DRONE_LOW_CHARGE_ONSET_COLD_SHIFT_PER_DEGREE * maxf(0.0, DRONE_COLD_CAPACITY_ONSET_C - temperature_c)
+
+
+## The added failure rate, per flight-minute, of a drone with `charge` (0 to 1) remaining, from battery sag: zero at or above the onset, rising
+## with the square of the shortfall to DRONE_LOW_CHARGE_FAILURES_PER_MIN_AT_EMPTY at empty, times the load (the wind and cold multipliers,
+## capped). Added to the weather hazard, not multiplied into it (that rate is tiny). See DRONE_LOW_CHARGE_ONSET.
+func drone_low_charge_hazard_per_minute(charge: float, altitude_m: float) -> float:
+	var onset: float = drone_low_charge_onset()
+	var shortfall: float = maxf(0.0, 1.0 - clampf(charge, 0.0, 1.0) / onset)
+	if shortfall <= 0.0:
+		return 0.0
+	var load: float = minf(drone_wind_hazard_multiplier(altitude_m) * drone_cold_hazard_multiplier(), DRONE_LOW_CHARGE_LOAD_CAP)
+	return DRONE_LOW_CHARGE_FAILURES_PER_MIN_AT_EMPTY * pow(shortfall, DRONE_LOW_CHARGE_EXPONENT) * load
+
+
 ## Per-flight-minute chance of a failure. Baseline x wind x cold x (below
 ## DRONE_BLIND_FROM_MM_H) precipitation; at or above it the drone is on a forced
 ## flight home, and the wet adds its own per-minute hazard instead.
 func drone_hazard_per_minute(altitude_m: float) -> float:
 	var base: float = DRONE_BASE_FAILURES_PER_FLIGHT_HOUR / 60.0
-	var wind: float = wind_speed_at(altitude_m) * gust_multiplier(altitude_m)
-	var wind_mult: float = 1.0 + DRONE_WIND_HAZARD_SCALE * pow(wind / DRONE_WIND_RATING_MPS, DRONE_WIND_HAZARD_EXPONENT)
-	var cold_mult: float = 1.0 + DRONE_COLD_HAZARD_PER_DEGREE * maxf(0.0, DRONE_COLD_CAPACITY_ONSET_C - temperature_c)
+	var wind_mult: float = drone_wind_hazard_multiplier(altitude_m)
+	var cold_mult: float = drone_cold_hazard_multiplier()
 	var hazard: float = base * wind_mult * cold_mult
 	if is_precipitating():
 		if drone_vision_blocked():

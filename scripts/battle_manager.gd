@@ -799,6 +799,7 @@ var weather: Weather:
 var _drone_grounded_for_weather: bool = false # moderate-or-worse rain/snow: nothing launches until it has eased for a while
 var _drone_weather_clear_s: float = 0.0
 var _drones_lost_to_weather: int = 0 # counted in _drones_destroyed too
+var _drones_lost_to_low_battery: int = 0 # counted in _drones_destroyed too (see _battery_fail_drone)
 var _drones_aborted_by_weather: int = 0
 var _drones_recalled_by_rain: int = 0
 var _last_precip_label: String = ""
@@ -936,6 +937,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drone_tracked_class = -1
 	_drones_destroyed = 0
 	_drones_lost_to_weather = 0
+	_drones_lost_to_low_battery = 0
 	_drones_aborted_by_weather = 0
 	_drones_recalled_by_rain = 0
 	_drone_grounded_for_weather = false
@@ -4062,9 +4064,10 @@ func _drone_leg_charge(from_pos: Vector2, to_pos: Vector2) -> float:
 
 
 ## The charge a drone must keep back once it has finished its business at some
-## point and is coming home: the turn-home safety margin plus the letdown cost.
+## point and is coming home: GameConfig.DRONE_ARRIVAL_CHARGE_RESERVE (what it should still have on touching down: a nearly empty pack is
+## the one that fails, see Weather.drone_low_charge_hazard_per_minute) plus the letdown cost.
 func _drone_arrival_reserve_charge() -> float:
-	return GameConfig.DRONE_RTB_SAFETY_MARGIN / GameConfig.DRONE_CRUISE_SPEED / _drone_full_charge_flight_time() + GameConfig.DRONE_LANDING_CHARGE_COST
+	return GameConfig.DRONE_ARRIVAL_CHARGE_RESERVE + GameConfig.DRONE_LANDING_CHARGE_COST
 
 
 ## Can `d` fly to `point`, and still get home from there with the safety
@@ -4118,19 +4121,50 @@ func _update_drone_weather(scenario_delta: float) -> void:
 	for d in [active_drone, backup_drone] + returning_drones:
 		if d != null:
 			airborne.append(d)
+	var weather_hazard: float = _drone_weather_hazard_per_minute(altitude)
 	for d in airborne:
-		if weather.rng.randf() < failure_chance:
-			_weather_fail_drone(d, altitude)
+		# A nearly empty pack adds its own failure rate on top of the weather's (see Weather.drone_low_charge_hazard_per_minute); a failure
+		# is put down to whichever of the two it most likely came from, and a low-charge one always loses the airframe (no aborting home).
+		var low_hazard: float = weather.drone_low_charge_hazard_per_minute(d.drone_battery_charge, altitude)
+		var chance: float = failure_chance
+		if low_hazard > 0.0:
+			chance = 1.0 - exp(-(weather_hazard + low_hazard) * scenario_delta / 60.0)
+		if weather.rng.randf() < chance:
+			if low_hazard > 0.0 and weather.rng.randf() < low_hazard / (weather_hazard + low_hazard):
+				_battery_fail_drone(d)
+			else:
+				_weather_fail_drone(d, altitude)
 
 
 ## The chance, over `scenario_delta` tactical seconds, that an airborne drone fails:
 ## Weather.drone_hazard_per_minute (baseline, wind, cold, rain), multiplied by
 ## GameConfig.DRONE_TEAM_MOVING_FAILURE_MULTIPLIER while its team is on the move.
 func _drone_failure_chance(scenario_delta: float, altitude: float) -> float:
+	return 1.0 - exp(-_drone_weather_hazard_per_minute(altitude) * scenario_delta / 60.0)
+
+
+## The weather's failure rate per flight-minute for an airborne drone, including the multiplier for a team on the move.
+func _drone_weather_hazard_per_minute(altitude: float) -> float:
 	var hazard: float = weather.drone_hazard_per_minute(altitude)
 	if _drone_team_on_the_move():
 		hazard *= GameConfig.DRONE_TEAM_MOVING_FAILURE_MULTIPLIER
-	return 1.0 - exp(-hazard * scenario_delta / 60.0)
+	return hazard
+
+
+## A battery failure: the pack sagged below its cutoff under load and the aircraft lost power with charge still showing. The airframe is lost
+## where it was. Counted in _drones_destroyed and _drones_lost_to_low_battery.
+func _battery_fail_drone(d: Unit) -> void:
+	combat_log.log_drone_power_loss(d)
+	if d == active_drone:
+		active_drone = null
+	elif d == backup_drone:
+		backup_drone = null
+	else:
+		returning_drones.erase(d)
+	player_units.erase(d)
+	d.queue_free()
+	_drones_destroyed += 1
+	_drones_lost_to_low_battery += 1
 
 
 ## A weather failure: usually the airframe is lost; a search drone (never one
@@ -7096,6 +7130,7 @@ func weather_debug_snapshot() -> Dictionary:
 	var out: Dictionary = weather.debug_snapshot()
 	out["drones_grounded_for_weather"] = _drone_grounded_for_weather
 	out["drones_lost_to_weather"] = _drones_lost_to_weather
+	out["drones_lost_to_low_battery"] = _drones_lost_to_low_battery
 	out["drones_aborted_by_weather"] = _drones_aborted_by_weather
 	out["drones_recalled_by_rain"] = _drones_recalled_by_rain
 	return out
