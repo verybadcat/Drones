@@ -11534,10 +11534,12 @@ const OBSERVED_STEP_M: float = 10.0 # the distance moved between two looks at it
 ## The mortar's range circle, the same drawing on the setup screen (always shown on the mortar's token) and in battle (shown while the mouse is
 ## over the player's mortar). Drawn at the origin of `canvas`'s own coordinates; `radius_px` is the mortar's range in map pixels.
 const MORTAR_RANGE_RING_COLOR := Color(1.0, 0.55, 0.15, 0.35)
+## An enemy mortar's circle, the same arc in the enemy's red (its range is 6,000 m).
+const MORTAR_RANGE_RING_COLOR_ENEMY := Color(1.0, 0.3, 0.25, 0.35)
 const MORTAR_RANGE_RING_WIDTH: float = 1.5
 
-static func draw_mortar_range_ring(canvas: CanvasItem, radius_px: float) -> void:
-	canvas.draw_arc(Vector2.ZERO, radius_px, 0.0, TAU, 64, MORTAR_RANGE_RING_COLOR, MORTAR_RANGE_RING_WIDTH, true)
+static func draw_mortar_range_ring(canvas: CanvasItem, radius_px: float, color: Color = MORTAR_RANGE_RING_COLOR) -> void:
+	canvas.draw_arc(Vector2.ZERO, radius_px, 0.0, TAU, 64, color, MORTAR_RANGE_RING_WIDTH, true)
 
 
 ## The Ukrainian mortar is reluctant to fire at a target inside a town, "within 50 meters of a building. Not the 200 meter exclusion zone.

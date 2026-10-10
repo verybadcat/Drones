@@ -40,7 +40,18 @@ func run() -> void:
 	bm.update_hover(Vector2(800.0, 400.0))
 	check(not squad.show_range_ring and not mortar.show_range_ring, "A squad has no range circle, and the mortar's stays off")
 	bm.update_hover(Vector2(1500.0, 400.0))
-	check(not enemy_gun.show_range_ring, "The enemy's mortar does not show one (this is the player's own mortar's)")
+	check(not enemy_gun.show_range_ring, "An enemy mortar the player cannot see shows nothing, even with the mouse where it stands (its position is not known)")
+	enemy_gun.is_visible = true
+	bm.update_hover(Vector2(1500.0, 400.0))
+	check(enemy_gun.show_range_ring and not mortar.show_range_ring, "...but once it is seen, hovering over it shows its circle")
+	check(is_equal_approx(GameConfig.mortar_max_range(Unit.Team.ENEMY), GameConfig.MORTAR_MAX_RANGE_ENEMY) and GameConfig.MORTAR_MAX_RANGE_ENEMY > GameConfig.MORTAR_MAX_RANGE_PLAYER, "...with the enemy's own, longer range")
+	bm.update_hover(Vector2(500.0, 400.0))
+	check(mortar.show_range_ring and not enemy_gun.show_range_ring, "Moving the mouse to our mortar swaps the circles over")
+	enemy_gun.state = Unit.State.RETREATING
+	bm.update_hover(Vector2(1500.0, 400.0))
+	check(not enemy_gun.show_range_ring, "A seen enemy mortar that is no longer in action shows none")
+	enemy_gun.state = Unit.State.ACTIVE
+	enemy_gun.is_visible = false
 
 	bm.update_hover(Vector2(500.0, 400.0))
 	check(mortar.show_range_ring, "Back over the mortar it shows again")
