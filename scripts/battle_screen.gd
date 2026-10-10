@@ -45,6 +45,7 @@ const WEATHER_DEBUG_SNAPSHOT_PATH: String = "res://debug_state/weather_snapshot.
 # where static reading of the firing/fast-forward code couldn't fully account for what was
 # seen. Real-world timing and pool-reuse state can only be caught by watching it happen.
 const MORTAR_AUDIO_DEBUG_SNAPSHOT_PATH: String = "res://debug_state/mortar_audio_snapshot.json"
+const DRONE_LOSS_DEBUG_SNAPSHOT_PATH: String = "res://debug_state/drone_loss_snapshot.json"
 
 var doctrine: Dictionary
 var recon_mode: GameConfig.ReconMode = GameConfig.ReconMode.SPOTTER
@@ -215,6 +216,7 @@ func _process(_delta: float) -> void:
 	_write_debug_snapshot(UNIT_DEBUG_SNAPSHOT_PATH, battle_manager.general_unit_debug_snapshot())
 	_write_debug_snapshot(WEATHER_DEBUG_SNAPSHOT_PATH, battle_manager.weather_debug_snapshot())
 	_write_debug_snapshot(MORTAR_AUDIO_DEBUG_SNAPSHOT_PATH, battle_manager.mortar_audio_debug_snapshot())
+	_write_debug_snapshot(DRONE_LOSS_DEBUG_SNAPSHOT_PATH, battle_manager.drone_loss_debug_snapshot())
 
 
 ## _unhandled_input rather than _input: lets any real UI control (a

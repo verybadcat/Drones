@@ -7603,6 +7603,18 @@ const DRONE_RTB_SAFETY_MARGIN: float = 300.0 * PIXELS_PER_METER # turn for home 
 ## BattleManager._drone_arrival_reserve_charge; the cost of the descent itself is on top of it. About 12% is roughly 4 minutes of flight.
 const DRONE_ARRIVAL_CHARGE_RESERVE: float = 0.12
 
+## The drone team plans the relief of the drone on station (direct user instruction: "Send out a replacement drone in time for it to be on
+## station when the existing one needs to leave"): a replacement is launched when the time until the one on station must turn for home
+## (BattleManager._drone_time_until_rtb) falls to the replacement's flight time to the same spot plus this margin, and a battery is put in a
+## bare airframe a swap's duration (DRONE_BATTERY_SWAP_DURATION) before that if none is ready. A replacement that finds the one on station is
+## far from leaving (more than this much slack beyond its own lead) is not needed yet and goes home.
+const DRONE_REPLACEMENT_ARRIVAL_MARGIN_S: float = 20.0
+const DRONE_REPLACEMENT_RECALL_SLACK_S: float = 180.0
+## A replacement is only worth sending if, after the flight out and keeping back what it needs to get home, its battery leaves it at least
+## this long on station; otherwise it arrives, takes over, and has to turn for home at once (measured: sending it on a battery that only just
+## covers the trip made coverage worse, not better).
+const DRONE_REPLACEMENT_MIN_STATION_S: float = 300.0
+
 # A homebound drone may fly FASTER than DRONE_CRUISE_SPEED — a real pilot
 # fighting a headwind switches to Sport mode rather than crawling home at
 # walking pace (a real, reported failure: drones "unable to reach the

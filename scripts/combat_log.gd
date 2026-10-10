@@ -158,6 +158,12 @@ func log_drone_backup_launched(unit: Unit, watched: Unit) -> void:
 	add_entry("%s launches as backup, shadowing %s for continuous coverage" % [unit.display_name(), watched.display_name()])
 
 
+func log_drone_replacement_launched(unit: Unit) -> void:
+	if _unseen(unit):
+		return
+	add_entry("%s launches to relieve the drone on station" % unit.display_name())
+
+
 func log_drone_shot_down(unit: Unit) -> void:
 	if _unseen(unit):
 		return

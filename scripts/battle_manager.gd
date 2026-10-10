@@ -777,6 +777,9 @@ var returning_drones: Array[Unit] = []
 # DRONE_SPARE_BATTERIES stay uninstalled at all times) — but its best entry
 # can still be well under full, which is exactly what "might launch a drone
 # with a partly charged battery" means in practice.
+## Where the drone on station is working (its destination, or where it hovers), kept after it leaves so a replacement flying to relieve it
+## still knows where to go. Vector2.INF with no drone yet.
+var _drone_station_hint: Vector2 = Vector2.INF
 var _drones_ready: Array[float] = [] # charge level of each grounded, battery-installed, ready-to-launch airframe
 var _drones_swapping: Array[Dictionary] = [] # [{"time_left": float, "charge": float}] grounded airframes mid battery-swap
 var _battery_pool: Array[float] = [] # charge level of every battery not currently installed in any airframe
@@ -800,6 +803,8 @@ var _drone_grounded_for_weather: bool = false # moderate-or-worse rain/snow: not
 var _drone_weather_clear_s: float = 0.0
 var _drones_lost_to_weather: int = 0 # counted in _drones_destroyed too
 var _drones_lost_to_low_battery: int = 0 # counted in _drones_destroyed too (see _battery_fail_drone)
+## Why each airframe was lost, in order, so a battle can be looked at afterwards: see _record_drone_loss.
+var _drone_losses: Array[Dictionary] = []
 var _drones_aborted_by_weather: int = 0
 var _drones_recalled_by_rain: int = 0
 var _last_precip_label: String = ""
@@ -929,6 +934,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	backup_drone = null
 	returning_drones.clear()
 	_drones_ready.clear()
+	_drone_station_hint = Vector2.INF
 	_drones_swapping.clear()
 	_battery_pool.clear()
 	_airframes_awaiting_battery = 0
@@ -938,6 +944,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drones_destroyed = 0
 	_drones_lost_to_weather = 0
 	_drones_lost_to_low_battery = 0
+	_drone_losses.clear()
 	_drones_aborted_by_weather = 0
 	_drones_recalled_by_rain = 0
 	_drone_grounded_for_weather = false
@@ -3535,6 +3542,7 @@ func _update_drone_operations(scenario_delta: float) -> void:
 		# airborne, backup, inbound, ready, swapping, or lost.
 		for d in [active_drone, backup_drone] + returning_drones:
 			if d != null:
+				_record_drone_loss(d, "ground_team_lost", "The drone team was destroyed or pulled back, so the airframe had no ground station to return to.", {"team_state": Unit.State.keys()[drone_team.state]})
 				player_units.erase(d)
 				d.queue_free()
 				_drones_destroyed += 1
@@ -3581,6 +3589,7 @@ func _update_drone_operations(scenario_delta: float) -> void:
 	_update_returning_drones(scenario_delta)
 
 	if active_drone != null:
+		_drone_station_hint = active_drone.move_target if active_drone.has_move_target else active_drone.global_position
 		_update_active_drone(scenario_delta) # may send itself home, or (rarely) crash outright — see the sacrifice branch inside
 
 	if backup_drone != null:
@@ -3607,23 +3616,8 @@ func _update_drone_operations(scenario_delta: float) -> void:
 		if not _drones_ready.is_empty():
 			_launch_drone()
 
-	if active_drone != null and backup_drone == null and not _drones_ready.is_empty() and not _drone_grounded_for_weather:
-		var watched: Unit = _visible_engageable_mortar()
-		if watched != null:
-			var time_until_active_rtb: float = _drone_time_until_rtb(active_drone)
-			var backup_travel_time: float = drone_team.global_position.distance_to(watched.global_position) / GameConfig.DRONE_CRUISE_SPEED
-			if time_until_active_rtb <= backup_travel_time:
-				# Deliberately NOT given the same reactive pool-staging the primary launch above gets: this
-				# timing check assumes a near-instant launch the moment it trips (bounded only by flight time
-				# to arrive, not any ground delay) — a fresh swap-from-pool takes a full DRONE_BATTERY_SWAP_
-				# DURATION (a few minutes) to prep, which is longer than the RTB window this check is
-				# actually racing against, so reactively staging one here would routinely finish AFTER
-				# active_drone has already had to turn for home anyway. Stays limited to a battery that's
-				# already sitting staged from the passive "anything fully charged gets staged regardless"
-				# pass in _update_drone_operations — a real, pre-existing limitation (a backup mission can
-				# only happen if the fleet happened to have a spare already prepped), not something this
-				# session's charge-discipline fix is trying to solve.
-				_launch_backup_drone(watched)
+	if active_drone != null and backup_drone == null and not _drone_grounded_for_weather:
+		_plan_drone_replacement()
 
 
 ## The ground crew's own self-preservation, mirroring the mortar's tier-1
@@ -3789,6 +3783,45 @@ func _launch_drone() -> void:
 	combat_log.log_drone_launched(d)
 
 
+## The drone team's plan for relieving the drone on station (direct user instruction: "Send out a replacement drone in time for it to be on
+## station when the existing one needs to leave"). The drone on station must turn for home in `_drone_time_until_rtb` seconds; a replacement
+## takes `_drone_replacement_lead_time` seconds to fly out to the same spot. So: when a charged drone is ready and the time left has fallen to
+## that lead, it launches. Worked out from the spot the drone on station is working: the engageable mortar it is watching if there is one,
+## otherwise wherever it is going or hovering. A replacement is never launched on a battery too low to make the trip and stay a while (it
+## would arrive and have to turn straight back). Runs every tick, so it follows the drone on station if that moves.
+##
+## It deliberately does NOT pull a still-charging battery into a bare airframe ahead of time to have a replacement ready. Measured over 80
+## battles (tools/research/drone_coverage_sim.gd): doing so (at the swap's duration plus the flight before the departure, at any minimum
+## charge from the trip's cost to 90%) made handoffs WORSE than not planning at all (relieved with no gap 82-88% against 91%), because the
+## partly charged battery gives a short sortie that is followed by another handoff short of a battery. The fleet's standing rule (a battery
+## goes in when it is full, or when a launch is wanted now: see `_update_drone_operations`) already has a ready airframe at most departures.
+func _plan_drone_replacement() -> void:
+	var watched: Unit = _visible_engageable_mortar()
+	var station: Vector2 = watched.global_position if watched != null else _drone_station_hint
+	if is_inf(station.x) or drone_team == null:
+		return
+	if _drone_time_until_rtb(active_drone) > _drone_replacement_lead_time(station):
+		return
+	# the trip and the way home, and a stay on station worth the flight (see GameConfig.DRONE_REPLACEMENT_MIN_STATION_S)
+	var needed: float = minf(_drone_required_launch_charge(station) + GameConfig.DRONE_REPLACEMENT_MIN_STATION_S / _drone_full_charge_flight_time(), 1.0)
+	for c in _drones_ready:
+		if c >= needed:
+			_launch_backup_drone(watched)
+			return
+
+
+## How long, in tactical seconds, a drone launched now takes to reach `station` (in the wind of the moment, at the airspeed it would choose),
+## plus GameConfig.DRONE_REPLACEMENT_ARRIVAL_MARGIN_S.
+func _drone_replacement_lead_time(station: Vector2) -> float:
+	var offset: Vector2 = station - drone_team.global_position
+	var distance: float = offset.length()
+	var travel := 0.0
+	if distance > 1.0:
+		var airspeed: float = _drone_airspeed_toward(drone_team.global_position, station)
+		travel = distance / maxf(_drone_ground_speed(airspeed, offset.normalized(), false), 1.0)
+	return travel + GameConfig.DRONE_REPLACEMENT_ARRIVAL_MARGIN_S
+
+
 ## A second sortie sent up specifically to shadow whatever active_drone is
 ## currently watching (see _update_backup_drone) — launched with just
 ## enough lead time to arrive as active_drone's own RTB gets close (see
@@ -3807,7 +3840,10 @@ func _launch_backup_drone(watched: Unit) -> void:
 	d.drone_operator_moving = _drone_team_on_the_move()
 	player_units.append(d)
 	backup_drone = d
-	combat_log.log_drone_backup_launched(d, watched)
+	if watched != null:
+		combat_log.log_drone_backup_launched(d, watched)
+	else:
+		combat_log.log_drone_replacement_launched(d)
 
 
 ## Only ever fires for a genuine shoot-down — a routine return-to-base never
@@ -3821,6 +3857,8 @@ func _launch_backup_drone(watched: Unit) -> void:
 func _on_drone_state_changed(unit: Unit) -> void:
 	if unit.state != Unit.State.DESTROYED:
 		return
+	if unit == active_drone or unit == backup_drone or returning_drones.has(unit):
+		_record_drone_loss(unit, "shot_down", "Hit and destroyed (enemy fire or the blast of a round landing near it).")
 	if unit == active_drone:
 		active_drone = null
 	elif unit == backup_drone:
@@ -3958,12 +3996,16 @@ func _update_backup_drone(scenario_delta: float) -> void:
 		return
 
 	var watched: Unit = _visible_engageable_mortar()
-	if watched == null or _drone_should_rtb(d) or not _drone_risk_accepts(d, watched.global_position):
+	var station: Vector2 = watched.global_position if watched != null else _drone_station_hint
+	# Not needed (yet) when the drone on station is far from having to leave and there is no mortar to shadow: it goes home rather than
+	# burn its own charge waiting.
+	var not_needed: bool = watched == null and active_drone != null and _drone_time_until_rtb(active_drone) > _drone_replacement_lead_time(station) + GameConfig.DRONE_REPLACEMENT_RECALL_SLACK_S
+	if is_inf(station.x) or not_needed or _drone_should_rtb(d) or not _drone_risk_accepts(d, station):
 		_send_drone_home(d)
 		backup_drone = null
 		return
 
-	d.move_target = watched.global_position
+	d.move_target = station
 	d.has_move_target = true
 	d.move_queue.clear()
 	d.move_speed = _drone_airspeed_toward(d.global_position, d.move_target)
@@ -4131,7 +4173,7 @@ func _update_drone_weather(scenario_delta: float) -> void:
 			chance = 1.0 - exp(-(weather_hazard + low_hazard) * scenario_delta / 60.0)
 		if weather.rng.randf() < chance:
 			if low_hazard > 0.0 and weather.rng.randf() < low_hazard / (weather_hazard + low_hazard):
-				_battery_fail_drone(d)
+				_battery_fail_drone(d, weather_hazard, low_hazard)
 			else:
 				_weather_fail_drone(d, altitude)
 
@@ -4153,7 +4195,8 @@ func _drone_weather_hazard_per_minute(altitude: float) -> float:
 
 ## A battery failure: the pack sagged below its cutoff under load and the aircraft lost power with charge still showing. The airframe is lost
 ## where it was. Counted in _drones_destroyed and _drones_lost_to_low_battery.
-func _battery_fail_drone(d: Unit) -> void:
+func _battery_fail_drone(d: Unit, weather_hazard: float = 0.0, low_hazard: float = 0.0) -> void:
+	_record_drone_loss(d, "low_battery", "Lost power with a nearly empty battery (%d%% charge showing): the pack sagged below its cutoff under load." % roundi(d.drone_battery_charge * 100.0), {"low_charge_hazard_per_min": snappedf(low_hazard, 0.0001), "weather_hazard_per_min": snappedf(weather_hazard, 0.00001), "low_charge_onset_pct": roundi(weather.drone_low_charge_onset() * 100.0) if weather != null else -1})
 	combat_log.log_drone_power_loss(d)
 	if d == active_drone:
 		active_drone = null
@@ -4183,6 +4226,7 @@ func _weather_fail_drone(d: Unit, altitude: float) -> void:
 		_send_drone_home(d)
 		return
 	combat_log.log_drone_weather_loss(d, cause)
+	_record_drone_loss(d, "weather", "Failed in weather: %s (a failure rate of %.4f per flight-minute at that moment)." % [cause, weather.drone_hazard_per_minute(altitude)], {"hazard_cause": cause, "hazard_per_min": snappedf(weather.drone_hazard_per_minute(altitude), 0.00001)})
 	if d == active_drone:
 		active_drone = null
 	elif d == backup_drone:
@@ -4238,6 +4282,68 @@ func _send_drone_home(d: Unit) -> void:
 	returning_drones.append(d)
 
 
+## What `d` is doing: "on station" (the active drone), "backup", "returning", or "unknown".
+func _drone_role(d: Unit) -> String:
+	if d == active_drone:
+		return "on station"
+	if d == backup_drone:
+		return "backup"
+	if returning_drones.has(d):
+		return "returning"
+	return "unknown"
+
+
+## Notes a drone loss (direct user instruction: "If a drone is lost, be sure to note why so we can look at it afterwards"): when, which drone,
+## what it was doing, the cause as a stable key and in words, its charge, where it was and how far from the team, the weather, and cause-
+## specific detail (the hazard rates for a battery or weather loss, the mortar for a sacrifice). Called at every site that loses an airframe,
+## before the slot is cleared. Kept for the battle (`_drone_losses`), shown in the after-action report and written to the loss snapshot.
+func _record_drone_loss(d: Unit, cause: String, why: String, detail: Dictionary = {}) -> void:
+	var conditions: Dictionary = {}
+	if weather != null:
+		var altitude: float = weather.drone_operating_altitude_m()
+		conditions = {
+			"wind_mps": snappedf(weather.wind_speed_at(altitude), 0.1),
+			"temperature_c": snappedf(weather.temperature_c, 0.1),
+			"precipitation_mm_h": snappedf(weather.precip_mm_h, 0.1),
+		}
+	var doing := ""
+	if d == active_drone:
+		doing = str(_drone_pilot_reasoning.get("tier", ""))
+	var team_distance_m := -1
+	if drone_team != null:
+		team_distance_m = roundi(d.global_position.distance_to(drone_team.global_position) / GameConfig.PIXELS_PER_METER)
+	_drone_losses.append({
+		"time_min": snappedf(scenario_elapsed_time / 60.0, 0.1),
+		"clock": clock_string(),
+		"drone": d.display_name(),
+		"role": _drone_role(d),
+		"doing": doing,
+		"cause": cause,
+		"why": why,
+		"charge_pct": roundi(d.drone_battery_charge * 100.0),
+		"position": _pos_to_debug_dict(d.global_position),
+		"distance_from_team_m": team_distance_m,
+		"conditions": conditions,
+		"detail": detail,
+	})
+
+
+## One line per drone lost, for the after-action report; empty when none was.
+func drone_loss_report_lines() -> Array[String]:
+	var lines: Array[String] = []
+	if _drone_losses.is_empty():
+		return lines
+	lines.append("Drones lost: %d" % _drone_losses.size())
+	for e in _drone_losses:
+		lines.append("  %s at %s (%s, %d%% charge, %d m from the team): %s" % [e.drone, e.clock, e.role, e.charge_pct, e.distance_from_team_m, e.why])
+	return lines
+
+
+## The loss record as a snapshot for the debug file (see BattleScreen), so it can be read after the battle.
+func drone_loss_debug_snapshot() -> Dictionary:
+	return {"count": _drone_losses.size(), "losses": _drone_losses.duplicate(true)}
+
+
 ## The battery hits zero — the airframe is lost right where it stood, not
 ## "shot down" (see _on_drone_state_changed's own comment on why this
 ## bypasses that signal/log path entirely) but gone all the same: no
@@ -4248,6 +4354,10 @@ func _send_drone_home(d: Unit) -> void:
 ## _update_active_drone/_update_backup_drone), gets the sacrifice-flavored
 ## log message; otherwise a plain battery-died one.
 func _crash_drone(d: Unit, watched: Unit = null) -> void:
+	if watched != null:
+		_record_drone_loss(d, "battery_empty_on_station", "The battery ran flat while it held station over %s past its return point (a deliberate sacrifice)." % watched.display_name(), {"watched": watched.display_name()})
+	else:
+		_record_drone_loss(d, "battery_empty", "The battery ran flat in flight.")
 	if watched != null:
 		combat_log.log_drone_sacrificed(d, watched)
 	else:
@@ -11598,6 +11708,7 @@ func _end_battle() -> void:
 	# DEFENSE/TACTICAL WITHDRAWAL thresholds), just no longer printed.
 	if not player_stats.destroyed.is_empty():
 		lines.append("Ukrainian losses: %s" % ", ".join(player_stats.destroyed))
+	lines.append_array(drone_loss_report_lines())
 	if not player_stats.withdrawn.is_empty():
 		lines.append("Ukrainian forces withdrew safely: %s" % ", ".join(player_stats.withdrawn))
 	if not player_stats.still_retreating.is_empty():
