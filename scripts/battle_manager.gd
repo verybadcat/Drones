@@ -8664,9 +8664,17 @@ func _next_advance_point(u: Unit, max_step: float = GameConfig.ENEMY_ADVANCE_RUS
 	# directly: an off-map y (negative, no such place exists) got weighted-
 	# picked and sent a squad walking toward a point that was never on the
 	# battlefield at all.
+	# Direct user report, live: the enemy squads went to the bottom of the map and then "were advancing towards empty terrain". Cause, found by
+	# running the first bound after an alert (max_step INF, so `rush` is the whole remaining distance) from the road: each bent candidate was
+	# that same whole distance long, so from ~2400 m out a bend of 50-120 degrees was a swing of 1000-2000 m to the side or past the
+	# objective, and 59% of such bounds ended more than 250 m south of the village. Only the straight candidate takes the whole distance
+	# now; a bent one is an ordinary bound's length (ENEMY_ADVANCE_RUSH_DISTANCE), however far the squad is from the objective. A squad that
+	# wants a different bearing still gets it, one bound at a time; it can no longer be thrown across the map by one roll.
+	var bent_rush: float = minf(rush, GameConfig.ENEMY_ADVANCE_RUSH_DISTANCE)
 	var candidates: Array[Vector2] = []
 	for angle_deg in GameConfig.ENEMY_ADVANCE_ANGLES_DEG:
-		candidates.append(GameConfig.clamp_to_operating_area(u.global_position + to_objective.normalized().rotated(deg_to_rad(angle_deg)) * rush))
+		var leg: float = rush if is_zero_approx(angle_deg) else bent_rush
+		candidates.append(GameConfig.clamp_to_operating_area(u.global_position + to_objective.normalized().rotated(deg_to_rad(angle_deg)) * leg))
 	# Direct user report, live: "enemy squads 2 and 6 are not attacking the friendly squads. I see no rational
 	# explanation." Far from the objective, cover/concealment/encirclement buy nothing (no fight to use cover
 	# in, nobody to hide from or surround), yet they outweighed the straight line, so squads wandered sideways
