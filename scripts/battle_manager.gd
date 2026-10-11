@@ -7620,6 +7620,9 @@ func _step_retreat(unit: Unit, scenario_delta: float) -> void:
 	# Bend away from the nearest known threat rather than dashing straight
 	# through/past it — see GameConfig.RETREAT_THREAT_STEER_FRACTION.
 	next_pos.y += _retreat_avoidance_offset(unit) * unit.retreat_speed * GameConfig.RETREAT_THREAT_STEER_FRACTION * scenario_delta
+	# ...and open the gap to a squad retreating too close alongside (a mortar round on one catches the other), unless an enemy squad is
+	# pressing on this one: see GameConfig.SQUAD_DESIRED_SPACING.
+	next_pos.y += _retreat_spacing_offset(unit) * unit.retreat_speed * GameConfig.RETREAT_SPACING_STEER_FRACTION * scenario_delta
 
 	# Direct user report: a drone team's dashboard read "withdrawing" but the unit itself was nowhere to be
 	# found — found at y well above the top of the map (a raw y of -485 against a [0, MAP_HEIGHT_PX] map).
@@ -7694,6 +7697,48 @@ func _retreat_avoidance_offset(unit: Unit) -> float:
 	var urgency: float = clamp(1.0 - nearest_dist / range_m, 0.0, 1.0)
 	var away_sign: float = 1.0 if unit.global_position.y >= nearest_threat.y else -1.0
 	return away_sign * urgency
+
+
+## Signed lateral steering strength (positive = toward higher y) that opens the gap between a retreating squad and its friendly squads
+## that are closer than GameConfig.SQUAD_DESIRED_SPACING: away from each, harder the closer it is, summed over all of them and capped at
+## 1.0. A preference, not a rule: it is scaled by how little pressure the squad is under from enemy squads, so one that is being closed on
+## or shot at may stay as close as it is (direct user instruction: "If they are under pressure from other squads, it could be reasonable to
+## be closer"). The pressure is read from what this side knows of the enemy squads: none at SQUAD_DANGER_RANGE or farther, full at
+## SQUAD_ENGAGEMENT_RANGE or nearer, and full whenever the squad is taking fire. Only squads keep to each other; 0.0 for anything else.
+func _retreat_spacing_offset(unit: Unit) -> float:
+	if unit.kind != Unit.Kind.SQUAD:
+		return 0.0
+	var mates: Array[Unit] = player_units if unit.team == Unit.Team.PLAYER else enemy_units
+	var push := 0.0
+	for other in mates:
+		if other == unit or other.kind != Unit.Kind.SQUAD:
+			continue
+		if other.state != Unit.State.ACTIVE and other.state != Unit.State.RETREATING:
+			continue
+		var d: float = unit.global_position.distance_to(other.global_position)
+		if d >= GameConfig.SQUAD_DESIRED_SPACING:
+			continue
+		var closeness: float = 1.0 - d / GameConfig.SQUAD_DESIRED_SPACING
+		var dy: float = unit.global_position.y - other.global_position.y
+		var away: float = 1.0 if dy > 0.0 else -1.0
+		if absf(dy) < 1.0:
+			away = 1.0 if unit.get_instance_id() > other.get_instance_id() else -1.0 # level with each other: the two must pick opposite ways
+		push += away * closeness
+	if is_zero_approx(push):
+		return 0.0
+	var pressure: float = 1.0 if unit.taking_fire else 0.0
+	var opposing: Array[Unit] = enemy_units if unit.team == Unit.Team.PLAYER else player_units
+	for e in opposing:
+		if e.kind != Unit.Kind.SQUAD or (e.state != Unit.State.ACTIVE and e.state != Unit.State.RETREATING):
+			continue
+		var known: bool = e.player_has_been_sighted if unit.team == Unit.Team.PLAYER else e.enemy_has_been_sighted
+		if not known:
+			continue
+		var at: Vector2 = e.player_known_position if unit.team == Unit.Team.PLAYER else e.enemy_known_position
+		var dist: float = unit.global_position.distance_to(at)
+		var p: float = clampf((GameConfig.SQUAD_DANGER_RANGE - dist) / (GameConfig.SQUAD_DANGER_RANGE - GameConfig.SQUAD_ENGAGEMENT_RANGE), 0.0, 1.0)
+		pressure = maxf(pressure, p)
+	return clampf(push, -1.0, 1.0) * (1.0 - pressure)
 
 
 func _sidestep_building(unit: Unit, scenario_delta: float, blocked_pos: Vector2) -> void:

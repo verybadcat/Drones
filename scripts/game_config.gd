@@ -7425,6 +7425,17 @@ static var PLAYER_SAFE_X: float # -(WEST_FLANK_WIDTH_M - 100.0) * PIXELS_PER_MET
 ## toward safety throughout, never stalling to purely sidestep.
 const RETREAT_THREAT_STEER_FRACTION: float = 0.6
 
+## How far apart squads like to be while retreating: a mortar round that lands on one catches a neighbour within about this distance
+## (the 50% casualty radius is 26 m, the collateral search stops at 60 m: see MORTAR_BLAST_CASUALTY_RADIUS), at 30 m still about 40% of
+## the time under well-observed fire and about a quarter under squad-observed fire. A DESIRABLE distance, not a rule: it is a steering
+## preference that squads which are closer than this act on, and it fades out as enemy squads press on them (BattleManager.
+## _retreat_spacing_offset). Direct user instruction: "Use 75m as the desirable distance. This does NOT mean they can never be closer. It
+## means they strive for 75 meters", and "If they are under pressure from other squads, it could be reasonable to be closer."
+const SQUAD_DESIRED_SPACING: float = 75.0 * PIXELS_PER_METER
+## Fraction of retreat_speed a squad may spend steering sideways to open the gap to a neighbour closer than SQUAD_DESIRED_SPACING, at
+## the maximum push (a neighbour right on top of it, no enemy squad near). Under RETREAT_THREAT_STEER_FRACTION: forward progress first.
+const RETREAT_SPACING_STEER_FRACTION: float = 0.4
+
 ## How much farther than the nearest cover zone overall it's worth walking
 ## just to stay on retreat_dir's own "correct" side — a real, previously-
 ## reported failure mode: retreat_dir is a blanket per-team assumption
