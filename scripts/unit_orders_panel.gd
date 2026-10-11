@@ -11,6 +11,13 @@ extends PanelContainer
 ##   - the mortar also: an "Expend ammo on enemy squads" switch
 ##     (BattleManager.set_mortar_squad_fire_order), a standing order that always
 ##     mirrors the battle manager's own state
+##   - every unit: a "Blow-up window" button, which asks the screen to show (or hide) the
+##     magnified view around the unit (`blowup_requested`)
+##
+## Each of these has a hotkey, the first letter of the order, shown on the card: F, E (the
+## mortar only) and B. While the card is open they take the key before anything else on the
+## screen does (the heat map's E included) — direct user request: "The hotkey can be the first
+## letter of the order. It can override any other meaning the key may have."
 
 const CARD_COLOR := Color(0.10, 0.12, 0.14, 0.94)
 const BORDER_COLOR := Color(0.42, 0.50, 0.44, 0.9)
@@ -21,6 +28,9 @@ const GAP := 26.0 # between the unit's marker and the card
 const ARROW := 8.0 # half-height of the pointer toward the unit
 const EDGE_MARGIN := 6.0
 
+## The B key or the card's blow-up button: the screen shows the magnified window around `unit`, or takes it away.
+signal blowup_requested
+
 var battle_manager: BattleManager
 var unit: Unit
 
@@ -30,6 +40,7 @@ var _fire_row: HBoxContainer
 var _fire_label: Label
 var _fire_switch: CheckButton
 var _fall_back_button: Button
+var _blowup_button: Button
 var _syncing := false
 var _card_on_right := true
 # The process frame in which a click outside just dismissed the card — a click on the
@@ -77,18 +88,27 @@ func setup(bm: BattleManager, map_viewport: SubViewport, map_rect: Rect2) -> voi
 	_fire_row = HBoxContainer.new()
 	_fire_row.add_theme_constant_override("separation", 10)
 	box.add_child(_fire_row)
-	_fire_label = _add_row_label(_fire_row, "Expend ammo on\nenemy squads")
+	_fire_label = _add_row_label(_fire_row, "Expend ammo on\nenemy squads  [E]")
 	_fire_switch = _add_row_switch(_fire_row, "Make this mortar much more willing to fire on enemy squads instead of holding its ammunition. Enemy mortars still come first.")
 	_fire_switch.toggled.connect(_on_fire_toggled)
 
 	# Every unit's order: a button, not a switch — it is given once and the card goes.
 	_fall_back_button = Button.new()
-	_fall_back_button.text = "Fall back"
+	_fall_back_button.text = "Fall back  [F]"
 	_fall_back_button.focus_mode = Control.FOCUS_NONE
 	_fall_back_button.add_theme_font_size_override("font_size", 14)
 	_fall_back_button.tooltip_text = "Move back toward your edge of the map — usually 500 to 1000 m, to a better position along the way if there is one. The unit then holds there rather than advancing. Not a retreat off the map, and it does nothing if the unit is already very close to the edge."
 	_fall_back_button.pressed.connect(_on_fall_back_pressed)
 	box.add_child(_fall_back_button)
+
+	# Every unit: the magnified view of the ground around it, the same window as on the setup screen.
+	_blowup_button = Button.new()
+	_blowup_button.text = "Blow-up window  [B]"
+	_blowup_button.focus_mode = Control.FOCUS_NONE
+	_blowup_button.add_theme_font_size_override("font_size", 14)
+	_blowup_button.tooltip_text = "Show a magnified view of the ground around this unit, following it. Press again, or deselect the unit, to take it away."
+	_blowup_button.pressed.connect(_on_blowup_pressed)
+	box.add_child(_blowup_button)
 
 	# Fit to content once, after the theme/fonts have settled.
 	reset_size.call_deferred()
@@ -131,12 +151,40 @@ func show_for(u: Unit) -> void:
 ## card's own background) leaves it alone. Runs before the map sees the click, so a
 ## click on the unit closes the card first and show_for then ignores the same click.
 func _input(event: InputEvent) -> void:
+	if visible and event is InputEventKey:
+		_handle_key(event)
+		return
 	if not visible or not (event is InputEventMouseButton and event.pressed):
 		return
 	if get_global_rect().has_point(event.position):
 		return
 	_dismissed_frame = Engine.get_process_frames()
 	hide_panel()
+
+
+## The hotkeys, while the card is open: F gives the fall-back order, E (the mortar only) flips its
+## expend-ammo order, B shows or hides the blow-up window. Each is consumed, so it does not also do
+## what the key means elsewhere (the heat map's E). With Ctrl, Alt or Meta held the key is left alone.
+func _handle_key(event: InputEventKey) -> bool:
+	if not event.pressed or event.echo or event.ctrl_pressed or event.alt_pressed or event.meta_pressed:
+		return false
+	if unit == null:
+		return false
+	var used := false
+	match event.keycode:
+		KEY_F:
+			used = true
+			_on_fall_back_pressed()
+		KEY_E:
+			if unit.kind == Unit.Kind.MORTAR:
+				used = true
+				_fire_switch.button_pressed = not _fire_switch.button_pressed # its handler gives or lifts the order
+		KEY_B:
+			used = true
+			_on_blowup_pressed()
+	if used and is_inside_tree():
+		get_viewport().set_input_as_handled()
+	return used
 
 
 func hide_panel() -> void:
@@ -202,6 +250,11 @@ func _on_fire_toggled(pressed: bool) -> void:
 	if _syncing or unit == null:
 		return
 	battle_manager.set_mortar_squad_fire_order(unit, pressed)
+
+
+func _on_blowup_pressed() -> void:
+	if unit != null:
+		blowup_requested.emit()
 
 
 ## Gives the order and dismisses the card. An order the unit can't carry out (nowhere

@@ -362,7 +362,7 @@ func test_panel_reflects_and_sets_the_order() -> void:
 			buttons += 1
 		elif n is Label:
 			labels.append(n.text)
-	check(buttons == 2, "The mortar's card holds just its two orders: the expend-ammo switch and the Fall back button (found %d buttons)" % buttons)
+	check(buttons == 3, "The mortar's card holds just its two orders and the blow-up window's button: the expend-ammo switch, the Fall back button and Blow-up (found %d buttons)" % buttons)
 	check(labels.size() == 2, "Only a heading and the expend-ammo switch's name (found %s)" % str(labels))
 
 	bm.battle_over = true

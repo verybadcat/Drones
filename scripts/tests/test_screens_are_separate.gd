@@ -70,9 +70,11 @@ func run() -> void:
 	await process_frame
 	check(screens_of(main).size() == 1 and main.current_screen is BattleScreen, "Start Battle replaces deployment (one screen)")
 	check(not is_instance_valid(deployment), "The deployment screen is freed")
-	check(nodes_with_script(main, "deployment_magnifier.gd").is_empty(), "No deployment loupe survives into the battle")
-	check(nodes_with_script(main, "doctrine_panel.gd").is_empty() and nodes_with_script(main, "deployment_screen.gd").is_empty(), "...nor the doctrine panel or the deployment map layer")
 	var battle: BattleScreen = main.current_screen
+	# The battle has its own blow-up window (the B key on a selected unit): the one loupe node there is, and it is not showing.
+	var loupes: Array = nodes_with_script(main, "deployment_magnifier.gd")
+	check(loupes.size() == 1 and loupes[0] == battle.blowup and not battle.blowup.visible, "No deployment loupe survives into the battle (only the battle's own blow-up, hidden: %d)" % loupes.size())
+	check(nodes_with_script(main, "doctrine_panel.gd").is_empty() and nodes_with_script(main, "deployment_screen.gd").is_empty(), "...nor the doctrine panel or the deployment map layer")
 	check(map_contents(main) == ["battle_manager.gd", "enemy_heatmap_overlay.gd"], "The battle's map-space parts are all that is in the map (got %s)" % [map_contents(main)])
 
 	battle._on_battle_ended("Verdict: TEST")

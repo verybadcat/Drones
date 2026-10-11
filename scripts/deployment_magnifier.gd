@@ -34,6 +34,8 @@ var unit_kind: Unit.Kind = Unit.Kind.SQUAD
 ## request: "I want the blow-up diagram during squad placement to show other nearby squads. They should be visibly different from the squad
 ## being placed." Only those inside the window are drawn (see others_in_view).
 var others: Array = []
+## Whether the faint 50 m ring around a squad is drawn: a placement aid for setup, not wanted in battle (BattleScreen turns it off).
+var show_separation_ring: bool = true
 
 ## Hollow rings, not the placed unit's translucent disc, so the unit being placed is the only filled marker with a crosshair on it; each
 ## ring is tinted by kind and carries its short name beside it.
@@ -100,7 +102,7 @@ static func others_in_view(focus: Vector2, tokens: Array) -> Array:
 	for t in tokens:
 		var offset: Vector2 = (t.position - focus) * ZOOM
 		if absf(offset.x) <= half.x + TOKEN_RADIUS and absf(offset.y) <= half.y + TOKEN_RADIUS:
-			out.append({"offset": offset, "kind": t.kind, "label": t.label})
+			out.append({"offset": offset, "kind": t.kind, "label": t.label, "enemy": t.get("enemy", false)})
 	return out
 
 
@@ -108,7 +110,7 @@ func draw_overlay(ci: CanvasItem) -> void:
 	var center: Vector2 = WINDOW_SIZE / 2.0
 
 	# The 50 m ring around the squad being placed: thin and faint, under everything else.
-	if shows_separation_ring(unit_kind):
+	if show_separation_ring and shows_separation_ring(unit_kind):
 		ci.draw_arc(center, separation_ring_radius(), 0.0, TAU, 64, SEPARATION_RING_COLOR, 1.0, true)
 
 	# The other placed units: hollow rings in their own colours with a short name, drawn under the unit being placed.
@@ -118,6 +120,8 @@ func draw_overlay(ci: CanvasItem) -> void:
 			ring_color = Color(1.0, 0.65, 0.25, 0.95)
 		elif o.kind == Unit.Kind.SPOTTER or o.kind == Unit.Kind.DRONE_TEAM:
 			ring_color = Color(0.85, 0.95, 0.4, 0.95)
+		if o.enemy:
+			ring_color = Color(1.0, 0.35, 0.3, 0.95) # an enemy unit in sight (battle only)
 		var at: Vector2 = center + o.offset
 		ci.draw_arc(at, TOKEN_RADIUS, 0.0, TAU, 24, Color(0.0, 0.0, 0.0, 0.7), OTHER_RING_WIDTH + 2.0, true) # dark edge so it reads on any ground
 		ci.draw_arc(at, TOKEN_RADIUS, 0.0, TAU, 24, ring_color, OTHER_RING_WIDTH, true)

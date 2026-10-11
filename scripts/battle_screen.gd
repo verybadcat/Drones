@@ -75,6 +75,10 @@ const TOP_BUTTONS_GAP: int = 12
 # up with real world positions.
 var enemy_heatmap_overlay
 var unit_orders_panel: UnitOrdersPanel
+## The magnified window around the selected unit (the setup screen's blow-up, reused): shown with the B key or the
+## card's button while the card is open, gone when the card is.
+var blowup
+var _blowup_wanted := false
 ## The end-of-battle report, once the battle has ended (null before).
 var report: BattleReport
 
@@ -132,6 +136,13 @@ func _ready() -> void:
 	unit_orders_panel.setup(battle_manager, map_viewport, map_area)
 	add_child(unit_orders_panel)
 	battle_manager.unit_selected.connect(unit_orders_panel.show_for)
+	blowup = preload("res://scripts/deployment_magnifier.gd").new()
+	blowup.position = Vector2(GameConfig.CAMERA_VIEWPORT_WIDTH_PX - blowup.WINDOW_SIZE.x - 8.0, 64.0)
+	blowup.mouse_filter = Control.MOUSE_FILTER_IGNORE # a view, not a control: clicks go to the map beneath it
+	blowup.show_separation_ring = false # a placement aid for setup
+	blowup.visible = false
+	add_child(blowup)
+	unit_orders_panel.blowup_requested.connect(_on_blowup_requested)
 	decision_inspector = preload("res://scripts/decision_inspector.gd").new()
 	decision_inspector.setup(battle_manager)
 	decision_inspector.position = Vector2(12, 50)
@@ -199,6 +210,7 @@ func _process(_delta: float) -> void:
 		return
 	if clear_orders_button:
 		clear_orders_button.disabled = not battle_manager.has_orders_to_clear()
+	_update_blowup()
 	# The mortar's range circle while the mouse is over the mortar (also while paused).
 	battle_manager.update_hover(map_mouse_world_position(), map_area.has_point(get_viewport().get_mouse_position()))
 	# Deliberately NOT gated on drone_debug_enabled (the human-facing visual
@@ -217,6 +229,43 @@ func _process(_delta: float) -> void:
 	_write_debug_snapshot(WEATHER_DEBUG_SNAPSHOT_PATH, battle_manager.weather_debug_snapshot())
 	_write_debug_snapshot(MORTAR_AUDIO_DEBUG_SNAPSHOT_PATH, battle_manager.mortar_audio_debug_snapshot())
 	_write_debug_snapshot(DRONE_LOSS_DEBUG_SNAPSHOT_PATH, battle_manager.drone_loss_debug_snapshot())
+
+
+func _on_blowup_requested() -> void:
+	_blowup_wanted = not _blowup_wanted
+
+
+## Keeps the blow-up on the selected unit while its card is open, and takes it away when the card goes (the unit
+## deselected, lost, or the battle over). Shows the other friendly units in it and the enemy units in sight, as the
+## main map does: nothing the player does not already see.
+func _update_blowup() -> void:
+	if blowup == null or unit_orders_panel == null:
+		return
+	var selected: Unit = unit_orders_panel.unit if unit_orders_panel.visible else null
+	if selected == null or not is_instance_valid(selected):
+		_blowup_wanted = false
+		blowup.visible = false
+		return
+	blowup.visible = _blowup_wanted
+	if not _blowup_wanted:
+		return
+	blowup.focus_position = selected.global_position
+	blowup.unit_kind = selected.kind
+	blowup.others = blowup_others(selected)
+	blowup.queue_redraw()
+
+
+func blowup_others(selected: Unit) -> Array:
+	var out: Array = []
+	for u in battle_manager.player_units:
+		if u == selected or u.state != Unit.State.ACTIVE or u.kind == Unit.Kind.DRONE:
+			continue
+		out.append({"position": u.global_position, "kind": u.kind, "label": u.unit_label})
+	for e in battle_manager.enemy_units:
+		if e.state != Unit.State.ACTIVE or not e.is_visible or (e.kind != Unit.Kind.SQUAD and e.kind != Unit.Kind.MORTAR):
+			continue
+		out.append({"position": e.global_position, "kind": e.kind, "label": e.unit_label, "enemy": true})
+	return out
 
 
 ## _unhandled_input rather than _input: lets any real UI control (a
