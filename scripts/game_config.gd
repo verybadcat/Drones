@@ -7614,6 +7614,18 @@ const DRONE_REPLACEMENT_RECALL_SLACK_S: float = 180.0
 ## this long on station; otherwise it arrives, takes over, and has to turn for home at once (measured: sending it on a battery that only just
 ## covers the trip made coverage worse, not better).
 const DRONE_REPLACEMENT_MIN_STATION_S: float = 300.0
+## Once the replacement is within this distance of the spot it was sent to, it is there, and the drone it relieves goes home at once.
+## Direct user instruction: "Once the replacement is there, no reason for the old one to stay any longer." JUDGMENT: a hover's jitter.
+const DRONE_RELIEF_ARRIVED_RADIUS_M: float = 60.0
+## The wind a pilot plans a leg on (the turn-home point, the return airspeed, what a target costs to reach and come back from): the mean wind
+## raised by this many standard deviations of the turbulence, so a gusty hour does not eat the return reserve. Direct user instruction: "The
+## return reserve should account for gusts. If the pilot feels a mission is worth losing the drone, that's fine. But it should be a choice
+## the pilot made, not something that fell out of a bad model." JUDGMENT, from the measured shortfall of the touchdown charge against the plan
+## (see docs/designs/tactical-commander-doctrine.md, 2026-10-11): in a strong gusty wind (11.8 m/s at 300 m) with no allowance 8.8% of returns
+## that turned at their return point touched down under the 12% reserve; at 1 sd 1.9%, at 2 sd 1.1%; in a normal wind 2.5%, 0.5%, 0%.
+const DRONE_PLAN_GUST_ALLOWANCE_SD: float = 2.0
+## ...unless the replacement itself has less than this left before it must turn for home (then the old one, which has more, stays).
+const DRONE_RELIEF_MIN_TIME_LEFT_S: float = 60.0
 
 # A homebound drone may fly FASTER than DRONE_CRUISE_SPEED — a real pilot
 # fighting a headwind switches to Sport mode rather than crawling home at

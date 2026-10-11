@@ -269,14 +269,22 @@ func wind_speed_at(altitude_m: float) -> float:
 
 ## Instantaneous / mean speed at `altitude_m` (turbulence falls with height).
 func gust_multiplier(altitude_m: float) -> float:
-	var ti: float = GUST_TURBULENCE_INTENSITY_10M * pow(10.0 / maxf(altitude_m, 10.0), GUST_TURBULENCE_HEIGHT_EXPONENT)
-	return maxf(0.3, 1.0 + ti * _gust_z)
+	return maxf(0.3, 1.0 + turbulence_intensity(altitude_m) * _gust_z)
+
+
+## The standard deviation of the instantaneous wind speed as a fraction of the mean, at `altitude_m` (it falls with height).
+func turbulence_intensity(altitude_m: float) -> float:
+	return GUST_TURBULENCE_INTENSITY_10M * pow(10.0 / maxf(altitude_m, 10.0), GUST_TURBULENCE_HEIGHT_EXPONENT)
 
 
 ## The wind's velocity (m/s) in SCREEN axes — the direction it blows TOWARD,
 ## honoring the loaded map's own compass orientation.
-func wind_velocity_mps(altitude_m: float, with_gusts: bool = true) -> Vector2:
-	var speed: float = wind_speed_at(altitude_m) * (gust_multiplier(altitude_m) if with_gusts else 1.0)
+##
+## With `with_gusts` false it is the MEAN wind a pilot plans on, raised by `planning_allowance_sd` standard deviations of the turbulence:
+## the wind a pilot expects to be flying into over a leg in a gusty hour, not the calm average (0 gives the plain mean).
+func wind_velocity_mps(altitude_m: float, with_gusts: bool = true, planning_allowance_sd: float = 0.0) -> Vector2:
+	var factor: float = gust_multiplier(altitude_m) if with_gusts else 1.0 + planning_allowance_sd * turbulence_intensity(altitude_m)
+	var speed: float = wind_speed_at(altitude_m) * factor
 	var north: Vector2 = GameConfig.CURRENT_MAP.compass_north_screen_direction
 	var from_dir: Vector2 = north.rotated(deg_to_rad(wind_from_deg))
 	return -from_dir * speed

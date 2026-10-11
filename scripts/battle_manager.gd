@@ -805,6 +805,10 @@ var _drones_lost_to_weather: int = 0 # counted in _drones_destroyed too
 var _drones_lost_to_low_battery: int = 0 # counted in _drones_destroyed too (see _battery_fail_drone)
 ## Why each airframe was lost, in order, so a battle can be looked at afterwards: see _record_drone_loss.
 var _drone_losses: Array[Dictionary] = []
+## Drones (by instance id) the pilot chose to hold past the return point to keep a mortar in sight: a deliberate sacrifice, not a shortfall in
+## the planning. And, for each drone that turned for home, the plan it turned with (see _note_drone_return_plan).
+var _drones_held_past_return: Dictionary = {}
+var _drone_return_plans: Dictionary = {}
 var _drones_aborted_by_weather: int = 0
 var _drones_recalled_by_rain: int = 0
 var _last_precip_label: String = ""
@@ -945,6 +949,8 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drones_lost_to_weather = 0
 	_drones_lost_to_low_battery = 0
 	_drone_losses.clear()
+	_drones_held_past_return.clear()
+	_drone_return_plans.clear()
 	_drones_aborted_by_weather = 0
 	_drones_recalled_by_rain = 0
 	_drone_grounded_for_weather = false
@@ -3595,6 +3601,8 @@ func _update_drone_operations(scenario_delta: float) -> void:
 	if backup_drone != null:
 		_update_backup_drone(scenario_delta) # may send itself home, or get promoted below
 
+	_relieve_drone_on_station()
+
 	if active_drone == null and backup_drone != null:
 		active_drone = backup_drone
 		backup_drone = null
@@ -3810,6 +3818,23 @@ func _plan_drone_replacement() -> void:
 			return
 
 
+## The handover itself (direct user instruction: "Once the replacement is there, no reason for the old one to stay any longer"): when the
+## replacement has reached the spot it was sent to, the drone on station turns for home at once and the replacement takes over on the
+## same tick (see _update_drone_operations). Not before it is there; and not if the replacement has hardly any time left of its own (the
+## old one has more, so it stays until it has to go, as before).
+func _relieve_drone_on_station() -> void:
+	if active_drone == null or backup_drone == null or drone_team == null:
+		return
+	var spot: Vector2 = backup_drone.move_target if backup_drone.has_move_target else backup_drone.global_position
+	if backup_drone.global_position.distance_to(spot) > GameConfig.DRONE_RELIEF_ARRIVED_RADIUS_M * GameConfig.PIXELS_PER_METER:
+		return
+	if _drone_time_until_rtb(backup_drone) < GameConfig.DRONE_RELIEF_MIN_TIME_LEFT_S:
+		return
+	var old: Unit = active_drone
+	active_drone = null
+	_send_drone_home(old, "relieved by the replacement on station")
+
+
 ## How long, in tactical seconds, a drone launched now takes to reach `station` (in the wind of the moment, at the airspeed it would choose),
 ## plus GameConfig.DRONE_REPLACEMENT_ARRIVAL_MARGIN_S.
 func _drone_replacement_lead_time(station: Vector2) -> float:
@@ -3914,7 +3939,7 @@ func _update_active_drone(scenario_delta: float) -> void:
 	if unit_doctrine_for(d).risk != "inherit":
 		planned_destination = _drone_search_target()
 		if _drone_search_exhausted or not _drone_risk_accepts(d, planned_destination):
-			_send_drone_home(d)
+			_send_drone_home(d, "the pilot's own risk limit or nothing left to search")
 			active_drone = null
 			return
 
@@ -3924,13 +3949,14 @@ func _update_active_drone(scenario_delta: float) -> void:
 			if watched != null and _can_engage_position(watched.global_position):
 				# Sacrifice continues -- fall through to keep watching,
 				# ignoring RTB, until the zero-charge check above ends it.
+				_drones_held_past_return[d.get_instance_id()] = true
 				d.move_target = _drone_search_target() if is_inf(planned_destination.x) else planned_destination
 				d.has_move_target = true
 				d.move_queue.clear()
 				d.move_speed = _drone_airspeed_toward(d.global_position, d.move_target)
 				d.movement_predictable = false
 				return
-		_send_drone_home(d)
+		_send_drone_home(d, "reached its return point")
 		active_drone = null
 		return
 
@@ -3939,7 +3965,7 @@ func _update_active_drone(scenario_delta: float) -> void:
 		# Nothing left worth flying to that the battery can reach AND come
 		# back from — the sortie is over; bring the airframe (and what's left
 		# of its charge) home rather than crawl toward a cell it can't afford.
-		_send_drone_home(d)
+		_send_drone_home(d, "nothing left worth flying to that it could afford")
 		active_drone = null
 		return
 	d.move_target = destination
@@ -4001,7 +4027,7 @@ func _update_backup_drone(scenario_delta: float) -> void:
 	# burn its own charge waiting.
 	var not_needed: bool = watched == null and active_drone != null and _drone_time_until_rtb(active_drone) > _drone_replacement_lead_time(station) + GameConfig.DRONE_REPLACEMENT_RECALL_SLACK_S
 	if is_inf(station.x) or not_needed or _drone_should_rtb(d) or not _drone_risk_accepts(d, station):
-		_send_drone_home(d)
+		_send_drone_home(d, "backup: return point, risk, or no longer needed")
 		backup_drone = null
 		return
 
@@ -4039,7 +4065,8 @@ func _drone_full_charge_flight_time() -> float:
 func _drone_ground_speed(airspeed: float, dir: Vector2, with_gusts: bool = true) -> float:
 	if weather == null:
 		return airspeed
-	var wind_px: Vector2 = weather.wind_velocity_mps(weather.drone_operating_altitude_m(), with_gusts) * GameConfig.PIXELS_PER_METER
+	var allowance: float = GameConfig.DRONE_PLAN_GUST_ALLOWANCE_SD
+	var wind_px: Vector2 = weather.wind_velocity_mps(weather.drone_operating_altitude_m(), with_gusts, allowance) * GameConfig.PIXELS_PER_METER
 	return Weather.ground_speed(airspeed, dir, wind_px)
 
 
@@ -4147,7 +4174,7 @@ func _update_drone_weather(scenario_delta: float) -> void:
 		for d in recalled:
 			combat_log.log_drone_recalled_by_rain(d, weather.precip_label())
 			_drones_recalled_by_rain += 1
-			_send_drone_home(d)
+			_send_drone_home(d, "recalled by rain")
 	elif _drone_grounded_for_weather:
 		if weather.precip_mm_h < Weather.DRONE_RESUME_BELOW_MM_H:
 			_drone_weather_clear_s += scenario_delta
@@ -4223,7 +4250,7 @@ func _weather_fail_drone(d: Unit, altitude: float) -> void:
 			active_drone = null
 		else:
 			backup_drone = null
-		_send_drone_home(d)
+		_send_drone_home(d, "weather abort")
 		return
 	combat_log.log_drone_weather_loss(d, cause)
 	_record_drone_loss(d, "weather", "Failed in weather: %s (a failure rate of %.4f per flight-minute at that moment)." % [cause, weather.drone_hazard_per_minute(altitude)], {"hazard_cause": cause, "hazard_per_min": snappedf(weather.drone_hazard_per_minute(altitude), 0.00001)})
@@ -4272,7 +4299,8 @@ func _drone_time_until_rtb(d: Unit) -> float:
 ## Hands off search/shadow duty and turns `d` for a real, simulated flight
 ## home (added to returning_drones) — rather than simply vanishing, so it
 ## stays a legal, visible target the whole way back, same as before.
-func _send_drone_home(d: Unit) -> void:
+func _send_drone_home(d: Unit, reason: String = "") -> void:
+	_note_drone_return_plan(d, reason)
 	combat_log.log_drone_returning(d)
 	d.move_target = drone_team.global_position
 	d.has_move_target = true
@@ -4280,6 +4308,24 @@ func _send_drone_home(d: Unit) -> void:
 	d.move_speed = GameConfig.DRONE_CRUISE_SPEED
 	d.movement_predictable = true # a direct beeline home now, not an erratic search
 	returning_drones.append(d)
+
+
+## Written when a drone turns for home, so a loss on the way (or on arrival) can say what the plan was: the charge it turned with, how far
+## out, the charge it expected to touch down with, why it turned, and whether it had been held past its return point on purpose.
+func _note_drone_return_plan(d: Unit, reason: String) -> void:
+	if drone_team == null:
+		return
+	var leg: float = _drone_leg_charge(d.global_position, drone_team.global_position)
+	var wind: float = weather.wind_speed_at(weather.drone_operating_altitude_m()) if weather != null else 0.0
+	_drone_return_plans[d.get_instance_id()] = {
+		"time_min": snappedf(scenario_elapsed_time / 60.0, 0.1),
+		"reason": reason,
+		"charge_pct": roundi(d.drone_battery_charge * 100.0),
+		"distance_m": roundi(d.global_position.distance_to(drone_team.global_position) / GameConfig.PIXELS_PER_METER),
+		"planned_touchdown_pct": roundi((d.drone_battery_charge - leg) * 100.0),
+		"wind_mps": snappedf(wind, 0.1),
+		"held_past_return_point": _drones_held_past_return.has(d.get_instance_id()),
+	}
 
 
 ## What `d` is doing: "on station" (the active drone), "backup", "returning", or "unknown".
@@ -4312,6 +4358,13 @@ func _record_drone_loss(d: Unit, cause: String, why: String, detail: Dictionary 
 	var team_distance_m := -1
 	if drone_team != null:
 		team_distance_m = roundi(d.global_position.distance_to(drone_team.global_position) / GameConfig.PIXELS_PER_METER)
+	var held: bool = _drones_held_past_return.has(d.get_instance_id())
+	var plan: Dictionary = _drone_return_plans.get(d.get_instance_id(), {})
+	var note := ""
+	if held:
+		note += " The pilot had chosen to hold it past its return point to keep a mortar in sight."
+	if not plan.is_empty():
+		note += " It turned for home (%s) at %d%% charge, %d m out, expecting to touch down with %d%%." % [plan.reason, plan.charge_pct, plan.distance_m, plan.planned_touchdown_pct]
 	_drone_losses.append({
 		"time_min": snappedf(scenario_elapsed_time / 60.0, 0.1),
 		"clock": clock_string(),
@@ -4319,7 +4372,9 @@ func _record_drone_loss(d: Unit, cause: String, why: String, detail: Dictionary 
 		"role": _drone_role(d),
 		"doing": doing,
 		"cause": cause,
-		"why": why,
+		"why": why + note,
+		"held_past_return_point": held,
+		"return_plan": plan,
 		"charge_pct": roundi(d.drone_battery_charge * 100.0),
 		"position": _pos_to_debug_dict(d.global_position),
 		"distance_from_team_m": team_distance_m,
