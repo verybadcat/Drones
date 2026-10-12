@@ -1,7 +1,7 @@
 # Posture and suppression
 
-Status: 2026-10-12. Stages A (one function says whether a unit has terrain protection) and B (a stationary unit in the open goes to
-ground under fire) are built. C, D and E are not.
+Status: 2026-10-12. Stages A (one function says whether a unit has terrain protection), B (a stationary unit goes to ground under
+fire) and C (posture meets cover, concealment, getting up) are built. D and E are not.
 
 ## What was asked for
 
@@ -53,6 +53,15 @@ MOVING, whatever was stored. A unit that is told to move while PRONE spends a ri
 **Protection is the product of two things that were one number**: what is around the unit (terrain: open, trees, building) and how the unit
 is lying in it (posture). Terrain protection is not posture: walls stop bullets for a man standing behind them.
 
+**Posture and cover (stage C; the user raised posture inside a building).** Posture is the person's and cover is the place's, and they
+multiply. The cover tables are what a place does for a man at his post; a squad in a building is upright, not lying on the floor, and
+has the building. Going down is a further factor on top: 1/3 in the open (UK: lying against standing), and 1/2 in cover (UK: firing from
+a trench 1/15-1/50 of standing, crouching in it 1/25-1/100: about half again), smaller because the cover has already taken part of what
+being down does. This keeps every settled number as it was (a squad at its post in trees or a building has what it always had) and makes
+fire do something there: after the reaction time a unit in cover is down and about half as exposed. A squad's 0.2 per person is the figure
+at its post in cover and lying in the open; on its feet in the open it is three times that. A moving unit still has no terrain
+protection (the legacy rule, kept: it is between positions); that is a separate question from posture and is open.
+
 **Posture changes** (stage B and after): a stationary unit goes PRONE a reaction time after fire arrives (a volley aimed at it, a round
 landing near it, suppression above a level); it stays down while the fire lasts and for a while after; it is STANDING again when ordered to
 move, when it has been unmolested for long enough, or by its own initiative. Going down is quick; getting up costs time. The first
@@ -64,7 +73,7 @@ arrivals of a barrage catch a standing unit, which is the "first 10-15 s" effect
 |---|---|---|---|
 | A | `Unit.posture()` and `Unit.exposure_terrain()`; every consumer above asks one function whether the unit has terrain cover. Posture is derived: moving = standing; stationary in trees or a building = prone; stationary in the open = standing | the repeated `OPEN if moving else terrain` | none, asserted for every (activity, terrain) pair against the old rule |
 | B | Stored state: a stationary unit goes to ground under fire (a reaction time), and rises. Protection becomes terrain x posture; PRONE in the open is 1/3 (the UK figure) of standing in the open. The squad's 0.2 splits into a dispersion factor and the prone factor, so a standing squad takes about 3x | the 0.2 hard-wired "often prone"; stationary-in-the-open treated as standing for ever | mortar and small-arms lethality against units that stop in the open falls after the first rounds; a first round on a squad caught moving rises 3x. The share of casualties from artillery (71% today, band 45-75%) will move: measure before and after |
-| C | Posture reaches the other interactions: concealment (a man lying is harder to see), the rise delay before a move, shooting from prone (accuracy, arc), crossfire | the exposed/in-cover tests in `roll_spot` | spotting of still units in the open falls; moving off costs a few seconds |
+| C | Built. Posture meets cover (above). A lying unit in the open is half as likely to be noticed from the ground (`LYING_SPOT_MULTIPLIER`, JUDGMENT; not from the air, not for the spotter whose multiplier is field craft already, not in cover). A unit that is down and told to move gets up first (`RISE_DELAY_S` 2 s, JUDGMENT). Shooting from prone: nothing changed, deliberately: prone is the steadiest firing position and the costs (a narrower view, slower to change target) have no figure found. Not modelled: an observer's own posture lowering what he sees; crossfire arcs for a unit down | the exposed/in-cover tests in `roll_spot`; the player-facing notes (`units_text`) | units that go down under fire in cover are about half as exposed after 3 s; lying squads in the open are harder to find; breaking from cover costs a couple of seconds |
 | D | Suppression drives posture: suppression above a level puts a unit down and keeps it down; a pinned unit rises only when it eases. Deliberate use: a mortar fire mission or base of fire to pin a squad, and squads that wait for cover before a bound | "suppression exists but nobody uses it on purpose" | covering fire becomes a real tool for both sides; a new anchor is needed (rate of advance under covering fire) and none has been found yet |
 | E | DUG_IN: a prepared position, with a build time, a posture factor of 1/15-1/50 of standing | no category | defenders who hold a position for long are far safer from indirect fire, as in the real figures |
 

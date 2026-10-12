@@ -578,7 +578,9 @@ static func units_text() -> String:
 	lines.append("")
 	lines.append("Accuracy: before terrain and range, a Ukrainian squad hits with %s of its shots and a Russian one with %s (the Ukrainians are defending prepared positions). Cover multiplies that by %s in the open, %s in trees and %s in a building, so a squad in trees is hit one-eighth as often as one in the open. Within %s of the shooter, cover no longer protects at all. A moving target has no cover but is hit %s times as often. A shot at point-blank range is up to %s times as likely to hit, the bonus fading with distance. Fire from several directions at once multiplies the damage, up to %s times for a squad that is surrounded. Higher ground partly defeats the cover below it." % [_pct(squad_u.base_hit_chance), _pct(squad_r.base_hit_chance), _num(cover[GameConfig.TerrainType.OPEN]), _num(cover[GameConfig.TerrainType.TREES]), _num(cover[GameConfig.TerrainType.BUILDING]), _metres(GameConfig.CLOSE_RANGE_COVER_DEFEAT_M), _num(GameConfig.MOVING_HIT_MULTIPLIER), _num(GameConfig.SQUAD_CLOSE_RANGE_HIT_MULTIPLIER), _num(CombatResolver.crossfire_multiplier(0.0))])
 	lines.append("")
-	lines.append("Casualties: a small-arms hit costs one person. A mortar round costs about %s of the people left in the squad, and at least one." % _pct(GameConfig.MORTAR_CASUALTY_FRACTION))
+	lines.append("Casualties: a small-arms hit costs one person. A mortar round costs each person in reach a chance that depends on how far from the burst they are, and on their cover and posture: for a squad at its post in cover, or lying in the open, about %s of what a person standing alone in the open would have, and three times that for a squad on its feet in the open." % _pct(GameConfig.MORTAR_CASUALTY_FRACTION))
+	lines.append("")
+	lines.append("Posture: every unit is either upright or down, and a unit that is moving is always upright. A unit standing still stays upright until fire reaches it (a volley aimed at it, or a round landing within %s); %s later it goes to ground, stays down while fire keeps arriving and for %s after the last round, and gets up when it moves, which takes %s. Being down cuts the chance of being hit to %s of what it was in the open (a lying man is a smaller target) and to %s in cover (below the parapet), on top of what the cover itself does; so the first rounds of a barrage catch a squad upright and the later ones do not. A crew that has just fired stays on its feet at the gun. A unit that has gone down in the open is also %s as likely to be noticed." % [_metres(GameConfig.SUPPRESSION_BLAST_RADIUS_M), _secs(GameConfig.GO_TO_GROUND_REACTION_S), _secs(GameConfig.STAY_DOWN_AFTER_FIRE_S), _secs(GameConfig.RISE_DELAY_S), _pct(GameConfig.PRONE_IN_OPEN_FACTOR), _pct(GameConfig.PRONE_IN_COVER_FACTOR), _pct(GameConfig.LYING_SPOT_MULTIPLIER)])
 	lines.append("")
 	lines.append("Suppression: fire that misses still keeps heads down. Each volley aimed at a squad adds %s to its suppression, and a mortar round landing within %s adds up to %s, less the further off it lands. It fades completely in %d minutes. From %s a squad is pinned, and an enemy squad that is pinned does not start a new advance, until it falls below %s. A suppressed squad also shoots worse, by up to %s." % [_pct(GameConfig.SUPPRESSION_PER_VOLLEY), _metres(GameConfig.SUPPRESSION_BLAST_RADIUS_M), _pct(GameConfig.SUPPRESSION_BLAST_MAX), int(round(1.0 / GameConfig.SUPPRESSION_DECAY_PER_S / 60.0)), _pct(GameConfig.SUPPRESSION_PIN_LEVEL), _pct(GameConfig.SUPPRESSION_RELEASE_LEVEL), _pct(GameConfig.SUPPRESSION_MAX_ACCURACY_LOSS)])
 	lines.append("")
@@ -586,7 +588,7 @@ static func units_text() -> String:
 	lines.append("")
 	lines.append("Pace, in metres per second of battle time: it marches at %s, repositions at %s, and withdraws at %s (Ukrainian) or %s (Russian)." % [_num(GameConfig.ENEMY_ADVANCE_SPEED / ppm), _num(GameConfig.REPOSITION_SPEED / ppm), _num(GameConfig.PLAYER_RETREAT_SPEED / ppm), _num(GameConfig.ENEMY_RETREAT_SPEED / ppm)])
 	lines.append("")
-	lines.append("Eyes: it notices enemies out to %s in the open, %s farther from higher ground, and %s times as readily while they are moving. Enemies in trees or buildings are much harder to notice." % [_metres(GameConfig.DETECTION_BASE_RANGE / ppm), _metres(GameConfig.DETECTION_ELEVATION_BONUS / ppm), _num(GameConfig.MOVING_SPOT_MULTIPLIER)])
+	lines.append("Eyes: it notices enemies out to %s in the open, %s farther from higher ground, and %s times as readily while they are moving. Enemies in trees or buildings are much harder to notice, and so are those lying in the open." % [_metres(GameConfig.DETECTION_BASE_RANGE / ppm), _metres(GameConfig.DETECTION_ELEVATION_BONUS / ppm), _num(GameConfig.MOVING_SPOT_MULTIPLIER)])
 	lines.append("")
 	lines.append("MORTARS")
 	lines.append("Crew-served indirect fire: it can hit whatever its side can see, from far beyond small-arms range.")
@@ -656,6 +658,11 @@ static func _metres(metres: float) -> String:
 ## 0.26 -> "26%"
 static func _pct(fraction: float) -> String:
 	return "%d%%" % int(round(fraction * 100.0))
+
+
+## 3 -> "3 seconds"
+static func _secs(seconds: float) -> String:
+	return "%s second%s" % [_num(seconds), "" if is_equal_approx(seconds, 1.0) else "s"]
 
 
 ## A figure as short as it can be: 1.6, 0.2, 2, 4.

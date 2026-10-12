@@ -6780,6 +6780,25 @@ const PRONE_IN_OPEN_FACTOR: float = 1.0 / 3.0
 const GO_TO_GROUND_REACTION_S: float = 3.0
 const STAY_DOWN_AFTER_FIRE_S: float = 45.0
 
+## Posture and cover (stage C). Posture belongs to the person and cover to the place, and they multiply. The cover tables
+## (SQUAD_COVER_MULTIPLIER, MORTAR_COVER_MULTIPLIER) are what a place does for a man at his post; going down is worth a further factor,
+## smaller than in the open because the cover has already taken the part of the benefit that comes from being behind something. Sourced:
+## the UK WWII figures give firing from a trench at 1/15 to 1/50 of standing and crouching in a trench at 1/25 to 1/100, which is about
+## half again (the geometric means are 27 and 50). Applied to a squad in a building or in trees going down under fire, and the same
+## for a crew. A squad's 0.2 per person (MORTAR_CASUALTY_FRACTION) is the figure at its post in cover and lying in the open, so a
+## squad in cover has it at its post and half of it down.
+const PRONE_IN_COVER_FACTOR: float = 0.5
+
+## A lying unit in the OPEN is harder to notice from the ground: a lower silhouette, nothing standing up against the sky. JUDGMENT: no
+## figure found; half the chance of being spotted. Not applied to a drone looking down (a lying man is no smaller from above), to the
+## spotter (whose SPOTTER_EXPOSED_CONCEALMENT_MULTIPLIER is already the field craft of a man who goes prone and keeps still), or in
+## cover (the terrain's own concealment is the effect there).
+const LYING_SPOT_MULTIPLIER: float = 0.5
+
+## A unit that is down and is told to move gets up first. JUDGMENT: a couple of seconds for a soldier in kit; the infantry drill for a
+## rush ("I'm up, he sees me, I'm down") is built around being up for three to five seconds.
+const RISE_DELAY_S: float = 2.0
+
 
 ## How much a blob's effective radius is stretched (>1) or pinched (<1) in
 ## the direction `theta` (radians from its center) — a sum of cosine

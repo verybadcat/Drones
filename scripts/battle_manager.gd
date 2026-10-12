@@ -2367,18 +2367,18 @@ func _note_fire_arrival(u: Unit) -> void:
 	u.fire_arrived_at = now
 
 
-## Once a tick: every ground unit standing still in the open that fire has been arriving at goes to ground GO_TO_GROUND_REACTION_S after
-## the spell of fire began, stays down while it lasts and for STAY_DOWN_AFTER_FIRE_S after the last round, and then gets up. A unit that
-## moves is upright from that moment (Unit.posture), and nothing is kept: it must react again if it stops under fire. A mortar crew that
-## has fired within its reload cycle is serving the gun, and stays on its feet. In cover there is nothing to do: Unit.posture says it is
-## down behind it already.
+## Once a tick: every ground unit standing still that fire has been arriving at goes to ground GO_TO_GROUND_REACTION_S after the spell
+## of fire began (in the open or in cover: a squad in a building gets down below the windows too), stays down while it lasts and for
+## STAY_DOWN_AFTER_FIRE_S after the last round, and then gets up. A unit that moves is upright from that moment (Unit.posture), and
+## nothing is kept: it must react again if it stops under fire. A mortar crew that has fired within its reload cycle is serving the gun,
+## and stays on its feet.
 func _update_postures() -> void:
 	var now: float = scenario_elapsed_time
 	for u in player_units + enemy_units:
 		if u.kind == Unit.Kind.DRONE:
 			continue
 		var alive: bool = u.state == Unit.State.ACTIVE or u.state == Unit.State.RETREATING
-		if not alive or u.activity == Unit.Activity.MOVING or GameConfig.is_in_cover(u.terrain_type()):
+		if not alive or u.activity == Unit.Activity.MOVING:
 			u.gone_to_ground = false
 			continue
 		var since_fire: float = now - u.fire_arrived_at
@@ -7542,6 +7542,15 @@ func _tick_movement(scenario_delta: float) -> void:
 			# window entirely rather than just shrinking it.
 			unit.move_target = _resupply_run_destination(unit, unit.resupply_target_mortar.global_position)
 			unit.has_move_target = true
+		# A unit that is down and has been told to move gets up first (GameConfig.RISE_DELAY_S), and spends that time where it is.
+		var wants_to_move: bool = unit.state == Unit.State.RETREATING or (unit.state == Unit.State.ACTIVE and unit.has_move_target)
+		if unit.gone_to_ground and wants_to_move:
+			unit.rising_for += scenario_delta
+			if unit.rising_for < GameConfig.RISE_DELAY_S:
+				unit.seconds_stationary += scenario_delta
+				continue
+			unit.gone_to_ground = false
+		unit.rising_for = 0.0
 		if unit.state == Unit.State.RETREATING:
 			if unit.has_move_target:
 				_step_toward_target(unit, scenario_delta)

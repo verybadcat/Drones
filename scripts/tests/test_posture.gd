@@ -1,12 +1,12 @@
 extends SceneTree
-## Posture (docs/designs/posture-and-suppression.md, stage A). Direct user ruling: "Posture should be something that all units have at all
+## Posture (docs/designs/posture-and-suppression.md, stages A and C). Direct user ruling: "Posture should be something that all units have at all
 ## times. Not just tied to particular situations such as mortar fire. A moving unit has to be standing up."
 ##
 ## Every ground unit has a posture; a moving one is STANDING whatever else is true; and every place that asks "does this unit have terrain
 ## protection" asks the one function (Unit.exposure_terrain), so the answers cannot disagree: a direct shot, a shell's blast, a crew's
-## casualty roll and the friendly-fire estimate. Stage A changes no number for a unit that is stationary or moving in the open, or
-## stationary in cover; the one deliberate change is a moving CREW in cover, which the direct-hit and cook-off rolls used to protect
-## although the blast path (and the invariant) says a moving unit has no terrain protection.
+## casualty roll and the friendly-fire estimate. Posture is the person's and cover is the place's (stage C): a stationary unit has the
+## terrain it is in whether it is upright or down, and a unit in a building is upright at its post, not lying on the floor, until fire
+## gives it a reason. A moving CREW in cover has none, as the blast path always said.
 ##
 ## Run: godot --headless --path . --script scripts/tests/test_posture.gd
 const Log = preload("res://scripts/tests/test_combat_log.gd")
@@ -41,8 +41,8 @@ func run() -> void:
 	var places := {GameConfig.TerrainType.OPEN: open_v, GameConfig.TerrainType.BUILDING: in_building}
 	check(GameConfig.get_terrain_type_at(open_v) == GameConfig.TerrainType.OPEN, "Setup: open ground on the building map")
 
-	# 1. every ground kind, every terrain: moving is standing and has no terrain protection; stationary is down in cover, upright in the open;
-	# the answer is the old rule (OPEN when moving, else the terrain under the unit) in every one of the cases
+	# 1. every ground kind, every terrain: moving is standing and has no terrain protection; stationary is upright at its post, with the
+	# protection of the terrain it is in; the answer is the old rule (OPEN when moving, else the terrain under the unit) in every case
 	var kinds := [Unit.Kind.SQUAD, Unit.Kind.MORTAR, Unit.Kind.SPOTTER, Unit.Kind.DRONE_TEAM, Unit.Kind.RESUPPLY_RUN]
 	for kind in kinds:
 		for terrain in places:
@@ -52,8 +52,8 @@ func run() -> void:
 			check(moving.posture() == Unit.Posture.STANDING, "A moving %s is standing" % name)
 			check(moving.exposure_terrain() == GameConfig.TerrainType.OPEN, "A moving %s has no terrain protection" % name)
 			var still := unit_at(Unit.Team.PLAYER, kind, p, false)
-			var expect_posture := Unit.Posture.PRONE if GameConfig.is_in_cover(terrain) else Unit.Posture.STANDING
-			check(still.posture() == expect_posture, "A stationary %s: posture %s" % [name, Unit.Posture.keys()[expect_posture]])
+			check(still.posture() == Unit.Posture.STANDING, "A stationary %s that nothing has fired at is upright at its post" % name)
+			check(is_equal_approx(still.posture_factor(), 1.0), "...so being down is worth nothing to it yet (%s)" % name)
 			check(still.exposure_terrain() == terrain, "A stationary %s has the protection of its terrain" % name)
 			moving.free()
 			still.free()
@@ -62,7 +62,7 @@ func run() -> void:
 	drone.free()
 	# a forecast asks about a place the unit is not at
 	var elsewhere := unit_at(Unit.Team.PLAYER, Unit.Kind.SQUAD, open_v, false)
-	check(elsewhere.posture(in_building) == Unit.Posture.PRONE and elsewhere.exposure_terrain(in_building) == GameConfig.TerrainType.BUILDING, "Asked about a place in a building, a stationary unit would be down in it")
+	check(elsewhere.posture(in_building) == Unit.Posture.STANDING and elsewhere.exposure_terrain(in_building) == GameConfig.TerrainType.BUILDING, "Asked about a place in a building, a stationary unit would be upright in it and have it")
 	elsewhere.activity = Unit.Activity.MOVING
 	check(elsewhere.posture(in_building) == Unit.Posture.STANDING, "...and a moving one would not")
 	elsewhere.free()

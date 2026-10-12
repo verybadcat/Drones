@@ -60,6 +60,8 @@ var seconds_stationary: float = 1e9
 ## under fire; when fire last arrived at it and when the current spell of fire began (scenario time); and, for a mortar crew, when it last
 ## fired a round (a crew serving its gun is on its feet).
 var gone_to_ground: bool = false
+## How long (tactical seconds) a unit that is down has been trying to move, getting up (GameConfig.RISE_DELAY_S).
+var rising_for: float = 0.0
 var fire_arrived_at: float = -1e9
 var fire_episode_started_at: float = -1e9
 var last_round_fired_at: float = -1e9
@@ -1040,36 +1042,38 @@ func terrain_type() -> GameConfig.TerrainType:
 
 ## The unit's posture, at `at` (this unit's own position when omitted; a forecast asks about a place it may be). Direct user ruling:
 ## "Posture should be something that all units have at all times ... A moving unit has to be standing up." So a unit that is MOVING is
-## STANDING whatever else is true: this is how the function is built, nothing has to keep it so. A stationary unit is PRONE where there is
-## cover to be down behind (trees, a building: the cover tables already say how much that protects), and in the open it is STANDING until
-## fire has arrived and it has gone to ground (`gone_to_ground`, kept by BattleManager._update_postures; it only counts for the place the
-## unit is at: asked about another place, a unit would arrive upright). A DRONE is airborne and has no posture to speak of: STANDING.
+## STANDING whatever else is true: this is how the function is built, nothing has to keep it so. A stationary unit is STANDING (upright:
+## at its post, at a window, behind a tree) until fire has arrived and it has gone to ground (`gone_to_ground`, kept by
+## BattleManager._update_postures; it only counts for the place the unit is at: asked about another place, a unit would arrive upright).
+## Posture is a property of the person, not of the place: a squad inside a building is upright, not lying on the floor, until fire
+## gives it a reason; what the place does for it is exposure_terrain, and the two multiply (posture_factor). A DRONE is airborne and has
+## no posture to speak of: STANDING.
 func posture(at: Vector2 = Vector2.INF) -> Posture:
 	if activity == Activity.MOVING or kind == Kind.DRONE:
 		return Posture.STANDING
 	var here: bool = is_inf(at.x) or at.distance_to(global_position) < 1.0
-	var where: Vector2 = global_position if here else at
-	if GameConfig.is_in_cover(GameConfig.get_terrain_type_at(where)):
-		return Posture.PRONE
 	return Posture.PRONE if (here and gone_to_ground) else Posture.STANDING
 
 
-## How much a lying man in the OPEN is protected from a bullet or a fragment compared with the same man on his feet
-## (GameConfig.PRONE_IN_OPEN_FACTOR); 1 for anyone else. In cover the cover tables already are the protection of a man down behind it, so
-## the lying factor is not applied again.
+## What being down is worth to this unit, against a bullet or a fragment, on top of the protection of the place it is in (the cover tables,
+## which are for a man at his post): GameConfig.PRONE_IN_OPEN_FACTOR in the open (lying against standing), GameConfig.PRONE_IN_COVER_FACTOR
+## in cover (crouched below the parapet against firing over it); 1 for a unit that is upright or moving.
 func posture_factor(at: Vector2 = Vector2.INF) -> float:
 	if posture(at) != Posture.PRONE:
 		return 1.0
 	var where: Vector2 = global_position if is_inf(at.x) else at
-	return GameConfig.PRONE_IN_OPEN_FACTOR if GameConfig.get_terrain_type_at(where) == GameConfig.TerrainType.OPEN else 1.0
+	if GameConfig.get_terrain_type_at(where) == GameConfig.TerrainType.OPEN:
+		return GameConfig.PRONE_IN_OPEN_FACTOR
+	return GameConfig.PRONE_IN_COVER_FACTOR
 
 
-## The terrain whose protection this unit has right now: the terrain it is in if it is down, the open if it is upright (a man on his feet
-## gets nothing from the trees he walks through that a bullet or a fragment cares about). The one place the question is asked.
+## The terrain whose protection this unit has right now: the terrain it is in if it is stationary, the open if it is on the move (a unit
+## that has broken cover to move is between positions: the price the movement multipliers in CombatResolver already charge). Posture
+## does not decide this: an upright squad in a building has the building. The one place the question is asked.
 func exposure_terrain(at: Vector2 = Vector2.INF) -> GameConfig.TerrainType:
-	if posture(at) == Posture.PRONE:
-		return GameConfig.get_terrain_type_at(global_position if is_inf(at.x) else at)
-	return GameConfig.TerrainType.OPEN
+	if activity == Activity.MOVING or kind == Kind.DRONE:
+		return GameConfig.TerrainType.OPEN
+	return GameConfig.get_terrain_type_at(global_position if is_inf(at.x) else at)
 
 
 ## A drone flies over everything on the ground: drawn above every other unit, whatever order

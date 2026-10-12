@@ -1,10 +1,11 @@
 extends SceneTree
-## Posture, stage B (docs/designs/posture-and-suppression.md): a unit that is standing still in the open goes to ground a reaction time
+## Posture, stages B and C (docs/designs/posture-and-suppression.md): a unit that is standing still goes to ground a reaction time
 ## after fire arrives, stays down while it lasts and for a while after, and is upright again when it moves. User: "Posture should be
 ## something that all units have at all times", and "If we add posture, it can't just be under fire. It would have to be throughout the
 ## game." The first rounds of a barrage catch a unit upright; later ones find it down, protected by about a third (the UK WWII
-## figure); a unit on the move is always upright, so it takes about three times what a lying one does; a crew serving its gun is
-## upright; cover is as before.
+## figure in the open, a half in cover, on top of the cover's own); a unit on the move is always upright, so it takes about three
+## times what a lying one does; a crew serving its gun is upright; a unit that is down and told to move gets up first; a man lying in
+## the open is harder to spot; a unit in a building is upright at its post, with the building's protection, until fire gives it a reason.
 ##
 ## Run: godot --headless --path . --script scripts/tests/test_posture_under_fire.gd
 const Log = preload("res://scripts/tests/test_combat_log.gd")
@@ -42,6 +43,13 @@ func unit(c: Dictionary, team: Unit.Team, kind: Unit.Kind, point: Vector2) -> Un
 func advance(c: Dictionary, seconds: float) -> void:
 	c.bm.scenario_elapsed_time += seconds
 	c.bm._update_postures()
+
+func spot_rate(watcher: Unit, target: Unit, trials: int) -> float:
+	var n := 0
+	for i in trials:
+		if CombatResolver.roll_spot(watcher, target, 1.0):
+			n += 1
+	return float(n) / float(trials)
 
 func cleanup(c: Dictionary) -> void:
 	c.bm.combat_log.free()
@@ -112,14 +120,34 @@ func run() -> void:
 	var crew_up: float = CombatResolver.blast_person_chance(crew, m(20).length(), crew.exposure_terrain())
 	check(crew_up > 0.0 and absf(crew_down / crew_up - down_factor) < 0.02, "A crew down takes %.2f of the chance of one on its feet (%.3f against %.3f)" % [crew_down / maxf(crew_up, 0.0001), crew_down, crew_up])
 
-	# 5. in cover nothing changes: it is down behind the cover from the start, and the factor is not applied twice
+	# 5. in cover: the building is the protection of a man at his post and he is upright there (not lying on the floor); fire sends him
+	# down, and that is worth a further half (not a third: the cover has already done part of it), on top of the building
 	var held: Unit = unit(c, Unit.Team.PLAYER, Unit.Kind.SQUAD, c.building)
 	var foe2: Unit = unit(c, Unit.Team.ENEMY, Unit.Kind.SQUAD, c.building + m(300))
-	var in_cover_before: float = CombatResolver.hit_probability(foe2, held)
+	var at_post: float = CombatResolver.hit_probability(foe2, held)
+	var person_at_post: float = CombatResolver.blast_person_chance(held, m(20).length(), held.exposure_terrain())
+	check(held.posture() == Unit.Posture.STANDING and is_equal_approx(held.posture_factor(), 1.0), "In a building a squad is upright at its post until fire arrives")
+	check(held.exposure_terrain() == GameConfig.TerrainType.BUILDING, "...and has the building's protection")
 	bm._note_fire_arrival(held)
-	advance(c, 10.0)
-	check(held.posture() == Unit.Posture.PRONE and is_equal_approx(held.posture_factor(), 1.0), "In a building it is down, and the lying factor is not added to the building's own")
-	check(is_equal_approx(CombatResolver.hit_probability(foe2, held), in_cover_before), "...so the building's protection is exactly as it was under fire")
+	advance(c, GameConfig.GO_TO_GROUND_REACTION_S + 0.5)
+	check(held.posture() == Unit.Posture.PRONE and held.posture_factor() > 0.4 and held.posture_factor() < 0.6, "Under fire it goes down on the floor, worth about a half (UK: firing from a trench 1/15-1/50, crouching in it 1/25-1/100)")
+	var down_in_cover: float = CombatResolver.hit_probability(foe2, held)
+	check(absf(down_in_cover / at_post - held.posture_factor()) < 0.01 and held.posture_factor() < 0.6, "A bullet finds it half as easily, on top of the building (%.4f against %.4f)" % [down_in_cover, at_post])
+	var person_down: float = CombatResolver.blast_person_chance(held, m(20).length(), held.exposure_terrain())
+	check(absf(person_down / person_at_post - held.posture_factor()) < 0.02 and person_down < 0.6 * person_at_post, "A fragment: half as likely to catch a man down in the building (%.4f against %.4f)" % [person_down, person_at_post])
+	# the squad's 0.2 per person is the figure at its post in cover and lying in the open: not three times that in a building
+	var open_lying := unit(c, Unit.Team.PLAYER, Unit.Kind.SQUAD, c.open + m(0, 500))
+	open_lying.gone_to_ground = true
+	var open_up := unit(c, Unit.Team.PLAYER, Unit.Kind.SQUAD, c.open + m(0, 1000))
+	var open_q_lying: float = CombatResolver.blast_person_chance(open_lying, 0.0, open_lying.exposure_terrain())
+	var open_q_up: float = CombatResolver.blast_person_chance(open_up, 0.0, open_up.exposure_terrain())
+	check(absf(open_q_up / open_q_lying - 3.0) < 0.05, "In the open a squad on its feet has three times the casualty area of one lying (%.3f against %.3f)" % [open_q_up, open_q_lying])
+	# a crew in a building: the building's curve at its post, half of it down
+	var building_crew: Unit = unit(c, Unit.Team.PLAYER, Unit.Kind.MORTAR, c.building + m(2, 2))
+	var crew_post: float = CombatResolver.blast_person_chance(building_crew, m(15).length(), building_crew.exposure_terrain())
+	building_crew.gone_to_ground = true
+	var crew_floor: float = CombatResolver.blast_person_chance(building_crew, m(15).length(), building_crew.exposure_terrain())
+	check(crew_post > 0.0 and absf(crew_floor / crew_post - 0.5) < 0.02, "A crew in cover: half the chance down (%.4f against %.4f)" % [crew_floor, crew_post])
 
 	# 6. the real paths record fire: a direct volley (whoever it is aimed at) and a round landing within 60 m, any ground unit
 	var target: Unit = unit(c, Unit.Team.PLAYER, Unit.Kind.SQUAD, c.open + m(2000, 0))
@@ -155,6 +183,57 @@ func run() -> void:
 		u.free()
 	var ratio: float = float(up_total) / maxf(float(down_total), 1.0)
 	check(ratio > 2.4 and ratio < 3.8 and down_total > 0, "A round on men caught upright costs about three times what it does once they are down (%d against %d casualties in %d rounds, ratio %.2f)" % [up_total, down_total, trials, ratio])
+
+	# 8. stage C, concealment: a man lying in the open is half as likely to be noticed from the ground; not in cover (the terrain's own
+	# concealment is the effect there), not a spotter (his multiplier is already field craft)
+	var c2 := make()
+	var watcher: Unit = unit(c2, Unit.Team.ENEMY, Unit.Kind.SQUAD, c2.open)
+	var lying_squad: Unit = unit(c2, Unit.Team.PLAYER, Unit.Kind.SQUAD, c2.open + m(120))
+	var spotter_lying: Unit = unit(c2, Unit.Team.PLAYER, Unit.Kind.SPOTTER, c2.open + m(0, 120))
+	var trials8 := 4000
+	seed(5150)
+	var up_rate: float = spot_rate(watcher, lying_squad, trials8)
+	lying_squad.gone_to_ground = true
+	var down_rate: float = spot_rate(watcher, lying_squad, trials8)
+	check(up_rate > 0.05 and absf(down_rate / up_rate - GameConfig.LYING_SPOT_MULTIPLIER) < 0.12, "A squad lying in the open is spotted at %.2f of the rate of one upright (%.3f against %.3f)" % [down_rate / maxf(up_rate, 0.0001), down_rate, up_rate])
+	var sp_up: float = spot_rate(watcher, spotter_lying, trials8)
+	spotter_lying.gone_to_ground = true
+	var sp_down: float = spot_rate(watcher, spotter_lying, trials8)
+	check(sp_up > 0.02 and absf(sp_down / sp_up - 1.0) < 0.25, "A spotter's own field craft is not counted twice (%.3f against %.3f)" % [sp_down, sp_up])
+	cleanup(c2)
+
+	# 9. stage C, getting up: a unit that is down and told to move waits RISE_DELAY_S where it is, and then goes; one at its post goes at once
+	var c3 := make()
+	var down: Unit = unit(c3, Unit.Team.PLAYER, Unit.Kind.SQUAD, c3.open)
+	var post: Unit = unit(c3, Unit.Team.PLAYER, Unit.Kind.SQUAD, c3.open + m(0, 400))
+	down.gone_to_ground = true
+	for u in [down, post]:
+		u.move_target = u.position + m(300)
+		u.has_move_target = true
+		u.move_speed = 2.0 * GameConfig.PIXELS_PER_METER
+	var start_down: Vector2 = down.position
+	var start_post: Vector2 = post.position
+	c3.bm._tick_movement(0.5)
+	check(post.position != start_post and post.activity == Unit.Activity.MOVING, "A squad at its post is under way on the first tick")
+	check(down.position == start_down and down.activity == Unit.Activity.STATIONARY and down.gone_to_ground, "A squad that is down has not moved after half a second: it is getting up")
+	for i in 2:
+		c3.bm._tick_movement(0.5)
+	check(down.position == start_down, "...nor after a second and a half")
+	for i in 3:
+		c3.bm._tick_movement(0.5)
+	check(down.position != start_down and not down.gone_to_ground and down.posture() == Unit.Posture.STANDING, "...but is under way once the rise time has passed, and upright")
+	cleanup(c3)
+
+	# 10. shooting from prone: a shooter's own posture does not change what he hits (prone is the steadiest position; the cost, a narrower
+	# view, has no figure found: see docs/designs/posture-and-suppression.md)
+	var c4 := make()
+	var lying_shooter: Unit = unit(c4, Unit.Team.ENEMY, Unit.Kind.SQUAD, c4.open)
+	var mark: Unit = unit(c4, Unit.Team.PLAYER, Unit.Kind.SQUAD, c4.open + m(250))
+	var before_prone: float = CombatResolver.hit_probability(lying_shooter, mark)
+	lying_shooter.gone_to_ground = true
+	check(is_equal_approx(CombatResolver.hit_probability(lying_shooter, mark), before_prone), "A shooter lying down hits as well as one on his feet")
+	cleanup(c4)
+
 	cleanup(c)
 
 	print("Posture under fire tests: %d failures" % failures)

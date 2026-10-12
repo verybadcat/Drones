@@ -78,16 +78,23 @@ static func blast_casualty_chance(distance: float, max_chance: float, terrain: G
 ## often prone, so only GameConfig.MORTAR_CASUALTY_FRACTION of that. Direct user instruction: how many a round costs a unit follows from
 ## where it lands, one person at a time, not a fixed share of the unit once any part of it is "hit".
 static func blast_person_chance(unit: Unit, distance: float, terrain: GameConfig.TerrainType) -> float:
-	# The curve is for a man on his feet, in the terrain given; one lying in the open has GameConfig.PRONE_IN_OPEN_FACTOR of it.
+	# The curve (with the terrain's own cover in it) is for a man on his feet at his post; going down is worth Unit.posture_factor on top:
+	# a third in the open, a half in cover.
 	var lying: float = unit.posture_factor()
 	if unit.kind == Unit.Kind.MORTAR or unit.kind == Unit.Kind.DRONE_TEAM:
 		return blast_casualty_chance(distance, 1.0, terrain) * lying
 	var chance: float = blast_casualty_chance(distance, GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, terrain)
 	if unit.max_pips <= 1:
 		return chance * lying
-	# A squad member's fraction (MORTAR_CASUALTY_FRACTION) is the figure for a man lying down, dispersed: casualty area times density
-	# (docs/designs/realism-anchors.md, A7). On his feet, in the open or on the move, the same man has about three times the area.
-	var scale: float = 1.0 if unit.posture() == Unit.Posture.PRONE else 1.0 / GameConfig.PRONE_IN_OPEN_FACTOR
+	# A squad member's fraction (MORTAR_CASUALTY_FRACTION) is the figure for a man lying in the open, dispersed (casualty area times
+	# density: docs/designs/realism-anchors.md, A7) and, in cover, for a man at his post. On his feet in the open, or on the move, the same
+	# man has about three times the area; in cover he has the fraction, and half of it once down.
+	var scale: float = 1.0
+	if terrain == GameConfig.TerrainType.OPEN:
+		if unit.posture() == Unit.Posture.STANDING:
+			scale = 1.0 / GameConfig.PRONE_IN_OPEN_FACTOR
+	else:
+		scale = lying
 	return minf(chance * GameConfig.MORTAR_CASUALTY_FRACTION * scale, 1.0)
 
 
@@ -226,6 +233,12 @@ static func roll_spot(observer: Unit, target: Unit, scenario_delta: float) -> bo
 		chance *= GameConfig.tree_sight_transmission(observer.get_instance_id(), target.get_instance_id(), observer.global_position, target.global_position)
 	var concealment_table: Dictionary = GameConfig.DRONE_CONCEALMENT_MULTIPLIER if observer_is_drone else CONCEALMENT_MULTIPLIER
 	chance *= concealment_table[target.terrain_type()]
+	# A man lying in the open is harder to notice from the ground (GameConfig.LYING_SPOT_MULTIPLIER). Not for a drone looking down; not for
+	# the spotter, whose own multiplier below is already a man going prone and keeping still; not in cover, where the terrain's own
+	# concealment is the effect.
+	if not observer_is_drone and target.kind != Unit.Kind.SPOTTER and target.posture() == Unit.Posture.PRONE \
+			and target.terrain_type() == GameConfig.TerrainType.OPEN:
+		chance *= GameConfig.LYING_SPOT_MULTIPLIER
 	# A drone whose team is itself on the move is flown with divided attention and a shakier
 	# feed: slightly less likely to notice what is in its view.
 	if observer_is_drone and observer.drone_operator_moving:
@@ -461,8 +474,8 @@ static func hit_probability(attacker: Unit, defender: Unit, drone_directing_mult
 			# longer protects (a target in the open keeps its exposure penalty, which is above 1).
 			if origin.distance_to(point) <= GameConfig.CLOSE_RANGE_COVER_DEFEAT_M * GameConfig.PIXELS_PER_METER:
 				cover_multiplier = maxf(cover_multiplier, 1.0)
-		# A man lying in the open is a smaller, harder target than one on his feet (Unit.posture_factor: 1 for anyone upright, moving, or in
-		# cover, where the table above already is the protection of a man down behind it).
+		# A man who has gone to ground is a smaller, harder target than one at his post (Unit.posture_factor: a third in the open, a half in
+		# cover on top of the table above; 1 for anyone upright or moving).
 		chance = attacker.base_hit_chance * cover_multiplier * defender.posture_factor(point)
 		if attacker.kind != Unit.Kind.MORTAR:
 			var distance: float = origin.distance_to(point)
