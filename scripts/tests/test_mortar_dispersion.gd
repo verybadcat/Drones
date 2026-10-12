@@ -58,12 +58,12 @@ func test_no_observer_never_converges() -> void:
 	# shot 1 for a target nobody is watching.
 	for i in TRIALS:
 		bm._mortar_fire_adjustment.erase(mortar)
-		early += bm._mortar_dispersion_offset(mortar, target, aim_point).length()
+		early += fire_round(bm, mortar, target, aim_point).length()
 	for i in TRIALS:
 		bm._mortar_fire_adjustment.erase(mortar)
 		for j in 10: # burn 10 "prior" shots at this same target before the one actually measured
-			bm._mortar_dispersion_offset(mortar, target, aim_point)
-		late += bm._mortar_dispersion_offset(mortar, target, aim_point).length()
+			fire_round(bm, mortar, target, aim_point)
+		late += fire_round(bm, mortar, target, aim_point).length()
 	var early_avg := early / TRIALS
 	var late_avg := late / TRIALS
 	check(absf(early_avg - late_avg) < early_avg * 0.35,
@@ -99,15 +99,15 @@ func test_spotter_observation_converges() -> void:
 	const EARLY_TRIALS := 200
 	for i in EARLY_TRIALS:
 		bm._mortar_fire_adjustment.erase(mortar)
-		early_total += bm._mortar_dispersion_offset(mortar, target, aim_point).length()
+		early_total += fire_round(bm, mortar, target, aim_point).length()
 	var early_avg := early_total / EARLY_TRIALS
 
 	for i in 10: # prime enough corrected shots to approach the convergence floor
-		bm._mortar_dispersion_offset(mortar, target, aim_point)
+		fire_round(bm, mortar, target, aim_point)
 	var late_total := 0.0
 	const LATE_TRIALS := 200
 	for i in LATE_TRIALS:
-		late_total += bm._mortar_dispersion_offset(mortar, target, aim_point).length()
+		late_total += fire_round(bm, mortar, target, aim_point).length()
 	var late_avg := late_total / LATE_TRIALS
 
 	# The spotter's own convergence floor is well under half this
@@ -149,13 +149,13 @@ func test_drone_converges_tighter_than_spotter() -> void:
 	const ROUNDS := 15
 	const TRIALS := 1000
 	for i in ROUNDS - 1:
-		bm._mortar_dispersion_offset(spotter_mortar, target_a, target_a.global_position)
-		bm._mortar_dispersion_offset(drone_mortar, target_b, target_b.global_position)
+		fire_round(bm, spotter_mortar, target_a, target_a.global_position)
+		fire_round(bm, drone_mortar, target_b, target_b.global_position)
 	var spotter_total := 0.0
 	var drone_total := 0.0
 	for i in TRIALS:
-		spotter_total += bm._mortar_dispersion_offset(spotter_mortar, target_a, target_a.global_position).length()
-		drone_total += bm._mortar_dispersion_offset(drone_mortar, target_b, target_b.global_position).length()
+		spotter_total += fire_round(bm, spotter_mortar, target_a, target_a.global_position).length()
+		drone_total += fire_round(bm, drone_mortar, target_b, target_b.global_position).length()
 	var spotter_avg := spotter_total / TRIALS
 	var drone_avg := drone_total / TRIALS
 	# A hard analytic bound, not just a relative comparison between two
@@ -229,9 +229,9 @@ func test_walk_in_orders_drone_fastest_spotter_middling_none_absent() -> void:
 		bm._mortar_fire_adjustment[none_mortar] = {"target": none_target, "shots": ROUNDS - 1}
 		bm._mortar_fire_adjustment[spotter_mortar] = {"target": spotter_target, "shots": ROUNDS - 1}
 		bm._mortar_fire_adjustment[drone_mortar] = {"target": drone_target, "shots": ROUNDS - 1}
-		none_total += bm._mortar_dispersion_offset(none_mortar, none_target, none_target.global_position).length()
-		spotter_total += bm._mortar_dispersion_offset(spotter_mortar, spotter_target, spotter_target.global_position).length()
-		drone_total += bm._mortar_dispersion_offset(drone_mortar, drone_target, drone_target.global_position).length()
+		none_total += fire_round(bm, none_mortar, none_target, none_target.global_position).length()
+		spotter_total += fire_round(bm, spotter_mortar, spotter_target, spotter_target.global_position).length()
+		drone_total += fire_round(bm, drone_mortar, drone_target, drone_target.global_position).length()
 	var none_avg := none_total / TRIALS
 	var spotter_avg := spotter_total / TRIALS
 	var drone_avg := drone_total / TRIALS
@@ -243,7 +243,7 @@ func test_walk_in_orders_drone_fastest_spotter_middling_none_absent() -> void:
 	var none_first_shot_total := 0.0
 	for i in 200:
 		bm._mortar_fire_adjustment.erase(none_mortar)
-		none_first_shot_total += bm._mortar_dispersion_offset(none_mortar, none_target, none_target.global_position).length()
+		none_first_shot_total += fire_round(bm, none_mortar, none_target, none_target.global_position).length()
 	var none_first_shot_avg := none_first_shot_total / 200
 	check(absf(none_avg - none_first_shot_avg) < none_first_shot_avg * 0.35,
 		"Unobserved fire after %d rounds is statistically indistinguishable from its own very first, unadjusted shot — no walk-in at all (round-%d avg=%.1f px vs first-shot avg=%.1f px)" % [ROUNDS, ROUNDS, none_avg, none_first_shot_avg])
@@ -271,11 +271,11 @@ func test_target_switch_resets_adjustment() -> void:
 
 	seed(998877)
 	for i in 8:
-		bm._mortar_dispersion_offset(mortar, target_a, target_a.global_position)
+		fire_round(bm, mortar, target_a, target_a.global_position)
 	check(bm._mortar_fire_adjustment.get(mortar, {}).get("shots", 0) >= 8,
 		"After several corrected shots at target A, the adjustment counter must have advanced")
 
-	bm._mortar_dispersion_offset(mortar, target_b, target_b.global_position)
+	fire_round(bm, mortar, target_b, target_b.global_position)
 	var after_switch: Dictionary = bm._mortar_fire_adjustment.get(mortar, {})
 	check(after_switch.get("target") == target_b and after_switch.get("shots", -1) == 1,
 		"Switching to a new target must reset the adjustment counter — a correction learned against target A's aim point doesn't apply to target B's (got target=%s shots=%s)" % [after_switch.get("target"), after_switch.get("shots")])
@@ -294,3 +294,12 @@ func run() -> void:
 	else:
 		print("Mortar dispersion tests: %d failures" % failures)
 	quit()
+
+
+## One round fired, landed and seen: the offset it had, with the correction from it noted for the next round (a round fired before the
+## ones in the air have landed gets none: see BattleManager._note_round_landed).
+func fire_round(bm, mortar: Unit, target: Unit, aim: Vector2) -> Vector2:
+	var offset: Vector2 = bm._mortar_dispersion_offset(mortar, target, aim)
+	bm.scenario_elapsed_time += 20.0
+	bm._note_round_landed(mortar, target)
+	return offset

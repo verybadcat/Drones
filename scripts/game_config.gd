@@ -9260,6 +9260,9 @@ const MORTAR_BLAST_COLLATERAL_SEARCH_RADIUS: float = 100.0 * PIXELS_PER_METER
 ## fraction of range works the same regardless of which side's own max
 ## range it's measured against. See BattleManager._mortar_dispersion_offset.
 const MORTAR_DISPERSION_CEP_FRACTION_OF_RANGE: float = 0.03
+## Rounds that land within this many seconds of each other are one observation of the fall of shot, so one correction. A salvo of two to four
+## rounds, fired within a few seconds, lands within a few seconds. JUDGMENT.
+const MORTAR_CORRECTION_WINDOW_S: float = 10.0
 ## Even a short shot isn't perfect — met data, propellant-lot, and lay
 ## error impose a floor regardless of range. Judgment call, not directly
 ## cited: kept comfortably below MORTAR_EVASION_RADIUS so short-range shots

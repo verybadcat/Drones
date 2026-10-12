@@ -338,7 +338,7 @@ func first_shot_offsets(bm, mortar: Unit, target: Unit, missions: int) -> Array[
 	var out: Array[float] = []
 	for i in missions:
 		bm._mortar_fire_adjustment.erase(mortar)
-		out.append(bm._mortar_dispersion_offset(mortar, target, target.global_position).x / GameConfig.PIXELS_PER_METER)
+		out.append(fire_round(bm, mortar, target, target.global_position).x / GameConfig.PIXELS_PER_METER)
 	return out
 
 func mean_of(a: Array[float]) -> float:
@@ -377,8 +377,8 @@ func test_one_crew_error_persists_through_a_mission() -> void:
 	var second: Array[float] = []
 	for i in 1500:
 		bm._mortar_fire_adjustment.erase(mortar)
-		first.append(bm._mortar_dispersion_offset(mortar, target, target.global_position).x)
-		second.append(bm._mortar_dispersion_offset(mortar, target, target.global_position).x)
+		first.append(fire_round(bm, mortar, target, target.global_position).x)
+		second.append(fire_round(bm, mortar, target, target.global_position).x)
 	var shared: float = _correlation(first, second)
 	check(shared > 0.07 and shared < 0.3, "Unobserved shots in one mission share the crew's correction error, about 0.14 at this range (correlation %.2f)" % shared)
 
@@ -389,8 +389,8 @@ func fifth_shot_sd(bm, mortar: Unit, target: Unit, missions: int) -> float:
 	for i in missions:
 		bm._mortar_fire_adjustment.erase(mortar)
 		for shot in 4:
-			bm._mortar_dispersion_offset(mortar, target, target.global_position)
-		offsets.append(bm._mortar_dispersion_offset(mortar, target, target.global_position).x / GameConfig.PIXELS_PER_METER)
+			fire_round(bm, mortar, target, target.global_position)
+		offsets.append(fire_round(bm, mortar, target, target.global_position).x / GameConfig.PIXELS_PER_METER)
 	return sd_of(offsets)
 
 
@@ -429,10 +429,10 @@ func test_a_wind_that_changes_mid_mission_leaves_the_crew_correcting_for_the_old
 	for i in 1500:
 		w.wind_speed_10m = 8.0 / pow(30.0, 0.14)
 		bm._mortar_fire_adjustment.erase(mortar)
-		bm._mortar_dispersion_offset(mortar, target, target.global_position) # the crew settles on its correction at 8 m/s aloft
+		fire_round(bm, mortar, target, target.global_position) # the crew settles on its correction at 8 m/s aloft
 		w.wind_speed_10m = 12.0 / pow(30.0, 0.14) # ...then the wind picks up to 12
 		bm._mortar_fire_adjustment[mortar].shots = 0 # keep the first-shot convergence for a clean comparison
-		after_change.append(bm._mortar_dispersion_offset(mortar, target, target.global_position).x / GameConfig.PIXELS_PER_METER)
+		after_change.append(fire_round(bm, mortar, target, target.global_position).x / GameConfig.PIXELS_PER_METER)
 	check(absf(mean_of(after_change) - 40.0) < 5.0, "A wind up from 8 to 12 m/s aloft pushes rounds ~40 m further downwind than the crew allowed for (mean %.1f m)" % mean_of(after_change))
 
 
@@ -784,3 +784,12 @@ func run() -> void:
 	Weather.current = null
 	print("Weather tests: %d failures" % failures)
 	quit(1 if failures else 0)
+
+
+## One round fired, landed and seen: the offset it had, with the correction from it noted for the next round (a round fired before the
+## ones in the air have landed gets none: see BattleManager._note_round_landed).
+func fire_round(bm, mortar: Unit, target: Unit, aim: Vector2) -> Vector2:
+	var offset: Vector2 = bm._mortar_dispersion_offset(mortar, target, aim)
+	bm.scenario_elapsed_time += 20.0
+	bm._note_round_landed(mortar, target)
+	return offset

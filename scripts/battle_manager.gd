@@ -8207,9 +8207,10 @@ func _mortar_dispersion_offset(mortar: Unit, target: Unit, aim_point: Vector2) -
 			adjustment["wind_assumed"] = weather.crew_wind_estimate_px(GameConfig.MORTAR_FLIGHT_TIME)
 	var shots_corrected_from: int = adjustment.get("shots", 0)
 
+	# The corrections made are those from rounds that have LANDED and been seen (see _note_round_landed): a round fired while earlier
+	# ones are still in the air (forty seconds of flight against a thirty-second reload, and every round of a salvo within the same few
+	# seconds) is aimed on what the crew knew before any of them fell, however many have been launched.
 	var spread: Dictionary = _mortar_dispersion_spread(mortar, target, aim_point, shots_corrected_from)
-	if spread.quality != "none":
-		adjustment.shots = shots_corrected_from + 1
 	_mortar_fire_adjustment[mortar] = adjustment
 
 	var sigma: float = spread.cep / 1.1774
@@ -8227,6 +8228,26 @@ func _mortar_dispersion_offset(mortar: Unit, target: Unit, aim_point: Vector2) -
 ## The scatter (CEP, in pixels) and the per-correction decay of the next round `mortar` fires at `target` aimed at `aim_point`, given
 ## `shots_corrected_from` rounds already corrected from; and how well the fall of shot is observed ("quality"). No side effects: the
 ## state of the fire mission is only advanced by _mortar_dispersion_offset when a round is actually launched.
+## A round of `mortar` aimed at `target` has landed: if someone on its side is watching where rounds fall, the next round is corrected from
+## it. Rounds that land together (a salvo: within MORTAR_CORRECTION_WINDOW_S of each other) are one observation, one correction, not one each.
+## Direct user question, after a single tube destroyed two enemy mortar teams and hurt a third in three salvoes: "Is that realistic?" It was
+## not: every round of a salvo had counted as a correction on the one before it, before any had landed.
+func _note_round_landed(mortar: Unit, target: Unit) -> void:
+	if mortar == null or not is_instance_valid(mortar) or target == null or not is_instance_valid(target):
+		return
+	var adjustment: Dictionary = _mortar_fire_adjustment.get(mortar, {})
+	if adjustment.is_empty() or adjustment.get("target") != target:
+		return
+	if _mortar_fire_observation_quality(mortar, target) == "none":
+		return # nobody is watching where it fell: there is nothing to correct from
+	var last: float = adjustment.get("last_correction_time", -INF)
+	if scenario_elapsed_time - last < GameConfig.MORTAR_CORRECTION_WINDOW_S:
+		return
+	adjustment["shots"] = int(adjustment.get("shots", 0)) + 1
+	adjustment["last_correction_time"] = scenario_elapsed_time
+	_mortar_fire_adjustment[mortar] = adjustment
+
+
 func _mortar_dispersion_spread(mortar: Unit, target: Unit, aim_point: Vector2, shots_corrected_from: int) -> Dictionary:
 	var range_to_target: float = mortar.global_position.distance_to(aim_point)
 	var base_cep: float = max(GameConfig.MORTAR_DISPERSION_UNADJUSTED_FLOOR, GameConfig.MORTAR_DISPERSION_CEP_FRACTION_OF_RANGE * range_to_target)
@@ -8343,6 +8364,7 @@ func _resolve_pending_mortar_shots() -> void:
 		# whether or not that unit is still there.
 		var landed: Array[Dictionary] = _apply_shell_blast(shot.impact_point, shot.mortar)
 		_narrate_shell_landing(shot.mortar, intended, shot.impact_point, landed)
+		_note_round_landed(shot.mortar, intended)
 	_pending_mortar_shots = still_pending
 
 
@@ -10140,6 +10162,7 @@ func _resolve_pending_counter_battery() -> void:
 			target.evading_counter_battery = true
 		# What the round does is the same as any other (see _apply_shell_blast): whoever is near where it lands.
 		var landed: Array[Dictionary] = _apply_shell_blast(strike.impact_position, attacker_unit)
+		_note_round_landed(attacker_unit, target)
 		var found_target := false
 		for rec in landed:
 			if rec.unit == target:

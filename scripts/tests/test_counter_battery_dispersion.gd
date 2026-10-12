@@ -67,7 +67,7 @@ func run() -> void:
 		var fresh: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, m(300, 1500 + i)) # a new target each time: no adjustment is carried over
 		bm.player_units.append(fresh)
 		var aim: Vector2 = fresh.global_position
-		ordinary.append(bm._mortar_dispersion_offset(c.responder, fresh, aim).length() / GameConfig.PIXELS_PER_METER)
+		ordinary.append(fire_round(bm, c.responder, fresh, aim).length() / GameConfig.PIXELS_PER_METER)
 	var ord_med: float = median(ordinary)
 	check(absf(med - ord_med) < 0.2 * cep, "...the same as an ordinary round's (%.0f m against %.0f m)" % [med, ord_med])
 	check(errors.min() < 0.9 * cep and errors.max() > 1.5 * cep, "...spread over a wide range (%.0f to %.0f m), not a fixed offset" % [errors.min(), errors.max()])
@@ -97,7 +97,12 @@ func run() -> void:
 	var sixth_errors: Array = []
 	for trial in 120:
 		bm._mortar_fire_adjustment.clear()
-		var series: Array = fire_strikes(bm, c.responder, c.target, 6)
+		# one round at a time, each landing and being seen before the next is fired (rounds fired together get no correction from each other)
+		var series: Array = []
+		for r in 6:
+			series.append_array(fire_strikes(bm, c.responder, c.target, 1))
+			bm.scenario_elapsed_time += 20.0
+			bm._note_round_landed(c.responder, c.target)
 		first_errors.append(series[0])
 		sixth_errors.append(series[5])
 	check(median(sixth_errors) < 0.6 * median(first_errors), "With the fall of shot watched, the sixth round lands much closer than the first (%.0f m against %.0f m)" % [median(sixth_errors), median(first_errors)])
@@ -105,3 +110,12 @@ func run() -> void:
 	bm.free()
 	print("Counter-battery dispersion tests: %d failures" % failures)
 	quit(1 if failures else 0)
+
+
+## One round fired, landed and seen: the offset it had, with the correction from it noted for the next round (a round fired before the
+## ones in the air have landed gets none: see BattleManager._note_round_landed).
+func fire_round(bm, mortar: Unit, target: Unit, aim: Vector2) -> Vector2:
+	var offset: Vector2 = bm._mortar_dispersion_offset(mortar, target, aim)
+	bm.scenario_elapsed_time += 20.0
+	bm._note_round_landed(mortar, target)
+	return offset
