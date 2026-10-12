@@ -439,7 +439,9 @@ static func hit_probability(attacker: Unit, defender: Unit, drone_directing_mult
 	else:
 		var moving := defender.activity == Unit.Activity.MOVING
 		var cover_table: Dictionary = MORTAR_COVER_MULTIPLIER if attacker.kind == Unit.Kind.MORTAR else SQUAD_COVER_MULTIPLIER
-		var cover_multiplier: float = 1.0 if moving else cover_table[GameConfig.get_terrain_type_at(point)]
+		# A moving unit is standing and has no terrain protection (its price is the movement multipliers below); a stationary one has the
+		# protection of its posture where it is (Unit.exposure_terrain).
+		var cover_multiplier: float = 1.0 if moving else cover_table[defender.exposure_terrain(point)]
 		# A high-ground attacker partially defeats the defender's own cover
 		# — see ELEVATION_COVER_DEFEAT_FRACTION's own doc comment for the
 		# real doctrine (and its limits) behind this. Direct fire only:

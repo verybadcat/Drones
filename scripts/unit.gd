@@ -24,6 +24,9 @@ enum Kind { SQUAD, MORTAR, SPOTTER, DRONE_TEAM, DRONE, RESUPPLY_RUN }
 ## folding into "withdrew safely." DESTROYED: out of action for good.
 enum State { ACTIVE, RETREATING, WITHDRAWN, DESTROYED, SURRENDERED }
 enum Activity { STATIONARY, MOVING }
+## How the unit is carrying itself: upright (walking, running, or standing still) or down (lying or crouched behind whatever is there).
+## Every ground unit has one at every moment; see posture() and docs/designs/posture-and-suppression.md.
+enum Posture { STANDING, PRONE }
 
 var team: Team = Team.PLAYER
 var kind: Kind = Kind.SQUAD
@@ -512,7 +515,7 @@ func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_pos
 	# blast covering an area — it stays a flat single casualty, exactly
 	# like a squad's own from_mortar distinction (see take_hit above).
 	# Only a real HE hit rolls the distance-and-cover-aware model below.
-	var newly_down: int = _roll_crew_casualties(remaining, impact_distance, terrain_type()) if from_mortar else min(1, remaining)
+	var newly_down: int = _roll_crew_casualties(remaining, impact_distance, exposure_terrain()) if from_mortar else min(1, remaining)
 	if blast_casualties >= 0:
 		newly_down = mini(blast_casualties, remaining) # already worked out by the caller, person by person
 	crew_casualties += newly_down
@@ -577,7 +580,7 @@ func _roll_mortar_ammo_cookoff() -> bool:
 	if remaining > 0:
 		# The secondary explosion goes off right where the crew already is —
 		# a real distance of 0, not the original round's own impact point.
-		var newly_down: int = _roll_crew_casualties(remaining, 0.0, terrain_type())
+		var newly_down: int = _roll_crew_casualties(remaining, 0.0, exposure_terrain())
 		crew_casualties += newly_down
 		_categorize_casualties(newly_down)
 	ammo_cooked_off = true
@@ -1026,6 +1029,26 @@ func elevation() -> float:
 
 func terrain_type() -> GameConfig.TerrainType:
 	return GameConfig.get_terrain_type_at(global_position)
+
+
+## The unit's posture, at `at` (this unit's own position when omitted; a forecast asks about a place it may be). Direct user ruling:
+## "Posture should be something that all units have at all times ... A moving unit has to be standing up." So a unit that is MOVING is
+## STANDING whatever else is true: this is how the function is built, nothing has to keep it so. A stationary unit is, for now, PRONE where
+## there is cover to be down behind (trees, a building) and STANDING in the open, which is what every protection number in CombatResolver
+## already assumed. A DRONE is airborne and has no posture to speak of: STANDING.
+func posture(at: Vector2 = Vector2.INF) -> Posture:
+	if activity == Activity.MOVING or kind == Kind.DRONE:
+		return Posture.STANDING
+	var where: Vector2 = global_position if is_inf(at.x) else at
+	return Posture.PRONE if GameConfig.is_in_cover(GameConfig.get_terrain_type_at(where)) else Posture.STANDING
+
+
+## The terrain whose protection this unit has right now: the terrain it is in if it is down, the open if it is upright (a man on his feet
+## gets nothing from the trees he walks through that a bullet or a fragment cares about). The one place the question is asked.
+func exposure_terrain(at: Vector2 = Vector2.INF) -> GameConfig.TerrainType:
+	if posture(at) == Posture.PRONE:
+		return GameConfig.get_terrain_type_at(global_position if is_inf(at.x) else at)
+	return GameConfig.TerrainType.OPEN
 
 
 ## A drone flies over everything on the ground: drawn above every other unit, whatever order

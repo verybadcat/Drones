@@ -8300,7 +8300,7 @@ func _mortar_friendly_fire_check(mortar: Unit, target: Unit, aim: Vector2) -> Di
 		nearest = minf(nearest, d)
 		if d > GameConfig.MORTAR_BLAST_COLLATERAL_SEARCH_RADIUS + 3.0 * sigma:
 			continue # too far from anywhere the round can plausibly land to matter
-		var terrain: GameConfig.TerrainType = GameConfig.TerrainType.OPEN if u.activity == Unit.Activity.MOVING else GameConfig.get_terrain_type_at(u.global_position)
+		var terrain: GameConfig.TerrainType = u.exposure_terrain()
 		# The expected chance over the scatter: a fixed set of points laid out like a Gaussian of this sigma (rings by equal probability,
 		# turned a golden angle each), so the check is deterministic and cheap.
 		var total := 0.0
@@ -8395,7 +8395,7 @@ func _apply_shell_blast(impact: Vector2, attacker: Unit) -> Array[Dictionary]:
 	near.sort_custom(func(a: Unit, b: Unit) -> bool: return impact.distance_to(a.global_position) < impact.distance_to(b.global_position))
 	for u in near:
 		var distance: float = impact.distance_to(u.global_position)
-		var terrain: GameConfig.TerrainType = GameConfig.TerrainType.OPEN if u.activity == Unit.Activity.MOVING else GameConfig.get_terrain_type_at(u.global_position)
+		var terrain: GameConfig.TerrainType = u.exposure_terrain()
 		# One person at a time: each of the unit's people is a casualty with the chance for this distance and this cover. A round that
 		# costs a unit nobody is no hit; a crew that has a round land close still reacts to it (it knows it is being shelled).
 		var is_crew: bool = u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM
