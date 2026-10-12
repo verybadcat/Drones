@@ -22,14 +22,14 @@ func m(x: float, y: float) -> Vector2:
 
 func run() -> void:
 	GameConfig.set_active_map("voznesensk")
-	# the cost function itself: none at 50 m or more, linear below, the whole weight on top of another unit
+	# the cost function itself: none at 75 m or more (GameConfig.SQUAD_SPACING_PREFERRED, the desirable distance), linear below, the whole weight on top of another unit
 	var others: Array[Vector2] = [m(0, 0)]
-	check(is_zero_approx(GameConfig.squad_spacing_cost(m(50, 0), others)) and is_zero_approx(GameConfig.squad_spacing_cost(m(80, 0), others)), "No cost at 50 m or more from another unit")
+	check(is_zero_approx(GameConfig.squad_spacing_cost(m(75, 0), others)) and is_zero_approx(GameConfig.squad_spacing_cost(m(100, 0), others)), "No cost at 75 m or more from another unit")
 	var at_35: float = GameConfig.squad_spacing_cost(m(35, 0), others)
 	var at_10: float = GameConfig.squad_spacing_cost(m(10, 0), others)
 	var at_0: float = GameConfig.squad_spacing_cost(m(0, 0), others)
 	check(at_0 > at_10 and at_10 > at_35 and at_35 > 0.0, "Closer costs more, scaling with the distance (0 m %.0f, 10 m %.0f, 35 m %.0f)" % [at_0, at_10, at_35])
-	check(is_equal_approx(at_0, GameConfig.SQUAD_SPACING_WEIGHT) and absf(at_35 - 0.3 * GameConfig.SQUAD_SPACING_WEIGHT) < 0.5, "...linearly: the whole weight on top of another unit, 30% of it at 35 m")
+	check(is_equal_approx(at_0, GameConfig.SQUAD_SPACING_WEIGHT) and absf(at_35 - (1.0 - 35.0 / 75.0) * GameConfig.SQUAD_SPACING_WEIGHT) < 0.5, "...linearly: the whole weight on top of another unit, 53% of it at 35 m")
 	check(GameConfig.squad_spacing_cost(m(5, 0), []) == 0.0, "Nothing to keep clear of, no cost")
 
 	# the real case: a squad already stands in the tree patch at (1665, 1855); another comes for cover from beside it
@@ -47,11 +47,20 @@ func run() -> void:
 		nearest_sum += d
 		if d < 35.0:
 			under35 += 1
-		if d < 50.0:
+		if d < 75.0:
 			under50 += 1
 	# measured: with the preference 0 of 600 under 35 m, 122 under 50 m, mean 58 m; without it 75, 441, 50.5 m
 	check(under35 == 0, "A squad coming for cover beside one already there never ends within 35 m of it (%d of %d did)" % [under35, total])
-	check(float(under50) / float(total) < 0.35, "...and seldom within the preferred 50 m (%d of %d; 441 of 600 without the preference)" % [under50, total])
+	# the preferred distance is 75 m now, and cover that far from a neighbour is not always near: the preference cannot make it so, only
+	# choose it where it is. Against the same squad ignoring the neighbour (the position of nobody to keep clear of: avoid empty), fewer end
+	# within the preferred distance.
+	var baseline_under := 0
+	seed(7)
+	for i in total:
+		var q: Vector2 = GameConfig.nearest_cover_point(from, 0.0, false, [])
+		if q.distance_to(ally) / GameConfig.PIXELS_PER_METER < 75.0:
+			baseline_under += 1
+	check(under50 < baseline_under, "...and within the preferred 75 m less often than ignoring the neighbour (%d of %d against %d)" % [under50, total, baseline_under])
 	check(nearest_sum / float(total) > 55.0, "...standing 55 m or more away on average (%.1f m; 50.5 m without the preference)" % (nearest_sum / float(total)))
 
 	# without anyone to keep clear of, the old behaviour is unchanged (a point in the nearest cover)

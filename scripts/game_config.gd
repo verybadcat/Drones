@@ -9708,7 +9708,9 @@ static func _random_point_in_cover_zone(zone: Dictionary) -> Vector2:
 ## How far apart squads prefer to stand. User: "I would discourage squads from taking up positions within 50 meters of each other for sure ...
 ## prefer 50m away. It should scale with distance. For example, if there is no plausible cover 50m away, but there is a plausible spot 35m
 ## away, that should be better than being in the same place."
-const SQUAD_SPACING_PREFERRED: float = 50.0 * PIXELS_PER_METER
+## (Now SQUAD_DESIRED_SPACING, 75 m: "Use 75m as the desirable distance. This does NOT mean they can never be closer. It means they strive for
+## 75 meters": a mortar round on one squad catches its neighbour within about that distance.)
+const SQUAD_SPACING_PREFERRED: float = 75.0 * PIXELS_PER_METER
 ## What standing on top of another unit costs, in metres of walking: the cost of a spot is this times the shortfall from the preferred spacing
 ## (linear: 35 m from a neighbour is 30% short, so costs 45 m of walking; 10 m is 80% short, 120 m).
 const SQUAD_SPACING_WEIGHT: float = 150.0 * PIXELS_PER_METER

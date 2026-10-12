@@ -7727,8 +7727,19 @@ func _retreat_spacing_offset(unit: Unit) -> float:
 		push += away * closeness
 	if is_zero_approx(push):
 		return 0.0
-	var pressure: float = 1.0 if unit.taking_fire else 0.0
+	return clampf(push, -1.0, 1.0) * (1.0 - _enemy_squad_pressure(unit))
+
+
+## How hard enemy squads press on `unit`, 0 to 1, from what its side knows of them: each known enemy squad within SQUAD_DANGER_RANGE counts
+## with its pips (none at that range, in full at SQUAD_ENGAGEMENT_RANGE or nearer), set against the pips of the friendly squads standing
+## with it (within 300 m, itself included). One enemy squad against two of ours is not pressure (0); equal numbers about half; outnumbered
+## full. A squad taking fire is under full pressure. Direct user instruction: "If they are under pressure from other squads, it could be
+## reasonable to be closer" (spacing between squads is a preference that fades with it).
+func _enemy_squad_pressure(unit: Unit) -> float:
+	if unit.taking_fire:
+		return 1.0
 	var opposing: Array[Unit] = enemy_units if unit.team == Unit.Team.PLAYER else player_units
+	var theirs := 0.0
 	for e in opposing:
 		if e.kind != Unit.Kind.SQUAD or (e.state != Unit.State.ACTIVE and e.state != Unit.State.RETREATING):
 			continue
@@ -7737,9 +7748,16 @@ func _retreat_spacing_offset(unit: Unit) -> float:
 			continue
 		var at: Vector2 = e.player_known_position if unit.team == Unit.Team.PLAYER else e.enemy_known_position
 		var dist: float = unit.global_position.distance_to(at)
-		var p: float = clampf((GameConfig.SQUAD_DANGER_RANGE - dist) / (GameConfig.SQUAD_DANGER_RANGE - GameConfig.SQUAD_ENGAGEMENT_RANGE), 0.0, 1.0)
-		pressure = maxf(pressure, p)
-	return clampf(push, -1.0, 1.0) * (1.0 - pressure)
+		var weight: float = clampf((GameConfig.SQUAD_DANGER_RANGE - dist) / (GameConfig.SQUAD_DANGER_RANGE - GameConfig.SQUAD_ENGAGEMENT_RANGE), 0.0, 1.0)
+		theirs += weight * float(maxi(e.pips, 1))
+	if theirs <= 0.0:
+		return 0.0
+	var mates: Array[Unit] = player_units if unit.team == Unit.Team.PLAYER else enemy_units
+	var ours := 0.0
+	for o in mates:
+		if o.kind == Unit.Kind.SQUAD and (o.state == Unit.State.ACTIVE or o.state == Unit.State.RETREATING) and o.global_position.distance_to(unit.global_position) <= 300.0 * GameConfig.PIXELS_PER_METER:
+			ours += float(maxi(o.pips, 1))
+	return clampf(theirs / maxf(ours, 1.0) - 0.5, 0.0, 1.0)
 
 
 func _sidestep_building(unit: Unit, scenario_delta: float, blocked_pos: Vector2) -> void:
@@ -9523,6 +9541,39 @@ func _screen_point(mortar: Unit, threat: Vector2, slot: int, count: int) -> Vect
 	return base + dir.orthogonal() * (float(slot) - float(count - 1) * 0.5) * SCREEN_SQUAD_SPACING
 
 
+const SPREAD_REASON: String = "Moving apart from a neighbouring squad (a round on one would catch both)."
+
+## Where a squad standing in cover goes to open the gap to another friendly squad closer than GameConfig.SQUAD_DESIRED_SPACING, or its own
+## position if it stays. Direct user instruction: "Use 75m as the desirable distance. This does NOT mean they can never be closer. It means
+## they strive for 75 meters", and "If they are under pressure from other squads, it could be reasonable to be closer." So: only when no
+## real enemy pressure is on it (_enemy_squad_pressure under one half), only to a cover point that is actually farther from the others (its
+## spacing cost is lower: GameConfig.squad_spacing_cost), and only the one of a pair that gets to it first (a squad already on its way apart
+## does not count as a neighbour, so the other stays). Returns u.global_position unchanged when it does not act.
+func _spread_from_neighbour(u: Unit, known_enemies: Array[Vector2], claimed: Array[Vector2]) -> Vector2:
+	var others: Array[Vector2] = []
+	var nearest := INF
+	for o in player_units:
+		if o == u or o.kind != Unit.Kind.SQUAD or o.state != Unit.State.ACTIVE:
+			continue
+		if o.has_move_target and o.last_order_reason == SPREAD_REASON:
+			continue # on its way apart already
+		others.append(o.global_position)
+		nearest = minf(nearest, u.global_position.distance_to(o.global_position))
+	if nearest >= GameConfig.SQUAD_DESIRED_SPACING:
+		return u.global_position
+	if _enemy_squad_pressure(u) >= 0.5:
+		return u.global_position
+	var all_others: Array[Vector2] = others + claimed
+	var dest: Vector2 = GameConfig.nearest_cover_point(u.global_position, 0.0, false, all_others, known_enemies)
+	if dest == u.global_position:
+		return u.global_position
+	if GameConfig.squad_spacing_cost(dest, all_others) >= GameConfig.squad_spacing_cost(u.global_position, all_others) - 1.0:
+		return u.global_position # no better a place than this one
+	if _advances_past_fall_back_line(u, dest):
+		return u.global_position
+	return dest
+
+
 func _update_friendly_squad_positioning() -> void:
 	var known_enemies := _known_enemy_positions(Unit.Team.PLAYER)
 	var at_risk: Dictionary = {}
@@ -9560,6 +9611,15 @@ func _update_friendly_squad_positioning() -> void:
 		# occupying a position uses available cover from the moment it's
 		# there, not just once something's spotted approaching.
 		if GameConfig.is_in_cover(u.terrain_type()):
+			var apart: Vector2 = _spread_from_neighbour(u, known_enemies, claimed)
+			if apart != u.global_position:
+				u.last_order_reason = SPREAD_REASON
+				u.move_target = apart
+				u.has_move_target = true
+				u.move_queue.clear()
+				u.move_speed = GameConfig.REPOSITION_SPEED
+				u.movement_predictable = false
+				claimed.append(apart)
 			continue
 		var cover_dest: Vector2 = GameConfig.nearest_cover_point(u.global_position, 0.0, false, _ally_positions_for(u) + claimed, known_enemies)
 		if cover_dest == u.global_position:

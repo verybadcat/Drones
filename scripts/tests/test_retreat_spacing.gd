@@ -80,28 +80,39 @@ func run() -> void:
 	bm.combat_log.free()
 	bm.free()
 
-	# 4. under pressure from enemy squads it relaxes: none known -> full; one 800 m away (inside the danger range) -> less; one at 300 m or
-	# the squad taking fire -> none
+	# 4. under pressure from enemy squads it relaxes, by their strength against ours (two squads here, 18 pips): none known -> full; one enemy
+	# squad (9 pips) is not pressure even close; three 800 m away (inside the danger range, half weight) -> less; three at 300 m, or the squad
+	# taking fire -> none
 	bm = make()
 	a = squad(bm, Vector2(2000.0, 1000.0))
 	b = squad(bm, Vector2(2000.0, 1024.0))
 	var calm: float = absf(bm._retreat_spacing_offset(a))
 	check(calm > 0.4, "Setup: with nothing around the push is strong (%.2f)" % calm)
-	var e := foe(bm, Vector2(2800.0, 1000.0)) # 800 m
+	var e1 := foe(bm, Vector2(2300.0, 1000.0)) # 300 m
+	check(absf(bm._retreat_spacing_offset(a)) > 0.4, "One enemy squad 300 m away against two of ours is not pressure: the preference stands (%.2f)" % absf(bm._retreat_spacing_offset(a)))
+	var e2 := foe(bm, Vector2(2800.0, 1100.0))
+	var e3 := foe(bm, Vector2(2800.0, 900.0))
+	for e in [e1, e2, e3]:
+		e.pips = 9
+	e1.global_position = Vector2(m(2800.0), m(1000.0)) # three squads, 800 m
+	e1.player_known_position = e1.global_position
 	var some: float = absf(bm._retreat_spacing_offset(a))
-	check(some < calm and some > 0.0, "With an enemy squad 800 m away the preference is weaker (%.2f against %.2f)" % [some, calm])
-	e.global_position = Vector2(m(2300.0), m(1000.0)) # 300 m: inside engagement range
-	e.player_known_position = e.global_position
-	check(bm._retreat_spacing_offset(a) == 0.0, "With an enemy squad within engagement range it is gone: the squads may stay as close as they are")
-	e.global_position = Vector2(m(4000.0), m(1000.0))
-	e.player_known_position = e.global_position
+	check(some < calm and some > 0.0, "With three enemy squads 800 m away against our two the preference is weaker (%.2f against %.2f)" % [some, calm])
+	for e in [e1, e2, e3]:
+		e.global_position = Vector2(m(2300.0), m(1000.0)) # 300 m: inside engagement range
+		e.player_known_position = e.global_position
+	check(bm._retreat_spacing_offset(a) == 0.0, "With three enemy squads within engagement range it is gone: the squads may stay as close as they are")
+	for e in [e1, e2, e3]:
+		e.global_position = Vector2(m(4000.0), m(1000.0))
+		e.player_known_position = e.global_position
 	a.taking_fire = true
 	check(bm._retreat_spacing_offset(a) == 0.0, "...and gone while the squad is taking fire")
 	a.taking_fire = false
-	e.global_position = Vector2(m(2300.0), m(1000.0))
-	e.player_known_position = e.global_position
-	e.player_has_been_sighted = false
-	check(absf(bm._retreat_spacing_offset(a)) > 0.4, "An enemy squad this side has not sighted exerts no pressure (it acts only on what it knows)")
+	for e in [e1, e2, e3]:
+		e.global_position = Vector2(m(2300.0), m(1000.0))
+		e.player_known_position = e.global_position
+		e.player_has_been_sighted = false
+	check(absf(bm._retreat_spacing_offset(a)) > 0.4, "Enemy squads this side has not sighted exert no pressure (it acts only on what it knows)")
 	bm.combat_log.free()
 	bm.free()
 
