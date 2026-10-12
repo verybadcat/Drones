@@ -7315,6 +7315,19 @@ const SCENARIO_START_HOUR: float = 6.0
 # actually watch): a steady infantry march, a hastened but not panicked
 # withdrawal, and a brisk dash for cover, respectively.
 const ENEMY_ADVANCE_SPEED: float = 1.4 * PIXELS_PER_METER
+## A squad that has stopped with nothing it can shoot at (no line of sight to the opposing squad it is facing: at its standoff ring, for an
+## enemy squad; holding its cover with a known enemy squad within reach, for ours) does not stay for ever: each full minute it has been
+## idle it has this chance of doing something sensible, moving to a position with a line of sight on that squad (and, for the enemy,
+## failing that, closing on it). Direct user ruling, on whether Russian squads do that: "They do it, but slowly ... give them a chance
+## every minute to do something sensible. They may sit for a while, but not indefinitely." The sources found (weak NCO corps, "simple battle
+## drills", a rigid top-down command, 2022) say the improvisation comes late and from above: 0.2 a minute, a mean wait of five minutes (a
+## third are still waiting after five, one in nine after ten). JUDGMENT.
+const ENEMY_STANDOFF_INITIATIVE_CHANCE_PER_MIN: float = 0.2
+## Ours: "Do the same thing for our squads, but probably a higher chance per minute as individual initiative is expected": 0.4 a minute, a
+## mean wait of two and a half minutes. JUDGMENT.
+const PLAYER_STANDOFF_INITIATIVE_CHANCE_PER_MIN: float = 0.4
+## How far from where it stands such a squad looks for a position with a line of sight.
+const SQUAD_FIRE_POSITION_SEARCH_RADIUS: float = 250.0 * PIXELS_PER_METER
 const ENEMY_RETREAT_SPEED: float = 2.2 * PIXELS_PER_METER
 # A single squad's OWN casualty threshold — bottom-up, that one unit's own
 # losses only. See ENEMY_COMMANDER_RETREAT_THRESHOLD below for the

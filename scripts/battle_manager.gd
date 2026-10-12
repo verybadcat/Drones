@@ -952,6 +952,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drones_lost_to_low_battery = 0
 	_drone_losses.clear()
 	friendly_fire_hits.clear()
+	_standoff_idle.clear()
 	_drones_held_past_return.clear()
 	_drone_return_plans.clear()
 	_drones_aborted_by_weather = 0
@@ -8730,6 +8731,10 @@ func _update_enemy_squad_advance() -> void:
 		if rush_target == u.global_position:
 			if consolidating:
 				u.last_order_reason = "Gathered: not enough of an advantage to attack, so waiting clear of the friendly squads."
+			else:
+				var facing: Vector2 = _known_friendly_squad_objective(u)
+				if not is_inf(facing.x):
+					_squad_standoff_initiative(u, facing, GameConfig.ENEMY_STANDOFF_INITIATIVE_CHANCE_PER_MIN, true, false)
 			continue
 		u.last_order_reason = "Falling back to the gathering point, clear of the friendly squads." if consolidating else "No target available: advance another bound toward the current objective."
 		u.move_target = rush_target
@@ -8737,6 +8742,77 @@ func _update_enemy_squad_advance() -> void:
 		u.move_queue.clear()
 		u.move_speed = GameConfig.ENEMY_ADVANCE_SPEED
 		u.movement_predictable = false # a deliberate rush, not the road-bound march
+
+
+## A squad that has stopped with nothing to shoot at (an enemy squad at its standoff ring, see _next_advance_point, which holds once within
+## ENEMY_SURROUND_STANDOFF_RADIUS of its objective; or one of ours holding its cover with a known enemy squad within reach) waits, and every
+## full minute of it has a chance of doing something sensible: moving to a nearby place with a line of sight on the squad `facing` (its last
+## known position) within range (cover preferred, and for `require_cover` only cover), else, with `close_if_none`, closing on it. Slow and
+## late, not never. The enemy: "They do it, but slowly" (the improvisation of a junior leader in a force whose NCO corps is weak and whose
+## command is rigid); ours, at a higher chance, individual initiative being expected. Uses only what the side knows of the squad it faces.
+func _squad_standoff_initiative(u: Unit, facing: Vector2, chance_per_minute: float, close_if_none: bool, require_cover: bool) -> bool:
+	var record: Dictionary = _standoff_idle.get(u, {})
+	if record.is_empty() or scenario_elapsed_time - float(record.last_seen) > 15.0:
+		record = {"since": scenario_elapsed_time, "last_seen": scenario_elapsed_time} # a new wait
+	record["last_seen"] = scenario_elapsed_time
+	_standoff_idle[u] = record
+	if scenario_elapsed_time - float(record.since) < 60.0:
+		return false
+	record["since"] = scenario_elapsed_time # the next roll is a minute on
+	if randf() >= chance_per_minute:
+		return false
+	_standoff_idle.erase(u)
+	var range_limit: float = GameConfig.SQUAD_ENGAGEMENT_RANGE * 0.9
+	var mates: Array[Unit] = player_units if u.team == Unit.Team.PLAYER else enemy_units
+	var others: Array[Vector2] = []
+	for e in mates:
+		if e != u and e.kind == Unit.Kind.SQUAD and e.state == Unit.State.ACTIVE:
+			others.append(e.global_position)
+	var best := Vector2.INF
+	var best_score := INF
+	for radius_m in [60.0, 120.0, 180.0, 250.0]:
+		for i in 12:
+			var angle: float = TAU * float(i) / 12.0
+			var p: Vector2 = GameConfig.clamp_to_operating_area(u.global_position + Vector2(cos(angle), sin(angle)) * radius_m * GameConfig.PIXELS_PER_METER)
+			var to_facing: float = p.distance_to(facing)
+			if to_facing > range_limit or to_facing < 80.0 * GameConfig.PIXELS_PER_METER:
+				continue
+			if not GameConfig.has_direct_los(p, facing):
+				continue
+			var in_cover: bool = GameConfig.is_in_cover(GameConfig.get_terrain_type_at(p))
+			if require_cover and not in_cover:
+				continue
+			var too_close := false
+			for o in others:
+				if p.distance_to(o) < 40.0 * GameConfig.PIXELS_PER_METER:
+					too_close = true
+					break
+			if too_close:
+				continue
+			var score: float = u.global_position.distance_to(p) + (0.0 if in_cover else 80.0 * GameConfig.PIXELS_PER_METER)
+			if score < best_score:
+				best_score = score
+				best = p
+	var dest: Vector2 = best
+	var speed: float = GameConfig.ENEMY_ADVANCE_SPEED if u.team == Unit.Team.ENEMY else GameConfig.REPOSITION_SPEED
+	if is_inf(dest.x):
+		if not close_if_none:
+			return false
+		# nowhere near with a line of sight: close on it, a bound of at most 250 m, to within 60% of the distance
+		var toward: Vector2 = facing - u.global_position
+		var step: float = minf(toward.length() * 0.4, GameConfig.SQUAD_FIRE_POSITION_SEARCH_RADIUS)
+		if step < 20.0 * GameConfig.PIXELS_PER_METER:
+			return false
+		dest = GameConfig.clamp_to_operating_area(u.global_position + toward.normalized() * step)
+		u.last_order_reason = "Taking the initiative: no line of sight from here, closing on the enemy squad."
+	else:
+		u.last_order_reason = "Taking the initiative: moving to a position with a line of sight on the enemy squad."
+	u.move_target = dest
+	u.has_move_target = true
+	u.move_queue.clear()
+	u.move_speed = speed
+	u.movement_predictable = false
+	return true
 
 
 ## True once `u` is close enough to a known, ACTIVE friendly mortar that
@@ -9133,6 +9209,8 @@ func _update_enemy_attack_stance() -> void:
 
 
 var _enemy_attacking: bool = true
+## Squads waiting with nothing to shoot at: {unit: {"since", "last_seen"}} (see _squad_standoff_initiative).
+var _standoff_idle: Dictionary = {}
 ## The squads currently sent after the friendly mortar (see _compute_mortar_hunters); empty until _update_enemy_squad_advance has run.
 var _mortar_hunters: Dictionary = {}
 var _enemy_stance_decided: bool = false
@@ -9563,6 +9641,20 @@ func _screen_point(mortar: Unit, threat: Vector2, slot: int, count: int) -> Vect
 	return base + dir.orthogonal() * (float(slot) - float(count - 1) * 0.5) * SCREEN_SQUAD_SPACING
 
 
+## The last known position of the nearest enemy squad (ACTIVE or retreating as far as this side knows) within `within` of `u`, or Vector2.INF.
+func _nearest_known_enemy_squad(u: Unit, within: float) -> Vector2:
+	var best := Vector2.INF
+	var best_d := within
+	for e in enemy_units:
+		if e.kind != Unit.Kind.SQUAD or not e.player_has_been_sighted or not e.is_targetable_state_known_to_player():
+			continue
+		var d: float = u.global_position.distance_to(e.player_known_position)
+		if d <= best_d:
+			best_d = d
+			best = e.player_known_position
+	return best
+
+
 const SPREAD_REASON: String = "Moving apart from a neighbouring squad (a round on one would catch both)."
 
 ## Where a squad standing in cover goes to open the gap to another friendly squad closer than GameConfig.SQUAD_DESIRED_SPACING, or its own
@@ -9642,6 +9734,12 @@ func _update_friendly_squad_positioning() -> void:
 				u.move_speed = GameConfig.REPOSITION_SPEED
 				u.movement_predictable = false
 				claimed.append(apart)
+			elif not u.pinned:
+				# Nothing to shoot at (checked above), holding its cover, with an enemy squad it knows of within reach: the same slow
+				# initiative as the enemy's, at a higher chance. To a place in cover only: it does not step into the open for a shot.
+				var enemy_squad: Vector2 = _nearest_known_enemy_squad(u, GameConfig.SQUAD_ENGAGEMENT_RANGE * 1.5)
+				if not is_inf(enemy_squad.x):
+					_squad_standoff_initiative(u, enemy_squad, GameConfig.PLAYER_STANDOFF_INITIATIVE_CHANCE_PER_MIN, false, true)
 			continue
 		var cover_dest: Vector2 = GameConfig.nearest_cover_point(u.global_position, 0.0, false, _ally_positions_for(u) + claimed, known_enemies)
 		if cover_dest == u.global_position:
