@@ -49,7 +49,7 @@ func test_targeting_and_forecast() -> void:
 	bm.unit_type_doctrines[Unit.Team.PLAYER] = Orders.sanitize({"mortar": {"targeting": "weakest"}})
 	check(bm._pick_target(mortar, bm.enemy_units) == far, "Weakest policy must change the choice")
 	check(bm.unit_doctrine_for(near).targeting == "inherit", "Player settings must not leak to enemy")
-	check(bm.unit_doctrine_for(spawn(bm, Unit.Team.PLAYER, Unit.Kind.SQUAD, Vector2.ZERO)).targeting == "inherit", "Mortar settings must not leak to infantry")
+	check(bm.unit_doctrine_for(spawn(bm, Unit.Team.PLAYER, Unit.Kind.SQUAD, Vector2(-2000, 0))).targeting == "inherit", "Mortar settings must not leak to infantry") # well away from the targets: an own squad beside the aim point would be danger close
 	far.is_visible = false
 	check(bm._pick_target(mortar, bm.enemy_units) == near, "Custom priority cannot target a hidden unit")
 	seed(314)

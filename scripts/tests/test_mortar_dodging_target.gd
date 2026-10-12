@@ -29,7 +29,8 @@ func make() -> Dictionary:
 	var um: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, m(600, 1700)); bm.player_units.append(um)
 	um.mortar_rounds_remaining = 20
 	um.seconds_stationary = 1e9
-	var observer: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, m(2400, 1700)); bm.player_units.append(observer)
+	# 700 m short of the enemy mortar: an own unit within the danger-close distance of the aim point would keep the mortar from firing at all
+	var observer: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, m(1800, 1700)); bm.player_units.append(observer)
 	var em: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, m(2500, 1700)); bm.enemy_units.append(em)
 	em.is_visible = true
 	bm.unit_type_doctrines[Unit.Team.PLAYER] = preload("res://scripts/unit_doctrine.gd").sanitize({})

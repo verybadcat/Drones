@@ -8181,9 +8181,6 @@ func _mortar_fire_observation_quality(mortar: Unit, target: Unit) -> String:
 ## called exactly once per shot, at launch, so "how many prior rounds have
 ## been corrected from" only ever grows once per real round fired.
 func _mortar_dispersion_offset(mortar: Unit, target: Unit, aim_point: Vector2) -> Vector2:
-	var range_to_target: float = mortar.global_position.distance_to(aim_point)
-	var base_cep: float = max(GameConfig.MORTAR_DISPERSION_UNADJUSTED_FLOOR, GameConfig.MORTAR_DISPERSION_CEP_FRACTION_OF_RANGE * range_to_target)
-
 	var adjustment: Dictionary = _mortar_fire_adjustment.get(mortar, {})
 	if adjustment.get("target") != target:
 		adjustment = {"target": target, "shots": 0}
@@ -8192,6 +8189,29 @@ func _mortar_dispersion_offset(mortar: Unit, target: Unit, aim_point: Vector2) -
 			adjustment["wind_assumed"] = weather.crew_wind_estimate_px(GameConfig.MORTAR_FLIGHT_TIME)
 	var shots_corrected_from: int = adjustment.get("shots", 0)
 
+	var spread: Dictionary = _mortar_dispersion_spread(mortar, target, aim_point, shots_corrected_from)
+	if spread.quality != "none":
+		adjustment.shots = shots_corrected_from + 1
+	_mortar_fire_adjustment[mortar] = adjustment
+
+	var sigma: float = spread.cep / 1.1774
+	var wind_bias := Vector2.ZERO
+	if weather != null:
+		# What the crew's correction leaves uncorrected — its estimate error, plus
+		# any change in the wind since it was made — fading with the same
+		# observed-fire convergence that tightens the scatter above (fastest under
+		# a drone, never under unobserved fire).
+		var drift_now: Vector2 = weather.mortar_wind_drift_px(GameConfig.MORTAR_FLIGHT_TIME)
+		wind_bias = (drift_now - adjustment.get("wind_assumed", drift_now)) * pow(spread.decay, shots_corrected_from)
+	return Vector2(randfn(0.0, sigma), randfn(0.0, sigma)) + wind_bias
+
+
+## The scatter (CEP, in pixels) and the per-correction decay of the next round `mortar` fires at `target` aimed at `aim_point`, given
+## `shots_corrected_from` rounds already corrected from; and how well the fall of shot is observed ("quality"). No side effects: the
+## state of the fire mission is only advanced by _mortar_dispersion_offset when a round is actually launched.
+func _mortar_dispersion_spread(mortar: Unit, target: Unit, aim_point: Vector2, shots_corrected_from: int) -> Dictionary:
+	var range_to_target: float = mortar.global_position.distance_to(aim_point)
+	var base_cep: float = max(GameConfig.MORTAR_DISPERSION_UNADJUSTED_FLOOR, GameConfig.MORTAR_DISPERSION_CEP_FRACTION_OF_RANGE * range_to_target)
 	var quality: String = _mortar_fire_observation_quality(mortar, target)
 	var decay: float
 	var floor_dist: float
@@ -8211,23 +8231,45 @@ func _mortar_dispersion_offset(mortar: Unit, target: Unit, aim_point: Vector2) -
 		_: # "none" — unobserved/predicted fire never converges, ever
 			decay = 1.0
 			floor_dist = base_cep
-
-	if quality != "none":
-		adjustment.shots = shots_corrected_from + 1
-	_mortar_fire_adjustment[mortar] = adjustment
-
 	var effective_floor: float = min(floor_dist, base_cep) # a converged shot is never worse than a fresh unadjusted one
 	var cep: float = effective_floor + (base_cep - effective_floor) * pow(decay, shots_corrected_from)
+	return {"cep": cep, "decay": decay, "quality": quality}
+
+
+## Would a round `mortar` fires at `target` now endanger its own side? Own units (any kind but drones, on the field, the mortar itself
+## excepted) are looked at against where the round is aimed (_mortar_aim_point, so a moving target is led) in two ways: any closer to it
+## than GameConfig.MORTAR_DANGER_CLOSE_M, or the expected number of them caught over the scatter this shot will really have (the CEP
+## from _mortar_dispersion_spread for the next round at this target) above GameConfig.MORTAR_FRIENDLY_FIRE_RISK_TOLERANCE. Direct user
+## instruction: "Mortars should attempt not to shell their own side." A side knows where its own units are, so nothing here uses
+## knowledge the side does not have. Returns {"nearest_m", "risk", "endangered"}.
+func _mortar_friendly_fire_check(mortar: Unit, target: Unit, aim: Vector2) -> Dictionary:
+	var own: Array[Unit] = player_units if mortar.team == Unit.Team.PLAYER else enemy_units
+	var adjustment: Dictionary = _mortar_fire_adjustment.get(mortar, {})
+	var shots: int = adjustment.get("shots", 0) if adjustment.get("target") == target else 0
+	var cep: float = _mortar_dispersion_spread(mortar, target, aim, shots).cep
 	var sigma: float = cep / 1.1774
-	var wind_bias := Vector2.ZERO
-	if weather != null:
-		# What the crew's correction leaves uncorrected — its estimate error, plus
-		# any change in the wind since it was made — fading with the same
-		# observed-fire convergence that tightens the scatter above (fastest under
-		# a drone, never under unobserved fire).
-		var drift_now: Vector2 = weather.mortar_wind_drift_px(GameConfig.MORTAR_FLIGHT_TIME)
-		wind_bias = (drift_now - adjustment.get("wind_assumed", drift_now)) * pow(decay, shots_corrected_from)
-	return Vector2(randfn(0.0, sigma), randfn(0.0, sigma)) + wind_bias
+	var nearest := INF
+	var risk := 0.0
+	for u in own:
+		if u == mortar or u.kind == Unit.Kind.DRONE or (u.state != Unit.State.ACTIVE and u.state != Unit.State.RETREATING):
+			continue
+		var d: float = u.global_position.distance_to(aim)
+		nearest = minf(nearest, d)
+		if d > GameConfig.MORTAR_BLAST_COLLATERAL_SEARCH_RADIUS + 3.0 * sigma:
+			continue # too far from anywhere the round can plausibly land to matter
+		var terrain: GameConfig.TerrainType = GameConfig.TerrainType.OPEN if u.activity == Unit.Activity.MOVING else GameConfig.get_terrain_type_at(u.global_position)
+		# The expected chance over the scatter: a fixed set of points laid out like a Gaussian of this sigma (rings by equal probability,
+		# turned a golden angle each), so the check is deterministic and cheap.
+		var total := 0.0
+		const SAMPLES := 16
+		for i in SAMPLES:
+			var radius: float = sigma * sqrt(-2.0 * log(1.0 - (float(i) + 0.5) / float(SAMPLES)))
+			var angle: float = float(i) * 2.399963
+			var landing: Vector2 = aim + Vector2(cos(angle), sin(angle)) * radius
+			total += CombatResolver.blast_casualty_chance(u.global_position.distance_to(landing), GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, terrain)
+		risk += total / float(SAMPLES)
+	var endangered: bool = nearest < GameConfig.MORTAR_DANGER_CLOSE_M * GameConfig.PIXELS_PER_METER or risk > GameConfig.MORTAR_FRIENDLY_FIRE_RISK_TOLERANCE
+	return {"nearest_m": nearest / GameConfig.PIXELS_PER_METER if nearest != INF else INF, "risk": risk, "endangered": endangered}
 
 
 static func _empty_civilian_tally() -> Dictionary:
@@ -9938,6 +9980,10 @@ func _resolve_pending_counter_battery() -> void:
 			# _decide_mortar_action itself uses, not the player-only _mortar_should_relocate_for_safety.
 			# Simply waits, tick after tick, rather than cancelling the mission or resetting the delay —
 			# a real crew that's mid-relocation when the moment comes fires the instant it actually stops.
+			# Not onto its own side either: a call for fire on a position that has own units around it is not answered (as above,
+			# nothing is spent and nothing lands).
+			if _mortar_friendly_fire_check(responder, strike.target, strike.get("aim_position", strike.impact_position)).endangered:
+				continue
 			var responder_endangered: bool = _mortar_aware_of_being_spotted(responder) or _unwatched_threat_closing(responder)
 			if responder.seconds_stationary < GameConfig.MORTAR_SETUP_TEARDOWN_TIME or responder_endangered:
 				still_pending.append(strike)
@@ -10769,6 +10815,7 @@ func _enemy_mortars_in_range(pos: Vector2, team: Unit.Team = Unit.Team.PLAYER) -
 ## legal targets on the shared score scale; all choices record their evidence.
 func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 	var candidates: Array[Unit] = []
+	var held_for_own_side := 0 # targets a mortar is not shooting at for fear of its own side
 	for e in enemies:
 		if not e.is_targetable():
 			continue
@@ -10803,10 +10850,16 @@ func _pick_target(unit: Unit, enemies: Array[Unit]) -> Unit:
 		elif unit.kind == Unit.Kind.MORTAR:
 			if unit.global_position.distance_to(e.global_position) > GameConfig.mortar_max_range(unit.team):
 				continue
+			# Danger close: not a round that would land among its own side (see _mortar_friendly_fire_check).
+			if _mortar_friendly_fire_check(unit, e, _mortar_aim_point(e)).endangered:
+				held_for_own_side += 1
+				continue
 		candidates.append(e)
 	if _risk_holds.has(unit) and unit.state == Unit.State.ACTIVE:
 		return _record_target_choice(unit, candidates, null, "Self-risk policy: displacing or withholding fire.")
 	if candidates.is_empty():
+		if held_for_own_side > 0:
+			return _record_target_choice(unit, candidates, null, "Holding fire: our own units are too close to the target (danger close).")
 		return _record_target_choice(unit, candidates, null, "No eligible visible target.")
 
 	var mortar_candidates: Array[Unit] = candidates.filter(func(c): return c.kind == Unit.Kind.MORTAR and c.state == Unit.State.ACTIVE)

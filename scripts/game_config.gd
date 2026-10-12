@@ -9201,6 +9201,15 @@ const BUNCHING_SPILLOVER_CHANCE: float = 0.25
 ## used to be conflated and why that mattered.
 const MORTAR_BLAST_COLLATERAL_MAX_CHANCE: float = 0.95
 
+## A mortar crew does not fire a round whose aim point is closer than this to one of its own side's units: the "danger close" rule. Direct
+## user instruction: "Mortars should attempt not to shell their own side." 75 m is the distance at which a round that lands on one unit
+## still catches its neighbour about one time in eight (see SQUAD_DESIRED_SPACING). JUDGMENT.
+const MORTAR_DANGER_CLOSE_M: float = 75.0
+## ...nor one that, allowing for where it will actually fall (the scatter of this shot: range, how well the fall of shot is seen, the
+## corrections already made), would catch an own unit with a chance this large in total, whatever the distance to the aim point. A
+## crew with poor fire control and a friendly squad near the target holds fire too. JUDGMENT.
+const MORTAR_FRIENDLY_FIRE_RISK_TOLERANCE: float = 0.05
+
 ## The real, cited distance behind CombatResolver.blast_casualty_chance's
 ## exponential falloff — NOT a "safe beyond this" wall the way this
 ## project's blast-radius constants (COUNTER_BATTERY_BLAST_RADIUS,
