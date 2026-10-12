@@ -400,14 +400,14 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 ## everyone else's casualty count still comes from GameConfig.
 ## mortar_casualty_count(pips)/a flat 1, unrelated to how far a round
 ## actually landed from any one specific person in a multi-person squad.
-func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], impact_distance: float = 0.0) -> void:
+func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], impact_distance: float = 0.0, blast_casualties: int = -1) -> void:
 	if state == State.DESTROYED:
 		return
 	took_hit.emit(self)
 	queue_redraw()
 
 	if kind == Kind.MORTAR or kind == Kind.DRONE_TEAM:
-		_apply_crew_casualties(known_enemy_positions, ally_positions, from_mortar, impact_distance)
+		_apply_crew_casualties(known_enemy_positions, ally_positions, from_mortar, impact_distance, blast_casualties)
 		return
 
 	# A rifle round is aimed at one person; a mortar round's fragmentation
@@ -420,6 +420,8 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], kn
 	# handful, which is exactly why it's also a more attractive TARGET in
 	# the first place (see BattleManager._enemy_target_value).
 	var casualties: int = GameConfig.mortar_casualty_count(pips) if from_mortar else 1
+	if blast_casualties >= 0:
+		casualties = mini(blast_casualties, pips) # a round's own count, person by person (BattleManager._apply_shell_blast)
 	# SPOTTER (one-hit-fragile, max_pips == 1) gets the same categorization
 	# roll as a SQUAD's casualties — no reason a spotter's single casualty
 	# should be unconditionally "killed" any more than a mortar crew's are
@@ -504,13 +506,15 @@ func _check_retreat(known_enemy_positions: Array[Vector2] = [], ally_positions: 
 ## _compute_side_stats's killed/heavily_wounded/walking_wounded/
 ## wounded_left_behind breakdown always summing to the side's actual total
 ## personnel lost, mortars and drone-team crews included, not just squads.
-func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_positions: Array[Vector2] = [], from_mortar: bool = true, impact_distance: float = 0.0) -> void:
+func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_positions: Array[Vector2] = [], from_mortar: bool = true, impact_distance: float = 0.0, blast_casualties: int = -1) -> void:
 	var remaining: int = crew_size - crew_casualties
 	# Direct/small-arms fire is a single aimed shot at one person, not a
 	# blast covering an area — it stays a flat single casualty, exactly
 	# like a squad's own from_mortar distinction (see take_hit above).
 	# Only a real HE hit rolls the distance-and-cover-aware model below.
 	var newly_down: int = _roll_crew_casualties(remaining, impact_distance, terrain_type()) if from_mortar else min(1, remaining)
+	if blast_casualties >= 0:
+		newly_down = mini(blast_casualties, remaining) # already worked out by the caller, person by person
 	crew_casualties += newly_down
 	_categorize_casualties(newly_down)
 	pips = crew_size - crew_casualties # feeds the side's overall casualty tally exactly like a squad's pips — see setup()
@@ -598,12 +602,7 @@ func _roll_mortar_ammo_cookoff() -> bool:
 ## uses, so a crew can get lucky and take nothing from a near miss, or
 ## unlucky and lose more than one from a hit that scattered wide.
 func _roll_crew_casualties(remaining: int, impact_distance: float, terrain: GameConfig.TerrainType) -> int:
-	var chance: float = CombatResolver.blast_casualty_chance(impact_distance, 1.0, terrain)
-	var newly_down := 0
-	for i in remaining:
-		if randf() < chance:
-			newly_down += 1
-	return newly_down
+	return CombatResolver.binomial(remaining, CombatResolver.blast_casualty_chance(impact_distance, 1.0, terrain))
 
 
 ## Whether a wounded crew (crew_size - crew_casualties survivors) keeps its post in the fight rather than

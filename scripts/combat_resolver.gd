@@ -58,9 +58,50 @@ const MORTAR_COVER_MULTIPLIER := {
 ## open gets exactly the bare exponential curve and cover reduces it
 ## proportionally — a direct answer to "cover would also matter."
 static func blast_casualty_chance(distance: float, max_chance: float, terrain: GameConfig.TerrainType) -> float:
-	var decay: float = exp(-log(2.0) * distance / GameConfig.MORTAR_BLAST_CASUALTY_RADIUS)
+	var radius: float = GameConfig.MORTAR_BLAST_CASUALTY_RADIUS
+	# Inside twice the casualty radius the cited exponential (halving every `radius`); beyond it the fragments are slowed and thinned
+	# and the chance falls faster (halving every half a radius). Cover, which near the burst only reduces the chance, stops the weak
+	# far-field fragments almost altogether, so it counts for more with distance (its factor to the power of distance over the radius).
+	var decay: float
+	if distance <= 2.0 * radius:
+		decay = exp(-log(2.0) * distance / radius)
+	else:
+		decay = 0.25 * exp(-log(2.0) * (distance - 2.0 * radius) / (0.5 * radius))
 	var cover_factor: float = MORTAR_COVER_MULTIPLIER.get(terrain, 1.0) / MORTAR_COVER_MULTIPLIER[GameConfig.TerrainType.OPEN]
+	cover_factor = pow(cover_factor, maxf(1.0, distance / radius))
 	return clamp(max_chance * decay * cover_factor, 0.0, 1.0)
+
+
+## The chance that ONE PERSON of `unit` becomes a casualty of a round that lands `distance` from the unit (see blast_casualty_chance). A
+## MORTAR or DRONE_TEAM crew, and a lone person (a spotter), are as exposed as the figure says (a crew: the distance and cover model,
+## certain at the impact point; a lone person: at most MORTAR_BLAST_COLLATERAL_MAX_CHANCE there); a member of a squad is dispersed and
+## often prone, so only GameConfig.MORTAR_CASUALTY_FRACTION of that. Direct user instruction: how many a round costs a unit follows from
+## where it lands, one person at a time, not a fixed share of the unit once any part of it is "hit".
+static func blast_person_chance(unit: Unit, distance: float, terrain: GameConfig.TerrainType) -> float:
+	if unit.kind == Unit.Kind.MORTAR or unit.kind == Unit.Kind.DRONE_TEAM:
+		return blast_casualty_chance(distance, 1.0, terrain)
+	var chance: float = blast_casualty_chance(distance, GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, terrain)
+	if unit.max_pips <= 1:
+		return chance
+	return chance * GameConfig.MORTAR_CASUALTY_FRACTION
+
+
+## How many of `people` become casualties when each is one with probability `p`, independently (a binomial draw; for a large number the
+## normal approximation, so a million-man test unit costs nothing).
+static func binomial(people: int, p: float) -> int:
+	if people <= 0 or p <= 0.0:
+		return 0
+	if p >= 1.0:
+		return people
+	if people <= 48:
+		var n := 0
+		for i in people:
+			if randf() < p:
+				n += 1
+		return n
+	var mean: float = float(people) * p
+	var sd: float = sqrt(float(people) * p * (1.0 - p))
+	return clampi(int(round(mean + sd * randfn(0.0, 1.0))), 0, people)
 
 # Concealment: reduces the chance of being spotted in the first place.
 const CONCEALMENT_MULTIPLIER := {

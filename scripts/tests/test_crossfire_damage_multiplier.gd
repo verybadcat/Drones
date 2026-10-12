@@ -219,8 +219,6 @@ func test_mortar_hits_are_totally_unaffected() -> void:
 	seed(99)
 	var bm := make_battle()
 	var target: Unit = squad(bm, Unit.Team.PLAYER, Vector2(0.0, 0.0))
-	target.max_pips = 1000000
-	target.pips = 1000000
 	target.took_hit.connect(_count_hit)
 	var mortar: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.MORTAR, m(0.0, 900.0))
 	bm.enemy_units.append(mortar)
@@ -235,15 +233,17 @@ func test_mortar_hits_are_totally_unaffected() -> void:
 	_hits_taken = 0
 	var shots := 12000
 	for i in shots:
-		# A mortar hit takes a share of the unit's strength, so put it back each time (and keep it standing
-		# where it was) or a million-pip target is soon destroyed and stops counting.
-		target.pips = 1000000
+		# A mortar round takes people from the unit, so put them back each time (and keep it standing
+		# where it was) or the target is soon destroyed and stops counting.
+		target.pips = target.max_pips
 		target.state = Unit.State.ACTIVE
 		target.activity = Unit.Activity.STATIONARY
 		bm._resolve_fire_and_check_bunching(mortar, target, target.global_position)
 	var observed: float = float(_hits_taken) / float(shots)
 	# A mortar round is resolved by where it lands (BattleManager._apply_shell_blast), not by the shooter's hit chance: a unit right at the
 	# impact point is caught with the blast's own chance at distance 0 for its cover, crossfire or not.
-	var plain: float = CombatResolver.blast_casualty_chance(0.0, GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, GameConfig.get_terrain_type_at(target.global_position))
+	# (a round that lands on the squad costs it at least one person with the chance 1 - (1 - q)^people, q being one person's)
+	var q: float = CombatResolver.blast_person_chance(target, 0.0, GameConfig.get_terrain_type_at(target.global_position))
+	var plain: float = 1.0 - pow(1.0 - q, float(target.max_pips))
 	check(absf(observed - plain) < 0.012, "Mortar hit rate in crossfire is the plain rate (observed %.3f, expected %.3f)" % [observed, plain])
 	cleanup(bm)

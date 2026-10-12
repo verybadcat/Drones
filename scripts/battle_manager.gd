@@ -8262,11 +8262,13 @@ func _mortar_friendly_fire_check(mortar: Unit, target: Unit, aim: Vector2) -> Di
 		# turned a golden angle each), so the check is deterministic and cheap.
 		var total := 0.0
 		const SAMPLES := 16
+		var people: int = (u.crew_size - u.crew_casualties) if (u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM) else u.pips
 		for i in SAMPLES:
 			var radius: float = sigma * sqrt(-2.0 * log(1.0 - (float(i) + 0.5) / float(SAMPLES)))
 			var angle: float = float(i) * 2.399963
 			var landing: Vector2 = aim + Vector2(cos(angle), sin(angle)) * radius
-			total += CombatResolver.blast_casualty_chance(u.global_position.distance_to(landing), GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, terrain)
+			var per_person: float = CombatResolver.blast_person_chance(u, u.global_position.distance_to(landing), terrain)
+			total += 1.0 - pow(1.0 - per_person, float(maxi(people, 1))) # the chance the round costs this unit at least one person
 		risk += total / float(SAMPLES)
 	var endangered: bool = nearest < GameConfig.MORTAR_DANGER_CLOSE_M * GameConfig.PIXELS_PER_METER or risk > GameConfig.MORTAR_FRIENDLY_FIRE_RISK_TOLERANCE
 	return {"nearest_m": nearest / GameConfig.PIXELS_PER_METER if nearest != INF else INF, "risk": risk, "endangered": endangered}
@@ -8350,11 +8352,16 @@ func _apply_shell_blast(impact: Vector2, attacker: Unit) -> Array[Dictionary]:
 	for u in near:
 		var distance: float = impact.distance_to(u.global_position)
 		var terrain: GameConfig.TerrainType = GameConfig.TerrainType.OPEN if u.activity == Unit.Activity.MOVING else GameConfig.get_terrain_type_at(u.global_position)
-		if randf() >= CombatResolver.blast_casualty_chance(distance, GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, terrain):
+		# One person at a time: each of the unit's people is a casualty with the chance for this distance and this cover. A round that
+		# costs a unit nobody is no hit; a crew that has a round land close still reacts to it (it knows it is being shelled).
+		var is_crew: bool = u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM
+		var people: int = (u.crew_size - u.crew_casualties) if is_crew else u.pips
+		var casualties: int = CombatResolver.binomial(people, CombatResolver.blast_person_chance(u, distance, terrain))
+		if casualties <= 0 and not (is_crew and distance <= GameConfig.MORTAR_EVASION_RADIUS):
 			continue
 		var was_active: bool = u.state == Unit.State.ACTIVE
 		var before := UnitCombatStats.before_hit(u)
-		u.take_hit(true, _ally_positions_for(u), _known_enemy_positions(u.team), distance)
+		u.take_hit(true, _ally_positions_for(u), _known_enemy_positions(u.team), distance, casualties)
 		if attacker != null and is_instance_valid(attacker):
 			unit_combat_stats.damage(attacker, u, before)
 		landed.append({"unit": u, "was_active": was_active, "distance": distance})
@@ -8487,6 +8494,29 @@ func _mortar_hunt_assignments() -> Dictionary:
 	return assigned
 
 
+## Which enemy squads are the detachment sent after the friendly mortar (direct user instruction, after watching a whole column walk past
+## three friendly squads to go after it: the enemy force should do both, a fixing force and a main body for the squads and a detachment
+## for the mortar): the closest `_mortar_hunt_cap()` of its squads to the mortar's known position, wherever they are; empty when there is
+## no active mortar or no fix. A squad on its wide flanking route is not counted. Recomputed every tick (see _update_enemy_squad_advance)
+## and read by _enemy_advance_objective, so only these squads close on the mortar; the others go for the friendly squads.
+func _compute_mortar_hunters() -> Dictionary:
+	var hunters: Dictionary = {}
+	if not _friendly_mortar_is_active():
+		return hunters
+	var mortar_pos: Vector2 = _known_friendly_mortar_position()
+	if is_inf(mortar_pos.x):
+		return hunters
+	var squads: Array[Unit] = []
+	for u in enemy_units:
+		if u.kind == Unit.Kind.SQUAD and u.state == Unit.State.ACTIVE and not u.flanking_route_active:
+			squads.append(u)
+	squads.sort_custom(func(a: Unit, b: Unit) -> bool: return a.global_position.distance_to(mortar_pos) < b.global_position.distance_to(mortar_pos))
+	var cap: int = _mortar_hunt_cap()
+	for i in mini(cap, squads.size()):
+		hunters[squads[i]] = true
+	return hunters
+
+
 ## How many enemy squads may run down the friendly mortar at once right now:
 ## the fixed GameConfig.MORTAR_HUNT_SQUAD_CAP, unless the enemy outnumbers the
 ## friendly squads still in action by more than GameConfig.MORTAR_HUNT_
@@ -8521,6 +8551,7 @@ func _march_route_is_finished(u: Unit) -> bool:
 
 func _update_enemy_squad_advance() -> void:
 	_update_enemy_attack_stance()
+	_mortar_hunters = _compute_mortar_hunters()
 	var hunt_assignments := _mortar_hunt_assignments()
 	var spotter_hunter := _spotter_hunt_candidate()
 	for u in enemy_units:
@@ -8638,6 +8669,12 @@ func _update_enemy_squad_advance() -> void:
 		var shootable: Unit = _pick_target(u, player_units)
 		if shootable != null and shootable.kind == Unit.Kind.SQUAD:
 			u.last_order_reason = "Staying to fight %s (in range and line of sight) instead of continuing to close." % shootable.display_name()
+			# In contact: a squad that is mid-bound stops where it is (a squad that is moving cannot fire, see _tick_fire), as a unit
+			# that comes under fire halts and answers it before it moves again, rather than walking past a defended position without
+			# a shot. Except one on its wide flanking route, which is not in this fight by design.
+			if u.has_move_target and not u.flanking_route_active:
+				u.has_move_target = false
+				u.move_queue.clear()
 			continue
 
 		if hunt_assignments.has(u):
@@ -8946,7 +8983,15 @@ func _enemy_advance_objective(u: Unit = null) -> Vector2:
 		u.flanking_route_active = false # arrived — falls through to the normal objective from here on, permanently
 	var mortar_pos := _known_friendly_mortar_position()
 	if not is_inf(mortar_pos.x) and _friendly_mortar_is_active():
-		return mortar_pos
+		# Only the detachment sent after the mortar (_compute_mortar_hunters) has it as its objective; the rest of the force goes for
+		# the friendly squads it knows of (when it has the numbers to attack: else it gathers clear of them), as when the mortar is
+		# gone. With no squad known, or no allocation made yet, the mortar is everyone's objective, as before.
+		if u == null or _mortar_hunters.is_empty() or _mortar_hunters.has(u):
+			return mortar_pos
+		var known_squad: Vector2 = _known_friendly_squad_objective(u)
+		if is_inf(known_squad.x):
+			return mortar_pos
+		return known_squad if _enemy_attack_stance() else _enemy_consolidation_point()
 	# Direct user report from a live battle: "With no friendly squads left in
 	# action, the enemy squads should definitely be hunting our mortar. In the
 	# current battle, they are not." The fix above expires after
@@ -9048,6 +9093,8 @@ func _update_enemy_attack_stance() -> void:
 
 
 var _enemy_attacking: bool = true
+## The squads currently sent after the friendly mortar (see _compute_mortar_hunters); empty until _update_enemy_squad_advance has run.
+var _mortar_hunters: Dictionary = {}
 var _enemy_stance_decided: bool = false
 var _enemy_consolidation: Vector2 = Vector2.INF
 ## This battle's own roll of GameConfig.ENEMY_COMMANDER_RETREAT_THRESHOLD_MIN/MAX (see start_battle,
