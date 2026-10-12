@@ -9281,6 +9281,17 @@ const MORTAR_CORRECTION_WINDOW_S: float = 10.0
 ## cited: kept comfortably below MORTAR_EVASION_RADIUS so short-range shots
 ## still usually connect.
 const MORTAR_DISPERSION_UNADJUSTED_FLOOR: float = 15.0 * PIXELS_PER_METER
+## What observation cannot take out: the round-to-round scatter of the weapon itself (muzzle-velocity variation, propellant lot, tube and
+## fin tolerances, the wind on that round), which grows with range. Correcting from the fall of shot removes the aiming BIAS (the
+## registration, the systematic error); it does not make the next round land where the last one did. The converged scatter of an observed
+## mission is the observer's floor and this, combined as the root of the sum of squares: at 4 km 0.5% of the range is 20 m, so a
+## drone-corrected round at that range still has a CEP of about 21 m (its own floor is 6 m), a spotter's about 27 m; at 1 km 5 m and
+## the floors of the observers rule. The figure is a JUDGMENT from the order of magnitude of mortar firing-table probable errors
+## (tens of metres in range at 4 km, about a third of that in deflection): no table was found to cite, and the true value could be half
+## or half as much again. The sourced anchors it must stay consistent with: the unadjusted CEP of about 3% of range (NATO's ~136 m for
+## an unguided 120 mm at maximum range), a forward observer's registered mean point of impact of about 20 m (FM 6-30), a guided round's
+## 10 m (the XM395, against the unguided 136 m).
+const MORTAR_BALLISTIC_SCATTER_FRACTION_OF_RANGE: float = 0.005
 
 ## "Walking fire" onto a target: real indirect-fire doctrine (FM 6-30's
 ## successive-bracketing method) has an observer watch where each round

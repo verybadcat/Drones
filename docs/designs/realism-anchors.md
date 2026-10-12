@@ -1,0 +1,33 @@
+# Realism anchors
+
+The user's standing instruction for the combat model: "as much as possible to keep the game results close to the real world". This ledger
+lists the real-world figures the model is held to, where each came from, what the game does, and what is not modelled. A change to
+the mortar, blast, casualty or movement code should not move the game out of a band below without a decision to do so.
+
+* Unit-level anchors are asserted in `scripts/tests/test_realism_anchors.gd` (in the suite). A failure there means a change has moved the
+  model out of a real-world band.
+* Battle-level anchors are measured by `tools/research/realism_anchors_sim.gd` (about 15 minutes; copy under `scripts/` to run), with the
+  bands in its header. Run it after a change to who fights whom, fire control or movement, and record the result here.
+* Sources are mostly secondary (Wikipedia's summaries of the analysts and of doctrine, 2026-10); the manuals themselves were not reached.
+  A figure marked JUDGMENT has no source found.
+
+| Quantity | Real-world anchor | Source | The game | Status |
+|---|---|---|---|---|
+| Unadjusted round at long range | CEP of about 136 m for an unguided 120 mm at maximum range, about 3% of the range | NATO figure, as cited in `game_config.gd` and the 2026-10-09 doctrine entry | CEP = 3% of the range, never under 15 m (`MORTAR_DISPERSION_*`) | Test A1, A2. Matches |
+| Registration by a forward observer | mean point of impact registered to about 18-20 m | FM 6-30 worked example, as cited in `game_config.gd` | spotter floor 18 m, squad 30 m | Test A4. Matches |
+| The weapon's own round-to-round scatter | tens of metres at 4 km: not removable by observation | JUDGMENT (order of magnitude of firing-table probable errors; no table found); 0.5% of range | `MORTAR_BALLISTIC_SCATTER_FRACTION_OF_RANGE`, combined with the observer's floor as the root of the sum of squares | Test A3, A5. Added 2026-10-12: before it, a drone-corrected round converged to 6 m at any range |
+| Guided round | 10 m accuracy (XM395, 120 mm) | Wikipedia, Precision Guided Mortar Munition | not in the game | Not modelled |
+| Casualty radius, 82 mm | 26 m for 50% of exposed men (Type 67); 81 mm 35-40 m | cited in `game_config.gd` | `MORTAR_BLAST_CASUALTY_RADIUS` 26 m, halving every 26 m to 52 m, then every 13 m | Test A6. Matches |
+| Casualties from one round on a squad of nine at the impact point | about 1.3-2.1 (casualty area of a lying man x squad density) | geometry from the casualty radius and posture risk | 9 x 0.2 x 0.95 = 1.7 | Test A7. Within the band |
+| Posture, relative risk to impact-fuzed shells | standing 1; lying 1/3; firing from trenches 1/15-1/50; crouching in trenches 1/25-1/100 | UK WWII researchers, via Wikipedia's Artillery article ("citation needed") | open 1; trees 0.38; building 0.23 | Test A6 for trees and building. NOT MODELLED: troops going to ground under fire, and a dug-in category |
+| When casualties happen | most in the first 10-15 s, before troops improve their posture | same | a tenth round is as lethal as the first | NOT MODELLED |
+| Share of casualties from artillery and mortars | WWI: 45% (Russian), 58% (British, Western Front); WWII: 75% (British, North Africa), 51-61% (Soviet), 70% (German, Eastern Front); Korea: over 60% | Bellamy 1986, via Wikipedia's Artillery article | 71% (48 battles, 2026-10-11) | Research harness, band 45-75%. Within, at the top |
+| Salvo hit rate against a mortar that moves | first salvo, unmoving target, 4 km: about 7% within 25 m; adjusted, unmoving: about 65% | estimate from the CEPs above | #1 5%, #2 13%, #3 14%, #4+ 15% within 25 m (80 battles, 437 salvos, 2026-10-12) | Research harness. Lower than for an unmoving target, as it should be; crews that displace are modelled by movement |
+| Fire and movement | moving elements covered by suppressive fire from others; a fixing force pins the defender | Wikipedia, Fire and movement, Envelopment | a moving squad cannot fire; suppression exists but nobody uses it on purpose | NOT MODELLED (covering fire) |
+| Russian junior-leader initiative, 2022 | slow and from above: weak NCO corps, simple battle drills, rigid command | Wikipedia (Russian Ground Forces, Battalion tactical group, 2022 invasion) | an idle squad rolls 0.2 a minute (ours 0.4) | JUDGMENT |
+| Spacing between squads | a round that lands on one catches its neighbour within about 75 m (halving every 26 m) | from the casualty radius | desired 75 m, relaxed under pressure | Matches by construction |
+
+## Not anchored (no real-world figure found)
+* Rounds fired per casualty, overall. The sources found give shares and posture risk, not that.
+* How long a mortar crew stays in one position (shoot-and-scoot timing) against the real figure for a counter-battery response.
+* Small-arms hit probabilities against covered and uncovered infantry at 100-400 m.

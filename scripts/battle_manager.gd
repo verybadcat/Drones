@@ -8271,7 +8271,10 @@ func _mortar_dispersion_spread(mortar: Unit, target: Unit, aim_point: Vector2, s
 		_: # "none" — unobserved/predicted fire never converges, ever
 			decay = 1.0
 			floor_dist = base_cep
-	var effective_floor: float = min(floor_dist, base_cep) # a converged shot is never worse than a fresh unadjusted one
+	# The observer's floor and the weapon's own scatter at this range, together (see MORTAR_BALLISTIC_SCATTER_FRACTION_OF_RANGE); a converged
+	# shot is never worse than a fresh unadjusted one
+	var scatter: float = GameConfig.MORTAR_BALLISTIC_SCATTER_FRACTION_OF_RANGE * range_to_target
+	var effective_floor: float = min(sqrt(floor_dist * floor_dist + scatter * scatter), base_cep)
 	var cep: float = effective_floor + (base_cep - effective_floor) * pow(decay, shots_corrected_from)
 	return {"cep": cep, "decay": decay, "quality": quality}
 
