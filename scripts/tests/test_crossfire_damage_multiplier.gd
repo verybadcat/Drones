@@ -242,5 +242,8 @@ func test_mortar_hits_are_totally_unaffected() -> void:
 		target.activity = Unit.Activity.STATIONARY
 		bm._resolve_fire_and_check_bunching(mortar, target, target.global_position)
 	var observed: float = float(_hits_taken) / float(shots)
-	check(absf(observed - base) < 0.012, "Mortar hit rate in crossfire is the plain rate (observed %.3f, expected %.3f)" % [observed, base])
+	# A mortar round is resolved by where it lands (BattleManager._apply_shell_blast), not by the shooter's hit chance: a unit right at the
+	# impact point is caught with the blast's own chance at distance 0 for its cover, crossfire or not.
+	var plain: float = CombatResolver.blast_casualty_chance(0.0, GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, GameConfig.get_terrain_type_at(target.global_position))
+	check(absf(observed - plain) < 0.012, "Mortar hit rate in crossfire is the plain rate (observed %.3f, expected %.3f)" % [observed, plain])
 	cleanup(bm)

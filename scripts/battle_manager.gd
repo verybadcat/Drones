@@ -805,6 +805,8 @@ var _drones_lost_to_weather: int = 0 # counted in _drones_destroyed too
 var _drones_lost_to_low_battery: int = 0 # counted in _drones_destroyed too (see _battery_fail_drone)
 ## Why each airframe was lost, in order, so a battle can be looked at afterwards: see _record_drone_loss.
 var _drone_losses: Array[Dictionary] = []
+## Units hit by a round of their own side's mortar, by team (Unit.Team): a count for tests and the debug snapshots; the log narrates each.
+var friendly_fire_hits: Dictionary = {}
 ## Drones (by instance id) the pilot chose to hold past the return point to keep a mortar in sight: a deliberate sacrifice, not a shortfall in
 ## the planning. And, for each drone that turned for home, the plan it turned with (see _note_drone_return_plan).
 var _drones_held_past_return: Dictionary = {}
@@ -949,6 +951,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_drones_lost_to_weather = 0
 	_drones_lost_to_low_battery = 0
 	_drone_losses.clear()
+	friendly_fire_hits.clear()
 	_drones_held_past_return.clear()
 	_drone_return_plans.clear()
 	_drones_aborted_by_weather = 0
@@ -2398,6 +2401,11 @@ func _update_suppression(scenario_delta: float) -> void:
 ## up to MORTAR_EVASION_RADIUS — a bad lead, real ballistic scatter, or
 ## both, still lands somewhere real.
 func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit, impact_point: Vector2) -> void:
+	if attacker.kind == Unit.Kind.MORTAR:
+		# A mortar round is not direct fire at a unit: what it does depends only on where it lands, whoever it was aimed at (direct user
+		# ruling: "The effects of a shell only depend on where it lands. Friendly fire should be possible too."): see _apply_shell_blast.
+		_narrate_shell_landing(attacker, target, impact_point, _apply_shell_blast(impact_point, attacker))
+		return
 	var before := UnitCombatStats.before_hit(target)
 	unit_combat_stats.register(attacker)
 	var target_was_active := target.state == Unit.State.ACTIVE
@@ -2420,11 +2428,7 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit, impact_point
 	# still lands somewhere real; anyone else there is exactly as exposed
 	# as if the primary shot had landed true.
 	var victim: Unit
-	var is_blast: bool = attacker.kind == Unit.Kind.MORTAR
-	if is_blast:
-		victim = _collateral_victim(impact_point, [attacker, target], GameConfig.MORTAR_BLAST_COLLATERAL_SEARCH_RADIUS,
-			func(d: float, pos: Vector2) -> float: return CombatResolver.blast_casualty_chance(d, GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, GameConfig.get_terrain_type_at(pos)))
-	elif target.kind == Unit.Kind.SQUAD:
+	if target.kind == Unit.Kind.SQUAD:
 		victim = _collateral_victim(impact_point, [attacker, target], GameConfig.BUNCHING_RADIUS,
 			func(_d: float, _pos: Vector2) -> float: return GameConfig.BUNCHING_SPILLOVER_CHANCE, true)
 	else:
@@ -2433,17 +2437,14 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit, impact_point
 		return
 	var victim_was_active := victim.state == Unit.State.ACTIVE
 	var before_victim := UnitCombatStats.before_hit(victim)
-	victim.take_hit(is_blast, _ally_positions_for(victim), _known_enemy_positions(victim.team), impact_point.distance_to(victim.global_position))
+	victim.take_hit(false, _ally_positions_for(victim), _known_enemy_positions(victim.team), impact_point.distance_to(victim.global_position))
 	unit_combat_stats.damage(attacker, victim, before_victim)
 	# A collateral victim is picked purely by proximity to the actual
 	# impact point (see _collateral_victim) — it never had to be
 	# individually spotted to get caught, so unlike `target` above it may
 	# still be unnumbered the first time its name needs to appear in the log.
 	_assign_discovery_number(victim)
-	if is_blast:
-		combat_log.log_blast_collateral(target, victim)
-	else:
-		combat_log.log_bunching_spillover(target, victim)
+	combat_log.log_bunching_spillover(target, victim)
 	_log_hit_consequence(victim, victim_was_active)
 
 
@@ -8270,30 +8271,82 @@ func _resolve_pending_mortar_shots() -> void:
 		_mortar_impacts.append({"position": shot.impact_point, "time": elapsed_time})
 		_assess_civilian_casualties(shot.impact_point, shot.mortar.team)
 		_suppress_from_blast(shot.impact_point)
-		# Checked on the raw Variant, BEFORE assigning to a typed `Unit`
-		# variable — assigning an already-freed instance to a typed var is
-		# itself what throws "Trying to assign invalid previously freed
-		# instance," so is_instance_valid has to run first, not after.
-		if not is_instance_valid(shot.target):
-			continue # the target (a drone, almost certainly — see BattleManager's queue_free calls) has since landed/been freed; nothing left there to hit
-		var target: Unit = shot.target
-		if target.state == Unit.State.DESTROYED or target.state == Unit.State.WITHDRAWN or target.state == Unit.State.SURRENDERED:
-			continue # nothing left there to hit
-
-		if target.state == Unit.State.RETREATING:
-			target.zigzagging = true # once you know you're under a barrage, keep juking — see Unit.zigzagging
-
-		var drift: float = target.global_position.distance_to(shot.impact_point)
-		if drift > GameConfig.MORTAR_EVASION_RADIUS:
-			combat_log.log_mortar_shot_evaded(shot.mortar, target)
-			continue
-
-		if target.team == Unit.Team.ENEMY and target.kind == Unit.Kind.SQUAD and not enemy_alerted:
-			enemy_alerted = true
-			_alert_enemy_squads()
-
-		_resolve_fire_and_check_bunching(shot.mortar, target, shot.impact_point)
+		# Checked on the raw Variant, BEFORE assigning to a typed `Unit` variable — assigning an already-freed instance to a typed var is
+		# itself what throws "Trying to assign invalid previously freed instance," so is_instance_valid has to run first.
+		var intended: Unit = null
+		if is_instance_valid(shot.target):
+			intended = shot.target
+		# What a round does depends only on where it lands (direct user ruling: "The effects of a shell only depend on where it lands.
+		# Friendly fire should be possible too."): every unit within reach of the impact point, of either side, whoever it was aimed at,
+		# whether or not that unit is still there.
+		var landed: Array[Dictionary] = _apply_shell_blast(shot.impact_point, shot.mortar)
+		_narrate_shell_landing(shot.mortar, intended, shot.impact_point, landed)
 	_pending_mortar_shots = still_pending
+
+
+## The effect of one mortar round that has landed at `impact` (direct user ruling: "The effects of a shell only depend on where it
+## lands. Friendly fire should be possible too."): every unit of either side within GameConfig.MORTAR_BLAST_COLLATERAL_SEARCH_RADIUS of
+## the point is caught with CombatResolver.blast_casualty_chance of its distance and its own cover (a unit on the move has none),
+## each rolled independently, whoever the round was aimed at and whichever side fired it, the firer's own included. Drones (3 hundred
+## metres up) and units no longer on the field are not in it. Returns what was hit: {"unit", "was_active", "distance"}, nearest first;
+## the caller narrates it (see _narrate_shell_landing). Casualty credit goes to `attacker`, as before.
+func _apply_shell_blast(impact: Vector2, attacker: Unit) -> Array[Dictionary]:
+	var landed: Array[Dictionary] = []
+	if attacker != null and is_instance_valid(attacker):
+		unit_combat_stats.register(attacker)
+	var reach: float = GameConfig.MORTAR_BLAST_COLLATERAL_SEARCH_RADIUS
+	var near: Array[Unit] = []
+	for u in player_units + enemy_units:
+		if u == null or not is_instance_valid(u) or u.kind == Unit.Kind.DRONE:
+			continue
+		if u.state != Unit.State.ACTIVE and u.state != Unit.State.RETREATING:
+			continue
+		if impact.distance_to(u.global_position) > reach:
+			continue
+		near.append(u)
+	near.sort_custom(func(a: Unit, b: Unit) -> bool: return impact.distance_to(a.global_position) < impact.distance_to(b.global_position))
+	for u in near:
+		var distance: float = impact.distance_to(u.global_position)
+		var terrain: GameConfig.TerrainType = GameConfig.TerrainType.OPEN if u.activity == Unit.Activity.MOVING else GameConfig.get_terrain_type_at(u.global_position)
+		if randf() >= CombatResolver.blast_casualty_chance(distance, GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, terrain):
+			continue
+		var was_active: bool = u.state == Unit.State.ACTIVE
+		var before := UnitCombatStats.before_hit(u)
+		u.take_hit(true, _ally_positions_for(u), _known_enemy_positions(u.team), distance)
+		if attacker != null and is_instance_valid(attacker):
+			unit_combat_stats.damage(attacker, u, before)
+		landed.append({"unit": u, "was_active": was_active, "distance": distance})
+	return landed
+
+
+## The log and the follow-on effects of an ordinary round that has landed (see _apply_shell_blast): the unit it was aimed at, if it is
+## still there, knows it is under a barrage (a retreating one keeps juking), an enemy squad within reach of it is alerted, a round that
+## lands wide of its target says so, and each unit it caught is narrated (a bystander of the same side as the mortar as friendly fire).
+func _narrate_shell_landing(mortar: Unit, intended: Unit, impact: Vector2, landed: Array[Dictionary]) -> void:
+	if intended != null and intended.state == Unit.State.RETREATING:
+		intended.zigzagging = true # once you know you're under a barrage, keep juking — see Unit.zigzagging
+	if not enemy_alerted:
+		for e in enemy_units:
+			if e.kind == Unit.Kind.SQUAD and e.state == Unit.State.ACTIVE and e.global_position.distance_to(impact) <= GameConfig.MORTAR_EVASION_RADIUS:
+				enemy_alerted = true
+				_alert_enemy_squads()
+				break
+	var intended_hit := false
+	for rec in landed:
+		if rec.unit == intended:
+			intended_hit = true
+	if intended != null and not intended_hit and (intended.state == Unit.State.ACTIVE or intended.state == Unit.State.RETREATING) 			and intended.global_position.distance_to(impact) > GameConfig.MORTAR_EVASION_RADIUS:
+		combat_log.log_mortar_shot_evaded(mortar, intended)
+	for rec in landed:
+		var victim: Unit = rec.unit
+		if victim != intended:
+			_assign_discovery_number(victim) # a bystander never had to be spotted to be caught: it may still be unnumbered
+			if mortar != null and is_instance_valid(mortar) and victim.team == mortar.team:
+				friendly_fire_hits[mortar.team] = friendly_fire_hits.get(mortar.team, 0) + 1
+				combat_log.log_friendly_fire(mortar, victim)
+			elif intended != null:
+				combat_log.log_blast_collateral(intended, victim)
+		_log_hit_consequence(victim, rec.was_active)
 
 
 ## Word travels fast: break every still-marching enemy squad off its road
@@ -9925,60 +9978,34 @@ func _resolve_pending_counter_battery() -> void:
 		_assess_civilian_casualties(strike.impact_position, strike.attacker.team)
 		_suppress_from_blast(strike.impact_position)
 		var target: Unit = strike.target
-		if target.state != Unit.State.ACTIVE:
-			continue # withdrawn/destroyed since the strike was called in — nothing to hit
+		var attacker_unit: Unit = strike.attacker if strike.has("attacker") and is_instance_valid(strike.attacker) else null
+		# The crew the strike was called in on learns it has been found if the round lands this close to its old position (farther,
+		# faster next time: see Unit.evading_counter_battery), hit or not. COUNTER_BATTERY_BLAST_RADIUS keeps its meaning: beyond it the
+		# old position is safe as far as relocation is concerned.
 		var distance: float = target.global_position.distance_to(strike.impact_position)
-		if distance > GameConfig.COUNTER_BATTERY_BLAST_RADIUS:
-			combat_log.log_counter_battery_miss(target)
-			continue
-		# Close enough for shells to actually land near them, hit or not —
-		# the crew now knows they've been found and relocates accordingly
-		# next time (farther, faster — see Unit.evading_counter_battery).
-		target.evading_counter_battery = true
-		# COUNTER_BATTERY_BLAST_RADIUS above is still the real hard cutoff
-		# for whether a strike can reach the target AT ALL (scope
-		# deliberately unchanged here — that constant's "beyond this, the
-		# old position is safe" meaning is now load-bearing for several
-		# other mortar-relocation mechanics; widening it is a separate,
-		# larger design question this doesn't attempt). Within it, the
-		# actual chance uses the same real, cover-aware exponential
-		# falloff as an ordinary blast's collateral chance (see
-		# CombatResolver.blast_casualty_chance's own doc comment) instead
-		# of a flat linear ramp to a hard, certain zero right at the
-		# boundary — a crew that's displaced most of the way to safety but
-		# hasn't fully cleared it faces a real, low, nonzero risk, not
-		# either "basically as exposed as if it never moved" (small
-		# distances, old linear model) or "impossible" (right at the edge,
-		# old linear model) — max_chance=1.0 since a target still THIS
-		# close to a landing round has no reason to be less vulnerable
-		# than an ordinary bystander caught in the same blast.
-		var impact_chance: float = CombatResolver.blast_casualty_chance(distance, 1.0, GameConfig.get_terrain_type_at(target.global_position))
-		if randf() < impact_chance:
-			var before := UnitCombatStats.before_hit(target)
-			target.take_hit(true, [], _known_enemy_positions(target.team), distance)
-			if strike.has("attacker") and is_instance_valid(strike.attacker):
-				unit_combat_stats.damage(strike.attacker, target, before)
-			combat_log.log_counter_battery(target)
-			_log_hit_consequence(target, true)
-		else:
-			combat_log.log_counter_battery_miss(target)
-		# The shell physically lands at strike.impact_position regardless
-		# of whether it actually caught `target` — real HE fragmentation
-		# from that landing spot can still catch some OTHER nearby unit,
-		# either side, exactly like an ordinary mortar shot's own
-		# collateral check (see _resolve_fire_and_check_bunching's own doc
-		# comment for the shared reasoning and cited figures).
-		if strike.has("attacker") and is_instance_valid(strike.attacker):
-			var collateral_victim := _collateral_victim(strike.impact_position, [strike.attacker, target], GameConfig.MORTAR_BLAST_COLLATERAL_SEARCH_RADIUS,
-				func(d: float, pos: Vector2) -> float: return CombatResolver.blast_casualty_chance(d, GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, GameConfig.get_terrain_type_at(pos)))
-			if collateral_victim != null:
-				var collateral_was_active := collateral_victim.state == Unit.State.ACTIVE
-				var before_collateral := UnitCombatStats.before_hit(collateral_victim)
-				collateral_victim.take_hit(true, _ally_positions_for(collateral_victim), _known_enemy_positions(collateral_victim.team), strike.impact_position.distance_to(collateral_victim.global_position))
-				unit_combat_stats.damage(strike.attacker, collateral_victim, before_collateral)
-				_assign_discovery_number(collateral_victim)
-				combat_log.log_blast_collateral(target, collateral_victim)
-				_log_hit_consequence(collateral_victim, collateral_was_active)
+		if target.state == Unit.State.ACTIVE and distance <= GameConfig.COUNTER_BATTERY_BLAST_RADIUS:
+			target.evading_counter_battery = true
+		# What the round does is the same as any other (see _apply_shell_blast): whoever is near where it lands.
+		var landed: Array[Dictionary] = _apply_shell_blast(strike.impact_position, attacker_unit)
+		var found_target := false
+		for rec in landed:
+			if rec.unit == target:
+				found_target = true
+		if target.state == Unit.State.ACTIVE or found_target:
+			if found_target:
+				combat_log.log_counter_battery(target)
+			else:
+				combat_log.log_counter_battery_miss(target)
+		for rec in landed:
+			var victim: Unit = rec.unit
+			if victim != target:
+				_assign_discovery_number(victim)
+				if attacker_unit != null and victim.team == attacker_unit.team:
+					friendly_fire_hits[attacker_unit.team] = friendly_fire_hits.get(attacker_unit.team, 0) + 1
+					combat_log.log_friendly_fire(attacker_unit, victim)
+				else:
+					combat_log.log_blast_collateral(target, victim)
+			_log_hit_consequence(victim, rec.was_active)
 	_pending_counter_battery = still_pending
 
 

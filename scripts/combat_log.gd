@@ -244,6 +244,13 @@ func log_blast_collateral(defender: Unit, victim: Unit) -> void:
 	add_entry("The blast aimed at %s also catches %s nearby" % [defender.display_name(), victim.display_name()])
 
 
+## A round of the mortar's own side that lands among its own: `victim` is of the mortar's side.
+func log_friendly_fire(mortar: Unit, victim: Unit) -> void:
+	if _unseen(mortar) and _unseen(victim):
+		return
+	add_entry("Friendly fire: %s's round catches %s" % [mortar.display_name(), victim.display_name()])
+
+
 func log_mortar_shot_evaded(mortar: Unit, target: Unit) -> void:
 	if _unseen(mortar) or _unseen(target):
 		return
