@@ -1,6 +1,7 @@
 # Posture and suppression
 
-Status: design, 2026-10-12. Stage A (below) is the only part built when this was written.
+Status: 2026-10-12. Stages A (one function says whether a unit has terrain protection) and B (a stationary unit in the open goes to
+ground under fire) are built. C, D and E are not.
 
 ## What was asked for
 

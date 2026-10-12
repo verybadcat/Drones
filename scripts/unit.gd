@@ -56,6 +56,13 @@ var activity: Activity = Activity.STATIONARY
 # all (e.g. still in its initial deployed position) has no recent-
 # movement signature to decay from.
 var seconds_stationary: float = 1e9
+## Posture state (see posture() and BattleManager._update_postures): whether this unit, standing still in the open, has gone to ground
+## under fire; when fire last arrived at it and when the current spell of fire began (scenario time); and, for a mortar crew, when it last
+## fired a round (a crew serving its gun is on its feet).
+var gone_to_ground: bool = false
+var fire_arrived_at: float = -1e9
+var fire_episode_started_at: float = -1e9
+var last_round_fired_at: float = -1e9
 
 # Is this unit currently visible to the OPPOSING side, right now? This is a
 # live, moment-to-moment fact recomputed by BattleManager every tick — not a
@@ -515,7 +522,7 @@ func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_pos
 	# blast covering an area — it stays a flat single casualty, exactly
 	# like a squad's own from_mortar distinction (see take_hit above).
 	# Only a real HE hit rolls the distance-and-cover-aware model below.
-	var newly_down: int = _roll_crew_casualties(remaining, impact_distance, exposure_terrain()) if from_mortar else min(1, remaining)
+	var newly_down: int = _roll_crew_casualties(remaining, impact_distance, exposure_terrain(), posture_factor()) if from_mortar else min(1, remaining)
 	if blast_casualties >= 0:
 		newly_down = mini(blast_casualties, remaining) # already worked out by the caller, person by person
 	crew_casualties += newly_down
@@ -580,7 +587,7 @@ func _roll_mortar_ammo_cookoff() -> bool:
 	if remaining > 0:
 		# The secondary explosion goes off right where the crew already is —
 		# a real distance of 0, not the original round's own impact point.
-		var newly_down: int = _roll_crew_casualties(remaining, 0.0, exposure_terrain())
+		var newly_down: int = _roll_crew_casualties(remaining, 0.0, exposure_terrain(), posture_factor())
 		crew_casualties += newly_down
 		_categorize_casualties(newly_down)
 	ammo_cooked_off = true
@@ -604,8 +611,8 @@ func _roll_mortar_ammo_cookoff() -> bool:
 ## fragmentation curve every other blast casualty in this game already
 ## uses, so a crew can get lucky and take nothing from a near miss, or
 ## unlucky and lose more than one from a hit that scattered wide.
-func _roll_crew_casualties(remaining: int, impact_distance: float, terrain: GameConfig.TerrainType) -> int:
-	return CombatResolver.binomial(remaining, CombatResolver.blast_casualty_chance(impact_distance, 1.0, terrain))
+func _roll_crew_casualties(remaining: int, impact_distance: float, terrain: GameConfig.TerrainType, lying_factor: float = 1.0) -> int:
+	return CombatResolver.binomial(remaining, clampf(CombatResolver.blast_casualty_chance(impact_distance, 1.0, terrain) * lying_factor, 0.0, 1.0))
 
 
 ## Whether a wounded crew (crew_size - crew_casualties survivors) keeps its post in the fight rather than
@@ -1033,14 +1040,28 @@ func terrain_type() -> GameConfig.TerrainType:
 
 ## The unit's posture, at `at` (this unit's own position when omitted; a forecast asks about a place it may be). Direct user ruling:
 ## "Posture should be something that all units have at all times ... A moving unit has to be standing up." So a unit that is MOVING is
-## STANDING whatever else is true: this is how the function is built, nothing has to keep it so. A stationary unit is, for now, PRONE where
-## there is cover to be down behind (trees, a building) and STANDING in the open, which is what every protection number in CombatResolver
-## already assumed. A DRONE is airborne and has no posture to speak of: STANDING.
+## STANDING whatever else is true: this is how the function is built, nothing has to keep it so. A stationary unit is PRONE where there is
+## cover to be down behind (trees, a building: the cover tables already say how much that protects), and in the open it is STANDING until
+## fire has arrived and it has gone to ground (`gone_to_ground`, kept by BattleManager._update_postures; it only counts for the place the
+## unit is at: asked about another place, a unit would arrive upright). A DRONE is airborne and has no posture to speak of: STANDING.
 func posture(at: Vector2 = Vector2.INF) -> Posture:
 	if activity == Activity.MOVING or kind == Kind.DRONE:
 		return Posture.STANDING
+	var here: bool = is_inf(at.x) or at.distance_to(global_position) < 1.0
+	var where: Vector2 = global_position if here else at
+	if GameConfig.is_in_cover(GameConfig.get_terrain_type_at(where)):
+		return Posture.PRONE
+	return Posture.PRONE if (here and gone_to_ground) else Posture.STANDING
+
+
+## How much a lying man in the OPEN is protected from a bullet or a fragment compared with the same man on his feet
+## (GameConfig.PRONE_IN_OPEN_FACTOR); 1 for anyone else. In cover the cover tables already are the protection of a man down behind it, so
+## the lying factor is not applied again.
+func posture_factor(at: Vector2 = Vector2.INF) -> float:
+	if posture(at) != Posture.PRONE:
+		return 1.0
 	var where: Vector2 = global_position if is_inf(at.x) else at
-	return Posture.PRONE if GameConfig.is_in_cover(GameConfig.get_terrain_type_at(where)) else Posture.STANDING
+	return GameConfig.PRONE_IN_OPEN_FACTOR if GameConfig.get_terrain_type_at(where) == GameConfig.TerrainType.OPEN else 1.0
 
 
 ## The terrain whose protection this unit has right now: the terrain it is in if it is down, the open if it is upright (a man on his feet

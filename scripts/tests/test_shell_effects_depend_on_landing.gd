@@ -35,6 +35,8 @@ func squad(bm: BattleManager, team: Unit.Team, x_m: float, y_m: float = 0.0) -> 
 	else:
 		bm.enemy_units.append(u)
 	u.pips = u.max_pips
+	# Lying, not upright: nothing here is about posture (test_posture_under_fire is), and the figures below were set for men down.
+	u.gone_to_ground = true
 	return u
 
 ## One round from `mortar`, aimed at `target`, landing at (x_m, y_m), resolved through the real path.

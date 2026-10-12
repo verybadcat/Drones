@@ -2348,11 +2348,48 @@ func _add_suppression(unit: Unit, amount: float) -> void:
 func _suppress_from_blast(point: Vector2) -> void:
 	var radius_px: float = GameConfig.SUPPRESSION_BLAST_RADIUS_M * GameConfig.PIXELS_PER_METER
 	for u in player_units + enemy_units:
-		if u.kind != Unit.Kind.SQUAD:
-			continue
 		var d: float = u.global_position.distance_to(point)
-		if d < radius_px:
+		if d >= radius_px:
+			continue
+		_note_fire_arrival(u) # any ground unit within hearing of it goes to ground, whatever it is (see _update_postures)
+		if u.kind == Unit.Kind.SQUAD:
 			_add_suppression(u, GameConfig.SUPPRESSION_BLAST_MAX * (1.0 - d / radius_px))
+
+
+## Fire has just arrived at `u`: a volley aimed at it, or a round landing near it. Starts a spell of fire if the last had ended; it is the
+## spell's start the reaction time is counted from (see _update_postures).
+func _note_fire_arrival(u: Unit) -> void:
+	if u.kind == Unit.Kind.DRONE or (u.state != Unit.State.ACTIVE and u.state != Unit.State.RETREATING):
+		return
+	var now: float = scenario_elapsed_time
+	if now - u.fire_arrived_at > GameConfig.STAY_DOWN_AFTER_FIRE_S:
+		u.fire_episode_started_at = now
+	u.fire_arrived_at = now
+
+
+## Once a tick: every ground unit standing still in the open that fire has been arriving at goes to ground GO_TO_GROUND_REACTION_S after
+## the spell of fire began, stays down while it lasts and for STAY_DOWN_AFTER_FIRE_S after the last round, and then gets up. A unit that
+## moves is upright from that moment (Unit.posture), and nothing is kept: it must react again if it stops under fire. A mortar crew that
+## has fired within its reload cycle is serving the gun, and stays on its feet. In cover there is nothing to do: Unit.posture says it is
+## down behind it already.
+func _update_postures() -> void:
+	var now: float = scenario_elapsed_time
+	for u in player_units + enemy_units:
+		if u.kind == Unit.Kind.DRONE:
+			continue
+		var alive: bool = u.state == Unit.State.ACTIVE or u.state == Unit.State.RETREATING
+		if not alive or u.activity == Unit.Activity.MOVING or GameConfig.is_in_cover(u.terrain_type()):
+			u.gone_to_ground = false
+			continue
+		var since_fire: float = now - u.fire_arrived_at
+		var serving_gun: bool = u.kind == Unit.Kind.MORTAR and now - u.last_round_fired_at < u.reload_time
+		if serving_gun:
+			u.gone_to_ground = false # a gun is not served lying down: a crew that fires gets up to it
+		elif u.gone_to_ground:
+			if since_fire > GameConfig.STAY_DOWN_AFTER_FIRE_S:
+				u.gone_to_ground = false
+		elif since_fire <= GameConfig.STAY_DOWN_AFTER_FIRE_S and now - u.fire_episode_started_at >= GameConfig.GO_TO_GROUND_REACTION_S:
+			u.gone_to_ground = true
 
 
 ## Once a tick: suppression fades with tactical time, and a squad becomes pinned at SUPPRESSION_PIN_LEVEL and stays so until it falls below
@@ -2417,6 +2454,8 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit, impact_point
 	if attacker.kind != Unit.Kind.MORTAR:
 		_record_direct_fire(attacker, target)
 		crossfire = _crossfire_multiplier_against(target)
+	if attacker.kind != Unit.Kind.MORTAR:
+		_note_fire_arrival(target) # whatever it is: a volley aimed at it, hit or miss, is fire arriving
 	if attacker.kind != Unit.Kind.MORTAR and target.kind == Unit.Kind.SQUAD:
 		_add_suppression(target, GameConfig.SUPPRESSION_PER_VOLLEY) # every volley aimed at a squad, hit or miss (mortar rounds do it by where they land)
 	CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team), _drone_directing_multiplier(attacker), target.global_position.distance_to(impact_point), crossfire)
@@ -7434,6 +7473,7 @@ func _process(delta: float) -> void:
 	_resolve_pending_counter_battery()
 	_resolve_pending_mortar_shots()
 	_resolve_pending_mortar_displacement()
+	_update_postures()
 	_update_suppression(scenario_delta)
 	_update_player_intel()
 	_update_enemy_intel()
@@ -7999,6 +8039,7 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 				break
 			_record_shot(unit, target)
 			_launch_mortar_shot(unit, target)
+		unit.last_round_fired_at = scenario_elapsed_time # a crew that has just fired is on its feet at the tube
 		unit.fire_timer = unit.reload_time
 		# No post-shot scoot-queueing here anymore — see _mortar_shot_
 		# this_tick and _decide_mortar_action's own "relocate for safety"

@@ -6767,6 +6767,19 @@ const SUPPRESSION_PIN_LEVEL: float = 0.6
 const SUPPRESSION_RELEASE_LEVEL: float = 0.35
 const SUPPRESSION_MAX_ACCURACY_LOSS: float = 0.5
 
+## POSTURE under fire (docs/designs/posture-and-suppression.md, stage B). A unit standing still in the open is upright until fire arrives
+## (a volley aimed at it, or a round landing within SUPPRESSION_BLAST_RADIUS_M), goes to ground a reaction time later, stays down while the
+## fire lasts and for a while after it stops, and is upright again when it moves (a moving unit is always standing). In cover it is down
+## behind the cover from the start, which the cover tables already express. Sourced: the risk to troops from impact-fuzed shells is 1 for
+## standing and about 1/3 for lying (UK WWII researchers, via Wikipedia's Artillery article, "citation needed"), and most of a barrage's
+## casualties come in the first 10-15 s, before troops improve their posture. JUDGMENT, no source found: the reaction time (trained
+## infantry drop at the sound of close fire in a second or two; 3 s allows noticing it), the stay-down time (long enough to span the 30 s
+## between a mortar's salvos, which is what a barrage is), and applying the shell figure to bullets (a lying man is a smaller, harder
+## target: the same order of reduction).
+const PRONE_IN_OPEN_FACTOR: float = 1.0 / 3.0
+const GO_TO_GROUND_REACTION_S: float = 3.0
+const STAY_DOWN_AFTER_FIRE_S: float = 45.0
+
 
 ## How much a blob's effective radius is stretched (>1) or pinched (<1) in
 ## the direction `theta` (radians from its center) — a sum of cosine

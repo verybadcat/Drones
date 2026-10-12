@@ -37,6 +37,7 @@ func run() -> void:
 		by_index[k] = {"salvos": 0, "hit10": 0, "hit25": 0, "hit40": 0, "rounds": 0, "r25": 0}
 	var mort_cas := 0.0
 	var small_cas := 0.0
+	var lost := {"player": 0.0, "enemy": 0.0}
 	var battles := 0
 	for map_id in GameConfig.MAPS.keys():
 		GameConfig.set_active_map(map_id)
@@ -104,6 +105,8 @@ func run() -> void:
 					mort_cas += cas
 				elif v.get("kind", "") == "SQUAD":
 					small_cas += cas
+				if v.get("kind", "") == "SQUAD" or v.get("kind", "") == "MORTAR":
+					lost[v.get("team", "player")] += float(v.get("max_pips", 0) - v.get("pips", 0))
 			battles += 1
 			if is_instance_valid(log):
 				log.free()
@@ -111,6 +114,7 @@ func run() -> void:
 			await process_frame
 	var total: float = mort_cas + small_cas
 	print("1. over %d battles: casualties per battle %.1f, of which by mortars %.0f%% (band 45-75%%)" % [battles, total / battles, 100.0 * mort_cas / maxf(total, 1.0)])
+	print("   people lost per battle (squads and mortar crews): ours %.1f, theirs %.1f" % [lost.player / battles, lost.enemy / battles])
 	print("2. our salvos at enemy mortars, by how many salvos had already been fired at that target:")
 	for k in [1, 2, 3, 4]:
 		var b: Dictionary = by_index[k]

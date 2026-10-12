@@ -78,12 +78,17 @@ static func blast_casualty_chance(distance: float, max_chance: float, terrain: G
 ## often prone, so only GameConfig.MORTAR_CASUALTY_FRACTION of that. Direct user instruction: how many a round costs a unit follows from
 ## where it lands, one person at a time, not a fixed share of the unit once any part of it is "hit".
 static func blast_person_chance(unit: Unit, distance: float, terrain: GameConfig.TerrainType) -> float:
+	# The curve is for a man on his feet, in the terrain given; one lying in the open has GameConfig.PRONE_IN_OPEN_FACTOR of it.
+	var lying: float = unit.posture_factor()
 	if unit.kind == Unit.Kind.MORTAR or unit.kind == Unit.Kind.DRONE_TEAM:
-		return blast_casualty_chance(distance, 1.0, terrain)
+		return blast_casualty_chance(distance, 1.0, terrain) * lying
 	var chance: float = blast_casualty_chance(distance, GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, terrain)
 	if unit.max_pips <= 1:
-		return chance
-	return chance * GameConfig.MORTAR_CASUALTY_FRACTION
+		return chance * lying
+	# A squad member's fraction (MORTAR_CASUALTY_FRACTION) is the figure for a man lying down, dispersed: casualty area times density
+	# (docs/designs/realism-anchors.md, A7). On his feet, in the open or on the move, the same man has about three times the area.
+	var scale: float = 1.0 if unit.posture() == Unit.Posture.PRONE else 1.0 / GameConfig.PRONE_IN_OPEN_FACTOR
+	return minf(chance * GameConfig.MORTAR_CASUALTY_FRACTION * scale, 1.0)
 
 
 ## How many of `people` become casualties when each is one with probability `p`, independently (a binomial draw; for a large number the
@@ -456,7 +461,9 @@ static func hit_probability(attacker: Unit, defender: Unit, drone_directing_mult
 			# longer protects (a target in the open keeps its exposure penalty, which is above 1).
 			if origin.distance_to(point) <= GameConfig.CLOSE_RANGE_COVER_DEFEAT_M * GameConfig.PIXELS_PER_METER:
 				cover_multiplier = maxf(cover_multiplier, 1.0)
-		chance = attacker.base_hit_chance * cover_multiplier
+		# A man lying in the open is a smaller, harder target than one on his feet (Unit.posture_factor: 1 for anyone upright, moving, or in
+		# cover, where the table above already is the protection of a man down behind it).
+		chance = attacker.base_hit_chance * cover_multiplier * defender.posture_factor(point)
 		if attacker.kind != Unit.Kind.MORTAR:
 			var distance: float = origin.distance_to(point)
 			var decay: float = exp(-distance / GameConfig.SQUAD_CLOSE_RANGE_DECAY_M)

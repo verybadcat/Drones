@@ -117,13 +117,21 @@ func run() -> void:
 	var building_ratio: float = CombatResolver.blast_casualty_chance(r, 1.0, GameConfig.TerrainType.BUILDING) / open_at_r
 	check(building_ratio < 0.3, "A6: a building at least as protective as that (%.2f)" % building_ratio)
 
-	# A7. the squad's share: a round at the impact point costs a squad of nine about 1.3-2.1 casualties (casualty area x squad density, men lying)
+	# A7. the squad's share: a round at the impact point costs a squad of nine about 1.3-2.1 casualties when the men are lying (casualty area
+	# x squad density), and about three times that on their feet (UK WWII: standing 1, lying 1/3)
+	GameConfig.set_active_map("voznesensk")
+	GameConfig._build_terrain_grid()
 	var squad: Unit = Unit.new()
 	squad.kind = Unit.Kind.SQUAD
 	squad.max_pips = 9
-	var per_person: float = CombatResolver.blast_person_chance(squad, 0.0, GameConfig.TerrainType.OPEN)
-	var expected_cas: float = 9.0 * per_person
-	check(expected_cas > 1.2 and expected_cas < 2.2, "A7: a round on a squad of nine in the open costs it about 1.3-2.1 (%.2f)" % expected_cas)
+	squad.position = Vector2(-5000.0, -5000.0) * GameConfig.PIXELS_PER_METER # open ground
+	check(GameConfig.get_terrain_type_at(squad.position) == GameConfig.TerrainType.OPEN, "A7 setup: open ground")
+	squad.gone_to_ground = true
+	var lying_cas: float = 9.0 * CombatResolver.blast_person_chance(squad, 0.0, GameConfig.TerrainType.OPEN)
+	check(lying_cas > 1.2 and lying_cas < 2.2, "A7: a round on a squad of nine lying in the open costs it about 1.3-2.1 (%.2f)" % lying_cas)
+	squad.gone_to_ground = false
+	var upright_cas: float = 9.0 * CombatResolver.blast_person_chance(squad, 0.0, GameConfig.TerrainType.OPEN)
+	check(upright_cas > 3.6 and upright_cas < 6.6, "A7: ... and on their feet about three times that, 4-6 (%.2f)" % upright_cas)
 	squad.free()
 
 	print("Realism anchor tests: %d failures" % failures)
