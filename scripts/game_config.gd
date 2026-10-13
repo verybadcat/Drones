@@ -7429,6 +7429,44 @@ static func enemy_squad_y_offsets_m(n: int) -> Array[float]:
 	return out
 
 
+## THE ENEMY'S FORMATION AT THE START OF THE MARCH. User, 2026-10-13, after watching a battle in which the enemy took most of its casualties
+## advancing close together: "There is no law requiring the enemy squads to advance in a line as they do. They could be spread out in both
+## the X and Y directions." Until now n squads stood evenly across a fixed span (520 m: 58 m apart for ten, 37 m for fifteen), all on the
+## same line. Now: rows across the march, at least ENEMY_ADVANCE_MIN_SPACING_M (the player's squads' own preferred 75 m, SQUAD_DESIRED_SPACING:
+## a round on one squad catches its neighbour inside about that) between any two squads, ENEMY_ADVANCE_ROW_DEPTH_M between rows, alternate
+## rows shifted by half a step so no squad is behind another. Sourced (FM 7-8, Fire team and Platoon articles): a squad is itself 50 to
+## 100 m across; "the platoon column ... provides good dispersion both laterally and in depth"; the distances between squads are not
+## fixed but vary with the likelihood of contact, and are kept within sight of one another. JUDGMENT: the 110 m row depth.
+const ENEMY_ADVANCE_MIN_SPACING_M: float = 75.0
+const ENEMY_ADVANCE_ROW_DEPTH_M: float = 110.0
+
+## The start positions of `n` enemy squads as (x offset, y offset) in metres: x from the spawn line (0 or negative: further west, nearer the
+## defenders, for the leading rows), y across the march from the road. See ENEMY_ADVANCE_MIN_SPACING_M.
+static func enemy_squad_layout_m(n: int) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	if n <= 0:
+		return out
+	var enemy: Dictionary = CURRENT_MAP.enemy
+	var low: float = enemy.squad_spread_min_offset_m
+	var high: float = enemy.squad_spread_max_offset_m
+	var span: float = high - low
+	var capacity: int = maxi(int(floor(span / ENEMY_ADVANCE_MIN_SPACING_M)) + 1, 1)
+	var rows: int = maxi(int(ceil(float(n) / float(capacity))), 1)
+	var remaining: int = n
+	for r in rows:
+		var in_row: int = int(ceil(float(remaining) / float(rows - r)))
+		remaining -= in_row
+		var x_off: float = -float(rows - 1 - r) * ENEMY_ADVANCE_ROW_DEPTH_M # row 0 leads, the last row stands on the spawn line
+		var step: float = span / float(in_row - 1) if in_row > 1 else 0.0
+		# alternate rows are shifted by half a step, so that no squad stands behind another; the last of such a row stands half a step
+		# beyond the nominal spread, which is a preference and not a boundary
+		var shift: float = step / 2.0 if (r % 2 == 1 and in_row > 1) else 0.0
+		for j in in_row:
+			var y_off: float = (low + span / 2.0) if in_row == 1 else low + float(j) * step + shift
+			out.append(Vector2(x_off, y_off))
+	return out
+
+
 ## Rear mortar positions for `n` enemy mortars — see CURRENT_MAP.enemy's
 ## mortar_rear_x_m/mortar_spread_min/max_y_m.
 static func enemy_mortar_positions_m(n: int) -> Array[Vector2]:

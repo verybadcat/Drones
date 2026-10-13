@@ -1358,14 +1358,16 @@ func _spawn_enemy_units() -> void:
 	_enemy_mortar_homes.clear()
 	var road_px: Array[Vector2] = GameConfig.road_waypoints_px()
 	var force_size: Dictionary = roll_enemy_force_size()
-	var squad_y_offsets_m: Array[float] = GameConfig.enemy_squad_y_offsets_m(force_size.squads)
+	var layout_m: Array[Vector2] = GameConfig.enemy_squad_layout_m(force_size.squads)
 	# A real road march down the winding road (see GameConfig.ROAD_WAYPOINTS_M),
 	# not a straight line. Each squad's whole path is the same road shifted by
 	# its own fixed y offset — a loose spread advancing near the road, not
-	# single file on top of it or on top of each other.
-	for i in squad_y_offsets_m.size():
-		var y_offset: float = squad_y_offsets_m[i] * GameConfig.PIXELS_PER_METER
-		var start_pos := Vector2(GameConfig.CURRENT_MAP.enemy.spawn_x, road_px[0].y + y_offset)
+	# single file on top of it or on top of each other. And spread in depth as well as width
+	# (GameConfig.enemy_squad_layout_m): rows, the leading ones starting further west, so a squad's path
+	# begins at the first road waypoint that is west of where it starts.
+	for i in layout_m.size():
+		var y_offset: float = layout_m[i].y * GameConfig.PIXELS_PER_METER
+		var start_pos := Vector2(GameConfig.CURRENT_MAP.enemy.spawn_x + layout_m[i].x * GameConfig.PIXELS_PER_METER, road_px[0].y + y_offset)
 		var squad := _make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, start_pos)
 		# _make_unit gave it a fire phase from the GLOBAL stream (right for every other caller); replace
 		# it from the enemy stream so this unit's start state doesn't depend on how many units the player
@@ -1376,7 +1378,11 @@ func _spawn_enemy_units() -> void:
 		squad.move_speed = GameConfig.ENEMY_ADVANCE_SPEED
 		var path: Array[Vector2] = []
 		for wp in road_px:
+			if layout_m[i].x < 0.0 and wp.x >= start_pos.x - 1.0:
+				continue # a waypoint behind it, on the road it has already started past
 			path.append(wp + Vector2(0.0, y_offset))
+		if path.is_empty():
+			path.append(road_px[road_px.size() - 1] + Vector2(0.0, y_offset))
 		squad.set_path(path)
 		squad.movement_predictable = true # a steady, known march — lead-aimable by mortar fire
 		squad.activity = Unit.Activity.MOVING
