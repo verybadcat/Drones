@@ -57,7 +57,7 @@ const MORTAR_COVER_MULTIPLIER := {
 ## casualty figures) normalized against OPEN, so a victim standing in the
 ## open gets exactly the bare exponential curve and cover reduces it
 ## proportionally — a direct answer to "cover would also matter."
-static func blast_casualty_chance(distance: float, max_chance: float, terrain: GameConfig.TerrainType, kept: float = 1.0) -> float:
+static func blast_casualty_chance(distance: float, max_chance: float, terrain: GameConfig.TerrainType, kept: float = 1.0, dug_ratio: float = 1.0) -> float:
 	var radius: float = GameConfig.MORTAR_BLAST_CASUALTY_RADIUS
 	# Inside twice the casualty radius the cited exponential (halving every `radius`); beyond it the fragments are slowed and thinned
 	# and the chance falls faster (halving every half a radius). Cover, which near the burst only reduces the chance, stops the weak
@@ -69,6 +69,10 @@ static func blast_casualty_chance(distance: float, max_chance: float, terrain: G
 		decay = 0.25 * exp(-log(2.0) * (distance - 2.0 * radius) / (0.5 * radius))
 	var cover_factor: float = MORTAR_COVER_MULTIPLIER.get(terrain, 1.0) / MORTAR_COVER_MULTIPLIER[GameConfig.TerrainType.OPEN]
 	cover_factor = pow(cover_factor, kept) # a unit on the move keeps only part of it (Unit.cover_kept)
+	if dug_ratio < 1.0:
+		# a finished fighting position (Unit.fighting_position_ratio): its ratio, and none of it for a round that lands in the hole
+		var near: float = clampf(distance / (GameConfig.FIGHTING_POSITION_DIRECT_HIT_M * GameConfig.PIXELS_PER_METER), 0.0, 1.0)
+		cover_factor = minf(cover_factor, lerpf(1.0, dug_ratio, near))
 	cover_factor = pow(cover_factor, maxf(1.0, distance / radius))
 	return clamp(max_chance * decay * cover_factor, 0.0, 1.0)
 
@@ -83,15 +87,15 @@ static func blast_person_chance(unit: Unit, distance: float, terrain: GameConfig
 	# a third in the open, a half in cover.
 	var lying: float = unit.posture_factor()
 	if unit.kind == Unit.Kind.MORTAR or unit.kind == Unit.Kind.DRONE_TEAM:
-		return blast_casualty_chance(distance, 1.0, terrain, unit.cover_kept()) * lying
-	var chance: float = blast_casualty_chance(distance, GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, terrain, unit.cover_kept())
+		return blast_casualty_chance(distance, 1.0, terrain, unit.cover_kept(), unit.fighting_position_ratio()) * lying
+	var chance: float = blast_casualty_chance(distance, GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, terrain, unit.cover_kept(), unit.fighting_position_ratio())
 	if unit.max_pips <= 1:
 		return chance * lying
 	# A squad member's fraction (MORTAR_CASUALTY_FRACTION) is the figure for a man lying in the open, dispersed (casualty area times
 	# density: docs/designs/realism-anchors.md, A7) and, in cover, for a man at his post. On his feet in the open, or on the move, the same
 	# man has about three times the area; in cover he has the fraction, and half of it once down.
 	var scale: float = 1.0
-	if terrain == GameConfig.TerrainType.OPEN:
+	if terrain == GameConfig.TerrainType.OPEN and not unit.in_fighting_position():
 		if unit.posture() == Unit.Posture.STANDING:
 			scale = 1.0 / GameConfig.PRONE_IN_OPEN_FACTOR
 	else:
@@ -465,6 +469,9 @@ static func hit_probability(attacker: Unit, defender: Unit, drone_directing_mult
 		var cover_multiplier: float = cover_table[terrain]
 		if moving:
 			cover_multiplier = pow(cover_table[terrain] / cover_table[GameConfig.TerrainType.OPEN], defender.cover_kept(point))
+		elif defender.in_fighting_position(point):
+			# at its post in a finished fighting position: the better of the terrain and the hole
+			cover_multiplier = minf(cover_multiplier, cover_table[GameConfig.TerrainType.OPEN] * GameConfig.FIGHTING_POSITION_RATIO)
 		# A high-ground attacker partially defeats the defender's own cover
 		# — see ELEVATION_COVER_DEFEAT_FRACTION's own doc comment for the
 		# real doctrine (and its limits) behind this. Direct fire only:

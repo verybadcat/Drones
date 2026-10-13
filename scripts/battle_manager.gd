@@ -2371,6 +2371,38 @@ func _note_fire_arrival(u: Unit) -> void:
 	u.fire_arrived_at = now
 
 
+## Once a tick: a ground unit that stays where it is digs in, in stages (GameConfig.SHELL_SCRAPE_BUILD_S, FIGHTING_POSITION_BUILD_S): a
+## shell scrape, then a fighting position. It cannot dig in a building, and a unit that goes more than
+## GameConfig.ENTRENCHMENT_ANCHOR_RADIUS_M from the place it was digging starts again there (a unit that is only moving about within it keeps
+## what it has). Nothing here is kept for the other side: a unit's position is its own.
+func _update_entrenchment(scenario_delta: float) -> void:
+	var radius: float = GameConfig.ENTRENCHMENT_ANCHOR_RADIUS_M * GameConfig.PIXELS_PER_METER
+	for u in player_units + enemy_units:
+		if u.kind == Unit.Kind.DRONE or u.kind == Unit.Kind.RESUPPLY_RUN:
+			continue
+		var alive: bool = u.state == Unit.State.ACTIVE or u.state == Unit.State.RETREATING
+		if not alive or is_inf(u.dig_anchor.x) or u.global_position.distance_to(u.dig_anchor) > radius:
+			u.entrenchment = Unit.Entrenchment.NONE
+			u.digging_seconds = 0.0
+			u.dig_anchor = u.global_position
+			if not alive:
+				continue
+		if u.activity == Unit.Activity.MOVING or u.state == Unit.State.RETREATING:
+			continue
+		if GameConfig.is_building_at(u.global_position):
+			u.digging_seconds = 0.0
+			continue
+		u.digging_seconds += scenario_delta
+		var level: Unit.Entrenchment = Unit.Entrenchment.NONE
+		if u.digging_seconds >= GameConfig.FIGHTING_POSITION_BUILD_S:
+			level = Unit.Entrenchment.FIGHTING_POSITION
+		elif u.digging_seconds >= GameConfig.SHELL_SCRAPE_BUILD_S:
+			level = Unit.Entrenchment.SCRAPE
+		if level != u.entrenchment:
+			u.entrenchment = level
+			combat_log.log_dug_in(u, level)
+
+
 ## Once a tick: every ground unit standing still that fire has been arriving at goes to ground GO_TO_GROUND_REACTION_S after the spell
 ## of fire began (in the open or in cover: a squad in a building gets down below the windows too), stays down while it lasts and for
 ## STAY_DOWN_AFTER_FIRE_S after the last round, and then gets up. A unit that moves is upright from that moment (Unit.posture), and
@@ -7395,6 +7427,8 @@ func general_unit_debug_snapshot() -> Dictionary:
 		if u.kind == Unit.Kind.SQUAD:
 			entry["suppression"] = snappedf(u.suppression, 0.01)
 			entry["pinned"] = u.pinned
+		entry["entrenchment"] = Unit.Entrenchment.keys()[u.entrenchment]
+		entry["posture"] = Unit.Posture.keys()[u.posture()]
 		var combat_row: Dictionary = unit_combat_stats.rows.get(u.get_instance_id(), {})
 		if not combat_row.is_empty():
 			entry["shots_fired"] = combat_row.shots
@@ -7481,6 +7515,7 @@ func _process(delta: float) -> void:
 	_resolve_pending_mortar_shots()
 	_resolve_pending_mortar_displacement()
 	_update_postures()
+	_update_entrenchment(scenario_delta)
 	_update_suppression(scenario_delta)
 	_update_player_intel()
 	_update_enemy_intel()

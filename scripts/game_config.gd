@@ -6819,6 +6819,26 @@ const PINNED_VS_MOVING_FIRE_MULTIPLIER: float = 0.5
 const MORTAR_TARGET_SUPPRESSION_WEIGHT: float = 2.0
 const MORTAR_SUPPRESSION_RECENT_FIRE_S: float = 45.0
 
+## DIGGING IN (stage E of docs/designs/posture-and-suppression.md). A unit that stays where it is digs, in stages, and loses what it has
+## dug the moment it goes elsewhere. Sourced (Wikipedia's Fighting position article): positions are built in stages, "a soldier can improve
+## the position over time, while being able to stop at any time and use the position in a fight"; the first is a shell scrape, "a shallow
+## depression that affords protection in the prone position", which in North Africa 1942-43 "soon proved inadequate", the few inches
+## of earth over a man "often penetrated by bullets or shell fragments"; the next is a fighting position deep enough to stand in with only
+## the head and shoulders exposed, with a fire step to crouch on under intense artillery fire. The UK WWII figures put the relative risk
+## from shells at 1/15 to 1/50 of standing for a man firing from a trench and 1/25 to 1/100 crouched in it: so, at his post in a fighting
+## position, a man is 1/25 of what he is on his feet in the open (a figure in the range; the crouch adds the half PRONE_IN_COVER_FACTOR
+## already is). A round that lands in the hole itself is a direct hit and nothing protects against that: within
+## FIGHTING_POSITION_DIRECT_HIT_M the protection fades to none. JUDGMENT, no source found for these: the building times (15 minutes for
+## a scrape; an hour and a half in all for a fighting position), the 0.7 a scrape is worth to a man lying in the open, and the 8 m within
+## which a unit that shifts keeps its work. Not modelled: the camouflage of a dug position, overhead cover, a unit that digs while it
+## fights more slowly, engineers or tools, and a position prepared before the battle (no unit starts dug in).
+const SHELL_SCRAPE_BUILD_S: float = 900.0
+const FIGHTING_POSITION_BUILD_S: float = 5400.0
+const SCRAPE_PROTECTION_FACTOR: float = 0.7
+const FIGHTING_POSITION_RATIO: float = 1.0 / 25.0
+const FIGHTING_POSITION_DIRECT_HIT_M: float = 4.0
+const ENTRENCHMENT_ANCHOR_RADIUS_M: float = 8.0
+
 
 ## How much a blob's effective radius is stretched (>1) or pinched (<1) in
 ## the direction `theta` (radians from its center) — a sum of cosine

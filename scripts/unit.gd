@@ -27,6 +27,8 @@ enum Activity { STATIONARY, MOVING }
 ## How the unit is carrying itself: upright (walking, running, or standing still) or down (lying or crouched behind whatever is there).
 ## Every ground unit has one at every moment; see posture() and docs/designs/posture-and-suppression.md.
 enum Posture { STANDING, PRONE }
+## How far a unit has dug in where it stands (GameConfig.SHELL_SCRAPE_BUILD_S, FIGHTING_POSITION_BUILD_S; BattleManager._update_entrenchment).
+enum Entrenchment { NONE, SCRAPE, FIGHTING_POSITION }
 
 var team: Team = Team.PLAYER
 var kind: Kind = Kind.SQUAD
@@ -63,6 +65,11 @@ var gone_to_ground: bool = false
 ## Whether this unit has already hesitated, in the present spell of being pinned, before moving (see GameConfig.PINNED_HESITATION_S);
 ## cleared when it is released.
 var pinned_hesitated: bool = false
+## Digging in: the state, the seconds spent digging at this place, and the place (a unit that goes more than
+## GameConfig.ENTRENCHMENT_ANCHOR_RADIUS_M from it starts again).
+var entrenchment: Entrenchment = Entrenchment.NONE
+var digging_seconds: float = 0.0
+var dig_anchor: Vector2 = Vector2.INF
 ## How long (tactical seconds) a unit that is down has been trying to move, getting up (GameConfig.RISE_DELAY_S).
 var rising_for: float = 0.0
 var fire_arrived_at: float = -1e9
@@ -527,7 +534,7 @@ func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_pos
 	# blast covering an area — it stays a flat single casualty, exactly
 	# like a squad's own from_mortar distinction (see take_hit above).
 	# Only a real HE hit rolls the distance-and-cover-aware model below.
-	var newly_down: int = _roll_crew_casualties(remaining, impact_distance, exposure_terrain(), posture_factor(), cover_kept()) if from_mortar else min(1, remaining)
+	var newly_down: int = _roll_crew_casualties(remaining, impact_distance, exposure_terrain(), posture_factor(), cover_kept(), fighting_position_ratio()) if from_mortar else min(1, remaining)
 	if blast_casualties >= 0:
 		newly_down = mini(blast_casualties, remaining) # already worked out by the caller, person by person
 	crew_casualties += newly_down
@@ -592,7 +599,7 @@ func _roll_mortar_ammo_cookoff() -> bool:
 	if remaining > 0:
 		# The secondary explosion goes off right where the crew already is —
 		# a real distance of 0, not the original round's own impact point.
-		var newly_down: int = _roll_crew_casualties(remaining, 0.0, exposure_terrain(), posture_factor(), cover_kept())
+		var newly_down: int = _roll_crew_casualties(remaining, 0.0, exposure_terrain(), posture_factor(), cover_kept(), fighting_position_ratio())
 		crew_casualties += newly_down
 		_categorize_casualties(newly_down)
 	ammo_cooked_off = true
@@ -616,8 +623,8 @@ func _roll_mortar_ammo_cookoff() -> bool:
 ## fragmentation curve every other blast casualty in this game already
 ## uses, so a crew can get lucky and take nothing from a near miss, or
 ## unlucky and lose more than one from a hit that scattered wide.
-func _roll_crew_casualties(remaining: int, impact_distance: float, terrain: GameConfig.TerrainType, lying_factor: float = 1.0, kept: float = 1.0) -> int:
-	return CombatResolver.binomial(remaining, clampf(CombatResolver.blast_casualty_chance(impact_distance, 1.0, terrain, kept) * lying_factor, 0.0, 1.0))
+func _roll_crew_casualties(remaining: int, impact_distance: float, terrain: GameConfig.TerrainType, lying_factor: float = 1.0, kept: float = 1.0, dug_ratio: float = 1.0) -> int:
+	return CombatResolver.binomial(remaining, clampf(CombatResolver.blast_casualty_chance(impact_distance, 1.0, terrain, kept, dug_ratio) * lying_factor, 0.0, 1.0))
 
 
 ## Whether a wounded crew (crew_size - crew_casualties survivors) keeps its post in the fight rather than
@@ -1064,10 +1071,27 @@ func posture(at: Vector2 = Vector2.INF) -> Posture:
 func posture_factor(at: Vector2 = Vector2.INF) -> float:
 	if posture(at) != Posture.PRONE:
 		return 1.0
+	if in_fighting_position(at):
+		return GameConfig.PRONE_IN_COVER_FACTOR # crouched on the fire step
 	var where: Vector2 = global_position if is_inf(at.x) else at
 	if GameConfig.get_terrain_type_at(where) == GameConfig.TerrainType.OPEN:
-		return GameConfig.PRONE_IN_OPEN_FACTOR
+		# lying in the open; in a shell scrape it is a little better (it "soon proved inadequate": a few inches of earth)
+		return GameConfig.PRONE_IN_OPEN_FACTOR * (GameConfig.SCRAPE_PROTECTION_FACTOR if entrenchment == Entrenchment.SCRAPE else 1.0)
 	return GameConfig.PRONE_IN_COVER_FACTOR
+
+
+## True for a unit that has a finished fighting position where it is and is not moving from it (asked about another place, no: it would
+## arrive without one).
+func in_fighting_position(at: Vector2 = Vector2.INF) -> bool:
+	if entrenchment != Entrenchment.FIGHTING_POSITION or activity == Activity.MOVING or kind == Kind.DRONE:
+		return false
+	return is_inf(at.x) or at.distance_to(global_position) < 1.0
+
+
+## What a fighting position does for the unit at its post: GameConfig.FIGHTING_POSITION_RATIO of what it would have on its feet in the
+## open, as a ratio on the cover tables and the blast curve; 1 for a unit without one.
+func fighting_position_ratio(at: Vector2 = Vector2.INF) -> float:
+	return GameConfig.FIGHTING_POSITION_RATIO if in_fighting_position(at) else 1.0
 
 
 ## The terrain whose protection this unit has right now: the terrain it is in, moving or still (a drone, airborne, has the open).

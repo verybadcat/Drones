@@ -442,6 +442,16 @@ func log_pin_lifted(unit: Unit) -> void:
 	add_entry("%s is no longer pinned down" % unit.display_name())
 
 
+## A unit has dug in where it stands (see GameConfig.SHELL_SCRAPE_BUILD_S): a shell scrape, then a fighting position.
+func log_dug_in(unit: Unit, level: int) -> void:
+	if _unseen(unit):
+		return
+	if level >= Unit.Entrenchment.FIGHTING_POSITION:
+		add_entry("%s has finished a fighting position" % unit.display_name())
+	else:
+		add_entry("%s has dug a shell scrape" % unit.display_name())
+
+
 func log_lost_contact(unit: Unit) -> void:
 	add_entry("Contact lost with %s" % unit.display_name())
 
