@@ -95,6 +95,12 @@ func log_mortar_falling_back_toward_edge(unit: Unit) -> void:
 	add_entry("%s has nowhere safe to conceal itself and falls back toward the map edge, still in the fight" % unit.display_name())
 
 
+func log_out_of_ammunition(unit: Unit) -> void:
+	if _unseen(unit):
+		return
+	add_entry("%s has run out of ammunition and is pulling back" % unit.display_name())
+
+
 func log_squad_surrendered(unit: Unit) -> void:
 	if _unseen(unit):
 		return

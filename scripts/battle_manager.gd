@@ -7441,6 +7441,8 @@ func general_unit_debug_snapshot() -> Dictionary:
 		if u.kind == Unit.Kind.SQUAD:
 			entry["suppression"] = snappedf(u.suppression, 0.01)
 			entry["pinned"] = u.pinned
+		if u.rounds_limited:
+			entry["rounds"] = u.rounds
 		entry["entrenchment"] = Unit.Entrenchment.keys()[u.entrenchment]
 		entry["posture"] = Unit.Posture.keys()[u.posture()]
 		var combat_row: Dictionary = unit_combat_stats.rows.get(u.get_instance_id(), {})
@@ -8081,6 +8083,15 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		unit.fire_timer = unit.fire_interval
 		return
 
+	# A squad's ammunition: nothing to fire with when it has none, fire discipline when it has little, and the rounds a volley costs.
+	var rounds_spent := false
+	if unit.kind == Unit.Kind.SQUAD and unit.rounds_limited:
+		if unit.rounds <= 0 or _squad_holds_fire_for_ammunition(unit, target):
+			unit.fire_timer = unit.fire_interval
+			return
+		unit.rounds -= mini(unit.rounds, unit.pips * GameConfig.SQUAD_ROUNDS_PER_PERSON_PER_VOLLEY)
+		rounds_spent = true
+
 	if unit.kind == Unit.Kind.MORTAR:
 		if unit.has_move_target:
 			# A real, in-range, ammo-available target just turned up while
@@ -8166,6 +8177,34 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		_gunfire_ambience.report_shot(unit.team)
 	_resolve_fire_and_check_bunching(unit, target, target.global_position)
 	unit.fire_timer = unit.fire_interval
+	if rounds_spent and unit.rounds <= 0:
+		_squad_runs_dry(unit)
+
+
+## Fire discipline (GameConfig.SQUAD_FIRE_DISCIPLINE_*): whether a squad that is short of rounds holds fire at `target` this volley. Nothing
+## until it is below half its load; then more as the load falls, for a target that is not worth the rounds (a small chance to hit it) and
+## not close; never for a target inside the urgent range. A squad that is dry does not get here (it cannot fire).
+func _squad_holds_fire_for_ammunition(unit: Unit, target: Unit) -> bool:
+	if unit.rounds_capacity <= 0:
+		return false
+	var scarcity: float = 1.0 - float(unit.rounds) / float(unit.rounds_capacity)
+	var pressure: float = clampf((scarcity - 0.5) / 0.5, 0.0, 1.0)
+	if pressure <= 0.0:
+		return false
+	var worth: float = clampf(CombatResolver.hit_probability(unit, target) / GameConfig.SQUAD_FIRE_DISCIPLINE_REFERENCE_HIT_CHANCE, 0.0, 1.0)
+	var distance_m: float = unit.global_position.distance_to(target.global_position) / GameConfig.PIXELS_PER_METER
+	var urgency: float = clampf(1.0 - distance_m / GameConfig.SQUAD_FIRE_DISCIPLINE_URGENT_RANGE_M, 0.0, 1.0)
+	var hold: float = pressure * (1.0 - worth) * (1.0 - urgency)
+	return randf() < hold
+
+
+## A squad has fired its last round: it says so, and pulls back (no resupply is coming).
+func _squad_runs_dry(unit: Unit) -> void:
+	if unit.state != Unit.State.ACTIVE:
+		return
+	combat_log.log_out_of_ammunition(unit)
+	var known: Array[Vector2] = _known_enemy_positions_for_retreat(Unit.Team.PLAYER) if unit.team == Unit.Team.PLAYER else _known_enemy_positions(Unit.Team.ENEMY)
+	unit.order_retreat(known, _ally_positions_for(unit), "Out of ammunition.")
 
 
 ## A mortar's shell doesn't land the instant it fires — see

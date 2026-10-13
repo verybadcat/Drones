@@ -41,6 +41,9 @@ func run() -> void:
 	var duration := 0.0
 	var scraped := 0
 	var positioned := 0
+	var dry := {"player": 0, "enemy": 0}
+	var rounds_left := 0.0
+	var squads_seen := 0
 	var battles := 0
 	for map_id in GameConfig.MAPS.keys():
 		GameConfig.set_active_map(map_id)
@@ -114,6 +117,11 @@ func run() -> void:
 					scraped += 1
 				elif v.get("entrenchment", "") == "FIGHTING_POSITION":
 					positioned += 1
+				if v.has("rounds"):
+					squads_seen += 1
+					rounds_left += float(v.rounds)
+					if int(v.rounds) <= 0:
+						dry[v.get("team", "player")] += 1
 			duration += bm.scenario_elapsed_time
 			battles += 1
 			if is_instance_valid(log):
@@ -124,6 +132,7 @@ func run() -> void:
 	print("1. over %d battles: casualties per battle %.1f, of which by mortars %.0f%% (band 45-75%%)" % [battles, total / battles, 100.0 * mort_cas / maxf(total, 1.0)])
 	print("   people lost per battle (squads and mortar crews): ours %.1f, theirs %.1f" % [lost.player / battles, lost.enemy / battles])
 	print("   battle length %.0f minutes on average; units with a shell scrape at the end %.2f per battle, with a fighting position %.2f" % [duration / battles / 60.0, float(scraped) / battles, float(positioned) / battles])
+	print("   squads out of ammunition at the end, per battle: ours %.2f, theirs %.2f; rounds left per squad on average %.0f of %d" % [float(dry.player) / battles, float(dry.enemy) / battles, rounds_left / maxf(squads_seen, 1), Unit.SQUAD_SIZE * GameConfig.SQUAD_ROUNDS_PER_PERSON])
 	print("2. our salvos at enemy mortars, by how many salvos had already been fired at that target:")
 	for k in [1, 2, 3, 4]:
 		var b: Dictionary = by_index[k]

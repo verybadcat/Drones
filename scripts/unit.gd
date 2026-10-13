@@ -65,6 +65,11 @@ var gone_to_ground: bool = false
 ## Whether this unit has already hesitated, in the present spell of being pinned, before moving (see GameConfig.PINNED_HESITATION_S);
 ## cleared when it is released.
 var pinned_hesitated: bool = false
+## SQUAD only: its small-arms ammunition (see GameConfig.SQUAD_ROUNDS_PER_PERSON). `rounds_limited` is set by setup(), so a bare unit
+## built some other way is not rationed.
+var rounds_limited: bool = false
+var rounds: int = 0
+var rounds_capacity: int = 0
 ## Digging in: the state, the seconds spent digging at this place, and the place (a unit that goes more than
 ## GameConfig.ENTRENCHMENT_ANCHOR_RADIUS_M from it starts again).
 var entrenchment: Entrenchment = Entrenchment.NONE
@@ -393,6 +398,9 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 			base_hit_chance = (0.32 if team == Team.PLAYER else 0.20) * GameConfig.SMALL_ARMS_BASE_EFFECTIVENESS
 			unit_label = "Squad"
 			fire_interval = 2.0
+			rounds_limited = true
+			rounds_capacity = SQUAD_SIZE * GameConfig.SQUAD_ROUNDS_PER_PERSON
+			rounds = rounds_capacity
 	pips = max_pips
 	queue_redraw()
 

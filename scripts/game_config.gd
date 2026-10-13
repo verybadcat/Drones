@@ -6845,6 +6845,24 @@ const ENTRENCHMENT_ANCHOR_RADIUS_M: float = 8.0
 ## Russian side starts with nothing and digs, if it stays anywhere, as any unit does. A unit that leaves its place loses it (see above).
 const PLAYER_STARTS_DUG_IN: bool = true
 
+## SMALL-ARMS AMMUNITION. A squad has what it carries and nothing more: no resupply on the scale of a battle, and no cache at a position
+## (user, 2026-10-13: "Don't do the position cache. Our squads move pretty often. Let's try assuming that resupply is not available on the
+## scale of this battle."). Sourced (Wikipedia's AK-74 and RPK articles): a rifleman is issued four 30-round magazines (the rifle's and
+## three spares) and stripper clips, 120 rounds and more; the most "the average soldier can comfortably carry" is 10 kg, 540 rounds of
+## 5.45 mm. JUDGMENT: SQUAD_ROUNDS_PER_PERSON, between the issue and the limit, the squad's machine gun and its extra loads included. One
+## squad volley stands for about two minutes of the squad firing (the fire timer is two seconds at 60 times speed), at two or three aimed
+## rounds a minute a man: SQUAD_ROUNDS_PER_PERSON_PER_VOLLEY. A casualty's rounds are taken by the survivors, so the squad's pool is not
+## lost with him. A squad that is out of ammunition withdraws.
+const SQUAD_ROUNDS_PER_PERSON: int = 300
+const SQUAD_ROUNDS_PER_PERSON_PER_VOLLEY: int = 5
+
+## FIRE DISCIPLINE. A squad with plenty fires as it did; from half its load down it holds fire at a target that is not worth the rounds,
+## more as the load falls. Worth: its chance to hit it against SQUAD_FIRE_DISCIPLINE_REFERENCE_HIT_CHANCE (a good shot is always worth it),
+## and how close it is: inside SQUAD_FIRE_DISCIPLINE_URGENT_RANGE_M it is a threat and the squad fires regardless. The same idea as the
+## mortar's holding fire when short of rounds. JUDGMENT: the figures.
+const SQUAD_FIRE_DISCIPLINE_REFERENCE_HIT_CHANCE: float = 0.15
+const SQUAD_FIRE_DISCIPLINE_URGENT_RANGE_M: float = 100.0
+
 
 ## How much a blob's effective radius is stretched (>1) or pinched (<1) in
 ## the direction `theta` (radians from its center) — a sum of cosine

@@ -31,6 +31,7 @@ the mortar, blast, casualty or movement code should not move the game out of a b
 | Spacing between squads | a round that lands on one catches its neighbour within about 75 m (halving every 26 m) | from the casualty radius | desired 75 m, relaxed under pressure | Matches by construction |
 
 ## Not anchored (no real-world figure found)
-* Rounds fired per casualty, overall. The sources found give shares and posture risk, not that.
+* Rounds fired per casualty, overall. The sources found give shares and posture risk, not that. (From memory, unsourced: tens of thousands of small-arms rounds per casualty in modern wars; the game's volleys cost a hundred or so rounds per casualty, so its small-arms fire is far more efficient than real fire, and the ammunition model should be read with that in mind.)
+* A squad's carried load: sourced only at the ends (issue four magazines, 120 rounds; the most a soldier carries comfortably 540); the figure in the game, 300 a person, and the 5 rounds a person a volley, are JUDGMENT.
 * How long a mortar crew stays in one position (shoot-and-scoot timing) against the real figure for a counter-battery response.
 * Small-arms hit probabilities against covered and uncovered infantry at 100-400 m.
