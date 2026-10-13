@@ -1,8 +1,9 @@
 extends SceneTree
 ## Our squads assault too, but rarely. User: "Our squads can assault too, but only if they have numbers and surround, which won't happen
-## often." The enemy's decision (test_enemy_assault) applied to the player's squads, with two gates: at least twice the people of the enemy
-## squads the player's side knows of near the target, and at least half the circle (two opposite sides) held; and not when the squad is
-## under an order of the player's (a move already under way, a fall-back, a hold) or pinned.
+## often", then, for every assault: "never ... without a numerical advantage ... usually not ... without a surround advantage." The same
+## decision as the enemy's (test_enemy_assault) for the player's squads: never without at least twice the people of the enemy squads the
+## player's side knows of near the target, and a tenth of the chance below half the circle (two opposite sides) held; and not when the
+## squad is under an order of the player's (a move already under way, a fall-back, a hold) or pinned.
 ##
 ## Run: godot --headless --path . --script scripts/tests/test_player_assault.gd
 const Log = preload("res://scripts/tests/test_combat_log.gd")
@@ -63,25 +64,34 @@ func run() -> void:
 	var east: Unit = unit(c, Unit.Team.PLAYER, Unit.Kind.SQUAD, o + m(300, 0))
 
 	# 1. one squad of ours against one of theirs, from one side: not allowed (no sides held, no numbers)
-	check(not bm._player_assault_allowed(east, foe), "One squad against one, from one side: not allowed")
+	check(not bm._assault_numbers_allowed(east, foe), "One squad against one, from one side: not allowed")
 	# 2. two of ours on opposite sides against one: sides and numbers
 	var west: Unit = unit(c, Unit.Team.PLAYER, Unit.Kind.SQUAD, o + m(-300, 0))
-	check(bm._player_assault_allowed(east, foe), "Two squads on opposite sides against one: allowed")
+	check(bm._assault_numbers_allowed(east, foe), "Two squads on opposite sides against one: allowed")
 	# 3. ... but two of theirs near it make it 1:1, not allowed
 	var buddy: Unit = unit(c, Unit.Team.ENEMY, Unit.Kind.SQUAD, o + m(60, 40))
 	known_to_player(buddy)
-	check(not bm._player_assault_allowed(east, foe), "Two of ours against two of theirs: not enough numbers")
+	check(not bm._assault_numbers_allowed(east, foe), "Two of ours against two of theirs: not enough numbers")
 	# 4. three of ours on three sides against two: allowed again
 	var north: Unit = unit(c, Unit.Team.PLAYER, Unit.Kind.SQUAD, o + m(0, -300))
 	var south: Unit = unit(c, Unit.Team.PLAYER, Unit.Kind.SQUAD, o + m(0, 300))
-	check(bm._player_assault_allowed(east, foe), "Four of ours on four sides against two: allowed")
+	check(bm._assault_numbers_allowed(east, foe), "Four of ours on four sides against two: allowed")
 	buddy.state = Unit.State.WITHDRAWN
 	buddy.player_known_state = Unit.State.WITHDRAWN
 	# 5. numbers without the sides: three of ours all on one side
 	west.global_position = o + m(300, 40)
 	north.global_position = o + m(300, -40)
 	south.global_position = o + m(330, 0)
-	check(not bm._player_assault_allowed(east, foe), "Three of ours on the same side: numbers, but no sides held")
+	check(bm._assault_numbers_allowed(east, foe), "Three of ours on the same side: the numbers are there...")
+	var same_side: float = bm._assault_chance_per_minute(east, foe)
+	west.global_position = o + m(-300, 0)
+	north.global_position = o + m(0, -300)
+	south.global_position = o + m(0, 300)
+	var all_sides: float = bm._assault_chance_per_minute(east, foe)
+	west.global_position = o + m(300, 40)
+	north.global_position = o + m(300, -40)
+	south.global_position = o + m(330, 0)
+	check(same_side < 0.2 * all_sides, "...but with no sides held the chance is a tenth (%.4f against %.4f with four)" % [same_side, all_sides])
 	west.global_position = o + m(-300, 0)
 	north.global_position = o + m(0, -300)
 	south.global_position = o + m(0, 300)

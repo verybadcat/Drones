@@ -8955,22 +8955,23 @@ func _update_enemy_squad_advance() -> void:
 		u.movement_predictable = false # a deliberate rush, not the road-bound march
 
 
-## The player's squads' own rule for taking up an assault: numbers (at least GameConfig.ASSAULT_PLAYER_MIN_RATIO times the enemy people it
-## knows of near the target) and sides (at least GameConfig.ASSAULT_PLAYER_MIN_ENVELOPMENT of the circle), as the player's side knows them.
-func _player_assault_allowed(u: Unit, t: Unit) -> bool:
-	if _envelopment_of(u, t) < GameConfig.ASSAULT_PLAYER_MIN_ENVELOPMENT - 0.01: # two opposite sides come out a hair under a half in floats
-		return false
+## The numbers rule for an assault, for either side: never without a numerical advantage (GameConfig.ASSAULT_MIN_RATIO times the people of
+## the opposing squads the deciding side knows of near the target), counted as the deciding side knows them.
+func _assault_numbers_allowed(u: Unit, t: Unit) -> bool:
 	var there: Vector2 = _known_position_by(u, t)
-	var radius: float = GameConfig.ASSAULT_PLAYER_FORCE_RADIUS_M * GameConfig.PIXELS_PER_METER
+	var radius: float = GameConfig.ASSAULT_FORCE_RADIUS_M * GameConfig.PIXELS_PER_METER
+	var reach: float = GameConfig.ASSAULT_CONSIDERATION_RANGE_M * GameConfig.PIXELS_PER_METER
+	var mates: Array[Unit] = enemy_units if u.team == Unit.Team.ENEMY else player_units
+	var foes: Array[Unit] = player_units if u.team == Unit.Team.ENEMY else enemy_units
 	var own_people := 0
-	for s in player_units:
-		if s.kind == Unit.Kind.SQUAD and s.state == Unit.State.ACTIVE and s.global_position.distance_to(there) <= GameConfig.ASSAULT_CONSIDERATION_RANGE_M * GameConfig.PIXELS_PER_METER:
+	for s in mates:
+		if s.kind == Unit.Kind.SQUAD and s.state == Unit.State.ACTIVE and s.global_position.distance_to(there) <= reach:
 			own_people += s.pips
 	var their_people := 0
-	for f in enemy_units:
+	for f in foes:
 		if f.kind == Unit.Kind.SQUAD and _sighted_active_by(u, f) and _known_position_by(u, f).distance_to(there) <= radius:
-			their_people += maxi(f.player_known_pips, 1)
-	return float(own_people) >= GameConfig.ASSAULT_PLAYER_MIN_RATIO * float(maxi(their_people, 1))
+			their_people += maxi(f.enemy_known_pips if u.team == Unit.Team.ENEMY else f.player_known_pips, 1)
+	return float(own_people) >= GameConfig.ASSAULT_MIN_RATIO * float(maxi(their_people, 1))
 
 
 ## The people a unit can put into a close fight: a squad's survivors, a crew's, a spotter's one.
@@ -9132,6 +9133,9 @@ func _assault_chance_per_minute(u: Unit, t: Unit) -> float:
 		chance *= GameConfig.ASSAULT_SILENT_MULTIPLIER
 	var envelopment: float = _envelopment_of(u, t)
 	chance *= 1.0 + GameConfig.ASSAULT_ENVELOPMENT_WEIGHT * envelopment
+	# usually not without a surround: below a half circle held, a tenth of the chance (two opposite sides come out a hair under a half in floats)
+	if envelopment < GameConfig.ASSAULT_SURROUND_THRESHOLD - 0.01:
+		chance *= GameConfig.ASSAULT_UNSURROUNDED_FACTOR
 	return minf(chance, GameConfig.ASSAULT_MAX_CHANCE_PER_MIN)
 
 
@@ -9154,9 +9158,9 @@ func _enemy_assault_update(u: Unit) -> bool:
 	return _assault_update(u)
 
 
-## The assault decision for either side (see _enemy_assault_update). The player's squads additionally need numbers and to hold several
-## sides (GameConfig.ASSAULT_PLAYER_*), and do not take it up when they are holding a position under an order of the player's
-## (a fall-back, a hold, a move already under way).
+## The assault decision for either side (see _enemy_assault_update): never without a numerical advantage (_assault_numbers_allowed), and
+## usually not without a surround (the chance is a tenth below half the circle held: _assault_chance_per_minute). The player's squads also
+## do not take it up while under an order of the player's (a fall-back, a hold, a move already under way) or pinned.
 func _assault_update(u: Unit) -> bool:
 	if u.assaulting:
 		if u.has_move_target and u.state == Unit.State.ACTIVE:
@@ -9172,8 +9176,8 @@ func _assault_update(u: Unit) -> bool:
 	var t: Unit = _nearest_sighted_foe_squad(u, GameConfig.ASSAULT_CONSIDERATION_RANGE_M * GameConfig.PIXELS_PER_METER)
 	if t == null:
 		return false
-	if u.team == Unit.Team.PLAYER and not _player_assault_allowed(u, t):
-		return false
+	if not _assault_numbers_allowed(u, t):
+		return false # never without a numerical advantage
 	if scenario_elapsed_time - float(_assault_rolled_at.get(u, -1.0e9)) < 60.0:
 		return false
 	_assault_rolled_at[u] = scenario_elapsed_time
@@ -10139,7 +10143,7 @@ func _spread_from_neighbour(u: Unit, known_enemies: Array[Vector2], claimed: Arr
 	return dest
 
 
-## Our squads take up an assault when they have the numbers and hold the sides (see _player_assault_allowed); the same decision as the
+## Our squads take up an assault when they have the numbers (and usually the sides: see _assault_numbers_allowed); the same decision as the
 ## enemy's, once a minute a squad, and the squad then closes on the position without firing while it moves.
 func _update_friendly_assaults() -> void:
 	for u in player_units:

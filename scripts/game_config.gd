@@ -6901,15 +6901,21 @@ const ASSAULT_MIN_PIPS: int = 4
 const ASSAULT_REACTION_RANGE_M: float = 250.0
 const ASSAULT_REACTION_FIRE_MULTIPLIER: float = 6.0
 
-## OUR SQUADS ASSAULT TOO, but rarely. User, 2026-10-13: "Our squads can assault too, but only if they have numbers and surround, which
-## won't happen often." The same decision as the enemy's (ASSAULT_*), but only for a squad that is not already engaged by an order of the
-## player's own, and only when it is part of a force that (a) has at least ASSAULT_PLAYER_MIN_RATIO times the people of the enemy squads it
-## knows to be within ASSAULT_PLAYER_FORCE_RADIUS_M of the target (itself included), and (b) holds at least
-## ASSAULT_PLAYER_MIN_ENVELOPMENT of the circle round it (two opposite sides is a half). The squads, the people and the sides are counted
-## as the player's side knows them. JUDGMENT: the figures; the 3 to 1 of the planning rule is the order of the ratio.
-const ASSAULT_PLAYER_MIN_RATIO: float = 2.0
-const ASSAULT_PLAYER_MIN_ENVELOPMENT: float = 0.5
-const ASSAULT_PLAYER_FORCE_RADIUS_M: float = 200.0
+## WHEN AN ASSAULT IS MADE, for both sides. User, 2026-10-13: "Assaults should never be made without a numerical advantage. They should also
+## usually not be made without a surround advantage." (And earlier, of our squads: "only if they have numbers and surround, which won't
+## happen often.") So, for any squad of either side, on top of the chance above:
+##  - NUMBERS, never without: the squads of its side within ASSAULT_CONSIDERATION_RANGE_M of the target must have at least ASSAULT_MIN_RATIO
+##    times the people of the opposing squads its side knows of within ASSAULT_FORCE_RADIUS_M of the target (the target included). Counted as
+##    the deciding side knows them. No advantage, no assault, whatever else is true;
+##  - THE SURROUND, usually not without: below ASSAULT_SURROUND_THRESHOLD of the circle held (two opposite sides is a half) the chance is
+##    multiplied by ASSAULT_UNSURROUNDED_FACTOR; it is not zero (a squad with a big enough advantage and a gap in the target's flank is
+##    unusual, not impossible).
+## Our squads additionally do not take it up while pinned or under an order of the player's. JUDGMENT: the figures; the 3 to 1 of the
+## planning rule for attacking a prepared position is the order of the ratio.
+const ASSAULT_MIN_RATIO: float = 2.0
+const ASSAULT_FORCE_RADIUS_M: float = 200.0
+const ASSAULT_SURROUND_THRESHOLD: float = 0.5
+const ASSAULT_UNSURROUNDED_FACTOR: float = 0.1
 
 ## COHESION. User: "Cohesion for cut-off yes, but make it mild. This is a tactical surround, not a strategic one." A squad's cohesion is
 ## 1 and is worn down while the side it is on is held on two opposite sides or more by enemy squads it knows of within COHESION_RANGE_M
