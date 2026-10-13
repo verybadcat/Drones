@@ -6,7 +6,8 @@ extends SceneTree
 ## protection" asks the one function (Unit.exposure_terrain), so the answers cannot disagree: a direct shot, a shell's blast, a crew's
 ## casualty roll and the friendly-fire estimate. Posture is the person's and cover is the place's (stage C): a stationary unit has the
 ## terrain it is in whether it is upright or down, and a unit in a building is upright at its post, not lying on the floor, until fire
-## gives it a reason. A moving CREW in cover has none, as the blast path always said.
+## gives it a reason. A unit on the move is upright and keeps part of its terrain's protection: nearly all of a building's, about half
+## of the trees' (user: "Inside a building ... almost as good as being not moving. Probably very close. So yes, split by terrain.").
 ##
 ## Run: godot --headless --path . --script scripts/tests/test_posture.gd
 const Log = preload("res://scripts/tests/test_combat_log.gd")
@@ -41,8 +42,8 @@ func run() -> void:
 	var places := {GameConfig.TerrainType.OPEN: open_v, GameConfig.TerrainType.BUILDING: in_building}
 	check(GameConfig.get_terrain_type_at(open_v) == GameConfig.TerrainType.OPEN, "Setup: open ground on the building map")
 
-	# 1. every ground kind, every terrain: moving is standing and has no terrain protection; stationary is upright at its post, with the
-	# protection of the terrain it is in; the answer is the old rule (OPEN when moving, else the terrain under the unit) in every case
+	# 1. every ground kind, every terrain: moving is standing and keeps part of its terrain's protection (cover_kept: all of it in the open,
+	# which is nothing); stationary is upright at its post, with all of the protection of the terrain it is in
 	var kinds := [Unit.Kind.SQUAD, Unit.Kind.MORTAR, Unit.Kind.SPOTTER, Unit.Kind.DRONE_TEAM, Unit.Kind.RESUPPLY_RUN]
 	for kind in kinds:
 		for terrain in places:
@@ -50,11 +51,16 @@ func run() -> void:
 			var name: String = "%s in %s" % [Unit.Kind.keys()[kind], GameConfig.TerrainType.keys()[terrain]]
 			var moving := unit_at(Unit.Team.PLAYER, kind, p, true)
 			check(moving.posture() == Unit.Posture.STANDING, "A moving %s is standing" % name)
-			check(moving.exposure_terrain() == GameConfig.TerrainType.OPEN, "A moving %s has no terrain protection" % name)
+			check(moving.exposure_terrain() == terrain, "A moving %s is in the terrain it is in" % name)
+			var kept: float = moving.cover_kept()
+			if terrain == GameConfig.TerrainType.OPEN:
+				check(is_equal_approx(kept, 1.0), "A moving %s in the open has the open's nothing to keep" % name)
+			else:
+				check(kept > 0.8 and kept < 1.0, "A moving %s keeps nearly all of a building's protection (%.2f)" % [name, kept])
 			var still := unit_at(Unit.Team.PLAYER, kind, p, false)
 			check(still.posture() == Unit.Posture.STANDING, "A stationary %s that nothing has fired at is upright at its post" % name)
 			check(is_equal_approx(still.posture_factor(), 1.0), "...so being down is worth nothing to it yet (%s)" % name)
-			check(still.exposure_terrain() == terrain, "A stationary %s has the protection of its terrain" % name)
+			check(still.exposure_terrain() == terrain and is_equal_approx(still.cover_kept(), 1.0), "A stationary %s has all the protection of its terrain" % name)
 			moving.free()
 			still.free()
 	var drone := unit_at(Unit.Team.PLAYER, Unit.Kind.DRONE, in_building, false)
@@ -67,21 +73,22 @@ func run() -> void:
 	check(elsewhere.posture(in_building) == Unit.Posture.STANDING, "...and a moving one would not")
 	elsewhere.free()
 
-	# 2. a direct shot: a moving unit in cover is no safer than one in the open (the trees do not help a man on his feet); a stationary
-	# one in cover is far safer than one in the open; standing still in the open is as exposed as being caught moving (the existing
-	# calibration, SQUAD_COVER_MULTIPLIER's note)
+	# 2. a direct shot: a moving unit in a building is hit a little more often than a still one and far less often than one in the open;
+	# a still one in cover is far safer than one in the open; standing still in the open is as exposed as being caught moving in it
+	# (the existing calibration, SQUAD_COVER_MULTIPLIER's note)
 	var shooter := unit_at(Unit.Team.ENEMY, Unit.Kind.SQUAD, Vector2.ZERO, false)
 	var target := unit_at(Unit.Team.PLAYER, Unit.Kind.SQUAD, Vector2.ZERO, false)
 	var from: Vector2 = Vector2(300.0, 0.0) * GameConfig.PIXELS_PER_METER
 	target.activity = Unit.Activity.MOVING
 	var moving_building: float = CombatResolver.hit_probability(shooter, target, 1.0, in_building, in_building + from)
 	var moving_open: float = CombatResolver.hit_probability(shooter, target, 1.0, open_v, open_v + from)
-	check(is_equal_approx(moving_building, moving_open), "A moving squad is as easy to hit in a building as in the open (%.4f against %.4f)" % [moving_building, moving_open])
+	check(moving_building < 0.2 * moving_open, "A moving squad in a building is far harder to hit than one moving in the open (%.4f against %.4f)" % [moving_building, moving_open])
 	target.activity = Unit.Activity.STATIONARY
 	var still_building: float = CombatResolver.hit_probability(shooter, target, 1.0, in_building, in_building + from)
 	var still_open: float = CombatResolver.hit_probability(shooter, target, 1.0, open_v, open_v + from)
 	check(still_building < 0.2 * still_open, "A stationary squad in a building is far harder to hit than one in the open (%.4f against %.4f)" % [still_building, still_open])
 	check(is_equal_approx(still_open, moving_open), "Standing still in the open is as exposed as moving (%.4f against %.4f)" % [still_open, moving_open])
+	check(moving_building > still_building and moving_building < 1.6 * still_building, "A squad moving in a building is a little easier to hit than a still one, not many times (%.4f against %.4f)" % [moving_building, still_building])
 	shooter.free()
 	target.free()
 
@@ -108,21 +115,26 @@ func run() -> void:
 	bm.combat_log.free()
 	bm.free()
 
-	# 4. a crew's own casualty roll for a direct HE hit: a crew in trees is protected, one on the move through them is not (it used to be
-	# protected too). Rounds at the casualty radius so the chances are not 0 or 1.
+	# 4. a crew's own casualty roll for a direct HE hit, rounds at the casualty radius so the chances are not 0 or 1: a crew down in trees
+	# is protected, one on the move through them has part of it, one in the open has none
 	var trials := 600
-	var down_total := 0
-	var up_total := 0
+	var still_total := 0
+	var moving_total := 0
+	var open_total := 0
 	for i in trials:
 		var crew := unit_at(Unit.Team.PLAYER, Unit.Kind.MORTAR, in_trees, false)
 		crew._apply_crew_casualties([], [], true, GameConfig.MORTAR_BLAST_CASUALTY_RADIUS)
-		down_total += crew.crew_casualties
+		still_total += crew.crew_casualties
 		crew.free()
 		var walking := unit_at(Unit.Team.PLAYER, Unit.Kind.MORTAR, in_trees, true)
 		walking._apply_crew_casualties([], [], true, GameConfig.MORTAR_BLAST_CASUALTY_RADIUS)
-		up_total += walking.crew_casualties
+		moving_total += walking.crew_casualties
 		walking.free()
-	check(up_total > 1.6 * down_total and down_total > 0, "A crew on the move through trees takes a direct HE hit as one in the open does, one down in them is protected (%d against %d casualties in %d rounds)" % [up_total, down_total, trials])
+		var exposed := unit_at(Unit.Team.PLAYER, Unit.Kind.MORTAR, open_v, false)
+		exposed._apply_crew_casualties([], [], true, GameConfig.MORTAR_BLAST_CASUALTY_RADIUS)
+		open_total += exposed.crew_casualties
+		exposed.free()
+	check(still_total > 0 and moving_total > 1.2 * still_total and moving_total < 0.95 * open_total, "A crew moving through trees takes a direct HE hit between a still one in them and one in the open (%d, %d, %d casualties in %d rounds)" % [still_total, moving_total, open_total, trials])
 
 	print("Posture tests: %d failures" % failures)
 	quit(1 if failures else 0)

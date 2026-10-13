@@ -59,8 +59,10 @@ has the building. Going down is a further factor on top: 1/3 in the open (UK: ly
 a trench 1/15-1/50 of standing, crouching in it 1/25-1/100: about half again), smaller because the cover has already taken part of what
 being down does. This keeps every settled number as it was (a squad at its post in trees or a building has what it always had) and makes
 fire do something there: after the reaction time a unit in cover is down and about half as exposed. A squad's 0.2 per person is the figure
-at its post in cover and lying in the open; on its feet in the open it is three times that. A moving unit still has no terrain
-protection (the legacy rule, kept: it is between positions); that is a separate question from posture and is open.
+at its post in cover and lying in the open; on its feet in the open it is three times that. A moving unit has no
+posture benefit (it is upright) but keeps part of its terrain's protection, by terrain: nearly all of a building's, about half of the
+trees' (`MOVING_COVER_KEPT`, 0.9 and 0.5 as the exponent of the ratio to the open; user, 2026-10-13: "Inside a building, yes, it should
+be almost as good as being not moving. Probably very close. So yes, split by terrain"). It used to have none, for every terrain.
 
 **Posture changes** (stage B and after): a stationary unit goes PRONE a reaction time after fire arrives (a volley aimed at it, a round
 landing near it, suppression above a level); it stays down while the fire lasts and for a while after; it is STANDING again when ordered to

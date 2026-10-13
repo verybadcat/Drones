@@ -524,7 +524,7 @@ func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_pos
 	# blast covering an area — it stays a flat single casualty, exactly
 	# like a squad's own from_mortar distinction (see take_hit above).
 	# Only a real HE hit rolls the distance-and-cover-aware model below.
-	var newly_down: int = _roll_crew_casualties(remaining, impact_distance, exposure_terrain(), posture_factor()) if from_mortar else min(1, remaining)
+	var newly_down: int = _roll_crew_casualties(remaining, impact_distance, exposure_terrain(), posture_factor(), cover_kept()) if from_mortar else min(1, remaining)
 	if blast_casualties >= 0:
 		newly_down = mini(blast_casualties, remaining) # already worked out by the caller, person by person
 	crew_casualties += newly_down
@@ -589,7 +589,7 @@ func _roll_mortar_ammo_cookoff() -> bool:
 	if remaining > 0:
 		# The secondary explosion goes off right where the crew already is —
 		# a real distance of 0, not the original round's own impact point.
-		var newly_down: int = _roll_crew_casualties(remaining, 0.0, exposure_terrain(), posture_factor())
+		var newly_down: int = _roll_crew_casualties(remaining, 0.0, exposure_terrain(), posture_factor(), cover_kept())
 		crew_casualties += newly_down
 		_categorize_casualties(newly_down)
 	ammo_cooked_off = true
@@ -613,8 +613,8 @@ func _roll_mortar_ammo_cookoff() -> bool:
 ## fragmentation curve every other blast casualty in this game already
 ## uses, so a crew can get lucky and take nothing from a near miss, or
 ## unlucky and lose more than one from a hit that scattered wide.
-func _roll_crew_casualties(remaining: int, impact_distance: float, terrain: GameConfig.TerrainType, lying_factor: float = 1.0) -> int:
-	return CombatResolver.binomial(remaining, clampf(CombatResolver.blast_casualty_chance(impact_distance, 1.0, terrain) * lying_factor, 0.0, 1.0))
+func _roll_crew_casualties(remaining: int, impact_distance: float, terrain: GameConfig.TerrainType, lying_factor: float = 1.0, kept: float = 1.0) -> int:
+	return CombatResolver.binomial(remaining, clampf(CombatResolver.blast_casualty_chance(impact_distance, 1.0, terrain, kept) * lying_factor, 0.0, 1.0))
 
 
 ## Whether a wounded crew (crew_size - crew_casualties survivors) keeps its post in the fight rather than
@@ -1067,13 +1067,22 @@ func posture_factor(at: Vector2 = Vector2.INF) -> float:
 	return GameConfig.PRONE_IN_COVER_FACTOR
 
 
-## The terrain whose protection this unit has right now: the terrain it is in if it is stationary, the open if it is on the move (a unit
-## that has broken cover to move is between positions: the price the movement multipliers in CombatResolver already charge). Posture
-## does not decide this: an upright squad in a building has the building. The one place the question is asked.
+## The terrain whose protection this unit has right now: the terrain it is in, moving or still (a drone, airborne, has the open).
+## Posture does not decide this: an upright squad in a building has the building. How much of it a unit that is MOVING keeps is
+## cover_kept. The one place the question is asked.
 func exposure_terrain(at: Vector2 = Vector2.INF) -> GameConfig.TerrainType:
-	if activity == Activity.MOVING or kind == Kind.DRONE:
+	if kind == Kind.DRONE:
 		return GameConfig.TerrainType.OPEN
 	return GameConfig.get_terrain_type_at(global_position if is_inf(at.x) else at)
+
+
+## How much of its terrain's protection the unit has, as the exponent of the ratio the terrain gives it against the open: 1 for a unit that
+## is still (all of it), GameConfig.MOVING_COVER_KEPT for the terrain it is in for one that is moving (in the open the ratio is 1 and
+## nothing changes). User, on a squad walking through a building: "should have cover from the building ... Ditto for trees."
+func cover_kept(at: Vector2 = Vector2.INF) -> float:
+	if activity != Activity.MOVING:
+		return 1.0
+	return GameConfig.MOVING_COVER_KEPT[exposure_terrain(at)]
 
 
 ## A drone flies over everything on the ground: drawn above every other unit, whatever order

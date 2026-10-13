@@ -57,7 +57,7 @@ const MORTAR_COVER_MULTIPLIER := {
 ## casualty figures) normalized against OPEN, so a victim standing in the
 ## open gets exactly the bare exponential curve and cover reduces it
 ## proportionally — a direct answer to "cover would also matter."
-static func blast_casualty_chance(distance: float, max_chance: float, terrain: GameConfig.TerrainType) -> float:
+static func blast_casualty_chance(distance: float, max_chance: float, terrain: GameConfig.TerrainType, kept: float = 1.0) -> float:
 	var radius: float = GameConfig.MORTAR_BLAST_CASUALTY_RADIUS
 	# Inside twice the casualty radius the cited exponential (halving every `radius`); beyond it the fragments are slowed and thinned
 	# and the chance falls faster (halving every half a radius). Cover, which near the burst only reduces the chance, stops the weak
@@ -68,6 +68,7 @@ static func blast_casualty_chance(distance: float, max_chance: float, terrain: G
 	else:
 		decay = 0.25 * exp(-log(2.0) * (distance - 2.0 * radius) / (0.5 * radius))
 	var cover_factor: float = MORTAR_COVER_MULTIPLIER.get(terrain, 1.0) / MORTAR_COVER_MULTIPLIER[GameConfig.TerrainType.OPEN]
+	cover_factor = pow(cover_factor, kept) # a unit on the move keeps only part of it (Unit.cover_kept)
 	cover_factor = pow(cover_factor, maxf(1.0, distance / radius))
 	return clamp(max_chance * decay * cover_factor, 0.0, 1.0)
 
@@ -82,8 +83,8 @@ static func blast_person_chance(unit: Unit, distance: float, terrain: GameConfig
 	# a third in the open, a half in cover.
 	var lying: float = unit.posture_factor()
 	if unit.kind == Unit.Kind.MORTAR or unit.kind == Unit.Kind.DRONE_TEAM:
-		return blast_casualty_chance(distance, 1.0, terrain) * lying
-	var chance: float = blast_casualty_chance(distance, GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, terrain)
+		return blast_casualty_chance(distance, 1.0, terrain, unit.cover_kept()) * lying
+	var chance: float = blast_casualty_chance(distance, GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, terrain, unit.cover_kept())
 	if unit.max_pips <= 1:
 		return chance * lying
 	# A squad member's fraction (MORTAR_CASUALTY_FRACTION) is the figure for a man lying in the open, dispersed (casualty area times
@@ -457,17 +458,21 @@ static func hit_probability(attacker: Unit, defender: Unit, drone_directing_mult
 	else:
 		var moving := defender.activity == Unit.Activity.MOVING
 		var cover_table: Dictionary = MORTAR_COVER_MULTIPLIER if attacker.kind == Unit.Kind.MORTAR else SQUAD_COVER_MULTIPLIER
-		# A moving unit is standing and has no terrain protection (its price is the movement multipliers below); a stationary one has the
-		# protection of its posture where it is (Unit.exposure_terrain).
-		var cover_multiplier: float = 1.0 if moving else cover_table[defender.exposure_terrain(point)]
+		# What the terrain does for it: all of the table's value for a unit that is still; for one that is moving, only part of it (the
+		# ratio to the open, to the power MOVING_COVER_KEPT of its terrain: walls and trunks are still between it and the shooter), on top
+		# of the price of being a moving target below. In the open the ratio is 1 and a moving unit is as it was.
+		var terrain: GameConfig.TerrainType = defender.exposure_terrain(point)
+		var cover_multiplier: float = cover_table[terrain]
+		if moving:
+			cover_multiplier = pow(cover_table[terrain] / cover_table[GameConfig.TerrainType.OPEN], defender.cover_kept(point))
 		# A high-ground attacker partially defeats the defender's own cover
 		# — see ELEVATION_COVER_DEFEAT_FRACTION's own doc comment for the
 		# real doctrine (and its limits) behind this. Direct fire only:
 		# a mortar's plunging trajectory already does this regardless of
 		# the tube's own elevation (that's what MORTAR_COVER_MULTIPLIER's
-		# whole table already represents), and a moving defender already
-		# gets no cover benefit to defeat in the first place.
-		if attacker.kind != Unit.Kind.MORTAR and not moving:
+		# whole table already represents). A moving defender has part of
+		# its cover to defeat, as a still one has all of it.
+		if attacker.kind != Unit.Kind.MORTAR:
 			if GameConfig.elevation_m(origin) > GameConfig.elevation_m(point) + GameConfig.ELEVATION_ADVANTAGE_THRESHOLD_M:
 				cover_multiplier = lerp(cover_multiplier, 1.0, GameConfig.ELEVATION_COVER_DEFEAT_FRACTION)
 			# Inside CLOSE_RANGE_COVER_DEFEAT_M the shooter is within reach of grenades and of clearing a room or a trench line: cover no

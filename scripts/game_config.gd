@@ -7894,6 +7894,22 @@ const HEATMAP_RECENTLY_CLEARED_MIN_MULTIPLIER: float = 0.05
 # CombatResolver.
 const MOVING_HIT_MULTIPLIER: float = 1.6
 
+## What a unit that is MOVING keeps of the protection of the terrain it is in, as the exponent of the ratio the terrain gives a still unit
+## against the open: 1 is all of it and 0 none (it used to be none, for every terrain). User, on a squad moving through a building:
+## "should have cover from the building. Maybe not as good as if it were still. Ditto for trees, I think", then "Inside a building, yes,
+## it should be almost as good as being not moving. Probably very close. So yes, split by terrain." A building: its walls are between a
+## moving squad and the shooter as they are between a still one and the shooter, apart from at doorways and windows: 0.9 (a squad moving
+## in one is hit 1.3 times as often as a still one, not 16 times). Trees: the trunks still break up the line of fire, but a man walking
+## through them is not using them, and the gaps between them are long: 0.5, the geometric mean of what it would have still and in the
+## open (hit 0.57 rather than 1.6 in the open, still 0.2). Open ground has nothing to keep and a moving unit there is exactly as it was.
+## Both are JUDGMENT: no figure found. The price of being a moving target is separate and stays (MOVING_HIT_MULTIPLIER, 1.6, which is also
+## what makes a moving unit in the open as exposed as a standing one; the mortar's predictable and unpredictable multipliers).
+const MOVING_COVER_KEPT := {
+	TerrainType.OPEN: 1.0,
+	TerrainType.TREES: 0.5,
+	TerrainType.BUILDING: 0.9,
+}
+
 ## DIRECT fire gets a real, independent lethality bonus the closer the
 ## range — the effective danger space a rifle squad can actually control
 ## accurately shrinks fast with distance, on top of whatever cover the
