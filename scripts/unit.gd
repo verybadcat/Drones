@@ -71,6 +71,9 @@ var rounds_limited: bool = false
 ## SQUAD only: when it last fired a volley (scenario time), and whether it is on its way to close with a position (an assault).
 var last_volley_at: float = -1.0e9
 var assaulting: bool = false
+## SQUAD only: how well it is holding together (see GameConfig.COHESION_*): 1 whole, down to 0.
+var cohesion: float = 1.0
+var cohesion_last_pips: int = -1
 ## SQUAD only: hand grenades left (see GameConfig.GRENADES_PER_PERSON).
 var grenades: int = 0
 var rounds: int = 0
@@ -510,7 +513,9 @@ func _check_retreat(known_enemy_positions: Array[Vector2] = [], ally_positions: 
 	if state != State.ACTIVE:
 		return
 	var fraction_lost: float = float(max_pips - pips) / float(max_pips)
-	if fraction_lost >= retreat_threshold:
+	# a squad that is coming apart breaks sooner (GameConfig.COHESION_BREAK_SHIFT: 50% becomes 30% at none)
+	var threshold: float = retreat_threshold * (1.0 - GameConfig.COHESION_BREAK_SHIFT * (1.0 - cohesion))
+	if fraction_lost >= threshold:
 		order_retreat(known_enemy_positions, ally_positions)
 		last_order_reason = "Casualties reached the standing withdrawal threshold."
 	elif not reported_issue and fraction_lost >= concern_threshold:

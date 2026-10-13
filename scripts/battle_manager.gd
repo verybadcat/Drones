@@ -538,6 +538,8 @@ var _last_shelled_at: Dictionary = {}
 # what an attacking side knows of its own fire (see _assault_chance_per_minute). And unit -> when an assault decision was last rolled for it.
 var _volleys_at: Dictionary = {}
 var _close_quarters_clock: float = 0.0
+# assaults taken up, by team, for the research harness
+var _assaults_started: Dictionary = {}
 var _assault_rolled_at: Dictionary = {}
 
 # Mortar shots fired but not yet landed — see _launch_mortar_shot /
@@ -2214,6 +2216,7 @@ func _squad_surrender_chance(squad: Unit) -> float:
 	var isolation_multiplier: float = GameConfig.SURRENDER_ISOLATION_BASE_FACTOR + GameConfig.SURRENDER_ISOLATION_AMPLIFIER * isolation_badness
 	var chance: float = position_badness * isolation_multiplier
 	var willingness: float = GameConfig.SURRENDER_WILLINGNESS_MULTIPLIER_PLAYER if squad.team == Unit.Team.PLAYER else GameConfig.SURRENDER_WILLINGNESS_MULTIPLIER_ENEMY
+	willingness *= 1.0 + GameConfig.COHESION_SURRENDER_GAIN * (1.0 - squad.cohesion) # a squad coming apart gives in a little sooner
 	return clamp(chance * willingness, 0.0, GameConfig.SURRENDER_MAX_CHANCE)
 
 
@@ -7527,7 +7530,9 @@ func _process(delta: float) -> void:
 	_update_observed_movement()
 	_update_joint_mortar_hunt()
 	_update_enemy_squad_advance()
+	_update_friendly_assaults()
 	_update_friendly_squad_positioning()
+	_update_cohesion(scenario_delta)
 	_update_spotter_positioning()
 	_update_ground_risk_orders()
 	_update_drone_operations(scenario_delta)
@@ -8947,6 +8952,24 @@ func _update_enemy_squad_advance() -> void:
 		u.movement_predictable = false # a deliberate rush, not the road-bound march
 
 
+## The player's squads' own rule for taking up an assault: numbers (at least GameConfig.ASSAULT_PLAYER_MIN_RATIO times the enemy people it
+## knows of near the target) and sides (at least GameConfig.ASSAULT_PLAYER_MIN_ENVELOPMENT of the circle), as the player's side knows them.
+func _player_assault_allowed(u: Unit, t: Unit) -> bool:
+	if _envelopment_of(u, t) < GameConfig.ASSAULT_PLAYER_MIN_ENVELOPMENT - 0.01: # two opposite sides come out a hair under a half in floats
+		return false
+	var there: Vector2 = _known_position_by(u, t)
+	var radius: float = GameConfig.ASSAULT_PLAYER_FORCE_RADIUS_M * GameConfig.PIXELS_PER_METER
+	var own_people := 0
+	for s in player_units:
+		if s.kind == Unit.Kind.SQUAD and s.state == Unit.State.ACTIVE and s.global_position.distance_to(there) <= GameConfig.ASSAULT_CONSIDERATION_RANGE_M * GameConfig.PIXELS_PER_METER:
+			own_people += s.pips
+	var their_people := 0
+	for f in enemy_units:
+		if f.kind == Unit.Kind.SQUAD and _sighted_active_by(u, f) and _known_position_by(u, f).distance_to(there) <= radius:
+			their_people += maxi(f.player_known_pips, 1)
+	return float(own_people) >= GameConfig.ASSAULT_PLAYER_MIN_RATIO * float(maxi(their_people, 1))
+
+
 ## The people a unit can put into a close fight: a squad's survivors, a crew's, a spotter's one.
 func _close_quarters_people(u: Unit) -> int:
 	if u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM:
@@ -9063,18 +9086,34 @@ func _update_close_quarters(scenario_delta: float) -> void:
 			combat_log.log_squad_surrendered(u)
 
 
-## The ACTIVE player squad (as the enemy side knows it: sighted, last known to be ACTIVE) nearest to `u`, within `within`, or null.
-func _nearest_sighted_player_squad(u: Unit, within: float) -> Unit:
+## Whether `u`'s side has sighted `t` and last knew it to be ACTIVE, and where it last knew it to be: as the side of `u` knows it.
+func _sighted_active_by(u: Unit, t: Unit) -> bool:
+	if u.team == Unit.Team.ENEMY:
+		return t.enemy_has_been_sighted and t.enemy_known_state == Unit.State.ACTIVE
+	return t.player_has_been_sighted and t.player_known_state == Unit.State.ACTIVE
+
+
+func _known_position_by(u: Unit, t: Unit) -> Vector2:
+	return t.enemy_known_position if u.team == Unit.Team.ENEMY else t.player_known_position
+
+
+## The opposing ACTIVE squad (as `u`'s side knows it: sighted, last known to be ACTIVE) nearest to `u`, within `within`, or null.
+func _nearest_sighted_foe_squad(u: Unit, within: float) -> Unit:
 	var best: Unit = null
 	var best_d := within
-	for f in player_units:
-		if f.kind != Unit.Kind.SQUAD or not f.enemy_has_been_sighted or f.enemy_known_state != Unit.State.ACTIVE:
+	var foes: Array[Unit] = player_units if u.team == Unit.Team.ENEMY else enemy_units
+	for f in foes:
+		if f.kind != Unit.Kind.SQUAD or not _sighted_active_by(u, f):
 			continue
-		var d: float = u.global_position.distance_to(f.enemy_known_position)
+		var d: float = u.global_position.distance_to(_known_position_by(u, f))
 		if d <= best_d:
 			best_d = d
 			best = f
 	return best
+
+
+func _nearest_sighted_player_squad(u: Unit, within: float) -> Unit:
+	return _nearest_sighted_foe_squad(u, within)
 
 
 ## How readily enemy squad `u` closes on the player's squad `t` (GameConfig.ASSAULT_*), per minute: a small base, many times that when its
@@ -9091,34 +9130,57 @@ func _assault_chance_per_minute(u: Unit, t: Unit) -> float:
 		chance *= GameConfig.ASSAULT_PINNED_MULTIPLIER
 	if t.last_volley_at > -1.0e8 and scenario_elapsed_time - t.last_volley_at >= GameConfig.ASSAULT_SILENT_S:
 		chance *= GameConfig.ASSAULT_SILENT_MULTIPLIER
-	var around: Array[Vector2] = []
-	for e in enemy_units:
-		if e.kind == Unit.Kind.SQUAD and e.state == Unit.State.ACTIVE and e.global_position.distance_to(t.enemy_known_position) <= GameConfig.ASSAULT_CONSIDERATION_RANGE_M * GameConfig.PIXELS_PER_METER:
-			around.append(e.global_position)
-	var envelopment: float = 1.0 - CombatResolver.safe_arc_deg(t.enemy_known_position, around) / 360.0
+	var envelopment: float = _envelopment_of(u, t)
 	chance *= 1.0 + GameConfig.ASSAULT_ENVELOPMENT_WEIGHT * envelopment
 	return minf(chance, GameConfig.ASSAULT_MAX_CHANCE_PER_MIN)
+
+
+## How much of the circle round `t` (where `u`'s side knows it to be) `u`'s own side's ACTIVE squads near it hold: 1 minus the safe arc of
+## `t` over their positions, over 360. Nothing from one side, a half from two opposite sides, three quarters from four.
+func _envelopment_of(u: Unit, t: Unit) -> float:
+	var mates: Array[Unit] = enemy_units if u.team == Unit.Team.ENEMY else player_units
+	var there: Vector2 = _known_position_by(u, t)
+	var around: Array[Vector2] = []
+	for e in mates:
+		if e.kind == Unit.Kind.SQUAD and e.state == Unit.State.ACTIVE and e.global_position.distance_to(there) <= GameConfig.ASSAULT_CONSIDERATION_RANGE_M * GameConfig.PIXELS_PER_METER:
+			around.append(e.global_position)
+	return 1.0 - CombatResolver.safe_arc_deg(there, around) / 360.0
 
 
 ## The enemy squad's assault: true while `u` is closing on a position (or has just decided to), so the ordinary advance logic leaves it.
 ## Once a minute it rolls GameConfig.ASSAULT_* for the nearest player squad it knows of within GameConfig.ASSAULT_CONSIDERATION_RANGE_M;
 ## on success it goes to GameConfig.ASSAULT_CLOSE_TO_M of it, on the side it is on, and cannot fire while it moves.
 func _enemy_assault_update(u: Unit) -> bool:
+	return _assault_update(u)
+
+
+## The assault decision for either side (see _enemy_assault_update). The player's squads additionally need numbers and to hold several
+## sides (GameConfig.ASSAULT_PLAYER_*), and do not take it up when they are holding a position under an order of the player's
+## (a fall-back, a hold, a move already under way).
+func _assault_update(u: Unit) -> bool:
 	if u.assaulting:
 		if u.has_move_target and u.state == Unit.State.ACTIVE:
 			return true
 		u.assaulting = false
-	if u.flanking_route_active or u.pips < GameConfig.ASSAULT_MIN_PIPS or _mortar_hunters.has(u):
+	if u.state != Unit.State.ACTIVE or u.pips < GameConfig.ASSAULT_MIN_PIPS:
 		return false
-	var t: Unit = _nearest_sighted_player_squad(u, GameConfig.ASSAULT_CONSIDERATION_RANGE_M * GameConfig.PIXELS_PER_METER)
+	if u.team == Unit.Team.ENEMY:
+		if u.flanking_route_active or _mortar_hunters.has(u):
+			return false
+	elif u.has_move_target or u.pinned or _fall_back_orders.has(u) or _risk_holds.has(u):
+		return false
+	var t: Unit = _nearest_sighted_foe_squad(u, GameConfig.ASSAULT_CONSIDERATION_RANGE_M * GameConfig.PIXELS_PER_METER)
 	if t == null:
+		return false
+	if u.team == Unit.Team.PLAYER and not _player_assault_allowed(u, t):
 		return false
 	if scenario_elapsed_time - float(_assault_rolled_at.get(u, -1.0e9)) < 60.0:
 		return false
 	_assault_rolled_at[u] = scenario_elapsed_time
 	if randf() >= _assault_chance_per_minute(u, t):
 		return false
-	var there: Vector2 = t.enemy_known_position
+	_assaults_started[u.team] = int(_assaults_started.get(u.team, 0)) + 1
+	var there: Vector2 = _known_position_by(u, t)
 	var away: Vector2 = u.global_position - there
 	if away.length() < 1.0:
 		return false
@@ -10075,6 +10137,42 @@ func _spread_from_neighbour(u: Unit, known_enemies: Array[Vector2], claimed: Arr
 	if _advances_past_fall_back_line(u, dest):
 		return u.global_position
 	return dest
+
+
+## Our squads take up an assault when they have the numbers and hold the sides (see _player_assault_allowed); the same decision as the
+## enemy's, once a minute a squad, and the squad then closes on the position without firing while it moves.
+func _update_friendly_assaults() -> void:
+	for u in player_units:
+		if u.kind == Unit.Kind.SQUAD and u.state == Unit.State.ACTIVE:
+			_assault_update(u)
+
+
+## Once a tick: each squad's cohesion (GameConfig.COHESION_*): worn down while the enemy squads it knows of hold two opposite sides or more
+## of it within COHESION_RANGE_M, faster while it is pinned; recovering when not; and by each person lost. Mild by design.
+func _update_cohesion(scenario_delta: float) -> void:
+	var minutes: float = scenario_delta / 60.0
+	var range_px: float = GameConfig.COHESION_RANGE_M * GameConfig.PIXELS_PER_METER
+	for u in player_units + enemy_units:
+		if u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE:
+			continue
+		if u.cohesion_last_pips < 0:
+			u.cohesion_last_pips = u.pips
+		var nearby: Array[Vector2] = []
+		for p in _known_enemy_positions(u.team, false, false):
+			if u.global_position.distance_to(p) <= range_px:
+				nearby.append(p)
+		var envelopment := 0.0
+		if nearby.size() >= 2:
+			envelopment = 1.0 - CombatResolver.safe_arc_deg(u.global_position, nearby) / 360.0
+		if envelopment >= GameConfig.COHESION_MIN_ENVELOPMENT - 0.01:
+			u.cohesion -= GameConfig.COHESION_DECAY_PER_MIN * (2.0 if u.pinned else 1.0) * minutes
+		else:
+			u.cohesion += GameConfig.COHESION_RECOVERY_PER_MIN * minutes
+		var lost: int = u.cohesion_last_pips - u.pips
+		if lost > 0:
+			u.cohesion -= GameConfig.COHESION_PER_CASUALTY * float(lost)
+		u.cohesion_last_pips = u.pips
+		u.cohesion = clampf(u.cohesion, 0.0, 1.0)
 
 
 func _update_friendly_squad_positioning() -> void:
