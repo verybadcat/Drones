@@ -468,8 +468,9 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], kn
 
 	if team == Team.ENEMY and not sought_cover:
 		sought_cover = true
-		seek_cover(ally_positions, known_enemy_positions)
-	elif from_mortar and randf() < GameConfig.RELOCATE_ON_MORTAR_HIT_CHANCE:
+		if not in_fighting_position():
+			seek_cover(ally_positions, known_enemy_positions)
+	elif from_mortar and not in_fighting_position() and randf() < GameConfig.RELOCATE_ON_MORTAR_HIT_CHANCE:
 		seek_cover(ally_positions, known_enemy_positions)
 		bolted_for_cover = true
 
@@ -812,7 +813,7 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 				needs_real_cover = true
 				break
 
-	if needs_real_cover and not GameConfig.is_in_cover(terrain_type()):
+	if needs_real_cover and not in_cover():
 		var retreat_dir: float = -1.0 if team == Team.PLAYER else 1.0
 		var avoid_buildings: bool = kind == Kind.MORTAR
 		if kind == Kind.MORTAR and not known_enemy_positions.is_empty():
@@ -1086,6 +1087,13 @@ func in_fighting_position(at: Vector2 = Vector2.INF) -> bool:
 	if entrenchment != Entrenchment.FIGHTING_POSITION or activity == Activity.MOVING or kind == Kind.DRONE:
 		return false
 	return is_inf(at.x) or at.distance_to(global_position) < 1.0
+
+
+## Whether the unit is in cover, for the units' own decisions about whether to look for some: in trees or a building, or in a fighting
+## position of its own (which is better than either). A squad in its hole does not walk off to the nearest tree line, and does not bolt
+## from it when a round lands.
+func in_cover() -> bool:
+	return GameConfig.is_in_cover(terrain_type()) or in_fighting_position()
 
 
 ## What a fighting position does for the unit at its post: GameConfig.FIGHTING_POSITION_RATIO of what it would have on its feet in the

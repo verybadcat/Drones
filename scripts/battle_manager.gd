@@ -1123,16 +1123,28 @@ func _current_time_scale() -> float:
 	return GameConfig.TIME_SCALE_FAST_FORWARD
 
 
+## The player's side starts dug in where it is deployed (GameConfig.PLAYER_STARTS_DUG_IN): a finished fighting position, as if the work
+## had been done, anchored to this place. Not inside a building.
+func _start_dug_in(u: Unit) -> void:
+	if not GameConfig.PLAYER_STARTS_DUG_IN or GameConfig.is_building_at(u.global_position):
+		return
+	u.entrenchment = Unit.Entrenchment.FIGHTING_POSITION
+	u.digging_seconds = GameConfig.FIGHTING_POSITION_BUILD_S
+	u.dig_anchor = u.global_position
+
+
 func _spawn_player_units(doctrine: Dictionary) -> void:
 	for squad_doctrine in doctrine.squads:
 		var squad := _make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, squad_doctrine.position)
 		squad.retreat_threshold = squad_doctrine.retreat_threshold
 		_set_retreat_profile(squad, Unit.Team.PLAYER)
+		_start_dug_in(squad)
 		player_units.append(squad)
 
 	var m1 := _make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, doctrine.mortar.position)
 	m1.shoot_and_scoot = doctrine.mortar.shoot_and_scoot
 	_set_retreat_profile(m1, Unit.Team.PLAYER)
+	_start_dug_in(m1)
 	player_units.append(m1)
 	_friendly_mortar_home_position = doctrine.mortar.position
 
@@ -1143,6 +1155,7 @@ func _spawn_player_units(doctrine: Dictionary) -> void:
 	if recon_mode == GameConfig.ReconMode.DRONE_TEAM:
 		drone_team = _make_unit(Unit.Team.PLAYER, Unit.Kind.DRONE_TEAM, doctrine.spotter.position)
 		_set_retreat_profile(drone_team, Unit.Team.PLAYER)
+		_start_dug_in(drone_team)
 		player_units.append(drone_team)
 		# A well-prepared team starts H-hour with everything topped off: all
 		# DRONE_FLEET_SIZE airframes AND all DRONE_SPARE_BATTERIES spares at
@@ -1158,6 +1171,7 @@ func _spawn_player_units(doctrine: Dictionary) -> void:
 	else:
 		var spotter := _make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, doctrine.spotter.position)
 		_set_retreat_profile(spotter, Unit.Team.PLAYER)
+		_start_dug_in(spotter)
 		player_units.append(spotter)
 
 
@@ -9711,7 +9725,7 @@ func _update_spotter_positioning() -> void:
 			continue
 		if _fall_back_orders.has(u) or _risk_holds.has(u):
 			continue # an explicit order/hold outranks the automatic instinct to seek cover
-		if GameConfig.is_in_cover(u.terrain_type()):
+		if u.in_cover():
 			continue
 		var cover_dest: Vector2 = GameConfig.nearest_cover_point(u.global_position)
 		if cover_dest == u.global_position:
@@ -9831,6 +9845,8 @@ func _update_friendly_squad_positioning() -> void:
 		# threat at all) before getting off open ground; real infantry
 		# occupying a position uses available cover from the moment it's
 		# there, not just once something's spotted approaching.
+		if u.in_fighting_position():
+			continue # in its hole: it stays there (the hole outweighs spacing and a better line of sight)
 		if GameConfig.is_in_cover(u.terrain_type()):
 			var apart: Vector2 = _spread_from_neighbour(u, known_enemies, claimed)
 			if apart != u.global_position:

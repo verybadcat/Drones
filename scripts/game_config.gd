@@ -6831,13 +6831,19 @@ const MORTAR_SUPPRESSION_RECENT_FIRE_S: float = 45.0
 ## FIGHTING_POSITION_DIRECT_HIT_M the protection fades to none. JUDGMENT, no source found for these: the building times (15 minutes for
 ## a scrape; an hour and a half in all for a fighting position), the 0.7 a scrape is worth to a man lying in the open, and the 8 m within
 ## which a unit that shifts keeps its work. Not modelled: the camouflage of a dug position, overhead cover, a unit that digs while it
-## fights more slowly, engineers or tools, and a position prepared before the battle (no unit starts dug in).
+## fights more slowly, engineers or tools. A position prepared before the battle: only for the Ukrainian side, PLAYER_STARTS_DUG_IN below.
 const SHELL_SCRAPE_BUILD_S: float = 900.0
 const FIGHTING_POSITION_BUILD_S: float = 5400.0
 const SCRAPE_PROTECTION_FACTOR: float = 0.7
 const FIGHTING_POSITION_RATIO: float = 1.0 / 25.0
 const FIGHTING_POSITION_DIRECT_HIT_M: float = 4.0
 const ENTRENCHMENT_ANCHOR_RADIUS_M: float = 8.0
+
+## The Ukrainian side starts the battle dug in where it is deployed: a finished fighting position, for every unit of the player's side
+## that is not inside a building (which cannot be dug into and is its own protection). User, 2026-10-13: "Ukrainians should start dug
+## in." They are defending: the units page's own account of their better base accuracy is that they hold prepared positions. The
+## Russian side starts with nothing and digs, if it stays anywhere, as any unit does. A unit that leaves its place loses it (see above).
+const PLAYER_STARTS_DUG_IN: bool = true
 
 
 ## How much a blob's effective radius is stretched (>1) or pinched (<1) in

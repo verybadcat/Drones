@@ -6,6 +6,7 @@ extends SceneTree
 ##
 ## Run: godot --headless --path . --script scripts/tests/test_dug_in.gd
 const Log = preload("res://scripts/tests/test_combat_log.gd")
+const TestBattleManagerScript := preload("res://scripts/tests/test_battle_manager.gd")
 var failures := 0
 
 func check(condition: bool, message: String) -> void:
@@ -152,6 +153,103 @@ func run() -> void:
 		d.free()
 	check(open_total > 200 and hole_total < 0.1 * open_total, "A crew dug in loses a small fraction of what one in the open does to a round at the casualty radius (%d against %d in %d rounds)" % [hole_total, open_total, trials])
 	cleanup(c)
+
+	# 5. the Ukrainian side starts the battle dug in where it is deployed, not inside a building; the Russian side starts with nothing;
+	# a unit that leaves its place loses it
+	for map_id in GameConfig.MAPS.keys():
+		GameConfig.set_active_map(map_id)
+		GameConfig._build_terrain_grid()
+		var squads: Array[Dictionary] = []
+		for pos in GameConfig.CURRENT_MAP.player.default_squad_positions:
+			squads.append({"position": pos, "retreat_threshold": 0.5})
+		var doctrine := {
+			"squads": squads,
+			"mortar": {"position": GameConfig.CURRENT_MAP.player.mortar_default_position, "shoot_and_scoot": true},
+			"spotter": {"position": GameConfig.CURRENT_MAP.player.spotter_default_position},
+			"recon_mode": GameConfig.ReconMode.DRONE_TEAM,
+		}
+		var battle = TestBattleManagerScript.new()
+		root.add_child(battle)
+		var log = Log.new()
+		battle.start_battle(doctrine, log)
+		var dug := 0
+		var in_building := 0
+		for u in battle.player_units:
+			if u.kind == Unit.Kind.DRONE:
+				continue
+			if GameConfig.is_building_at(u.global_position):
+				in_building += 1
+				check(u.entrenchment == Unit.Entrenchment.NONE, "%s: a unit deployed in a building has the building, nothing dug" % map_id)
+			else:
+				dug += 1
+				check(u.entrenchment == Unit.Entrenchment.FIGHTING_POSITION, "%s: %s starts in a fighting position" % [map_id, u.unit_label])
+		check(dug > 0, "%s: at least one unit of the player's side starts dug in" % map_id)
+		for u in battle.enemy_units:
+			check(u.entrenchment == Unit.Entrenchment.NONE, "%s: the enemy starts with nothing dug" % map_id)
+		battle._update_entrenchment(1.0)
+		for u in battle.player_units:
+			if u.kind != Unit.Kind.DRONE and not GameConfig.is_building_at(u.global_position):
+				check(u.entrenchment == Unit.Entrenchment.FIGHTING_POSITION, "%s: the first tick does not take it away" % map_id)
+				u.position += m(30)
+				battle._update_entrenchment(1.0)
+				check(u.entrenchment == Unit.Entrenchment.NONE, "%s: going 30 m away loses it" % map_id)
+				break
+		if is_instance_valid(log):
+			log.free()
+		battle.queue_free()
+		await process_frame
+
+	# 6. a unit in its hole counts as in cover: a squad does not walk off to the nearest cover, and does not bolt when a round lands, and a
+	# spotter does not leave
+	var c6 := make()
+	var b6: BattleManager = c6.bm
+	var rect: Rect2 = GameConfig._building_rects[0]
+	var open_near := Vector2.INF
+	for dx in [-45.0, 45.0, -70.0, 70.0]:
+		var p: Vector2 = Vector2(rect.position.x if dx < 0.0 else rect.end.x, rect.get_center().y) + Vector2(dx, 0.0) * GameConfig.PIXELS_PER_METER
+		if GameConfig.get_terrain_type_at(p) == GameConfig.TerrainType.OPEN:
+			open_near = p
+			break
+	check(not is_inf(open_near.x), "Setup: open ground close to a building")
+	var loose: Unit = unit(c6, Unit.Team.PLAYER, Unit.Kind.SQUAD, open_near)
+	b6._update_friendly_squad_positioning()
+	check(loose.has_move_target and loose.last_order_reason == "Moving into available cover.", "Setup: a squad with no hole, in the open and idle, moves to the cover near it (%s)" % loose.last_order_reason)
+	var holed: Unit = unit(c6, Unit.Team.PLAYER, Unit.Kind.SQUAD, open_near + m(0, 120))
+	if GameConfig.get_terrain_type_at(holed.position) == GameConfig.TerrainType.OPEN:
+		holed.entrenchment = Unit.Entrenchment.FIGHTING_POSITION
+		holed.dig_anchor = holed.position
+		b6._update_friendly_squad_positioning()
+		check(not holed.has_move_target, "A squad in its fighting position stays in it (%s)" % holed.last_order_reason)
+		check(holed.in_cover(), "...it is in cover as far as its own decisions go")
+	var bolts_loose := 0
+	var bolts_holed := 0
+	seed(77)
+	for i in 400:
+		var a := Unit.new()
+		a.setup(Unit.Team.PLAYER, Unit.Kind.SQUAD, open_near)
+		a.max_pips = 9
+		a.pips = 9
+		a.take_hit(true, [], [], 10.0 * GameConfig.PIXELS_PER_METER, 0)
+		if a.bolted_for_cover:
+			bolts_loose += 1
+		a.free()
+		var h := Unit.new()
+		h.setup(Unit.Team.PLAYER, Unit.Kind.SQUAD, open_near)
+		h.max_pips = 9
+		h.pips = 9
+		h.entrenchment = Unit.Entrenchment.FIGHTING_POSITION
+		h.take_hit(true, [], [], 10.0 * GameConfig.PIXELS_PER_METER, 0)
+		if h.bolted_for_cover:
+			bolts_holed += 1
+		h.free()
+	check(bolts_loose > 10 and bolts_holed == 0, "A squad in the open sometimes bolts when a round lands; one in its hole never does (%d, %d of 400)" % [bolts_loose, bolts_holed])
+	var scout: Unit = unit(c6, Unit.Team.PLAYER, Unit.Kind.SPOTTER, open_near + m(0, 240))
+	if GameConfig.get_terrain_type_at(scout.position) == GameConfig.TerrainType.OPEN:
+		scout.entrenchment = Unit.Entrenchment.FIGHTING_POSITION
+		scout.dig_anchor = scout.position
+		b6._update_spotter_positioning()
+		check(not scout.has_move_target, "A spotter in its hole does not leave it for cover")
+	cleanup(c6)
 
 	print("Dug-in tests: %d failures" % failures)
 	quit(1 if failures else 0)
