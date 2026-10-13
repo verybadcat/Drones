@@ -60,6 +60,9 @@ var seconds_stationary: float = 1e9
 ## under fire; when fire last arrived at it and when the current spell of fire began (scenario time); and, for a mortar crew, when it last
 ## fired a round (a crew serving its gun is on its feet).
 var gone_to_ground: bool = false
+## Whether this unit has already hesitated, in the present spell of being pinned, before moving (see GameConfig.PINNED_HESITATION_S);
+## cleared when it is released.
+var pinned_hesitated: bool = false
 ## How long (tactical seconds) a unit that is down has been trying to move, getting up (GameConfig.RISE_DELAY_S).
 var rising_for: float = 0.0
 var fire_arrived_at: float = -1e9

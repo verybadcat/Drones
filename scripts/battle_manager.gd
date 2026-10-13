@@ -530,6 +530,10 @@ var _pending_counter_battery: Array[Dictionary] = []
 ## Mortar rounds are never recorded here (they have no meaningful direction).
 var _recent_direct_fire: Dictionary = {}
 
+# unit -> scenario time a mortar round was last fired at it: a squad already being shelled is being held down by it, and the mortar does
+# not value pinning it again (see _enemy_target_value_unscaled, GameConfig.MORTAR_SUPPRESSION_RECENT_FIRE_S).
+var _last_shelled_at: Dictionary = {}
+
 # Mortar shots fired but not yet landed — see _launch_mortar_shot /
 # _resolve_pending_mortar_shots. {"mortar": Unit, "target": Unit,
 # "aim_point": Vector2, "impact_point": Vector2, "impact_time": float}
@@ -2385,6 +2389,8 @@ func _update_postures() -> void:
 		var serving_gun: bool = u.kind == Unit.Kind.MORTAR and now - u.last_round_fired_at < u.reload_time
 		if serving_gun:
 			u.gone_to_ground = false # a gun is not served lying down: a crew that fires gets up to it
+		elif u.pinned:
+			u.gone_to_ground = true # pinned is down, and stays so until it is released, whatever the clock since the last round says
 		elif u.gone_to_ground:
 			if since_fire > GameConfig.STAY_DOWN_AFTER_FIRE_S:
 				u.gone_to_ground = false
@@ -2406,6 +2412,7 @@ func _update_suppression(scenario_delta: float) -> void:
 			combat_log.log_pinned(u)
 		elif u.pinned and u.suppression < GameConfig.SUPPRESSION_RELEASE_LEVEL:
 			u.pinned = false
+			u.pinned_hesitated = false
 			combat_log.log_pin_lifted(u)
 
 
@@ -7542,14 +7549,25 @@ func _tick_movement(scenario_delta: float) -> void:
 			# window entirely rather than just shrinking it.
 			unit.move_target = _resupply_run_destination(unit, unit.resupply_target_mortar.global_position)
 			unit.has_move_target = true
-		# A unit that is down and has been told to move gets up first (GameConfig.RISE_DELAY_S), and spends that time where it is.
+		# A unit that is down and has been told to move gets up first (GameConfig.RISE_DELAY_S), and spends that time where it is; one that
+		# is pinned hesitates longer (GameConfig.PINNED_HESITATION_S), once per spell of being pinned, and a squad that becomes pinned while
+		# moving halts where it is. A retreat does not hesitate for being pinned.
 		var wants_to_move: bool = unit.state == Unit.State.RETREATING or (unit.state == Unit.State.ACTIVE and unit.has_move_target)
-		if unit.gone_to_ground and wants_to_move:
+		var hesitation := 0.0
+		if wants_to_move:
+			if unit.gone_to_ground:
+				hesitation = GameConfig.RISE_DELAY_S
+			if unit.pinned and unit.state == Unit.State.ACTIVE and not unit.pinned_hesitated:
+				hesitation = maxf(hesitation, GameConfig.PINNED_HESITATION_S)
+		if hesitation > 0.0:
 			unit.rising_for += scenario_delta
-			if unit.rising_for < GameConfig.RISE_DELAY_S:
+			if unit.rising_for < hesitation:
+				unit.activity = Unit.Activity.STATIONARY
 				unit.seconds_stationary += scenario_delta
 				continue
 			unit.gone_to_ground = false
+			if unit.pinned:
+				unit.pinned_hesitated = true
 		unit.rising_for = 0.0
 		if unit.state == Unit.State.RETREATING:
 			if unit.has_move_target:
@@ -8138,6 +8156,7 @@ func _launch_mortar_shot(mortar: Unit, target: Unit) -> void:
 	# even if the doctrinally-correct scoot direction happens to point
 	# back the way it came.
 	_mortar_fired_since_relocation[mortar] = true
+	_last_shelled_at[target] = scenario_elapsed_time
 	var aim_point: Vector2 = _mortar_aim_point(target)
 	var impact_point: Vector2 = aim_point + _mortar_dispersion_offset(mortar, target, aim_point)
 	_pending_mortar_shots.append({
@@ -11552,10 +11571,29 @@ func _enemy_target_value_unscaled(assessing_unit: Unit, target: Unit) -> float:
 		var casualty_value: float = float(target.pips)
 		var danger_value: float = _target_danger_to_force(assessing_unit, target)
 		var value: float = GameConfig.MORTAR_TARGET_CASUALTY_WEIGHT * casualty_value + GameConfig.MORTAR_TARGET_DANGER_WEIGHT * danger_value
+		# Covering fire for the side's own squads in contact: a squad that is firing on them is worth pinning, unless it is being held
+		# down already by this side's own rounds.
+		if assessing_unit.kind == Unit.Kind.MORTAR and target.state == Unit.State.ACTIVE:
+			var engaged: int = _squads_engaged_by(target, assessing_unit.team)
+			if engaged > 0 and scenario_elapsed_time - float(_last_shelled_at.get(target, -1.0e9)) > GameConfig.MORTAR_SUPPRESSION_RECENT_FIRE_S:
+				value += GameConfig.MORTAR_TARGET_SUPPRESSION_WEIGHT * float(mini(engaged, 2))
 		if _mortar_is_reluctant_toward(assessing_unit, target):
 			value *= GameConfig.MORTAR_TOWN_TARGET_VALUE_MULTIPLIER # two squads, one in the town: probably the one outside
 		return value
 	return 0.0
+
+
+## How many units of side `victims_team` `shooter` has fired at with direct fire within the last GameConfig.CROSSFIRE_MEMORY_S.
+func _squads_engaged_by(shooter: Unit, victims_team: Unit.Team) -> int:
+	var n := 0
+	var victims: Array[Unit] = player_units if victims_team == Unit.Team.PLAYER else enemy_units
+	for v in victims:
+		if v.state != Unit.State.ACTIVE and v.state != Unit.State.RETREATING:
+			continue
+		var rec: Dictionary = _recent_direct_fire.get(v, {})
+		if rec.has(shooter) and scenario_elapsed_time - float(rec[shooter].time) <= GameConfig.CROSSFIRE_MEMORY_S:
+			n += 1
+	return n
 
 
 ## Whether `shooter` (the Ukrainian mortar) is reluctant to fire at `target`: a squad within GameConfig.MORTAR_TOWN_RADIUS_M of a building.

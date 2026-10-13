@@ -496,6 +496,9 @@ static func hit_probability(attacker: Unit, defender: Unit, drone_directing_mult
 		# A squad that is being suppressed shoots worse (see GameConfig.SUPPRESSION_MAX_ACCURACY_LOSS).
 		if attacker.kind != Unit.Kind.MORTAR:
 			chance *= 1.0 - GameConfig.SUPPRESSION_MAX_ACCURACY_LOSS * clampf(attacker.suppression, 0.0, 1.0)
+			# ... and a squad that is pinned, heads down, can hardly engage a man moving in the open: that is what covering fire is for.
+			if attacker.pinned and moving:
+				chance *= GameConfig.PINNED_VS_MOVING_FIRE_MULTIPLIER
 		# Being fired on from several directions at once multiplies the expected damage taken from DIRECT fire —
 		# see safe_arc_deg/crossfire_multiplier. Direct user ruling: "Mortar hits should be totally
 		# unaffected" — a plunging round has no direction to be caught in crossfire from. A chance already at

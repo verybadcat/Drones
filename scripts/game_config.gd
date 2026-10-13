@@ -6799,6 +6799,26 @@ const LYING_SPOT_MULTIPLIER: float = 0.5
 ## rush ("I'm up, he sees me, I'm down") is built around being up for three to five seconds.
 const RISE_DELAY_S: float = 2.0
 
+## SUPPRESSION AND POSTURE (stage D). Suppression is what keeps the heads down: NATO's definition is "fire that degrades the performance
+## of a target below the level needed to fulfil its mission"; it "usually achieves its effect by threatening casualties to individuals
+## who expose themselves to it, forcing them into inactivity ... by the necessity of staying behind cover", it "is usually only effective
+## while it lasts" (for artillery about two minutes after), and "a suppressed target will be unable to engage vulnerable forces that are
+## moving without cover", which is what lets the others advance (Wikipedia's Suppressive fire and Fire and movement articles). So:
+##  - a squad that is pinned is DOWN, and stays down until it is released, whatever the clock since the last round says;
+##  - a pinned squad told to move hesitates PINNED_HESITATION_S first, once per spell of being pinned (it was going somewhere when the fire
+##    came: it halts, and goes on when it has the nerve), and a squad that becomes pinned while moving halts at once;
+##  - a pinned squad fires at a MOVING target at only PINNED_VS_MOVING_FIRE_MULTIPLIER of its chance: this is what covering fire is for.
+## A retreat is not stopped. JUDGMENT, no figure found: the 6 s and the half.
+const PINNED_HESITATION_S: float = 6.0
+const PINNED_VS_MOVING_FIRE_MULTIPLIER: float = 0.5
+
+## A mortar values pinning a squad that is firing on its own side's squads (covering fire for them, fire support to troops in contact),
+## on top of what the squad is worth in casualties and danger: this much per squad of its own side the target has fired at in the last
+## CROSSFIRE_MEMORY_S, at most two. Not when its own side has shelled that target within the last MORTAR_SUPPRESSION_RECENT_FIRE_S (it
+## is being held already; the effect lingers about that long). JUDGMENT: the weight is on the scale of the casualty and danger terms.
+const MORTAR_TARGET_SUPPRESSION_WEIGHT: float = 2.0
+const MORTAR_SUPPRESSION_RECENT_FIRE_S: float = 45.0
+
 
 ## How much a blob's effective radius is stretched (>1) or pinched (<1) in
 ## the direction `theta` (radians from its center) — a sum of cosine
