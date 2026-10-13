@@ -6888,6 +6888,19 @@ const ASSAULT_MAX_CHANCE_PER_MIN: float = 0.9
 const ASSAULT_CLOSE_TO_M: float = 20.0
 const ASSAULT_MIN_PIPS: int = 4
 
+## REACTION FIRE: what a closing squad pays on the approach. User: "Approach should be costly unless the defenders are suppressed."
+## A squad's volley is one hit roll standing for two minutes of fire, and one roll can take one man; an approach of 250 m takes a minute
+## and a half, so a defending squad used to get about one volley at it, and the approach cost the attackers 0 to 7% whether the defenders
+## were suppressed or not. Now a squad that is not moving and sees an opposing squad MOVING within ASSAULT_REACTION_RANGE_M, in its line of
+## sight, fires at it (the nearest such) at ASSAULT_REACTION_FIRE_MULTIPLIER times its usual rate: the aimed rapid fire of a defence
+## against an assault (the usual rate is two or three rounds a minute a man; about fifteen is rapid). The rate is the multiplier for a
+## squad that is not suppressed and falls to the usual rate as it is: nothing extra at SUPPRESSION_PIN_LEVEL, since a squad whose heads
+## are down is not putting out rapid fire; with the existing accuracy loss and the pinned squad's half chance against a moving man on top,
+## that is the effect covering fire is for. Both sides: any moving squad within that range, an assault or a bound. The rounds cost the same
+## per volley, so a defence burns its ammunition several times faster while it lasts. JUDGMENT: both figures.
+const ASSAULT_REACTION_RANGE_M: float = 250.0
+const ASSAULT_REACTION_FIRE_MULTIPLIER: float = 6.0
+
 ## CLOSE QUARTERS: the tools other than rifles. User: "if the enemy gets close enough, I assume tools other than guns become an issue."
 ## Once opposing units are within CLOSE_RANGE_COVER_DEFEAT_M (25 m) of each other, every CLOSE_QUARTERS_ROUND_S of battle time they exchange
 ## (a) grenades, from the squad's own stock (GRENADES_PER_PERSON a person, never replenished, and independent of rifle ammunition: a

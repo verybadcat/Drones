@@ -8087,11 +8087,21 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 	if unit.kind == Unit.Kind.MORTAR and unit.mortar_rounds_remaining <= 0:
 		return # out of ammunition — see _spawn_resupply_run for how it eventually gets more
 
+	# Reaction fire: a squad that sees an opposing squad closing on it fires at it at the rapid rate (GameConfig.ASSAULT_REACTION_*),
+	# less as it is suppressed. The squad's own timer is cut to that rate at once, not only after it runs out.
+	var closing: Unit = null
+	var reaction := 1.0
+	if unit.kind == Unit.Kind.SQUAD and unit.state == Unit.State.ACTIVE and not unit.has_move_target:
+		closing = _closing_squad_for(unit, enemies)
+		if closing != null:
+			reaction = 1.0 + (GameConfig.ASSAULT_REACTION_FIRE_MULTIPLIER - 1.0) * clampf(1.0 - unit.suppression / GameConfig.SUPPRESSION_PIN_LEVEL, 0.0, 1.0)
+			unit.fire_timer = minf(unit.fire_timer, unit.fire_interval / reaction)
+
 	unit.fire_timer -= scenario_delta if unit.kind == Unit.Kind.MORTAR else delta
 	if unit.fire_timer > 0.0:
 		return
 
-	var target := _mortar_shot_this_tick(unit, enemies) if unit.kind == Unit.Kind.MORTAR else _pick_target(unit, enemies)
+	var target := _mortar_shot_this_tick(unit, enemies) if unit.kind == Unit.Kind.MORTAR else (closing if closing != null else _pick_target(unit, enemies))
 	if target == null:
 		unit.fire_timer = unit.fire_interval
 		return
@@ -8189,11 +8199,27 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 	if _gunfire_ambience != null:
 		_gunfire_ambience.report_shot(unit.team)
 	_resolve_fire_and_check_bunching(unit, target, target.global_position)
-	unit.fire_timer = unit.fire_interval
+	unit.fire_timer = unit.fire_interval / reaction
 	if unit.kind == Unit.Kind.SQUAD:
 		unit.last_volley_at = scenario_elapsed_time
 	if rounds_spent and unit.rounds <= 0:
 		_squad_runs_dry(unit)
+
+
+## The nearest opposing squad that is MOVING within GameConfig.ASSAULT_REACTION_RANGE_M of `unit` and in its line of sight, as far as `unit`
+## can see it (it is targetable): what a defence reacts to. Null if none.
+func _closing_squad_for(unit: Unit, enemies: Array[Unit]) -> Unit:
+	var best: Unit = null
+	var best_d: float = GameConfig.ASSAULT_REACTION_RANGE_M * GameConfig.PIXELS_PER_METER
+	for e in enemies:
+		if e.kind != Unit.Kind.SQUAD or e.activity != Unit.Activity.MOVING or not e.is_targetable():
+			continue
+		var d: float = unit.global_position.distance_to(e.global_position)
+		if d > best_d or not GameConfig.has_direct_los(unit.global_position, e.global_position):
+			continue
+		best_d = d
+		best = e
+	return best
 
 
 ## Fire discipline (GameConfig.SQUAD_FIRE_DISCIPLINE_*): whether a squad that is short of rounds holds fire at `target` this volley. Nothing
