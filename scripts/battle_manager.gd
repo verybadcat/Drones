@@ -538,6 +538,10 @@ var _last_shelled_at: Dictionary = {}
 # what an attacking side knows of its own fire (see _assault_chance_per_minute). And unit -> when an assault decision was last rolled for it.
 var _volleys_at: Dictionary = {}
 var _close_quarters_clock: float = 0.0
+# Every mortar round that has landed, for the research harnesses (and nothing else): {"time", "team" (the firer's), "impact",
+# "victims": [{"team", "kind", "moving", "casualties", "distance_m"}]}. Capped.
+var shell_landing_log: Array[Dictionary] = []
+const SHELL_LANDING_LOG_CAP: int = 4000
 # assaults taken up, by team, for the research harness
 var _assaults_started: Dictionary = {}
 var _assault_rolled_at: Dictionary = {}
@@ -8614,7 +8618,13 @@ func _apply_shell_blast(impact: Vector2, attacker: Unit) -> Array[Dictionary]:
 		u.take_hit(true, _ally_positions_for(u), _known_enemy_positions(u.team), distance, casualties)
 		if attacker != null and is_instance_valid(attacker):
 			unit_combat_stats.damage(attacker, u, before)
-		landed.append({"unit": u, "was_active": was_active, "distance": distance})
+		landed.append({"unit": u, "was_active": was_active, "distance": distance, "casualties": casualties})
+	if attacker != null and is_instance_valid(attacker) and shell_landing_log.size() < SHELL_LANDING_LOG_CAP:
+		var victims: Array[Dictionary] = []
+		for l in landed:
+			var v: Unit = l.unit
+			victims.append({"team": v.team, "kind": v.kind, "moving": v.activity == Unit.Activity.MOVING, "casualties": int(l.casualties), "distance_m": float(l.distance) / GameConfig.PIXELS_PER_METER})
+		shell_landing_log.append({"time": scenario_elapsed_time, "team": attacker.team, "impact": impact, "victims": victims})
 	return landed
 
 
