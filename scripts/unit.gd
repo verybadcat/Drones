@@ -68,6 +68,11 @@ var pinned_hesitated: bool = false
 ## SQUAD only: its small-arms ammunition (see GameConfig.SQUAD_ROUNDS_PER_PERSON). `rounds_limited` is set by setup(), so a bare unit
 ## built some other way is not rationed.
 var rounds_limited: bool = false
+## SQUAD only: when it last fired a volley (scenario time), and whether it is on its way to close with a position (an assault).
+var last_volley_at: float = -1.0e9
+var assaulting: bool = false
+## SQUAD only: hand grenades left (see GameConfig.GRENADES_PER_PERSON).
+var grenades: int = 0
 var rounds: int = 0
 var rounds_capacity: int = 0
 ## Digging in: the state, the seconds spent digging at this place, and the place (a unit that goes more than
@@ -401,6 +406,7 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 			rounds_limited = true
 			rounds_capacity = SQUAD_SIZE * GameConfig.SQUAD_ROUNDS_PER_PERSON
 			rounds = rounds_capacity
+			grenades = SQUAD_SIZE * GameConfig.GRENADES_PER_PERSON
 	pips = max_pips
 	queue_redraw()
 

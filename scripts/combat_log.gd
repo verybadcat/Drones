@@ -101,6 +101,14 @@ func log_out_of_ammunition(unit: Unit) -> void:
 	add_entry("%s has run out of ammunition and is pulling back" % unit.display_name())
 
 
+## Two units are at close quarters: grenades and, inside melee range, hand to hand. `first` and `second` are named in the order given;
+## the counts are what each lost this minute.
+func log_close_quarters(first: Unit, second: Unit, first_lost: int, second_lost: int, hand_to_hand: bool) -> void:
+	if _unseen(first) and _unseen(second):
+		return
+	add_entry("%s and %s fight at close quarters (%s): %d and %d lost" % [first.display_name(), second.display_name(), "hand to hand and grenades" if hand_to_hand else "grenades", first_lost, second_lost])
+
+
 func log_squad_surrendered(unit: Unit) -> void:
 	if _unseen(unit):
 		return

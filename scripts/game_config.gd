@@ -6863,6 +6863,52 @@ const SQUAD_ROUNDS_PER_PERSON_PER_VOLLEY: int = 5
 const SQUAD_FIRE_DISCIPLINE_REFERENCE_HIT_CHANCE: float = 0.15
 const SQUAD_FIRE_DISCIPLINE_URGENT_RANGE_M: float = 100.0
 
+## CLOSING TO ASSAULT RANGE (the enemy's squads). Until now an enemy squad stopped at its standoff ring (ENEMY_SURROUND_STANDOFF_RADIUS,
+## 300 m) and traded long-range fire for as long as there was anything to trade, so nobody ever came within reach of a position's cover
+## being defeated (CLOSE_RANGE_COVER_DEFEAT_M, 25 m). User: "Closing range is definitely a good idea", and "closing to assault range has to
+## be much easier when you are on multiple sides of the same enemy." A squad that has a known enemy squad within ASSAULT_CONSIDERATION_RANGE_M
+## considers, once a minute, closing to ASSAULT_CLOSE_TO_M of it, with the chance
+##     ASSAULT_BASE_CHANCE_PER_MIN x (4 if its side has put at least two volleys on that squad in the last ASSAULT_SUPPRESSION_WINDOW_S)
+##                                 x (4 if that squad has been silent for ASSAULT_SILENT_S after having been in contact: dry, pinned or dead)
+##                                 x (1 + ASSAULT_ENVELOPMENT_WEIGHT x envelopment)
+## where envelopment is 1 minus the safe arc of that squad over the positions of its own side's squads near it, divided by 360: nothing
+## for one side, a half for two opposite sides, three quarters for four; so a squad that its side stands round is closed on at several
+## times the rate. It uses only what the attacking side itself knows: its own volleys, its own squads' positions, and whether the other
+## squad has been heard from. A squad below ASSAULT_MIN_PIPS does not assault. Sourced: fire and movement is the basic low-level tactic, and
+## a force stood round a position is the standard picture of its end (Wikipedia's Fire and movement and Encirclement articles). JUDGMENT:
+## every figure; the sources say nothing about the rate, and how Russian squads did it in early 2022 was not found.
+const ASSAULT_CONSIDERATION_RANGE_M: float = 450.0
+const ASSAULT_BASE_CHANCE_PER_MIN: float = 0.05
+const ASSAULT_PINNED_MULTIPLIER: float = 4.0
+const ASSAULT_SUPPRESSION_WINDOW_S: float = 120.0
+const ASSAULT_SILENT_MULTIPLIER: float = 4.0
+const ASSAULT_SILENT_S: float = 180.0
+const ASSAULT_ENVELOPMENT_WEIGHT: float = 4.0
+const ASSAULT_MAX_CHANCE_PER_MIN: float = 0.9
+const ASSAULT_CLOSE_TO_M: float = 20.0
+const ASSAULT_MIN_PIPS: int = 4
+
+## CLOSE QUARTERS: the tools other than rifles. User: "if the enemy gets close enough, I assume tools other than guns become an issue."
+## Once opposing units are within CLOSE_RANGE_COVER_DEFEAT_M (25 m) of each other, every CLOSE_QUARTERS_ROUND_S of battle time they exchange
+## (a) grenades, from the squad's own stock (GRENADES_PER_PERSON a person, never replenished, and independent of rifle ammunition: a
+## squad with none left still has these), up to a third of the people throwing one each round, each doing the casualties its target's
+## cover allows; and, inside MELEE_RANGE_M, (b) hand to hand (bayonet, entrenching tool, rifle butt, point blank): every person of both
+## sides disabling an opponent with a small chance each round, the two sides at once. A squad that is dry or has lost half of its people
+## rolls to surrender once it is in melee range (the existing surrender chance, which is small for the Ukrainian side). Sourced
+## (Wikipedia's Hand grenade and Close-quarters battle articles): a modern fragmentation grenade has a wounding radius of about 15 m and
+## is thrown about 40 m; "offensive" grenades work best in confined spaces such as fortifications and buildings, so cover does not
+## protect against one that is thrown into it (more casualties in a building, not fewer); room and trench clearing has been, "essentially
+## the same basic way", a grenade into the space followed by an assault; melee, bayonets and "even sticks and bare hands" in trench
+## warfare. JUDGMENT: every number below; no source for them.
+const CLOSE_QUARTERS_ROUND_S: float = 60.0
+const GRENADES_PER_PERSON: int = 2
+const GRENADES_THROWN_FRACTION: float = 0.34
+const GRENADE_CASUALTIES_OPEN: float = 0.30
+const GRENADE_CASUALTIES_BUILDING: float = 0.50
+const GRENADE_CASUALTIES_FIGHTING_POSITION: float = 0.40
+const MELEE_RANGE_M: float = 8.0
+const MELEE_CHANCE_PER_PERSON_PER_ROUND: float = 0.07
+
 
 ## How much a blob's effective radius is stretched (>1) or pinched (<1) in
 ## the direction `theta` (radians from its center) — a sum of cosine

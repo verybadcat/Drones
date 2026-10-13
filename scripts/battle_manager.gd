@@ -534,6 +534,12 @@ var _recent_direct_fire: Dictionary = {}
 # not value pinning it again (see _enemy_target_value_unscaled, GameConfig.MORTAR_SUPPRESSION_RECENT_FIRE_S).
 var _last_shelled_at: Dictionary = {}
 
+# unit -> the scenario times of volleys fired at it by the OPPOSING side's squads (direct fire), kept for GameConfig.ASSAULT_SUPPRESSION_WINDOW_S:
+# what an attacking side knows of its own fire (see _assault_chance_per_minute). And unit -> when an assault decision was last rolled for it.
+var _volleys_at: Dictionary = {}
+var _close_quarters_clock: float = 0.0
+var _assault_rolled_at: Dictionary = {}
+
 # Mortar shots fired but not yet landed — see _launch_mortar_shot /
 # _resolve_pending_mortar_shots. {"mortar": Unit, "target": Unit,
 # "aim_point": Vector2, "impact_point": Vector2, "impact_time": float}
@@ -2509,6 +2515,12 @@ func _resolve_fire_and_check_bunching(attacker: Unit, target: Unit, impact_point
 		crossfire = _crossfire_multiplier_against(target)
 	if attacker.kind != Unit.Kind.MORTAR:
 		_note_fire_arrival(target) # whatever it is: a volley aimed at it, hit or miss, is fire arriving
+		if attacker.kind == Unit.Kind.SQUAD:
+			var volleys: Array = _volleys_at.get(target, [])
+			volleys.append(scenario_elapsed_time)
+			while not volleys.is_empty() and scenario_elapsed_time - float(volleys[0]) > GameConfig.ASSAULT_SUPPRESSION_WINDOW_S:
+				volleys.pop_front()
+			_volleys_at[target] = volleys
 	if attacker.kind != Unit.Kind.MORTAR and target.kind == Unit.Kind.SQUAD:
 		_add_suppression(target, GameConfig.SUPPRESSION_PER_VOLLEY) # every volley aimed at a squad, hit or miss (mortar rounds do it by where they land)
 	CombatResolver.resolve_fire(attacker, target, _ally_positions_for(target), _known_enemy_positions(target.team), _drone_directing_multiplier(attacker), target.global_position.distance_to(impact_point), crossfire)
@@ -7531,6 +7543,7 @@ func _process(delta: float) -> void:
 	_resolve_pending_mortar_shots()
 	_resolve_pending_mortar_displacement()
 	_update_postures()
+	_update_close_quarters(scenario_delta)
 	_update_entrenchment(scenario_delta)
 	_update_suppression(scenario_delta)
 	_update_player_intel()
@@ -8177,6 +8190,8 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		_gunfire_ambience.report_shot(unit.team)
 	_resolve_fire_and_check_bunching(unit, target, target.global_position)
 	unit.fire_timer = unit.fire_interval
+	if unit.kind == Unit.Kind.SQUAD:
+		unit.last_volley_at = scenario_elapsed_time
 	if rounds_spent and unit.rounds <= 0:
 		_squad_runs_dry(unit)
 
@@ -8791,6 +8806,8 @@ func _update_enemy_squad_advance() -> void:
 		if u.pinned:
 			u.last_order_reason = "Pinned down by fire: not starting a new advance until it eases."
 			continue
+		if _enemy_assault_update(u):
+			continue # closing on a position, or deciding to
 		# Direct user correction: "Mortar should be a primary target for
 		# the enemy forces. They should chase it when they get close. In
 		# the latest battle, they were dancing back and forth, but not
@@ -8902,6 +8919,192 @@ func _update_enemy_squad_advance() -> void:
 		u.move_queue.clear()
 		u.move_speed = GameConfig.ENEMY_ADVANCE_SPEED
 		u.movement_predictable = false # a deliberate rush, not the road-bound march
+
+
+## The people a unit can put into a close fight: a squad's survivors, a crew's, a spotter's one.
+func _close_quarters_people(u: Unit) -> int:
+	if u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM:
+		return maxi(u.crew_size - u.crew_casualties, 0)
+	return maxi(u.pips, 0)
+
+
+## The casualties one grenade does to `target` at its position: the target's cover does not protect against a grenade thrown into it, and
+## a confined space makes it worse (GameConfig.GRENADE_CASUALTIES_*).
+func _grenade_casualties_against(target: Unit) -> float:
+	if target.in_fighting_position():
+		return GameConfig.GRENADE_CASUALTIES_FIGHTING_POSITION
+	if GameConfig.is_building_at(target.global_position):
+		return GameConfig.GRENADE_CASUALTIES_BUILDING
+	return GameConfig.GRENADE_CASUALTIES_OPEN
+
+
+## Once a CLOSE_QUARTERS_ROUND_S: every pair of opposing units within GameConfig.CLOSE_RANGE_COVER_DEFEAT_M of each other fights at close
+## quarters (see GameConfig.CLOSE_QUARTERS_ROUND_S): grenades from each squad's own stock, and inside GameConfig.MELEE_RANGE_M hand to hand,
+## both sides at once. Independent of rifle ammunition. A squad in melee range that is dry or has lost half its people may surrender.
+func _update_close_quarters(scenario_delta: float) -> void:
+	_close_quarters_clock += scenario_delta
+	if _close_quarters_clock < GameConfig.CLOSE_QUARTERS_ROUND_S:
+		return
+	_close_quarters_clock = 0.0
+	var reach: float = GameConfig.CLOSE_RANGE_COVER_DEFEAT_M * GameConfig.PIXELS_PER_METER
+	var melee: float = GameConfig.MELEE_RANGE_M * GameConfig.PIXELS_PER_METER
+	var pairs: Array = []
+	for a in player_units:
+		if a.kind == Unit.Kind.DRONE or a.kind == Unit.Kind.RESUPPLY_RUN or (a.state != Unit.State.ACTIVE and a.state != Unit.State.RETREATING):
+			continue
+		for b in enemy_units:
+			if b.kind == Unit.Kind.DRONE or b.kind == Unit.Kind.RESUPPLY_RUN or (b.state != Unit.State.ACTIVE and b.state != Unit.State.RETREATING):
+				continue
+			if a.global_position.distance_to(b.global_position) <= reach:
+				pairs.append([a, b])
+	if pairs.is_empty():
+		return
+	# Everything is worked out before anything is applied, so the two sides strike at once. A unit has one stock of effort a round: its
+	# grenades (a third of its people throwing one each) and its hands (every person with a small chance) are divided among the opposing
+	# units within reach of it, not repeated for each.
+	var lost: Dictionary = {}
+	var grenades_used: Dictionary = {}
+	var in_melee: Dictionary = {}
+	var opponents: Dictionary = {}
+	for pair in pairs:
+		var x: Unit = pair[0]
+		var y: Unit = pair[1]
+		if not opponents.has(x):
+			opponents[x] = []
+		if not opponents.has(y):
+			opponents[y] = []
+		opponents[x].append(y)
+		opponents[y].append(x)
+	for striker in opponents:
+		var targets: Array = opponents[striker]
+		var throw_total := 0
+		if striker.kind == Unit.Kind.SQUAD and striker.state == Unit.State.ACTIVE:
+			throw_total = mini(striker.grenades, int(ceil(float(_close_quarters_people(striker)) * GameConfig.GRENADES_THROWN_FRACTION)))
+			grenades_used[striker] = throw_total
+		var people: int = _close_quarters_people(striker)
+		var share: float = 1.0 / float(targets.size())
+		for struck in targets:
+			var hand_to_hand: bool = striker.global_position.distance_to(struck.global_position) <= melee
+			if hand_to_hand:
+				in_melee[striker] = true
+				in_melee[struck] = true
+			var thrown_here: float = float(throw_total) * share
+			var n_grenades: int = int(floor(thrown_here)) + (1 if randf() < thrown_here - floor(thrown_here) else 0)
+			var inflicted := 0
+			if n_grenades > 0:
+				inflicted += CombatResolver.binomial(n_grenades, _grenade_casualties_against(struck))
+			if hand_to_hand:
+				var hands: float = float(people) * share
+				var n_hands: int = int(floor(hands)) + (1 if randf() < hands - floor(hands) else 0)
+				inflicted += CombatResolver.binomial(n_hands, GameConfig.MELEE_CHANCE_PER_PERSON_PER_ROUND)
+			lost[struck] = int(lost.get(struck, 0)) + inflicted
+	for u in grenades_used:
+		u.grenades -= int(grenades_used[u])
+	var narrated: Dictionary = {}
+	for pair in pairs:
+		var a: Unit = pair[0]
+		var b: Unit = pair[1]
+		var key := "%d:%d" % [a.get_instance_id(), b.get_instance_id()]
+		if not narrated.has(key):
+			narrated[key] = true
+			combat_log.log_close_quarters(a, b, int(lost.get(a, 0)), int(lost.get(b, 0)), a.global_position.distance_to(b.global_position) <= melee)
+	for u in lost:
+		var n: int = mini(int(lost[u]), _close_quarters_people(u))
+		if n <= 0 or u.state == Unit.State.DESTROYED:
+			continue
+		var attacker: Unit = null
+		for pair in pairs:
+			if pair[0] == u:
+				attacker = pair[1]
+				break
+			if pair[1] == u:
+				attacker = pair[0]
+				break
+		var before := UnitCombatStats.before_hit(u)
+		u.take_hit(false, _ally_positions_for(u), _known_enemy_positions(u.team), 0.0, n)
+		if attacker != null:
+			unit_combat_stats.register(attacker)
+			unit_combat_stats.damage(attacker, u, before)
+	# Overrun: a squad within melee range that has nothing left to fire, or has lost half of its people, may lay down its arms.
+	for u in in_melee:
+		if not in_melee[u] or u.kind != Unit.Kind.SQUAD or u.state != Unit.State.ACTIVE:
+			continue
+		var dry: bool = u.rounds_limited and u.rounds <= 0
+		var halved: bool = u.pips * 2 <= u.max_pips
+		if (dry or halved) and randf() < _squad_surrender_chance(u):
+			u.state = Unit.State.SURRENDERED
+			u.state_changed.emit(u)
+			combat_log.log_squad_surrendered(u)
+
+
+## The ACTIVE player squad (as the enemy side knows it: sighted, last known to be ACTIVE) nearest to `u`, within `within`, or null.
+func _nearest_sighted_player_squad(u: Unit, within: float) -> Unit:
+	var best: Unit = null
+	var best_d := within
+	for f in player_units:
+		if f.kind != Unit.Kind.SQUAD or not f.enemy_has_been_sighted or f.enemy_known_state != Unit.State.ACTIVE:
+			continue
+		var d: float = u.global_position.distance_to(f.enemy_known_position)
+		if d <= best_d:
+			best_d = d
+			best = f
+	return best
+
+
+## How readily enemy squad `u` closes on the player's squad `t` (GameConfig.ASSAULT_*), per minute: a small base, many times that when its
+## side has been putting fire on `t` or `t` has gone silent, and many times that again the more sides of `t` the attacking side holds. Only
+## what the attacking side itself knows: its own volleys at `t`, whether `t` has been heard from, and where its own squads are.
+func _assault_chance_per_minute(u: Unit, t: Unit) -> float:
+	var chance: float = GameConfig.ASSAULT_BASE_CHANCE_PER_MIN
+	var volleys: Array = _volleys_at.get(t, [])
+	var recent := 0
+	for v in volleys:
+		if scenario_elapsed_time - float(v) <= GameConfig.ASSAULT_SUPPRESSION_WINDOW_S:
+			recent += 1
+	if recent >= 2:
+		chance *= GameConfig.ASSAULT_PINNED_MULTIPLIER
+	if t.last_volley_at > -1.0e8 and scenario_elapsed_time - t.last_volley_at >= GameConfig.ASSAULT_SILENT_S:
+		chance *= GameConfig.ASSAULT_SILENT_MULTIPLIER
+	var around: Array[Vector2] = []
+	for e in enemy_units:
+		if e.kind == Unit.Kind.SQUAD and e.state == Unit.State.ACTIVE and e.global_position.distance_to(t.enemy_known_position) <= GameConfig.ASSAULT_CONSIDERATION_RANGE_M * GameConfig.PIXELS_PER_METER:
+			around.append(e.global_position)
+	var envelopment: float = 1.0 - CombatResolver.safe_arc_deg(t.enemy_known_position, around) / 360.0
+	chance *= 1.0 + GameConfig.ASSAULT_ENVELOPMENT_WEIGHT * envelopment
+	return minf(chance, GameConfig.ASSAULT_MAX_CHANCE_PER_MIN)
+
+
+## The enemy squad's assault: true while `u` is closing on a position (or has just decided to), so the ordinary advance logic leaves it.
+## Once a minute it rolls GameConfig.ASSAULT_* for the nearest player squad it knows of within GameConfig.ASSAULT_CONSIDERATION_RANGE_M;
+## on success it goes to GameConfig.ASSAULT_CLOSE_TO_M of it, on the side it is on, and cannot fire while it moves.
+func _enemy_assault_update(u: Unit) -> bool:
+	if u.assaulting:
+		if u.has_move_target and u.state == Unit.State.ACTIVE:
+			return true
+		u.assaulting = false
+	if u.flanking_route_active or u.pips < GameConfig.ASSAULT_MIN_PIPS or _mortar_hunters.has(u):
+		return false
+	var t: Unit = _nearest_sighted_player_squad(u, GameConfig.ASSAULT_CONSIDERATION_RANGE_M * GameConfig.PIXELS_PER_METER)
+	if t == null:
+		return false
+	if scenario_elapsed_time - float(_assault_rolled_at.get(u, -1.0e9)) < 60.0:
+		return false
+	_assault_rolled_at[u] = scenario_elapsed_time
+	if randf() >= _assault_chance_per_minute(u, t):
+		return false
+	var there: Vector2 = t.enemy_known_position
+	var away: Vector2 = u.global_position - there
+	if away.length() < 1.0:
+		return false
+	var goal: Vector2 = GameConfig.clamp_to_operating_area(there + away.normalized() * GameConfig.ASSAULT_CLOSE_TO_M * GameConfig.PIXELS_PER_METER)
+	u.last_order_reason = "Assaulting: closing to grenade range of the squad it faces."
+	u.move_target = goal
+	u.has_move_target = true
+	u.move_queue.clear()
+	u.move_speed = GameConfig.ENEMY_ADVANCE_SPEED
+	u.movement_predictable = false
+	u.assaulting = true
+	return true
 
 
 ## A squad that has stopped with nothing to shoot at (an enemy squad at its standoff ring, see _next_advance_point, which holds once within
