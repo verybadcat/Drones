@@ -6916,6 +6916,9 @@ const ASSAULT_MIN_RATIO: float = 2.0
 const ASSAULT_FORCE_RADIUS_M: float = 200.0
 const ASSAULT_SURROUND_THRESHOLD: float = 0.5
 const ASSAULT_UNSURROUNDED_FACTOR: float = 0.1
+## Ours are held to a stricter surround rule than the enemy's: with the numbers but not the sides, a squad of ours has this fraction of the
+## chance (User, 2026-10-13: "Make our assaults rarer again yes", after the soft rule took them from 0.03 to 0.33 a battle).
+const ASSAULT_UNSURROUNDED_FACTOR_PLAYER: float = 0.005
 
 ## COHESION. User: "Cohesion for cut-off yes, but make it mild. This is a tactical surround, not a strategic one." A squad's cohesion is
 ## 1 and is worn down while the side it is on is held on two opposite sides or more by enemy squads it knows of within COHESION_RANGE_M

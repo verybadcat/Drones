@@ -9135,7 +9135,7 @@ func _assault_chance_per_minute(u: Unit, t: Unit) -> float:
 	chance *= 1.0 + GameConfig.ASSAULT_ENVELOPMENT_WEIGHT * envelopment
 	# usually not without a surround: below a half circle held, a tenth of the chance (two opposite sides come out a hair under a half in floats)
 	if envelopment < GameConfig.ASSAULT_SURROUND_THRESHOLD - 0.01:
-		chance *= GameConfig.ASSAULT_UNSURROUNDED_FACTOR
+		chance *= GameConfig.ASSAULT_UNSURROUNDED_FACTOR_PLAYER if u.team == Unit.Team.PLAYER else GameConfig.ASSAULT_UNSURROUNDED_FACTOR
 	return minf(chance, GameConfig.ASSAULT_MAX_CHANCE_PER_MIN)
 
 
