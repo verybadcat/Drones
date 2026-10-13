@@ -215,6 +215,7 @@ func run() -> void:
 	b6._update_friendly_squad_positioning()
 	check(loose.has_move_target and loose.last_order_reason == "Moving into available cover.", "Setup: a squad with no hole, in the open and idle, moves to the cover near it (%s)" % loose.last_order_reason)
 	var holed: Unit = unit(c6, Unit.Team.PLAYER, Unit.Kind.SQUAD, open_near + m(0, 120))
+	check(GameConfig.get_terrain_type_at(holed.position) == GameConfig.TerrainType.OPEN, "Setup: the squad with a hole is on open ground")
 	if GameConfig.get_terrain_type_at(holed.position) == GameConfig.TerrainType.OPEN:
 		holed.entrenchment = Unit.Entrenchment.FIGHTING_POSITION
 		holed.dig_anchor = holed.position
@@ -244,6 +245,7 @@ func run() -> void:
 		h.free()
 	check(bolts_loose > 10 and bolts_holed == 0, "A squad in the open sometimes bolts when a round lands; one in its hole never does (%d, %d of 400)" % [bolts_loose, bolts_holed])
 	var scout: Unit = unit(c6, Unit.Team.PLAYER, Unit.Kind.SPOTTER, open_near + m(0, 240))
+	check(GameConfig.get_terrain_type_at(scout.position) == GameConfig.TerrainType.OPEN, "Setup: the spotter is on open ground")
 	if GameConfig.get_terrain_type_at(scout.position) == GameConfig.TerrainType.OPEN:
 		scout.entrenchment = Unit.Entrenchment.FIGHTING_POSITION
 		scout.dig_anchor = scout.position

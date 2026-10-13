@@ -28,7 +28,16 @@ func make() -> Dictionary:
 	bm.set_process(false)
 	bm.combat_log = Log.new()
 	bm.scenario_elapsed_time = 1000.0
-	return {"bm": bm, "open": m(-5000, -5000)}
+	# open ground near a building, and the direction away from it (so that nothing is between a point and what is put out along it)
+	var rect: Rect2 = GameConfig._building_rects[0]
+	var open_point := Vector2.INF
+	for dx in [-90.0, 90.0, -140.0, 140.0]:
+		var p: Vector2 = Vector2(rect.position.x if dx < 0.0 else rect.end.x, rect.get_center().y) + Vector2(dx, 0.0) * GameConfig.PIXELS_PER_METER
+		if GameConfig.get_terrain_type_at(p) == GameConfig.TerrainType.OPEN:
+			open_point = p
+			break
+	var away: float = -1.0 if open_point.x < rect.get_center().x else 1.0
+	return {"bm": bm, "open": open_point, "away": away}
 
 func unit(c: Dictionary, team: Unit.Team, kind: Unit.Kind, point: Vector2) -> Unit:
 	var u: Unit = c.bm._make_unit(team, kind, point)
@@ -52,7 +61,7 @@ func run() -> void:
 	var c := make()
 	var bm: BattleManager = c.bm
 	var squad: Unit = unit(c, Unit.Team.PLAYER, Unit.Kind.SQUAD, c.open)
-	var foe: Unit = unit(c, Unit.Team.ENEMY, Unit.Kind.SQUAD, c.open + m(200))
+	var foe: Unit = unit(c, Unit.Team.ENEMY, Unit.Kind.SQUAD, c.open + m(200 * float(c.away)))
 	foe.is_visible = true
 	squad.is_visible = true
 	foe.entrenchment = Unit.Entrenchment.NONE
@@ -133,6 +142,34 @@ func run() -> void:
 	squad.rounds = squad.rounds_capacity
 	fire(c, foe)
 	check(theirs - foe.rounds == 9 * GameConfig.SQUAD_ROUNDS_PER_PERSON_PER_VOLLEY, "An enemy squad spends the same (%d)" % (theirs - foe.rounds))
+	# 6. a squad that holds fire at a closing squad reconsiders at the reaction rate, not after a whole interval (found in review: it used to
+	# wait the full two minutes, during which the squad it held fire at could close from "not worth the rounds" to inside the urgent range)
+	var guard: Unit = unit(c, Unit.Team.PLAYER, Unit.Kind.SQUAD, c.open)
+	guard.rounds = int(0.05 * guard.rounds_capacity)
+	var runner: Unit = unit(c, Unit.Team.ENEMY, Unit.Kind.SQUAD, c.open + m(150 * float(c.away)))
+	guard.base_hit_chance = 0.02 # a poor shot: not worth the rounds, so fire discipline holds fire at it
+	runner.activity = Unit.Activity.MOVING
+	runner.is_visible = true
+	var foes6: Array[Unit] = [runner]
+	var holds := 0
+	var slow_holds := 0
+	seed(606)
+	for i in 300:
+		guard.fire_timer = 0.0
+		guard.suppression = 0.0
+		runner.pips = runner.max_pips # it takes the odd hit: it stays what it was
+		runner.state = Unit.State.ACTIVE
+		runner.activity = Unit.Activity.MOVING
+		var before_rounds: int = guard.rounds
+		bm._tick_fire(guard, 0.01, 0.6, foes6)
+		if guard.rounds == before_rounds and guard.state == Unit.State.ACTIVE:
+			holds += 1
+			if guard.fire_timer > 0.5 * guard.fire_interval:
+				slow_holds += 1
+		guard.rounds = int(0.05 * guard.rounds_capacity)
+		guard.state = Unit.State.ACTIVE
+	check(bm._closing_squad_for(guard, foes6) == runner or holds == 0, "Setup: the closing squad is in sight")
+	check(holds > 10 and slow_holds == 0, "A hold at a closing squad is reconsidered quickly: %d holds in 300, %d of them waiting out the interval" % [holds, slow_holds])
 	cleanup(c)
 
 	print("Squad ammunition tests: %d failures" % failures)

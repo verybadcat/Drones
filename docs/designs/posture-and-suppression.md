@@ -87,6 +87,16 @@ suite, a log entry in `tactical-commander-doctrine.md`, a commit. After B, C, D 
 `tools/research/realism_anchors_sim.gd`, and the result is recorded in `realism-anchors.md`: the artillery share of casualties, and the
 casualty ratio of the two sides. A change that moves a band is a decision to be made explicitly, not drift.
 
+## After stage E: what the surrounded-squad question added (2026-10-13)
+
+The plan above was completed on 2026-10-13. The question "why do surrounded friendly troops hang on so well?" then led to a further set of
+mechanisms, recorded in `tactical-commander-doctrine.md` (entries of that date) and in the ledger: the Ukrainian side starting dug in; a unit
+in its hole counting as in cover; finite small-arms ammunition and fire discipline (no resupply, no cache); the enemy closing to assault range
+(5% a minute, many times that with fire put on the target, its silence, and envelopment); close quarters (grenades, hand to hand, independent of
+rifle ammunition; surrender when dry or halved); reaction fire (what an approach costs unless the defenders are suppressed); our squads
+assaulting too, but only with the numbers and the sides; and a mild cohesion for a squad held on two opposite sides. Research harnesses:
+`tools/research/realism_anchors_sim.gd` (battle-level), `surrounded_squad_sim.gd`, `assault_cost_sim.gd`.
+
 ## JUDGMENT (no source found; each is a number to be set, flagged and ranged when it is)
 
 * Time to go to ground after fire arrives (2-6 s), time to rise (2-3 s), time to stay down after fire stops (10-60 s).

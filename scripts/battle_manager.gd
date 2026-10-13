@@ -7458,6 +7458,9 @@ func general_unit_debug_snapshot() -> Dictionary:
 			entry["pinned"] = u.pinned
 		if u.rounds_limited:
 			entry["rounds"] = u.rounds
+			entry["grenades"] = u.grenades
+			entry["cohesion"] = snappedf(u.cohesion, 0.01)
+			entry["assaulting"] = u.assaulting
 		entry["entrenchment"] = Unit.Entrenchment.keys()[u.entrenchment]
 		entry["posture"] = Unit.Posture.keys()[u.posture()]
 		var combat_row: Dictionary = unit_combat_stats.rows.get(u.get_instance_id(), {})
@@ -8115,7 +8118,7 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 	var rounds_spent := false
 	if unit.kind == Unit.Kind.SQUAD and unit.rounds_limited:
 		if unit.rounds <= 0 or _squad_holds_fire_for_ammunition(unit, target):
-			unit.fire_timer = unit.fire_interval
+			unit.fire_timer = unit.fire_interval / reaction # reconsiders at the reaction rate: a closing squad becomes urgent in seconds
 			return
 		unit.rounds -= mini(unit.rounds, unit.pips * GameConfig.SQUAD_ROUNDS_PER_PERSON_PER_VOLLEY)
 		rounds_spent = true
@@ -9111,9 +9114,6 @@ func _nearest_sighted_foe_squad(u: Unit, within: float) -> Unit:
 			best = f
 	return best
 
-
-func _nearest_sighted_player_squad(u: Unit, within: float) -> Unit:
-	return _nearest_sighted_foe_squad(u, within)
 
 
 ## How readily enemy squad `u` closes on the player's squad `t` (GameConfig.ASSAULT_*), per minute: a small base, many times that when its
@@ -10158,7 +10158,11 @@ func _update_cohesion(scenario_delta: float) -> void:
 		if u.cohesion_last_pips < 0:
 			u.cohesion_last_pips = u.pips
 		var nearby: Array[Vector2] = []
-		for p in _known_enemy_positions(u.team, false, false):
+		var foes: Array[Unit] = player_units if u.team == Unit.Team.ENEMY else enemy_units
+		for f in foes:
+			if f.kind != Unit.Kind.SQUAD or not _sighted_active_by(u, f):
+				continue
+			var p: Vector2 = _known_position_by(u, f)
 			if u.global_position.distance_to(p) <= range_px:
 				nearby.append(p)
 		var envelopment := 0.0
