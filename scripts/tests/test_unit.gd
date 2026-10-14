@@ -21,9 +21,9 @@ class_name TestUnit
 ## reliably fails to resolve in that situation. Untyped access (duck
 ## typing) sidesteps the cache entirely.
 
-func _roll_mortar_ammo_cookoff() -> bool:
+func _roll_mortar_ammo_cookoff(impact_distance: float = 0.0) -> bool:
 	var tbm = get_parent()
-	var result: bool = super._roll_mortar_ammo_cookoff()
+	var result: bool = super._roll_mortar_ammo_cookoff(impact_distance)
 	if tbm:
 		tbm.cookoff_rolls += 1
 		if result:

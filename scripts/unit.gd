@@ -567,7 +567,7 @@ func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_pos
 
 	var cooked_off := false
 	if kind == Kind.MORTAR:
-		cooked_off = _roll_mortar_ammo_cookoff()
+		cooked_off = _roll_mortar_ammo_cookoff(impact_distance)
 		pips = crew_size - crew_casualties # a cook-off can add its own casualties on top — keep this in sync
 		if crew_casualties >= crew_size:
 			state = State.DESTROYED
@@ -608,10 +608,14 @@ func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_pos
 ## show. Sets `ammo_cooked_off` (a one-shot flag, same pattern as
 ## `bolted_for_cover`) for BattleManager to narrate and clear; `nothing to
 ## cook off` (already dry) always returns false outright.
-func _roll_mortar_ammo_cookoff() -> bool:
+func _roll_mortar_ammo_cookoff(impact_distance: float = 0.0) -> bool:
 	if mortar_rounds_remaining <= 0:
 		return false
-	var chance: float = GameConfig.MORTAR_AMMO_COOKOFF_MAX_CHANCE * clamp(float(mortar_rounds_remaining) / float(GameConfig.MORTAR_STARTING_AMMO), 0.0, 1.0)
+	# What sets a stored round off is the round's own fragments reaching the stack, so it falls with the distance of the burst as
+	# the fragmentation does (a man in the open at that distance: the stack has no posture and no cover of its own). It used to be
+	# the same at 100 m as at the gun, which is what made a crew that took one casualty at 40 m lose the rest to a cook-off.
+	var reach: float = CombatResolver.blast_casualty_chance(impact_distance, 1.0, GameConfig.TerrainType.OPEN)
+	var chance: float = GameConfig.MORTAR_AMMO_COOKOFF_MAX_CHANCE * clamp(float(mortar_rounds_remaining) / float(GameConfig.MORTAR_STARTING_AMMO), 0.0, 1.0) * reach
 	if randf() >= chance:
 		return false
 	mortar_rounds_remaining = 0

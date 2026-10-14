@@ -9426,7 +9426,13 @@ const DRONE_TEAM_EVASION_RANGE: float = 1200.0 * PIXELS_PER_METER
 ## roll would have gone (nobody stays next to their own exploding
 ## ammunition) and can add real additional casualties on top of the
 ## original hit, on top of destroying whatever rounds were left.
-const MORTAR_AMMO_COOKOFF_MAX_CHANCE: float = 0.35
+##
+## 2026-10-14: the chance also falls with how far the round landed from the gun, as the fragmentation does (Unit._roll_mortar_ammo_cookoff),
+## and its maximum was lowered from 0.35 to 0.1 by the user's decision ("Go with 0.1") after the research found no real-world rate: Wikipedia
+## (Sympathetic detonation, Cooking off, Insensitive munition) says a nearby shock wave or fragment impact can set off stored explosive, that
+## it is probabilistic with a 50% radius, and that spacing between stacks is the protection; "cooking off" proper is thermal; nothing gives a
+## rate per strike on a field mortar position. This is a JUDGMENT figure: at a full load, a round on the gun.
+const MORTAR_AMMO_COOKOFF_MAX_CHANCE: float = 0.1
 
 # Squads bunched up this close together (e.g. piled into the same patch of
 # cover) risk a stray hit spreading from whichever of them was actually
