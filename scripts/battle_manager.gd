@@ -541,6 +541,8 @@ var _close_quarters_clock: float = 0.0
 # Every mortar round that has landed, for the research harnesses (and nothing else): {"time", "team" (the firer's), "impact",
 # "victims": [{"team", "kind", "moving", "casualties", "distance_m"}]}. Capped.
 var shell_landing_log: Array[Dictionary] = []
+# Player squad -> the scenario time at which an enemy squad first stood where it was last seen, without seeing it (_clear_empty_contacts)
+var _contact_check_since: Dictionary = {}
 const SHELL_LANDING_LOG_CAP: int = 4000
 # assaults taken up, by team, for the research harness
 var _assaults_started: Dictionary = {}
@@ -950,6 +952,7 @@ func start_battle(doctrine: Dictionary, p_combat_log: CombatLog) -> void:
 	_pending_counter_battery.clear()
 	_recent_direct_fire.clear()
 	_pending_mortar_shots.clear()
+	_contact_check_since.clear()
 	recon_mode = doctrine.get("recon_mode", GameConfig.ReconMode.SPOTTER)
 	drone_team = null
 	active_drone = null
@@ -8054,6 +8057,35 @@ func _update_enemy_intel() -> void:
 			u.enemy_known_position_time = scenario_elapsed_time
 			if u.kind == Unit.Kind.MORTAR and u.mortar_gun_abandoned:
 				u.enemy_known_gun_abandoned = true # once actually seen abandoned, never un-known again
+	_clear_empty_contacts()
+
+
+## The enemy's picture of our squads it can no longer see: a squad of the enemy's that has stood within GameConfig.CONTACT_CLEARED_RADIUS_M
+## of where one was last seen, with a line of sight to the place, for GameConfig.CONTACT_CLEARED_AFTER_S, and has not seen it, knows it is
+## not there: the contact is dropped (enemy_has_been_sighted false) until the squad is seen again. Without it the enemy converges on a last
+## sighting, finds nobody, and waits there for ever (see GameConfig.CONTACT_CLEARED_RADIUS_M). Nothing the enemy could not know is used: its own
+## squads' positions, the place it last saw the squad, and whether that squad is visible to it now. Not for a point inside a building.
+func _clear_empty_contacts() -> void:
+	var radius: float = GameConfig.CONTACT_CLEARED_RADIUS_M * GameConfig.PIXELS_PER_METER
+	for u in player_units:
+		if u.kind != Unit.Kind.SQUAD or u.is_visible or not u.enemy_has_been_sighted or u.enemy_known_state != Unit.State.ACTIVE:
+			_contact_check_since.erase(u)
+			continue
+		var there: Vector2 = u.enemy_known_position
+		var looking := false
+		if not GameConfig.is_building_at(there):
+			for e in enemy_units:
+				if e.kind == Unit.Kind.SQUAD and e.state == Unit.State.ACTIVE and e.global_position.distance_to(there) <= radius and GameConfig.has_direct_los(e.global_position, there):
+					looking = true
+					break
+		if not looking:
+			_contact_check_since.erase(u)
+			continue
+		if not _contact_check_since.has(u):
+			_contact_check_since[u] = scenario_elapsed_time
+		elif scenario_elapsed_time - float(_contact_check_since[u]) >= GameConfig.CONTACT_CLEARED_AFTER_S:
+			u.enemy_has_been_sighted = false
+			_contact_check_since.erase(u)
 
 
 ## `scenario_delta` (tactical seconds) drives a MORTAR's reload timer — a

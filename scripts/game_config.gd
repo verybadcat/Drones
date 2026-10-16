@@ -6920,6 +6920,17 @@ const ASSAULT_UNSURROUNDED_FACTOR: float = 0.1
 ## chance (User, 2026-10-13: "Make our assaults rarer again yes", after the soft rule took them from 0.03 to 0.33 a battle).
 const ASSAULT_UNSURROUNDED_FACTOR_PLAYER: float = 0.005
 
+## A CONTACT THAT IS GONE. A side's picture of an opposing squad it has lost sight of is its last sighting, which does not un-happen (see
+## Unit.enemy_has_been_sighted). Found 2026-10-16 (voznesensk, seed 1008): our squad moved 260 m into a building, and nine Russian squads
+## converged on its last-known point, found nobody, and sat there for eleven hours re-rolling an "assault" on it 354 times (the battle ran
+## to its 12 h cap with our squad at 9 of 9). A real squad that reaches the place it last saw the enemy and looks, sees that nobody is
+## there. So: an ACTIVE squad of the enemy's within CONTACT_CLEARED_RADIUS_M of the last-known point of an opposing squad it cannot see
+## now, with a line of sight to that point, for CONTACT_CLEARED_AFTER_S in a row, clears the contact (the squad is as unsighted as one
+## never seen, until it is seen again). Not for a point inside a building: from outside it cannot tell. Enemy side only for now (the
+## AI's picture of us); the player's own picture of the enemy squads, and what is drawn from it, are unchanged. JUDGMENT: both numbers.
+const CONTACT_CLEARED_RADIUS_M: float = 40.0
+const CONTACT_CLEARED_AFTER_S: float = 30.0
+
 ## COHESION. User: "Cohesion for cut-off yes, but make it mild. This is a tactical surround, not a strategic one." A squad's cohesion is
 ## 1 and is worn down while the side it is on is held on two opposite sides or more by enemy squads it knows of within COHESION_RANGE_M
 ## (COHESION_MIN_ENVELOPMENT of the circle, as for the assault), by COHESION_DECAY_PER_MIN a minute, twice that while it is pinned; it
