@@ -5,7 +5,7 @@ const HORIZON_SECONDS := 180.0
 
 static func shot_count(unit: Unit, horizon: float, time_scale: float, own_unit: bool) -> int:
 	if unit.kind not in [Unit.Kind.SQUAD, Unit.Kind.MORTAR]: return 0
-	var interval: float = unit.reload_time if unit.kind == Unit.Kind.MORTAR else unit.fire_interval * time_scale
+	var interval: float = unit.serving_reload_time() if unit.kind == Unit.Kind.MORTAR else unit.fire_interval * time_scale
 	var delay: float = unit.fire_timer * (1.0 if unit.kind == Unit.Kind.MORTAR else time_scale) if own_unit else 0.0
 	if unit.kind == Unit.Kind.MORTAR: delay += GameConfig.MORTAR_FLIGHT_TIME
 	if delay > horizon: return 0

@@ -1728,6 +1728,11 @@ func fall_back_ordered(unit: Unit) -> bool:
 
 
 func _issue_fall_back_move(unit: Unit, destination: Vector2) -> void:
+	if unit.kind == Unit.Kind.MORTAR and unit.is_stuck_with_gun():
+		# ordered to fall back, but too few to carry the mortar: the crew leaves it
+		combat_log.log_leaves_gun_too_few(unit)
+		unit.order_retreat(_known_enemy_positions(unit.team), _ally_positions_for(unit), "Ordered to fall back, but too few left to move the mortar: leaving it.")
+		return
 	if unit.kind == Unit.Kind.MORTAR:
 		_issue_mortar_move(unit, destination, GameConfig.MORTAR_RELOCATE_SPEED_URGENT, "fall_back")
 		return
@@ -2454,9 +2459,12 @@ func _update_postures() -> void:
 			u.gone_to_ground = false
 			continue
 		var since_fire: float = now - u.fire_arrived_at
-		var serving_gun: bool = u.kind == Unit.Kind.MORTAR and now - u.last_round_fired_at < u.reload_time
+		var hiding_crew: bool = u.is_stuck_with_gun()
+		var serving_gun: bool = u.kind == Unit.Kind.MORTAR and now - u.last_round_fired_at < (GameConfig.MORTAR_HIDE_SERVING_S if hiding_crew else u.serving_reload_time())
 		if serving_gun:
 			u.gone_to_ground = false # a gun is not served lying down: a crew that fires gets up to it
+		elif hiding_crew:
+			u.gone_to_ground = true # shoot and hide: a crew too few to move the gun waits down, away from it, between bursts (GameConfig.MORTAR_HIDE_SERVING_S)
 		elif u.pinned:
 			u.gone_to_ground = true # pinned is down, and stays so until it is released, whatever the clock since the last round says
 		elif u.gone_to_ground:
@@ -6909,6 +6917,8 @@ func _mortar_spotted_danger(m: Unit) -> bool:
 
 func _decide_mortar_action(m: Unit) -> void:
 	_record_mortar_debug_history(m)
+	if m.is_stuck_with_gun() and m.has_move_target:
+		_clear_mortar_move(m) # lost a person on the way: too few to go on with the gun
 	var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
 
 	# Step 0 — resolve this tick's shot exactly once, through the memoized
@@ -7228,7 +7238,8 @@ func _decide_mortar_action(m: Unit) -> void:
 			if _pending_mortar_displacement.has(m):
 				_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Position compromised by recent fire, with an enemy mortar able to reach it — preparing to relocate."}
 			else:
-				_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Position compromised — wanted to relocate, no route this tick."}
+				var stuck_note: String = "Position compromised, but too few left to move the gun — staying, shooting and hiding." if m.is_stuck_with_gun() else "Position compromised — wanted to relocate, no route this tick."
+				_mortar_reasoning[m] = {"tier": "Preserve self", "detail": stuck_note}
 		return
 
 	# Reached only when NONE of the tier-1 self-preservation triggers
@@ -7709,7 +7720,7 @@ func _step_toward_target(unit: Unit, scenario_delta: float) -> void:
 	unit.activity = Unit.Activity.MOVING
 	var to_target: Vector2 = unit.move_target - unit.position
 	var dist: float = to_target.length()
-	var step: float = unit.move_speed * scenario_delta
+	var step: float = unit.move_speed * unit.load_speed_factor() * scenario_delta
 	if unit.kind == Unit.Kind.DRONE and dist > 0.001:
 		step = _drone_ground_speed(unit.move_speed, to_target / dist) * scenario_delta
 	if step >= dist or dist <= Unit.MOVE_ARRIVE_RADIUS:
@@ -7760,23 +7771,24 @@ func _step_retreat(unit: Unit, scenario_delta: float) -> void:
 		_step_toward_target(unit, scenario_delta)
 		return
 	unit.activity = Unit.Activity.MOVING
+	var retreat_pace: float = unit.retreat_speed * unit.load_speed_factor() # a crew carrying the gun is slowed by its load
 	var dir_x: float = -1.0 if unit.team == Unit.Team.PLAYER else 1.0
-	var next_pos: Vector2 = unit.position + Vector2(dir_x * unit.retreat_speed * scenario_delta, 0.0)
+	var next_pos: Vector2 = unit.position + Vector2(dir_x * retreat_pace * scenario_delta, 0.0)
 
 	if unit.zigzagging:
 		unit._zigzag_timer -= scenario_delta
 		if unit._zigzag_timer <= 0.0:
 			unit._zigzag_timer = randf_range(GameConfig.ZIGZAG_JINK_MIN_INTERVAL, GameConfig.ZIGZAG_JINK_MAX_INTERVAL)
 			var lateral_sign: float = 1.0 if randf() < 0.5 else -1.0
-			unit._zigzag_lateral_velocity = lateral_sign * unit.retreat_speed * GameConfig.ZIGZAG_LATERAL_SPEED_FRACTION
+			unit._zigzag_lateral_velocity = lateral_sign * retreat_pace * GameConfig.ZIGZAG_LATERAL_SPEED_FRACTION
 		next_pos.y += unit._zigzag_lateral_velocity * scenario_delta
 
 	# Bend away from the nearest known threat rather than dashing straight
 	# through/past it — see GameConfig.RETREAT_THREAT_STEER_FRACTION.
-	next_pos.y += _retreat_avoidance_offset(unit) * unit.retreat_speed * GameConfig.RETREAT_THREAT_STEER_FRACTION * scenario_delta
+	next_pos.y += _retreat_avoidance_offset(unit) * retreat_pace * GameConfig.RETREAT_THREAT_STEER_FRACTION * scenario_delta
 	# ...and open the gap to a squad retreating too close alongside (a mortar round on one catches the other), unless an enemy squad is
 	# pressing on this one: see GameConfig.SQUAD_DESIRED_SPACING.
-	next_pos.y += _retreat_spacing_offset(unit) * unit.retreat_speed * GameConfig.RETREAT_SPACING_STEER_FRACTION * scenario_delta
+	next_pos.y += _retreat_spacing_offset(unit) * retreat_pace * GameConfig.RETREAT_SPACING_STEER_FRACTION * scenario_delta
 
 	# Direct user report: a drone team's dashboard read "withdrawing" but the unit itself was nowhere to be
 	# found — found at y well above the top of the map (a raw y of -485 against a [0, MAP_HEIGHT_PX] map).
@@ -8113,6 +8125,8 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 		return # pure reconnaissance — extends detection only, never fires (see roll_spot)
 	if unit.kind == Unit.Kind.RESUPPLY_RUN:
 		return # unarmed logistics detail — never fires back
+	if unit.kind == Unit.Kind.MORTAR and not unit.can_fire_gun():
+		return # fewer than GameConfig.MORTAR_MIN_FIRING_CREW left
 	if unit.state == Unit.State.DESTROYED or unit.state == Unit.State.WITHDRAWN or unit.state == Unit.State.SURRENDERED:
 		return # gone, already safe, or has laid down arms — none of these ever fire again
 	var fighting_withdrawal := false
@@ -8200,7 +8214,7 @@ func _tick_fire(unit: Unit, delta: float, scenario_delta: float, enemies: Array[
 			_record_shot(unit, target)
 			_launch_mortar_shot(unit, target)
 		unit.last_round_fired_at = scenario_elapsed_time # a crew that has just fired is on its feet at the tube
-		unit.fire_timer = unit.reload_time
+		unit.fire_timer = unit.serving_reload_time() # a crew short of people reloads slower (Unit.crew_strength)
 		# No post-shot scoot-queueing here anymore — see _mortar_shot_
 		# this_tick and _decide_mortar_action's own "relocate for safety"
 		# tier-1 check for why: this used to queue a displacement after
@@ -8396,11 +8410,11 @@ func _estimate_unit_velocity(u: Unit) -> Vector2:
 	if u.has_move_target:
 		var to_target: Vector2 = u.move_target - u.global_position
 		if to_target.length() > 0.01:
-			return to_target.normalized() * u.move_speed
+			return to_target.normalized() * u.move_speed * u.load_speed_factor()
 		return Vector2.ZERO
 	if u.state == Unit.State.RETREATING:
 		var dir_x: float = -1.0 if u.team == Unit.Team.PLAYER else 1.0
-		return Vector2(dir_x * u.retreat_speed, 0.0)
+		return Vector2(dir_x * u.retreat_speed * u.load_speed_factor(), 0.0)
 	return Vector2.ZERO
 
 
@@ -10686,7 +10700,7 @@ func _resolve_mortar_counter_battery(firing_mortar: Unit) -> void:
 			continue # out of range — this mortar physically cannot reach back
 		if randf() < chance:
 			var locate_time: float = randf_range(GameConfig.COUNTER_BATTERY_LOCATE_TIME_MIN, GameConfig.COUNTER_BATTERY_LOCATE_TIME_MAX)
-			var setup_remaining: float = max(GameConfig.MORTAR_SETUP_TEARDOWN_TIME - m.seconds_stationary, 0.0)
+			var setup_remaining: float = max(m.setup_time() - m.seconds_stationary, 0.0)
 			var lay_time: float = randf_range(GameConfig.COUNTER_BATTERY_LAY_TIME_MIN, GameConfig.COUNTER_BATTERY_LAY_TIME_MAX)
 			var react_delay: float = max(locate_time, setup_remaining) + lay_time
 			unit_combat_stats.register(m)
@@ -10757,7 +10771,7 @@ func _resolve_pending_counter_battery() -> void:
 			if _mortar_friendly_fire_check(responder, strike.target, strike.get("aim_position", strike.impact_position)).endangered:
 				continue
 			var responder_endangered: bool = _mortar_aware_of_being_spotted(responder) or _unwatched_threat_closing(responder)
-			if responder.seconds_stationary < GameConfig.MORTAR_SETUP_TEARDOWN_TIME or responder_endangered:
+			if responder.seconds_stationary < responder.setup_time() or responder_endangered:
 				still_pending.append(strike)
 				continue
 			strike.fired = true
@@ -10840,6 +10854,8 @@ func _resolve_pending_counter_battery() -> void:
 ## _step_toward_target, which _mortar_aim_point branches on; setting it
 ## here would start leading a mortar that hasn't actually taken a step yet.
 func _issue_mortar_move(m: Unit, dest: Vector2, speed: float, intent: String) -> void:
+	if m.is_stuck_with_gun():
+		return # too few to move the gun
 	m.move_target = dest
 	m.has_move_target = true
 	m.move_queue.clear()
@@ -10889,6 +10905,8 @@ func _clear_mortar_move(m: Unit) -> void:
 ## shoot-and-scoot housekeeping with nothing actually threatening it —
 ## occasionally not fast or far enough to actually get clear.
 func _relocate_mortar(mortar: Unit, intent: String, force_urgent: bool = false) -> bool:
+	if mortar.is_stuck_with_gun():
+		return false # too few to move the gun: the callers fall back on fleeing as a last resort (_mortar_flee_as_last_resort)
 	var urgent: bool = mortar.evading_counter_battery or force_urgent
 	if mortar.evading_counter_battery:
 		_mortar_counter_battery_time[mortar] = scenario_elapsed_time # remembered: the flag is consumed just below, and a later flee reports it
@@ -10991,11 +11009,53 @@ func _relocate_mortar(mortar: Unit, intent: String, force_urgent: bool = false) 
 ## commits. An edge-run leg that can't be laid out at all (every candidate
 ## blocked) falls back to the old immediate commitment rather than leaving
 ## the crew with nothing to do.
+## A mortar crew too few to move the gun (Unit.is_stuck_with_gun) that has to leave its position (a strike has found it, an armed enemy can reach it,
+## a threat is closing): it fires off every round it has left at the threat and abandons the mortar. The user's design, 2026-10-18: "if they feel they
+## need to leave their position, they would want to fire all remaining ammo at whatever the threat is, then abandon the mortar." The threat is the
+## enemy mortar in reach if there is one, else the nearest enemy squad; with nothing in reach it just leaves.
+func _stuck_crew_last_stand(m: Unit) -> void:
+	var target: Unit = _last_stand_target(m)
+	var fired := 0
+	if target != null:
+		while m.mortar_rounds_remaining > 0:
+			_record_shot(m, target)
+			_launch_mortar_shot(m, target)
+			fired += 1
+		m.last_round_fired_at = scenario_elapsed_time
+	combat_log.log_last_stand(m, fired, target)
+	m.order_retreat(_known_enemy_positions(m.team), _ally_positions_for(m), "Too few left to move the gun: fired its last rounds and left it.")
+
+
+## What a crew making its last stand fires at: an enemy mortar in reach, else the nearest enemy squad in reach (one it can target, not under its own
+## people). Null if there is none.
+func _last_stand_target(m: Unit) -> Unit:
+	var opposing: Array[Unit] = enemy_units if m.team == Unit.Team.PLAYER else player_units
+	var reach: float = GameConfig.mortar_max_range(m.team)
+	var best: Unit = null
+	var best_rank := INF
+	for e in opposing:
+		if e.state != Unit.State.ACTIVE or not e.is_targetable():
+			continue
+		if e.kind != Unit.Kind.MORTAR and e.kind != Unit.Kind.SQUAD:
+			continue
+		var d: float = m.global_position.distance_to(e.global_position)
+		if d > reach or _mortar_friendly_fire_check(m, e, _mortar_aim_point(e)).endangered:
+			continue
+		var rank: float = d - (1.0e9 if e.kind == Unit.Kind.MORTAR else 0.0)
+		if rank < best_rank:
+			best_rank = rank
+			best = e
+	return best
+
+
 func _mortar_flee_as_last_resort(m: Unit) -> void:
 	# Seen by an unarmed observer (a drone, a spotter) and nothing else: hiding is worth trying (the
 	# caller already did), but running for the edge is not — stay put.
 	if _mortar_troubled_only_by_unarmed_observers(m):
 		_mortar_reasoning[m] = {"tier": "Preserve self", "detail": "Only a drone or spotter has sighted us — no place to hide, but not leaving the map over it."}
+		return
+	if m.is_stuck_with_gun():
+		_stuck_crew_last_stand(m)
 		return
 	if absf(m.retreat_target_x - m.global_position.x) > GameConfig.MORTAR_FLEE_COMMIT_DISTANCE:
 		var legs: Array[Vector2] = _mortar_edge_run_legs(m)
@@ -11352,12 +11412,14 @@ func _remember_mortar_position(mortar: Unit, destination: Vector2) -> void:
 ## resolves simply replaces it outright — a crew that's already fired
 ## again clearly wasn't still standing around packing up the old plan.
 func _queue_mortar_displacement(mortar: Unit, intent: String, urgent: bool) -> void:
+	if mortar.is_stuck_with_gun():
+		return # too few to move the gun: it shoots and hides instead
 	var plan: Dictionary = _mortar_relocation_plan(mortar, urgent)
 	if plan.is_empty():
 		return
 	_pending_mortar_displacement[mortar] = {
 		"destination": plan.destination, "speed": plan.speed, "intent": intent,
-		"urgent": urgent, "ready_time": scenario_elapsed_time + GameConfig.MORTAR_SETUP_TEARDOWN_TIME,
+		"urgent": urgent, "ready_time": scenario_elapsed_time + mortar.setup_time(),
 	}
 
 
@@ -11493,7 +11555,8 @@ func _mortar_shot_this_tick(m: Unit, opposing: Array[Unit]) -> Unit:
 	# even attempted while a real displacement is owed — means there's no
 	# timer to reset in the first place.
 	var target: Unit = null
-	if m.seconds_stationary >= GameConfig.MORTAR_SETUP_TEARDOWN_TIME and not _mortar_should_relocate_for_safety(m):
+	# a crew that cannot move the gun has nowhere to go, so a compromised position does not stop it firing (it shoots and hides)
+	if m.seconds_stationary >= m.setup_time() and (m.is_stuck_with_gun() or not _mortar_should_relocate_for_safety(m)):
 		target = _pick_target(m, opposing)
 	_mortar_tick_shot[m] = {"resolved": true, "target": target}
 	return target

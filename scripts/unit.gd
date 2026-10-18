@@ -576,6 +576,10 @@ func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_pos
 
 	if state != State.ACTIVE:
 		return
+	if kind == Kind.MORTAR and not can_fire_gun():
+		# too few left to serve the gun at all (GameConfig.MORTAR_MIN_FIRING_CREW): the survivor leaves it
+		order_retreat(known_enemy_positions, ally_positions, "Too few left to serve the gun: leaving it.")
+		return
 	if (kind == Kind.MORTAR or kind == Kind.DRONE_TEAM) and not cooked_off and _mortar_crew_holds_position(known_enemy_positions):
 		# Stays in the fight, wounded but still crewed — a real reason to
 		# relocate (shoot-and-scoot after the next shot, the out-of-ammo
@@ -682,6 +686,55 @@ func _mortar_crew_holds_position(known_enemy_positions: Array[Vector2]) -> bool:
 	var overrun_risk: float = clamp(1.0 - nearest_threat_dist / GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE, 0.0, 1.0)
 	var hold_chance: float = remaining_fraction * (1.0 - overrun_risk)
 	return randf() < hold_chance
+
+
+## MORTAR only: how many of the crew are serving the gun. Every casualty is out of it (killed, heavily wounded, or walking wounded: a casualty is a
+## person lost to the unit; user, 2026-10-18). See GameConfig.MORTAR_MIN_FIRING_CREW.
+func crew_serving() -> int:
+	return maxi(crew_size - crew_casualties, 0)
+
+
+## MORTAR only: the share of the full crew still serving the gun (1 for anything else).
+func crew_strength() -> float:
+	if kind != Kind.MORTAR or crew_size <= 0:
+		return 1.0
+	return clampf(float(crew_serving()) / float(crew_size), 0.0, 1.0)
+
+
+## The seconds between a mortar's bursts: the full crew's reload, divided by the share of the crew still serving.
+func serving_reload_time() -> float:
+	return reload_time / maxf(crew_strength(), 0.01)
+
+
+## The seconds a mortar's crew needs to set the tube up or break it down: the full crew's, divided by the share of it still serving.
+func setup_time() -> float:
+	return GameConfig.MORTAR_SETUP_TEARDOWN_TIME / maxf(crew_strength(), 0.01)
+
+
+## Whether enough of the crew is left to fire the gun at all (GameConfig.MORTAR_MIN_FIRING_CREW). True for anything but a mortar.
+func can_fire_gun() -> bool:
+	return kind != Kind.MORTAR or crew_serving() >= GameConfig.MORTAR_MIN_FIRING_CREW
+
+
+## A mortar crew that can fire the gun but is too few to move it (fewer than GameConfig.MORTAR_MIN_MOVING_CREW): it stays, shoots and hides, and
+## if it must leave, fires off what it has and leaves the gun. False once the gun has been left.
+func is_stuck_with_gun() -> bool:
+	return kind == Kind.MORTAR and not mortar_gun_abandoned and can_fire_gun() and crew_serving() < GameConfig.MORTAR_MIN_MOVING_CREW
+
+
+## The share of its usual pace a mortar crew moves at with the gun. 1 with a full crew (GameConfig.MORTAR_FULL_SPEED_CREW or more); with three
+## serving, GameConfig.MORTAR_THREE_PERSON_LOADED_SPEED with a full load of rounds, rising in a straight line to 1 with none; 0 with fewer (they
+## do not move it). 1 for anything but a mortar, and for a crew that has left the gun.
+func load_speed_factor() -> float:
+	if kind != Kind.MORTAR or mortar_gun_abandoned or crew_size <= 0:
+		return 1.0
+	var serving: int = crew_serving()
+	if serving >= GameConfig.MORTAR_FULL_SPEED_CREW:
+		return 1.0
+	if serving >= GameConfig.MORTAR_MIN_MOVING_CREW:
+		var loaded: float = clampf(float(mortar_rounds_remaining) / float(GameConfig.MORTAR_MAX_AMMO_ON_HAND), 0.0, 1.0)
+		return 1.0 - (1.0 - GameConfig.MORTAR_THREE_PERSON_LOADED_SPEED) * loaded
+	return 0.0
 
 
 ## Force this unit into a retreat regardless of its threshold — used both by

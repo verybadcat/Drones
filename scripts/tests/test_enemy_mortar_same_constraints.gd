@@ -159,7 +159,7 @@ func test_both_sides_share_the_firing_rules() -> void:
 	var src := FileAccess.get_file_as_string("res://scripts/battle_manager.gd")
 	var start: int = src.find("func _mortar_shot_this_tick(")
 	var body: String = src.substr(start, 1800)
-	check("seconds_stationary >= GameConfig.MORTAR_SETUP_TEARDOWN_TIME" in body and not ("Team.ENEMY" in body) and not ("Team.PLAYER" in body), "The 30-second setup rule before a shot is not conditioned on which side's mortar it is")
+	check("seconds_stationary >= m.setup_time()" in body and not ("Team.ENEMY" in body) and not ("Team.PLAYER" in body), "The 30-second setup rule before a shot is not conditioned on which side's mortar it is")
 	var tf: int = src.find("func _tick_fire(")
 	var fire_body: String = src.substr(tf, 6500)
 	check("_clear_mortar_move(unit)" in fire_body and "if unit.has_move_target:" in fire_body, "A mortar with a shot available stops its walk to fire, whichever side it is")

@@ -160,6 +160,21 @@ func log_mortar_ammo_cookoff(unit: Unit) -> void:
 	add_entry("%s's stored rounds cook off in a secondary explosion" % unit.display_name())
 
 
+func log_last_stand(unit: Unit, rounds: int, target: Unit) -> void:
+	if _unseen(unit):
+		return
+	if rounds > 0 and target != null:
+		add_entry("%s has too few left to move the gun: it fires its last %d %s at %s and leaves it" % [unit.display_name(), rounds, "round" if rounds == 1 else "rounds", target.display_name()])
+	else:
+		add_entry("%s has too few left to move the gun and nothing in reach: it leaves it" % unit.display_name())
+
+
+func log_leaves_gun_too_few(unit: Unit) -> void:
+	if _unseen(unit):
+		return
+	add_entry("%s has too few left to carry the mortar: it falls back without it" % unit.display_name())
+
+
 func log_drone_launched(unit: Unit) -> void:
 	if _unseen(unit):
 		return

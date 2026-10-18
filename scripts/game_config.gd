@@ -9154,6 +9154,29 @@ const MORTAR_RELOCATE_TREES_MULTIPLIER: float = 0.8
 # began), so this never delays a hold-position mortar's very first shot.
 const MORTAR_SETUP_TEARDOWN_TIME: float = 30.0 # tactical seconds
 
+## A CREW SHORT OF PEOPLE. User, 2026-10-18, on a mortar still operating with two uninjured people: "Rate of fire -- yes, but the bigger issue is
+## movement. They need enough people to carry everything." The people serving the gun are the crew less EVERY casualty (killed, heavily wounded or
+## walking wounded: "if they are defined as lost to the unit, treat them as not participating"). The tube is carried in three loads (the barrel, the
+## bipod mount and the baseplate: the US 81 mm M252's are 16, 12 and 13 kg; the 60 mm M224 is carried by three people, FM 7-90), with the sights and
+## the rounds shared out, so:
+## - FEWER THAN MORTAR_MIN_FIRING_CREW (two) cannot fire the gun at all (the user's ruling: "a hard minimum of two people for firing"); the survivor
+##   leaves it.
+## - TWO cannot move it "in a combat-effective manner". They stay where they are and SHOOT AND HIDE (FM 7-90, 7-11: the crew waits in a hide position
+##   between missions and comes to the gun to fire): down, away from the gun, except for MORTAR_HIDE_SERVING_S after a burst (JUDGMENT). If they feel
+##   they must leave (a strike has found them, an armed enemy can reach them, a threat is closing), they fire off every round they have left at the
+##   threat and abandon the mortar (BattleManager._stuck_crew_last_stand). The user's design.
+## - THREE can move it, slower the more ammunition they carry: MORTAR_THREE_PERSON_LOADED_SPEED of the usual pace with MORTAR_MAX_AMMO_ON_HAND rounds,
+##   rising in a straight line to the full pace with none (the user's figures; JUDGMENT, not sourced).
+## - FOUR OR MORE (a full Ukrainian crew; a Russian one of five with one lost) move at the usual pace.
+## - The cycle between bursts and the time to set up or break down the tube go as the crew does: the full crew's divided by the share of it still
+##   serving (half the crew, half the rate). JUDGMENT, from the task split (FM 23-90: the gunner lays, the assistant gunner loads, an ammunition
+##   bearer prepares the round). No source gives the rate of a reduced crew; the manuals say nothing about a minimum crew.
+const MORTAR_MIN_FIRING_CREW: int = 2
+const MORTAR_MIN_MOVING_CREW: int = 3
+const MORTAR_FULL_SPEED_CREW: int = 4
+const MORTAR_THREE_PERSON_LOADED_SPEED: float = 0.7
+const MORTAR_HIDE_SERVING_S: float = 10.0
+
 ## A minimum dwell time before a NON-URGENT relocation (BattleManager.
 ## _relocate_mortar, gated on `not urgent`) is even reconsidered —
 ## deliberately its own, separate constant from MORTAR_SETUP_TEARDOWN_
