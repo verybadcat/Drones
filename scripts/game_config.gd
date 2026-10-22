@@ -9543,6 +9543,43 @@ const MORTAR_BLAST_CASUALTY_RADIUS: float = 26.0 * PIXELS_PER_METER
 ## is a 50% figure, not a wall), not a cited figure of its own.
 const MORTAR_BLAST_COLLATERAL_SEARCH_RADIUS: float = 100.0 * PIXELS_PER_METER
 
+## BLAST AS ITS OWN INJURY COMPONENT. User, 2026-10-22: "we are going to split out wounds into blast and fragments. For the blast component ...
+## 0-1 meters: dead. 2-4 meters: serious. 5-10 meters: walking. In between those ranges, have it probabilistic and linear, so 60/40 dead or
+## serious at 1.4 meters for example. If you are in vegetation, then 33% of the time, you completely escape blast effects, regardless of the above.
+## If you are in a building, it is 67% of the time." So a person's blast outcome is by their own distance from the burst (CombatResolver.blast_severity):
+## dead up to BLAST_DEAD_M, a straight-line mix of dead and serious to BLAST_SERIOUS_FROM_M, serious to BLAST_SERIOUS_TO_M, a straight-line mix of serious
+## and walking to BLAST_WALKING_FROM_M, walking to BLAST_WALKING_TO_M, and nothing beyond (the user gave no figure past 10 m; blast alone is not
+## likely to do harm there: docs/research/real-world-notes.md, blast overpressure). The fragment component is FRAGMENT_R1_M below; a person
+## who is hurt both ways counts once, as the more severe ("if someone counts in multiple ways, only the highest one counts"). Not decided by the user,
+## taken here: blast does not depend on posture or on a fighting position (overpressure does not care, and a pit makes it worse); a unit on the move
+## keeps its escape chance in the proportion it keeps its other cover (MOVING_COVER_KEPT); a person's own distance is the unit's distance plus a
+## spread round the unit's centre, since a squad is itself 50-100 m across (FM 7-8) and a mortar crew stands within a few metres of the tube.
+const BLAST_DEAD_M: float = 1.0
+const BLAST_SERIOUS_FROM_M: float = 2.0
+const BLAST_SERIOUS_TO_M: float = 4.0
+const BLAST_WALKING_FROM_M: float = 5.0
+const BLAST_WALKING_TO_M: float = 10.0
+const BLAST_ESCAPE_IN_TREES: float = 0.33
+const BLAST_ESCAPE_IN_BUILDING: float = 0.67
+const BLAST_SQUAD_SPREAD_M: float = 30.0 # radius of the disc a squad's people are spread over (JUDGMENT)
+const BLAST_CREW_SPREAD_M: float = 4.0 # a mortar crew or a drone team (JUDGMENT)
+
+## FRAGMENTS AS THREE RADII. User, 2026-10-22: "for people standing and without cover, let's use three radii. R1 for potential lethal wounds, R2 for
+## potential serious wounds, and R3 for potential light wounds. However, an actual hit should sometimes be less serious than the potential. Give it
+## a 40% chance to be at its potential level, 30% to be one level lower, and 30% to be two levels lower. For example, a 'potential light wound' would
+## then have a 70% chance of not hurting the person at all. For each person inside of any radius, roll everything that might apply, then take only the
+## worst outcome that actually applies ... For now, try R1=20 meters, R2=2R1, and R3=3R1." (CombatResolver.fragment_severity; the levels are none,
+## walking wounded, seriously wounded, dead; one level lower than a light wound is none.) R1 is not a cited figure: it is the user's trial value (FM 7-90
+## gives the 82 mm round's reliable one-lethal-fragment-per-square-metre DIAMETER as about 40 m: docs/research/real-world-notes.md). Not decided by the
+## user, taken here: each potential is rolled apart from the others; a person in cover or lying down has each potential apply only with the share
+## CombatResolver.fragment_exposure gives (the cover and posture factors the old curve used, 1 for a man standing in the open), the cover counting for more
+## with distance as before; each person is rolled at his own distance from the burst (the squad spread of BLAST_SQUAD_SPREAD_M), not a share of the unit.
+const FRAGMENT_R1_M: float = 20.0
+const FRAGMENT_R2_FACTOR: float = 2.0
+const FRAGMENT_R3_FACTOR: float = 3.0
+const FRAGMENT_AS_POTENTIAL: float = 0.4
+const FRAGMENT_ONE_LOWER: float = 0.3 # the rest, 0.3, is two levels lower
+
 ## Ballistic dispersion: a mortar's calculated aim point (BattleManager.
 ## _mortar_aim_point) isn't where the round actually lands — real indirect
 ## fire has inherent scatter from muzzle-velocity variance, propellant

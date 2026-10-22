@@ -8564,15 +8564,21 @@ func _mortar_friendly_fire_check(mortar: Unit, target: Unit, aim: Vector2) -> Di
 			continue # too far from anywhere the round can plausibly land to matter
 		var terrain: GameConfig.TerrainType = u.exposure_terrain()
 		# The expected chance over the scatter: a fixed set of points laid out like a Gaussian of this sigma (rings by equal probability,
-		# turned a golden angle each), so the check is deterministic and cheap.
+		# turned a golden angle each), so the check is deterministic and cheap. A unit's people stand over a disc (CombatResolver.blast_spread_m):
+		# four of them stand for it, on a ring of its root-mean-square radius, two on the line to the landing point and two across it.
 		var total := 0.0
 		const SAMPLES := 16
 		var people: int = (u.crew_size - u.crew_casualties) if (u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM) else u.pips
+		var spread: float = CombatResolver.blast_spread_m(u) * GameConfig.PIXELS_PER_METER * 0.7071
 		for i in SAMPLES:
 			var radius: float = sigma * sqrt(-2.0 * log(1.0 - (float(i) + 0.5) / float(SAMPLES)))
 			var angle: float = float(i) * 2.399963
 			var landing: Vector2 = aim + Vector2(cos(angle), sin(angle)) * radius
-			var per_person: float = CombatResolver.blast_person_chance(u, u.global_position.distance_to(landing), terrain)
+			var toward: Vector2 = (landing - u.global_position).normalized() if landing != u.global_position else Vector2.RIGHT
+			var per_person := 0.0
+			for offset in [toward * spread, -toward * spread, toward.orthogonal() * spread, -toward.orthogonal() * spread]:
+				var person_m: float = landing.distance_to(u.global_position + offset) / GameConfig.PIXELS_PER_METER
+				per_person += CombatResolver.fragment_casualty_chance(person_m, CombatResolver.fragment_exposure(u, person_m, terrain)) * 0.25
 			total += 1.0 - pow(1.0 - per_person, float(maxi(people, 1))) # the chance the round costs this unit at least one person
 		risk += total / float(SAMPLES)
 	var endangered: bool = nearest < GameConfig.MORTAR_DANGER_CLOSE_M * GameConfig.PIXELS_PER_METER or risk > GameConfig.MORTAR_FRIENDLY_FIRE_RISK_TOLERANCE
@@ -8640,6 +8646,9 @@ func _resolve_pending_mortar_shots() -> void:
 ## each rolled independently, whoever the round was aimed at and whichever side fired it, the firer's own included. Drones (3 hundred
 ## metres up) and units no longer on the field are not in it. Returns what was hit: {"unit", "was_active", "distance"}, nearest first;
 ## the caller narrates it (see _narrate_shell_landing). Casualty credit goes to `attacker`, as before.
+## A unit of more people than this (only a test unit) is not worked out person by person.
+const BLAST_PEOPLE_LIMIT: int = 64
+
 func _apply_shell_blast(impact: Vector2, attacker: Unit) -> Array[Dictionary]:
 	var landed: Array[Dictionary] = []
 	if attacker != null and is_instance_valid(attacker):
@@ -8662,20 +8671,57 @@ func _apply_shell_blast(impact: Vector2, attacker: Unit) -> Array[Dictionary]:
 		# costs a unit nobody is no hit; a crew that has a round land close still reacts to it (it knows it is being shelled).
 		var is_crew: bool = u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM
 		var people: int = (u.crew_size - u.crew_casualties) if is_crew else u.pips
-		var casualties: int = CombatResolver.binomial(people, CombatResolver.blast_person_chance(u, distance, terrain))
+		# Two components, person by person (user, 2026-10-22): the FRAGMENTS (three radii of potential wounds, each person rolled at his own distance, the
+		# worst outcome counting: CombatResolver.fragment_severity) and the BLAST (its own bands by the person's own distance, escaped completely 33 percent
+		# of the time in vegetation and 67 percent in a building). A person hurt both ways counts once, as the more severe.
+		var killed := 0
+		var heavily := 0
+		var walking := 0
+		var by_blast := 0
+		var casualties := 0
+		var distance_m: float = distance / GameConfig.PIXELS_PER_METER
+		if people > BLAST_PEOPLE_LIMIT:
+			# a test unit of thousands: no person-by-person, the chance at the unit's own distance
+			casualties = CombatResolver.binomial(people, CombatResolver.fragment_casualty_chance(distance_m, CombatResolver.fragment_exposure(u, distance_m, terrain)))
+		else:
+			var spread_m: float = CombatResolver.blast_spread_m(u)
+			var escape: float = CombatResolver.blast_escape_chance(terrain, u.cover_kept())
+			var fragments_reach: bool = distance_m - spread_m <= GameConfig.FRAGMENT_R1_M * GameConfig.FRAGMENT_R3_FACTOR
+			var blast_reaches: bool = distance_m - spread_m <= GameConfig.BLAST_WALKING_TO_M
+			for i in people:
+				var person_m: float = CombatResolver.person_distance_m(distance_m, spread_m)
+				var fragment_severity := 0
+				if fragments_reach:
+					fragment_severity = CombatResolver.fragment_severity(person_m, CombatResolver.fragment_exposure(u, person_m, terrain))
+				var blast_severity := 0
+				if blast_reaches and randf() >= escape:
+					blast_severity = CombatResolver.blast_severity(person_m, randf())
+				var severity: int = maxi(fragment_severity, blast_severity)
+				if severity == CombatResolver.BLAST_NONE:
+					continue
+				casualties += 1
+				if blast_severity >= fragment_severity:
+					by_blast += 1
+				if severity == CombatResolver.BLAST_DEAD:
+					killed += 1
+				elif severity == CombatResolver.BLAST_SERIOUS:
+					heavily += 1
+				else:
+					walking += 1
 		if casualties <= 0 and not (is_crew and distance <= GameConfig.MORTAR_EVASION_RADIUS):
 			continue
 		var was_active: bool = u.state == Unit.State.ACTIVE
 		var before := UnitCombatStats.before_hit(u)
-		u.take_hit(true, _ally_positions_for(u), _known_enemy_positions(u.team), distance, casualties)
+		var breakdown: Dictionary = {} if people > BLAST_PEOPLE_LIMIT else {"killed": killed, "heavily": heavily, "walking": walking}
+		u.take_hit(true, _ally_positions_for(u), _known_enemy_positions(u.team), distance, casualties, breakdown)
 		if attacker != null and is_instance_valid(attacker):
 			unit_combat_stats.damage(attacker, u, before)
-		landed.append({"unit": u, "was_active": was_active, "distance": distance, "casualties": casualties})
+		landed.append({"unit": u, "was_active": was_active, "distance": distance, "casualties": casualties, "by_blast": by_blast})
 	if attacker != null and is_instance_valid(attacker) and shell_landing_log.size() < SHELL_LANDING_LOG_CAP:
 		var victims: Array[Dictionary] = []
 		for l in landed:
 			var v: Unit = l.unit
-			victims.append({"team": v.team, "kind": v.kind, "moving": v.activity == Unit.Activity.MOVING, "casualties": int(l.casualties), "distance_m": float(l.distance) / GameConfig.PIXELS_PER_METER})
+			victims.append({"team": v.team, "kind": v.kind, "moving": v.activity == Unit.Activity.MOVING, "casualties": int(l.casualties), "blast": int(l.by_blast), "distance_m": float(l.distance) / GameConfig.PIXELS_PER_METER})
 		shell_landing_log.append({"time": scenario_elapsed_time, "team": attacker.team, "impact": impact, "victims": victims})
 	return landed
 

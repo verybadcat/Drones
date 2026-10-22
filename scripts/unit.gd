@@ -439,14 +439,14 @@ func setup(p_team: Team, p_kind: Kind, p_position: Vector2) -> void:
 ## everyone else's casualty count still comes from GameConfig.
 ## mortar_casualty_count(pips)/a flat 1, unrelated to how far a round
 ## actually landed from any one specific person in a multi-person squad.
-func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], impact_distance: float = 0.0, blast_casualties: int = -1) -> void:
+func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], known_enemy_positions: Array[Vector2] = [], impact_distance: float = 0.0, blast_casualties: int = -1, breakdown: Dictionary = {}) -> void:
 	if state == State.DESTROYED:
 		return
 	took_hit.emit(self)
 	queue_redraw()
 
 	if kind == Kind.MORTAR or kind == Kind.DRONE_TEAM:
-		_apply_crew_casualties(known_enemy_positions, ally_positions, from_mortar, impact_distance, blast_casualties)
+		_apply_crew_casualties(known_enemy_positions, ally_positions, from_mortar, impact_distance, blast_casualties, breakdown)
 		return
 
 	# A rifle round is aimed at one person; a mortar round's fragmentation
@@ -466,7 +466,7 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], kn
 	# should be unconditionally "killed" any more than a mortar crew's are
 	# (see _apply_crew_casualties). Also keeps the side-wide breakdown
 	# exactly reconciling with pips actually lost for every kind.
-	_categorize_casualties(casualties)
+	_record_casualties(casualties, breakdown)
 	pips = max(pips - casualties, 0)
 	if pips <= 0:
 		state = State.DESTROYED
@@ -490,6 +490,28 @@ func take_hit(from_mortar: bool = false, ally_positions: Array[Vector2] = [], kn
 	elif from_mortar and not in_fighting_position() and randf() < GameConfig.RELOCATE_ON_MORTAR_HIT_CHANCE:
 		seek_cover(ally_positions, known_enemy_positions)
 		bolted_for_cover = true
+
+
+## One person's casualty severity when nothing else decides it (the fragment component): CombatResolver.BLAST_DEAD (3), BLAST_SERIOUS (2) or
+## BLAST_WALKING (1), by GameConfig's CASUALTY_*_FRACTION weights, as _categorize_casualties does for each person lost.
+static func casualty_severity_roll() -> int:
+	var roll := randf()
+	if roll < GameConfig.CASUALTY_KILLED_FRACTION:
+		return CombatResolver.BLAST_DEAD
+	if roll < GameConfig.CASUALTY_KILLED_FRACTION + GameConfig.CASUALTY_HEAVILY_WOUNDED_FRACTION:
+		return CombatResolver.BLAST_SERIOUS
+	return CombatResolver.BLAST_WALKING
+
+
+## Tallies `count` newly-lost people: by the caller's own breakdown ({"killed", "heavily", "walking"}, summing to `count`) when it gives one (a round's
+## blast and fragments, person by person: BattleManager._apply_shell_blast), else by the usual random sort.
+func _record_casualties(count: int, breakdown: Dictionary = {}) -> void:
+	if not breakdown.is_empty() and int(breakdown.get("killed", 0)) + int(breakdown.get("heavily", 0)) + int(breakdown.get("walking", 0)) == count:
+		killed_count += int(breakdown.get("killed", 0))
+		heavily_wounded_count += int(breakdown.get("heavily", 0))
+		walking_wounded_count += int(breakdown.get("walking", 0))
+		return
+	_categorize_casualties(count)
 
 
 ## Sorts `count` newly-lost pips into killed/heavily-wounded/walking-wounded
@@ -548,7 +570,7 @@ func _check_retreat(known_enemy_positions: Array[Vector2] = [], ally_positions: 
 ## _compute_side_stats's killed/heavily_wounded/walking_wounded/
 ## wounded_left_behind breakdown always summing to the side's actual total
 ## personnel lost, mortars and drone-team crews included, not just squads.
-func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_positions: Array[Vector2] = [], from_mortar: bool = true, impact_distance: float = 0.0, blast_casualties: int = -1) -> void:
+func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_positions: Array[Vector2] = [], from_mortar: bool = true, impact_distance: float = 0.0, blast_casualties: int = -1, breakdown: Dictionary = {}) -> void:
 	var remaining: int = crew_size - crew_casualties
 	# Direct/small-arms fire is a single aimed shot at one person, not a
 	# blast covering an area — it stays a flat single casualty, exactly
@@ -558,7 +580,7 @@ func _apply_crew_casualties(known_enemy_positions: Array[Vector2] = [], ally_pos
 	if blast_casualties >= 0:
 		newly_down = mini(blast_casualties, remaining) # already worked out by the caller, person by person
 	crew_casualties += newly_down
-	_categorize_casualties(newly_down)
+	_record_casualties(newly_down, breakdown)
 	pips = crew_size - crew_casualties # feeds the side's overall casualty tally exactly like a squad's pips — see setup()
 	if crew_casualties >= crew_size:
 		state = State.DESTROYED

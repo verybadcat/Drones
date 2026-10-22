@@ -157,6 +157,10 @@ func test_mortar_with_persistent_target_still_relocates_and_keeps_fighting() -> 
 	enemy_mortar.is_visible = true
 	enemy_mortar.mortar_rounds_remaining = 0 # never fires back on its own — isolates the player mortar's own behavior
 	enemy_mortar.crew_size = 1000 # never actually destroyed mid-test — stays a live, repeatable target throughout
+	# A round within R1 of a crew wounds every one of them at least (the fragment radii, 2026-10-22), so a crew of any size is wiped out by the first
+	# burst and the battle would end with the enemy gone. A squad far from the action keeps it going; the crew is made whole each tick, below.
+	var far_squad: Unit = bm._make_unit(Unit.Team.ENEMY, Unit.Kind.SQUAD, start + Vector2(0, 3000))
+	bm.enemy_units.append(far_squad)
 
 	# Visibility isn't a flag that just stays set — CombatResolver.has_live_
 	# observer re-checks LOS every tick and drops it the instant nobody's
@@ -213,8 +217,9 @@ func test_mortar_with_persistent_target_still_relocates_and_keeps_fighting() -> 
         # instant it stops being a stable, repeatable target keeps this
         # test's own stated premise ("stays a live, repeatable target
         # throughout") true by construction instead of by seed luck.
-		if is_instance_valid(enemy_mortar) and enemy_mortar.state != Unit.State.ACTIVE:
+		if is_instance_valid(enemy_mortar) and (enemy_mortar.state != Unit.State.ACTIVE or enemy_mortar.crew_casualties > 0):
 			enemy_mortar.state = Unit.State.ACTIVE
+			enemy_mortar.crew_casualties = 0
 			enemy_mortar.global_position = target_start_pos
 			enemy_mortar.has_move_target = false
 			enemy_mortar.mortar_gun_abandoned = false

@@ -93,7 +93,7 @@ func run() -> void:
 	target.free()
 
 	# 3. a shell's blast and the friendly-fire estimate: the same terrain rule. An own squad in a building 20 m from the aim point is
-	# endangered more when it is on the move.
+	# endangered more when it is on the move (in trees here).
 	GameConfig.set_active_map("pishchane")
 	var bm := BattleManager.new()
 	root.add_child(bm)
@@ -106,7 +106,7 @@ func run() -> void:
 	foe.is_visible = true
 	var own: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, in_trees)
 	bm.player_units.append(own)
-	var aim: Vector2 = in_trees + m(25, 0)
+	var aim: Vector2 = in_trees + m(65, 0) # out where only the weak fragments of the third radius reach (nearer, nine people make the risk nearly 1 either way)
 	own.activity = Unit.Activity.STATIONARY
 	var risk_down: float = bm._mortar_friendly_fire_check(gun, foe, aim).risk
 	own.activity = Unit.Activity.MOVING

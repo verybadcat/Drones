@@ -67,40 +67,146 @@ static func blast_casualty_chance(distance: float, max_chance: float, terrain: G
 		decay = exp(-log(2.0) * distance / radius)
 	else:
 		decay = 0.25 * exp(-log(2.0) * (distance - 2.0 * radius) / (0.5 * radius))
-	var cover_factor: float = MORTAR_COVER_MULTIPLIER.get(terrain, 1.0) / MORTAR_COVER_MULTIPLIER[GameConfig.TerrainType.OPEN]
-	cover_factor = pow(cover_factor, kept) # a unit on the move keeps only part of it (Unit.cover_kept)
+	return clamp(max_chance * decay * cover_factor(distance, radius, terrain, kept, dug_ratio), 0.0, 1.0)
+
+
+## How much of the fragments a unit's cover lets through, 1 for none (distances in pixels): the terrain's own ratio against the open (a unit on
+## the move keeps only part of it, Unit.cover_kept), or a finished fighting position's ratio if that is better (and none of it for a round that
+## lands in the hole), to the power of distance over `falloff` when that is more than 1: cover, which near the burst only reduces the chance,
+## stops the weak far-field fragments almost altogether.
+static func cover_factor(distance: float, falloff: float, terrain: GameConfig.TerrainType, kept: float = 1.0, dug_ratio: float = 1.0) -> float:
+	var factor: float = MORTAR_COVER_MULTIPLIER.get(terrain, 1.0) / MORTAR_COVER_MULTIPLIER[GameConfig.TerrainType.OPEN]
+	factor = pow(factor, kept) # a unit on the move keeps only part of it (Unit.cover_kept)
 	if dug_ratio < 1.0:
 		# a finished fighting position (Unit.fighting_position_ratio): its ratio, and none of it for a round that lands in the hole
 		var near: float = clampf(distance / (GameConfig.FIGHTING_POSITION_DIRECT_HIT_M * GameConfig.PIXELS_PER_METER), 0.0, 1.0)
-		cover_factor = minf(cover_factor, lerpf(1.0, dug_ratio, near))
-	cover_factor = pow(cover_factor, maxf(1.0, distance / radius))
-	return clamp(max_chance * decay * cover_factor, 0.0, 1.0)
+		factor = minf(factor, lerpf(1.0, dug_ratio, near))
+	return pow(factor, maxf(1.0, distance / falloff))
 
 
-## The chance that ONE PERSON of `unit` becomes a casualty of a round that lands `distance` from the unit (see blast_casualty_chance). A
-## MORTAR or DRONE_TEAM crew, and a lone person (a spotter), are as exposed as the figure says (a crew: the distance and cover model,
-## certain at the impact point; a lone person: at most MORTAR_BLAST_COLLATERAL_MAX_CHANCE there); a member of a squad is dispersed and
-## often prone, so only GameConfig.MORTAR_CASUALTY_FRACTION of that. Direct user instruction: how many a round costs a unit follows from
-## where it lands, one person at a time, not a fixed share of the unit once any part of it is "hit".
-static func blast_person_chance(unit: Unit, distance: float, terrain: GameConfig.TerrainType) -> float:
-	# The curve (with the terrain's own cover in it) is for a man on his feet at his post; going down is worth Unit.posture_factor on top:
-	# a third in the open, a half in cover.
-	var lying: float = unit.posture_factor()
+## Fragment wounds, as the user's three radii (GameConfig.FRAGMENT_R1_M): the levels are the severities below (0 none, 1 walking wounded, 2 seriously
+## wounded, 3 dead), and a person `distance_m` from the burst is inside the radius of every potential level up to his distance: dead within R1, serious
+## within R2, walking within R3.
+static func fragment_potentials(distance_m: float) -> Array[int]:
+	var r1: float = GameConfig.FRAGMENT_R1_M
+	var levels: Array[int] = []
+	if distance_m <= r1 * GameConfig.FRAGMENT_R3_FACTOR:
+		levels.append(BLAST_WALKING)
+	if distance_m <= r1 * GameConfig.FRAGMENT_R2_FACTOR:
+		levels.append(BLAST_SERIOUS)
+	if distance_m <= r1:
+		levels.append(BLAST_DEAD)
+	return levels
+
+
+## The share of the potentials that apply to ONE PERSON of `unit` for a round `distance_m` from him: 1 for a man standing in the open (the case the
+## user's radii are for); the terrain's cover (more of it with distance, none for a round in his hole), a finished fighting position, and lying down
+## (Unit.posture_factor: a third in the open, a half in cover) all reduce it, as they reduced the old curve.
+static func fragment_exposure(unit: Unit, distance_m: float, terrain: GameConfig.TerrainType) -> float:
+	var cover: float = cover_factor(distance_m * GameConfig.PIXELS_PER_METER, GameConfig.MORTAR_BLAST_CASUALTY_RADIUS, terrain, unit.cover_kept(), unit.fighting_position_ratio())
+	return cover * unit.posture_factor()
+
+
+## One potential of `level` actually done to a person: as it is with FRAGMENT_AS_POTENTIAL, one level lower with FRAGMENT_ONE_LOWER, else two lower
+## (never below none). `roll` is a uniform draw in [0, 1).
+static func fragment_reduced(level: int, roll: float) -> int:
+	if roll < GameConfig.FRAGMENT_AS_POTENTIAL:
+		return level
+	if roll < GameConfig.FRAGMENT_AS_POTENTIAL + GameConfig.FRAGMENT_ONE_LOWER:
+		return maxi(level - 1, 0)
+	return maxi(level - 2, 0)
+
+
+## The fragment wound of one person `distance_m` from a burst whose potentials apply with share `exposure`: every potential he is inside is rolled
+## (applies? how much reduced?) and only the worst outcome counts.
+static func fragment_severity(distance_m: float, exposure: float = 1.0) -> int:
+	var worst: int = BLAST_NONE
+	for level in fragment_potentials(distance_m):
+		if exposure >= 1.0 or randf() < exposure:
+			worst = maxi(worst, fragment_reduced(level, randf()))
+	return worst
+
+
+## The chances of each fragment wound for one person, worked out rather than rolled: [none, walking, serious, dead] (index = severity), the
+## potentials being independent so the worst of them has the product of their chances of being no worse.
+static func fragment_distribution(distance_m: float, exposure: float = 1.0) -> Array[float]:
+	var at_most: Array[float] = [1.0, 1.0, 1.0, 1.0] # chance that the worst outcome is no worse than [index]
+	for level in fragment_potentials(distance_m):
+		var outcome: Array[float] = [0.0, 0.0, 0.0, 0.0]
+		outcome[level] += exposure * GameConfig.FRAGMENT_AS_POTENTIAL
+		outcome[maxi(level - 1, 0)] += exposure * GameConfig.FRAGMENT_ONE_LOWER
+		outcome[maxi(level - 2, 0)] += exposure * (1.0 - GameConfig.FRAGMENT_AS_POTENTIAL - GameConfig.FRAGMENT_ONE_LOWER)
+		outcome[0] += 1.0 - exposure
+		var running := 0.0
+		for severity in 4:
+			running += outcome[severity]
+			at_most[severity] *= running
+	var result: Array[float] = [at_most[0], 0.0, 0.0, 0.0]
+	for severity in range(1, 4):
+		result[severity] = at_most[severity] - at_most[severity - 1]
+	return result
+
+
+## The chance a person `distance_m` from a burst, with `exposure` (1 standing in the open), is hurt at all by the fragments.
+static func fragment_casualty_chance(distance_m: float, exposure: float = 1.0) -> float:
+	return 1.0 - fragment_distribution(distance_m, exposure)[BLAST_NONE]
+
+
+## Blast injury severities (BLAST_*): 0 none, 1 walking wounded, 2 seriously wounded (heavily wounded), 3 dead.
+const BLAST_NONE := 0
+const BLAST_WALKING := 1
+const BLAST_SERIOUS := 2
+const BLAST_DEAD := 3
+
+
+## The blast injury of one person `distance_m` from a burst, `roll` being a uniform draw in [0, 1): the user's bands (GameConfig.BLAST_*): dead up to
+## 1 m, serious from 2 to 4 m, walking from 5 to 10 m, a straight-line mix between the bands (at 1.4 m, 60 percent dead and 40 serious), none beyond.
+static func blast_severity(distance_m: float, roll: float) -> int:
+	if distance_m <= GameConfig.BLAST_DEAD_M:
+		return BLAST_DEAD
+	if distance_m < GameConfig.BLAST_SERIOUS_FROM_M:
+		var dead_share: float = (GameConfig.BLAST_SERIOUS_FROM_M - distance_m) / (GameConfig.BLAST_SERIOUS_FROM_M - GameConfig.BLAST_DEAD_M)
+		return BLAST_DEAD if roll < dead_share else BLAST_SERIOUS
+	if distance_m <= GameConfig.BLAST_SERIOUS_TO_M:
+		return BLAST_SERIOUS
+	if distance_m < GameConfig.BLAST_WALKING_FROM_M:
+		var serious_share: float = (GameConfig.BLAST_WALKING_FROM_M - distance_m) / (GameConfig.BLAST_WALKING_FROM_M - GameConfig.BLAST_SERIOUS_TO_M)
+		return BLAST_SERIOUS if roll < serious_share else BLAST_WALKING
+	if distance_m <= GameConfig.BLAST_WALKING_TO_M:
+		return BLAST_WALKING
+	return BLAST_NONE
+
+
+## The chance that a person completely escapes the blast because of the terrain they are in: GameConfig.BLAST_ESCAPE_IN_TREES in vegetation,
+## BLAST_ESCAPE_IN_BUILDING in a building, none in the open. A unit on the move (`kept` below 1, see Unit.cover_kept) keeps the same share of its
+## cover as for everything else: the chance of being caught is raised to the power `kept`.
+static func blast_escape_chance(terrain: GameConfig.TerrainType, kept: float = 1.0) -> float:
+	var base := 0.0
+	if terrain == GameConfig.TerrainType.TREES:
+		base = GameConfig.BLAST_ESCAPE_IN_TREES
+	elif terrain == GameConfig.TerrainType.BUILDING:
+		base = GameConfig.BLAST_ESCAPE_IN_BUILDING
+	return 1.0 - pow(1.0 - base, kept)
+
+
+## The radius of the disc a unit's people are spread over round its centre, for the blast: a squad 30 m, a mortar crew or a drone team 4 m, a lone
+## person none.
+static func blast_spread_m(unit: Unit) -> float:
 	if unit.kind == Unit.Kind.MORTAR or unit.kind == Unit.Kind.DRONE_TEAM:
-		return blast_casualty_chance(distance, 1.0, terrain, unit.cover_kept(), unit.fighting_position_ratio()) * lying
-	var chance: float = blast_casualty_chance(distance, GameConfig.MORTAR_BLAST_COLLATERAL_MAX_CHANCE, terrain, unit.cover_kept(), unit.fighting_position_ratio())
-	if unit.max_pips <= 1:
-		return chance * lying
-	# A squad member's fraction (MORTAR_CASUALTY_FRACTION) is the figure for a man lying in the open, dispersed (casualty area times
-	# density: docs/designs/realism-anchors.md, A7) and, in cover, for a man at his post. On his feet in the open, or on the move, the same
-	# man has about three times the area; in cover he has the fraction, and half of it once down.
-	var scale: float = 1.0
-	if terrain == GameConfig.TerrainType.OPEN and not unit.in_fighting_position():
-		if unit.posture() == Unit.Posture.STANDING:
-			scale = 1.0 / GameConfig.PRONE_IN_OPEN_FACTOR
-	else:
-		scale = lying
-	return minf(chance * GameConfig.MORTAR_CASUALTY_FRACTION * scale, 1.0)
+		return GameConfig.BLAST_CREW_SPREAD_M
+	if unit.max_pips > 1:
+		return GameConfig.BLAST_SQUAD_SPREAD_M
+	return 0.0
+
+
+## One person's distance from a burst `center_m` from the unit's centre, the person standing at a uniformly random place on a disc of radius
+## `spread_m` round it.
+static func person_distance_m(center_m: float, spread_m: float) -> float:
+	if spread_m <= 0.0:
+		return center_m
+	var rho: float = spread_m * sqrt(randf())
+	var theta: float = TAU * randf()
+	return sqrt(maxf(center_m * center_m + rho * rho - 2.0 * center_m * rho * cos(theta), 0.0))
 
 
 ## How many of `people` become casualties when each is one with probability `p`, independently (a binomial draw; for a large number the

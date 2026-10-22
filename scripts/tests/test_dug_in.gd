@@ -118,19 +118,19 @@ func run() -> void:
 	# 3. a fragment: a crew at its post in a fighting position at 30 m has about a twenty-fifth of what it has on its feet in the open, a
 	# round in the hole none of the protection, and a squad's figure likewise
 	var crew: Unit = unit(c, Unit.Team.PLAYER, Unit.Kind.MORTAR, c.open + m(0, 1000))
-	var open_30: float = CombatResolver.blast_person_chance(crew, m(30).length(), crew.exposure_terrain())
-	var open_1: float = CombatResolver.blast_person_chance(crew, m(1).length(), crew.exposure_terrain())
+	var open_30: float = CombatResolver.fragment_exposure(crew, 30.0, crew.exposure_terrain())
+	var open_1: float = CombatResolver.fragment_exposure(crew, 1.0, crew.exposure_terrain())
 	crew.entrenchment = Unit.Entrenchment.FIGHTING_POSITION
-	var hole_30: float = CombatResolver.blast_person_chance(crew, m(30).length(), crew.exposure_terrain())
-	var hole_1: float = CombatResolver.blast_person_chance(crew, m(1).length(), crew.exposure_terrain())
-	var hole_0: float = CombatResolver.blast_person_chance(crew, 0.0, crew.exposure_terrain())
+	var hole_30: float = CombatResolver.fragment_exposure(crew, 30.0, crew.exposure_terrain())
+	var hole_1: float = CombatResolver.fragment_exposure(crew, 1.0, crew.exposure_terrain())
+	var hole_0: float = CombatResolver.fragment_exposure(crew, 0.0, crew.exposure_terrain())
 	check(hole_30 / open_30 > 0.015 and hole_30 / open_30 < 0.045, "A crew in its pit at 30 m: a few percent of what it has in the open (%.4f against %.4f)" % [hole_30, open_30])
 	check(hole_1 / open_1 > 0.5, "...but a round 1 m away is nearly as bad as ever (%.3f against %.3f)" % [hole_1, open_1])
 	check(hole_0 >= 0.99, "...and one in the hole is a direct hit (%.3f)" % hole_0)
 	var line: Unit = unit(c, Unit.Team.PLAYER, Unit.Kind.SQUAD, c.open + m(0, 1400))
-	var line_open: float = CombatResolver.blast_person_chance(line, m(30).length(), line.exposure_terrain())
+	var line_open: float = CombatResolver.fragment_exposure(line, 30.0, line.exposure_terrain())
 	line.entrenchment = Unit.Entrenchment.FIGHTING_POSITION
-	var line_hole: float = CombatResolver.blast_person_chance(line, m(30).length(), line.exposure_terrain())
+	var line_hole: float = CombatResolver.fragment_exposure(line, 30.0, line.exposure_terrain())
 	check(line_hole < 0.05 * line_open, "A squad at its post in fighting positions at 30 m: a few percent of what it has upright in the open (%.4f against %.4f)" % [line_hole, line_open])
 
 	# 4. a crew's direct HE hit, rounds at the casualty radius: dug in costs it a small fraction of what it costs in the open

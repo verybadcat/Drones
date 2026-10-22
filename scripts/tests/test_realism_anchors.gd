@@ -117,8 +117,10 @@ func run() -> void:
 	var building_ratio: float = CombatResolver.blast_casualty_chance(r, 1.0, GameConfig.TerrainType.BUILDING) / open_at_r
 	check(building_ratio < 0.3, "A6: a building at least as protective as that (%.2f)" % building_ratio)
 
-	# A7. the squad's share: a round at the impact point costs a squad of nine about 1.3-2.1 casualties when the men are lying (casualty area
-	# x squad density), and about three times that on their feet (UK WWII: standing 1, lying 1/3)
+	# A7. the squad: a round on the centre of a squad of nine. The first anchor (casualty area x squad density: about 1.3-2.1 lying, three times that on
+	# their feet) was replaced on 2026-10-22 by the user's three radii (R1 20 m, R2 40 m, R3 60 m: GameConfig.FRAGMENT_R1_M) for people standing and
+	# without cover, each man rolled at his own distance over a squad spread of BLAST_SQUAD_SPREAD_M: on their feet nearly all of them are inside R1 or
+	# R2, so a round on the centre costs about 8 of 9; lying, a third of the potentials apply to each man.
 	GameConfig.set_active_map("voznesensk")
 	GameConfig._build_terrain_grid()
 	var squad: Unit = Unit.new()
@@ -126,12 +128,26 @@ func run() -> void:
 	squad.max_pips = 9
 	squad.position = Vector2(-5000.0, -5000.0) * GameConfig.PIXELS_PER_METER # open ground
 	check(GameConfig.get_terrain_type_at(squad.position) == GameConfig.TerrainType.OPEN, "A7 setup: open ground")
-	squad.gone_to_ground = true
-	var lying_cas: float = 9.0 * CombatResolver.blast_person_chance(squad, 0.0, GameConfig.TerrainType.OPEN)
-	check(lying_cas > 1.2 and lying_cas < 2.2, "A7: a round on a squad of nine lying in the open costs it about 1.3-2.1 (%.2f)" % lying_cas)
-	squad.gone_to_ground = false
-	var upright_cas: float = 9.0 * CombatResolver.blast_person_chance(squad, 0.0, GameConfig.TerrainType.OPEN)
-	check(upright_cas > 3.6 and upright_cas < 6.6, "A7: ... and on their feet about three times that, 4-6 (%.2f)" % upright_cas)
+	seed(11)
+	var standing_total := 0
+	var lying_total := 0
+	var squads := 2000
+	for state in [false, true]:
+		squad.gone_to_ground = state
+		var n := 0
+		for i in squads:
+			for p in 9:
+				var d: float = CombatResolver.person_distance_m(0.0, GameConfig.BLAST_SQUAD_SPREAD_M)
+				if CombatResolver.fragment_severity(d, CombatResolver.fragment_exposure(squad, d, GameConfig.TerrainType.OPEN)) > 0:
+					n += 1
+		if state:
+			lying_total = n
+		else:
+			standing_total = n
+	var standing_cas: float = float(standing_total) / squads
+	var lying_cas: float = float(lying_total) / squads
+	check(standing_cas > 7.6 and standing_cas < 8.6, "A7: a round on the centre of a squad of nine on its feet in the open costs it about 8 (%.2f)" % standing_cas)
+	check(lying_cas > 3.0 and lying_cas < 5.5, "A7: ... and lying about half that, 3-5.5 (%.2f)" % lying_cas)
 	squad.free()
 
 	print("Realism anchor tests: %d failures" % failures)
