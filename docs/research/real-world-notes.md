@@ -68,7 +68,17 @@ What was found:
   * B-4: one foot of soft ground, mud or sand, or 3 feet of snow, can cut the effect of a surface-burst round by up to 80 percent; hard rocky soil
     raises it; dense woods turn impact rounds into airbursts (wooden splinters make severe wounds).
   * For planning, each HE round has "a circular lethal bursting area" (Figure B-5, Table B-1 give areas in square metres; not in the text reached).
-* Radii: US 81 mm M252 HE round "effective kill radius of 35 m" (Wikipedia); the ledger's 26 m for 50 percent of exposed men for an 82 mm round (Type 67,
+* **Definition of the "bursting" figure, and a warning about the Wikipedia radii (FM 7-90, ch. 5, found 2026-10-22).** "The bursting diameter of an HE
+  round is twice the distance from the point of impact at which the round will reliably place **one lethal fragment per square meter** of target", and
+  "in the past, many publications have mistakenly used the term bursting radius while providing the actual distance of the bursting diameter."
+  Lethal bursting **diameters** (estimates; round, fuze, range and target surface all affect them): M120 120 mm 60 m; M30 107 mm 40 m; **M252 81 mm
+  38 m; M29A1 81 mm 35 m**; M224 60 mm 30 m (M720 round) or 20 m (M49A4). So the radius at one lethal fragment per m² is **half**: about 17-19 m for an
+  81 mm, 30 m for a 120 mm, 10-15 m for a 60 mm. Wikipedia's "effective kill radius of 35 m" for the M252 matches the M29A1's 35 m **diameter**, so it is
+  probably a diameter mislabelled as a radius (the 120 mm "lethality radius 69 m" does not match 60 m; its basis is unknown). One lethal fragment per
+  square metre is roughly a 40-60 percent chance of a hit on a standing person (about 0.5-1 m² presented), so the lethal bursting radius is about the
+  radius at which half of exposed men are casualties. By this definition the 81 mm's is 17-19 m, against the game's 26 m for the 82 mm. What counts as
+  a "lethal" fragment (usually a kinetic energy threshold) is not given on the page.
+* Radii: US 81 mm M252 HE round "effective kill radius of 35 m" (Wikipedia; see above: probably the diameter); the ledger's 26 m for 50 percent of exposed men for an 82 mm round (Type 67,
   cited in `game_config.gd`). M67 hand grenade (180 g of Comp B): fatality radius 5 m, injury radius 15 m, fragments to 230 m (Wikipedia).
 * Posture, from UK WWII researchers via Wikipedia's Artillery article ("citation needed"): relative risk to impact-fuzed shells: standing 1, lying
   1/3, firing from a trench 1/15-1/50, crouching in one 1/25-1/100. Most casualties come in the first 10-15 seconds, before troops improve posture.
@@ -76,7 +86,7 @@ What was found:
 
 Larger radii: searched harder on 2026-10-22; **no source gives a probability of casualty at 2-4 times the casualty radius.** What there is:
 
-* Radii by round: US 81 mm M252 "effective kill radius" 35 m; US 120 mm M120 "lethality radius" 69 m (Wikipedia, citing US Army); 82 mm Type 67 26 m for 50 percent
+* Radii by round: US 81 mm M252 "effective kill radius" 35 m; US 120 mm M120 "lethality radius" 69 m (Wikipedia, citing US Army; **see the FM 7-90 definition above: the 35 m is probably a bursting diameter, a radius of 17-19 m**); 82 mm Type 67 26 m for 50 percent
   (in `game_config.gd`).
 * The hand grenade is the one small-charge case with three figures: M67 (about 180 g of Comp B): fatality radius 5 m, injury radius 15 m, fragments
   to 230 m (Wikipedia). Injuries to three times the fatal radius, and some fragments far beyond. M16 bounding mine: injuries up to 200 m; PADMINE:
@@ -105,7 +115,7 @@ Larger radii: searched harder on 2026-10-22; **no source gives a probability of 
 * **Everything that bears on the drop-off, proven or not** (2026-10-22; each item marked):
   1. *Sourced.* A small round's injuries reach three times its fatal radius and some fragments fly far beyond it (M67: fatal 5 m, injury 15 m,
      fragments to 230 m; Wikipedia). So casualties do not stop at the kill radius; the amount at 2-4 times the radius is not given.
-  2. *Sourced.* Kill radii: 81 mm 35 m, 120 mm 69 m (Wikipedia, citing US Army); 82 mm Type 67 casualty radius 26 m (cited in `game_config.gd`; an
+  2. *Sourced, with a correction.* Kill radii as Wikipedia gives them: 81 mm 35 m, 120 mm 69 m; FM 7-90 gives the lethal bursting DIAMETERS (81 mm 35-38 m, 120 mm 60 m), so the radii at one lethal fragment per m² are about 17-19 m and 30 m. 82 mm Type 67 casualty radius 26 m (cited in `game_config.gd`; an
      "effective kill radius" and a 50 percent casualty radius are not the same thing, and the casualty radius is the larger).
   3. *Sourced, but not a probability.* Troops assaulting under 60 mm fire may close to "about 50 meters (minimum safe distance)" (FM 7-90, ch. 8): a risk
      accepted for a small round at about 2-3 times its casualty radius. The risk level behind a "minimum safe distance" was not found.
