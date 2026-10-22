@@ -184,6 +184,24 @@ Larger radii: searched harder on 2026-10-22; **no source gives a probability of 
   should make a given dB worse, not better, but that is unproven), and the level of a stun grenade is quoted at 1.5 m while its effect at 5-10 m was not found.
 * In the game there is no blast-only incapacitation: a person is a casualty (lost to the unit) or unaffected, by fragments and blast together.
 
+### Is a ruptured eardrum "walking wounded" or "seriously wounded"? (2026-10-22)
+
+* **No military document that classifies a ruptured eardrum was reached** (the US Army and NATO medical manuals on triage and casualty reporting were
+  not retrievable; Wikipedia's "Casualty classification" is only a disambiguation page). What the reachable sources give:
+  * A perforated eardrum "often heals naturally", in a few weeks or up to a few months; the conductive hearing loss is "usually temporary"; symptoms
+    are tinnitus, ear pain, vertigo, and sometimes nausea and vomiting; hearing is "usually recovered fully", though hair-cell damage from a blast can
+    leave mild to profound permanent loss (Wikipedia, Perforated eardrum and Blast injury).
+  * Triage: "minor" (green, priority 3) casualties "are able to walk and may only need bandages"; the walking wounded are conscious, breathing, with
+    "relatively minor injuries" (Wikipedia, Triage and Walking wounded). Wounded in action "encompasses all kinds of wounds and other injuries incurred
+    in action", expressly including blast concussions (Wikipedia, Wounded in action): it is a casualty, whatever its seriousness.
+  * Stun grenade victims (deafness, tinnitus, inner-ear disturbance, disorientation, loss of balance) are treated as temporarily incapacitated
+    (Wikipedia, M84 stun grenade).
+* **From general knowledge, not verified here**: reporting systems grade a casualty as very seriously, seriously or not seriously ill or injured, and an
+  uncomplicated eardrum perforation falls in the lowest grade; in triage it is a minimal (walking) case; the soldier is usually fit to return to duty
+  once vertigo has passed, days to weeks later, with a temporary medical profile that bars noisy duties until it heals.
+* **So**: on what was found, a ruptured eardrum is a walking-wounded injury, not a serious one, unless it comes with other injuries. In practice it
+  rarely comes alone: an eardrum rupture needs about 3-5 psi, within about 5-8 m of an 82 mm burst, where the chance of a fragment casualty is high.
+
 ## Vegetation, soil and cover between a burst and people (2026-10-22)
 
 * FM 7-90, B-4: soft ground (a foot of soft soil, mud or sand, or 3 feet of snow) can cut the effect of a surface-burst round by up to 80 percent; hard
