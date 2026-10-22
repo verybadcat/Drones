@@ -74,12 +74,22 @@ What was found:
   1/3, firing from a trench 1/15-1/50, crouching in one 1/25-1/100. Most casualties come in the first 10-15 seconds, before troops improve posture.
 * Definitions: a casualty is "any person lost to a unit", "not someone who sustains injuries which do not prevent them from fighting" (Wikipedia).
 
-What was NOT found, and a calculation worth knowing (mine, not a source):
+Larger radii: searched harder on 2026-10-22; **no source gives a probability of casualty at 2-4 times the casualty radius.** What there is:
 
-* **How the chance of a casualty falls away beyond the 50 percent radius.** The game uses 50 percent at 26 m, halving every 26 m to 52 m, then every
-  13 m (`CombatResolver.blast_casualty_chance`, per exposed standing person). Three shapes through the same 26 m point, per person:
+* Radii by round: US 81 mm M252 "effective kill radius" 35 m; US 120 mm M120 "lethality radius" 69 m (Wikipedia, citing US Army); 82 mm Type 67 26 m for 50 percent
+  (in `game_config.gd`).
+* The hand grenade is the one small-charge case with three figures: M67 (about 180 g of Comp B): fatality radius 5 m, injury radius 15 m, fragments
+  to 230 m (Wikipedia). Injuries to three times the fatal radius, and some fragments far beyond. M16 bounding mine: injuries up to 200 m; PADMINE:
+  lethal out to 50 m; Claymore: "100-meter blast radius" (Wikipedia).
+* Doctrine: 60 mm fire supporting an assault allows the assaulting troops to close to "about 50 meters (minimum safe distance)" (FM 7-90, ch. 8). The
+  JMEM lethal-area and safe-distance tables (FM 101-62-1, -2/1, -3) are classified (listed in FM 7-90's references). FM 6-30: "danger close" is a
+  procedural limit, within 600 m of friendly troops for mortars and artillery, not a casualty figure.
+* Tried and empty: FM 7-90, 23-90, 6-30, 6-40, 6-20-40 text searches for radius, casualty, safe distance, fragment range; Wikipedia pages for
+  fragmentation, mortars (M224, M252, M120, M30, M29, L16, Stokes, 2B11, M-43), shells, grenades, mines, Claymore, indirect fire.
+* So the shape of the fall-off beyond the 50 percent radius is **not verified** by anything reached. Three shapes through the same 26 m point, per
+  exposed standing person, for comparison only (my calculation; the Gaussian is the textbook "Carleton" function from memory, not checked):
 
-  | distance | the game | fragment density 1/r² | Gaussian (textbook "Carleton" damage function, from memory, not verified) |
+  | distance | the game | fragment density 1/r² | Gaussian |
   |---|---|---|---|
   | 15 m | 67% | 87% | 79% |
   | 26 m | 50% | 50% | 50% |
@@ -89,14 +99,32 @@ What was NOT found, and a calculation worth knowing (mine, not a source):
   | 80 m | 6% | 7% | 0.1% |
   | 100 m | 2% | 5% | ~0 |
 
-  A crew of five standing, chance of at least one casualty at 50 m: game 78%, 1/r² 61%, Gaussian 33%. So the game's casualty curve is generous
-  between about 35 and 70 m compared with either alternative. Which shape is right for a mortar round was not established.
+  The game's curve lies between the other two from 40 m to 65 m and is below the 1/r² curve beyond 80 m. **An earlier remark (2026-10-21) that the game is
+  generous at 35-70 m is withdrawn**: it rested on the Gaussian, which the grenade figures (injuries to three times the fatal radius, fragments far
+  beyond) do not favour.
 * **Severity by distance** (killed / seriously wounded / lightly wounded, and the share of the lightly wounded who stay at their post) was not found.
   The game sorts every casualty 30/35/35 killed/heavily/walking whatever the distance, and counts every casualty as lost to the unit.
 * What a **single casualty does to a crew**: doctrine's answer (from the 2026-09-07 entry, FM 7-90 and Korean-war-era positions built to
   "continue to fight, even during intense enemy countermortar fire") is to man the weapon and cross-level, not to leave. The game's hold chance
   after a hit is the share of the crew left, so a crew of five leaves one time in five after a single casualty, and (since 2026-10-18) always
   once fewer than two are left.
+
+## Vegetation, soil and cover between a burst and people (2026-10-22)
+
+* FM 7-90, B-4: soft ground (a foot of soft soil, mud or sand, or 3 feet of snow) can cut the effect of a surface-burst round by up to 80 percent; hard
+  rocky soil raises it. **Dense woods make impact rounds burst in the trees (airbursts), which are dangerous to exposed troops below: wooden
+  splinters add to the metal fragments and the wounds are often severe**; in extremely dense woods (triple canopy) most rounds burst high and
+  have little effect at ground level. Trees are therefore not simply protection: overhead vegetation can raise the harm to people under it.
+* FM 7-90, ch. 7: the German Infantry School's 1976 test (mannequins, fire at the intensity of Soviet doctrine): troops prone in the open, 100
+  percent casualties; in open fighting positions without overhead cover, 30 percent; dug in with overhead cover, under 10 percent, mostly from
+  direct hits. At Khe Sanh (February 1968) 350-500 82 mm rounds hit one rifle company's position in two hours with only moderate damage once
+  fortified. 18 inches of earth stops fragments; three layers of sandbags and a steel plank stop a direct 82 mm hit.
+* FM 7-90, ch. 7: a tall building's dead space shields a position from low-angle fire; mortars' steep fall makes that dead space small.
+* **Not found**: any figure for how much vegetation standing between a burst and a person attenuates fragments (light brush is assumed negligible and
+  trunks of 15-30 cm or more significant, from general knowledge, not a source).
+* In the game: protection is by the terrain the person is **standing in** (`MORTAR_COVER_MULTIPLIER`: open 1.3, trees 0.5, building 0.3, with the
+  ratio raised to the power distance/26 m beyond 26 m, so cover counts for more at range). Nothing between the burst and the person (a belt of trees, a
+  wall) shields them, and trees are treated as protective even though FM 7-90 says tree bursts are dangerous to those below.
 
 ## Wounded, walking wounded, prisoners
 
