@@ -138,6 +138,9 @@ static func breakdown_text(inputs: Dictionary, scenario_line: String = "") -> St
 			lines.append("  %s: %s" % [item.label, _format_points(item.points)])
 		elif item.count != 0:
 			lines.append("  %s: %d × %s = %s" % [item.label, item.count, _format_value(item.value), _format_points(item.points)])
+			if item.key == "enemy_captured" and int(inputs.get("enemy_captured_wounded_left", 0)) > 0:
+				# they count once, as the highest of the ways they count (see BattleManager._compute_side_stats), not again as wounded
+				lines.append("    (%d of them wounded left behind on the battlefield)" % int(inputs.get("enemy_captured_wounded_left", 0)))
 	var civilians_by_shell: String = civilian_attribution_text(inputs)
 	if not civilians_by_shell.is_empty():
 		lines.append(civilians_by_shell)

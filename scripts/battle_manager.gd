@@ -12422,6 +12422,7 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false, is_enemy_s
 	var walking_wounded := 0
 	var evacuated_unknown := 0
 	var captured := 0
+	var captured_wounded_left := 0 # of `captured`: wounded a retreating squad left behind on the battlefield (the rest surrendered)
 	var destroyed: PackedStringArray = []
 	var withdrawn: PackedStringArray = []
 	var still_retreating: PackedStringArray = []
@@ -12488,7 +12489,11 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false, is_enemy_s
 					evacuated_unknown += u.walking_wounded_count
 				else:
 					walking_wounded += u.walking_wounded_count
+				# A wounded man left behind in a retreat is captured. The general rule (user, 2026-10-21): if someone counts in more than one way, only
+				# the highest counts. He is both wounded and captured, so he is counted as captured only: he is already out of heavily_wounded_count
+				# (moved to wounded_left_behind_count when he was left) and is counted nowhere else.
 				captured += u.wounded_left_behind_count
+				captured_wounded_left += u.wounded_left_behind_count
 			# Captured is captured regardless of the reason: an individually
 			# abandoned HEAVILY_WOUNDED soldier (wounded_left_behind_count
 			# above) and a whole squad's remaining personnel at the moment
@@ -12545,6 +12550,7 @@ func _compute_side_stats(units: Array[Unit], estimated: bool = false, is_enemy_s
 		"walking_wounded": walking_wounded,
 		"evacuated_unknown": evacuated_unknown,
 		"captured": captured,
+		"captured_wounded_left": captured_wounded_left,
 		"destroyed": destroyed,
 		"withdrawn": withdrawn,
 		"still_retreating": still_retreating,
@@ -12586,6 +12592,7 @@ func _build_battle_result(verdict: String, held: bool, player_stats: Dictionary,
 		"player_mortar_lost": player_mortar_lost,
 		"enemy_killed": true_enemy_stats.killed,
 		"enemy_captured": true_enemy_stats.captured,
+		"enemy_captured_wounded_left": int(true_enemy_stats.get("captured_wounded_left", 0)), # display only: how many of them were wounded left behind (not scored again)
 		"enemy_heavily_wounded": true_enemy_stats.heavily_wounded,
 		"enemy_walking_wounded": true_enemy_stats.walking_wounded,
 		"enemy_mortar_out": enemy_mortar_out,
@@ -12745,6 +12752,8 @@ func _end_battle() -> void:
 		lines.append("Russian casualties overall (partly estimated): ~%d/%d personnel (~%.0f%%)" % [
 			enemy_stats.pips_lost, enemy_stats.pips_total, enemy_stats.casualty_percent,
 		])
+	if not enemy_stats.estimated and int(enemy_stats.get("captured_wounded_left", 0)) > 0:
+		lines.append("Of the Russians captured, %d were wounded left behind on the battlefield by a retreating squad" % int(enemy_stats.captured_wounded_left))
 	# No separate "exchange ratio" line — it was purely duplicative of the two
 	# casualty lines just above; `exchange_ratio` itself stays, still doing
 	# real work in the verdict math above (SUCCESSFUL DEFENSE/PYRRHIC
