@@ -68,6 +68,13 @@ What was found:
   * B-4: one foot of soft ground, mud or sand, or 3 feet of snow, can cut the effect of a surface-burst round by up to 80 percent; hard rocky soil
     raises it; dense woods turn impact rounds into airbursts (wooden splinters make severe wounds).
   * For planning, each HE round has "a circular lethal bursting area" (Figure B-5, Table B-1 give areas in square metres; not in the text reached).
+* **The game's 26 m is NOT established as "50 percent of exposed men" (checked 2026-10-22).** The code and the 2026-10-12 doctrine entry cite "82 mm Type 67
+  mortar HE, ~26 m lethal-fragment radius" and "an ~8 m near-certain-casualty core"; no URL or document is recorded. "Casualty radius" being the distance
+  at which 50 percent of exposed people become casualties is a general convention, and the earlier session applied it to that figure; the source says
+  *lethal-fragment radius*, which by FM 7-90 (below) is defined by fragment density, not by a casualty percentage. In the game, 50 percent means: of
+  people standing upright in the open, half are incapacitated (lost to the unit: killed, seriously or walking wounded) by a round at that distance.
+  Whether the sourced 26 m is that distance is unverified, and could be off by a large factor either way (a diameter mistaken for a radius would make it
+  13 m; a density criterion with less than certain incapacitation per hit would put the 50 percent distance inside it).
 * **Definition of the "bursting" figure, and a warning about the Wikipedia radii (FM 7-90, ch. 5, found 2026-10-22).** "The bursting diameter of an HE
   round is twice the distance from the point of impact at which the round will reliably place **one lethal fragment per square meter** of target", and
   "in the past, many publications have mistakenly used the term bursting radius while providing the actual distance of the bursting diameter."
