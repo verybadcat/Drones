@@ -129,6 +129,23 @@ Larger radii: searched harder on 2026-10-22; **no source gives a probability of 
   after a hit is the share of the crew left, so a crew of five leaves one time in five after a single casualty, and (since 2026-10-18) always
   once fewer than two are left.
 
+## Blast overpressure alone (fragments ignored), 2026-10-22
+
+* **Thresholds for people** (Wikipedia, Overpressure, citing a Toxicological Sciences article and a DTIC document; long-duration loads unless stated; the
+  sources themselves were not read): window glass shatters and light injuries from debris at 1 psi (6.9 kPa); eardrum rupture in about 1 percent at 5 psi
+  (34 kPa), 50 percent at 15 psi (103 kPa), 99 percent at 45 psi (310 kPa); the threshold for lung damage about 15 psi; 1 percent fatalities at 35-45 psi
+  (240-310 kPa), 99 percent at 55-65 psi. For short, "instantaneous" peak pressure (the DTIC figures): severe injury at 70-100 psi, a 50:50 chance of
+  surviving 500 psi; a standing man is blown away at about 10 ft/s by 25 psi. (Wikipedia, Effects of nuclear explosions: lung damage about 70 kPa, some
+  eardrums rupturing around 22 kPa.) Short pulses are less injurious than long ones at the same peak pressure; a small round's pulse lasts a
+  millisecond or two.
+* **Distance, derived by me, not a source.** With the Kinney-Graham free-air formula (from memory, unverified), a ground burst counted as 1.8 times the
+  charge (hemispherical reflection), and a filler of 0.7 kg TNT-equivalent (the M252's 0.7 kg of explosive; the 82 mm round's filler was not found, 0.4 to
+  0.9 kg gives the same picture): 1 psi at about 15 m (0.4 kg: 12 m; 0.9 kg: 16 m); 2 psi at 8.5 m; 5 psi (eardrums 1 percent) at 5 m; 15 psi (lung
+  threshold, eardrums 50 percent) at 3 m; 35 psi (1 percent fatal) at 2 m; 70 psi at 1.5 m. Peak overpressure at 26 m is about 0.5 psi.
+  So on these figures **blast alone is not likely to do major harm beyond about 5 m, and nothing worse than light injuries beyond about 15 m;
+  the 26 m casualty radius is fragments.** Confined spaces (a pit, a bunker, a building) raise the pressure a good deal (Weibull's formula on the same
+  Wikipedia page), so a crew in a fighting position is closer to these radii than one in the open.
+
 ## Vegetation, soil and cover between a burst and people (2026-10-22)
 
 * FM 7-90, B-4: soft ground (a foot of soft soil, mud or sand, or 3 feet of snow) can cut the effect of a surface-burst round by up to 80 percent; hard

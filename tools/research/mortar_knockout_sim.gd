@@ -62,6 +62,7 @@ func run() -> void:
 	var out_first_hit := 0
 	var out_dist_hist := [0, 0, 0, 0, 0]
 	var out_serving_after := {}       # serving count after a knockout by us -> events
+	var by_terrain := {}              # terrain the crew stood in -> [hurt, put out]
 	for map_id in GameConfig.MAPS.keys():
 		GameConfig.set_active_map(map_id)
 		for t in TRIALS:
@@ -113,6 +114,12 @@ func run() -> void:
 						var ours: bool = not is_inf(best)
 						if delta > 0 and ours:
 							hits += 1
+							var terr: int = int(GameConfig.get_terrain_type_at(c.global_position))
+							var tt: Array = by_terrain.get(terr, [0, 0])
+							tt[0] += 1
+							if went_out:
+								tt[1] += 1
+							by_terrain[terr] = tt
 							var b: int = band_of(best)
 							by_band[b][0] += 1
 							var bucket: Array = first_hit if int(before.cas) == 0 else later_hit
@@ -149,6 +156,9 @@ func run() -> void:
 		print("  nearest round %s: %d crews hurt, %s of them put out of action" % [band_name(i), by_band[i][0], pct(by_band[i][1], by_band[i][0])])
 	print("  the crew's first casualty: %d hurt, %s put out; a later one: %d, %s" % [first_hit[0], pct(first_hit[1], first_hit[0]), later_hit[0], pct(later_hit[1], later_hit[0])])
 	print("  crew on the move when hit: %d, %s put out; standing still: %d, %s" % [moving_hit[0], pct(moving_hit[1], moving_hit[0]), still_hit[0], pct(still_hit[1], still_hit[0])])
+	for terr in by_terrain:
+		var tname: String = ["open", "trees", "building"][terr]
+		print("  crew standing in %s when hit by a round of ours: %d hurt, %s put out" % [tname, by_terrain[terr][0], pct(by_terrain[terr][1], by_terrain[terr][0])])
 	var line := "crews put out by us, by how many were left serving after:"
 	var keys: Array = out_serving_after.keys()
 	keys.sort()
