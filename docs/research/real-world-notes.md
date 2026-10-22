@@ -78,6 +78,18 @@ What was found:
   square metre is roughly a 40-60 percent chance of a hit on a standing person (about 0.5-1 m² presented), so the lethal bursting radius is about the
   radius at which half of exposed men are casualties. By this definition the 81 mm's is 17-19 m, against the game's 26 m for the 82 mm. What counts as
   a "lethal" fragment (usually a kinetic energy threshold) is not given on the page.
+* **"Lethal" is a threshold, not a certain death** (user's point, 2026-10-22). FM 7-90 defines the bursting figure by fragment *density* (one "lethal"
+  fragment per m²) and does not say what makes a fragment lethal (usually a kinetic-energy criterion; the figure usually quoted is about 58 ft-lb, 79 J,
+  from memory, not verified); whether a hit incapacitates depends on the fragment's size and where it lands. If the FM's "lethal" is only the energy
+  threshold, a person at the lethal bursting radius has a 40-60 percent chance of a hit but a smaller chance of being a casualty, and the 50 percent
+  casualty radius lies inside the lethal bursting radius. The military models this with a probability of incapacitation given a hit, by body region and
+  fragment (the Army's "Casualty Reduction Analysis Model", Natick 1972, cited by Wikipedia, Body armor: not reached). Indirect evidence on where hits
+  matter: of 4,596 US combat deaths after September 2001, over 90 percent died of haemorrhage-associated injuries, and of the potentially survivable
+  ones 67 percent were truncal, 19 percent junctional and 13.5 percent in the limbs, which tourniquets can save (Wikipedia, Battlefield medicine);
+  most penetrating chest wounds have a mortality under 10 percent, whereas only about a third of people with penetrating head wounds reach hospital
+  (Wikipedia, Penetrating trauma). Test standards use fragment simulators of 2, 4, 16 and 64 grains (0.13-4.1 g, "the size of a grain of rice" for the
+  smallest) and fragments up to over 1,000 m/s; fragments, not bullets, are "the greatest threat to soldiers" (Wikipedia, Body armor). No figure for
+  the share of hits that incapacitate, or for the distribution of hits by body region, was found.
 * Radii: US 81 mm M252 HE round "effective kill radius of 35 m" (Wikipedia; see above: probably the diameter); the ledger's 26 m for 50 percent of exposed men for an 82 mm round (Type 67,
   cited in `game_config.gd`). M67 hand grenade (180 g of Comp B): fatality radius 5 m, injury radius 15 m, fragments to 230 m (Wikipedia).
 * Posture, from UK WWII researchers via Wikipedia's Artillery article ("citation needed"): relative risk to impact-fuzed shells: standing 1, lying
