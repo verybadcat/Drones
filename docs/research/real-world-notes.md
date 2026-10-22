@@ -68,6 +68,24 @@ What was found:
   * B-4: one foot of soft ground, mud or sand, or 3 feet of snow, can cut the effect of a surface-burst round by up to 80 percent; hard rocky soil
     raises it; dense woods turn impact rounds into airbursts (wooden splinters make severe wounds).
   * For planning, each HE round has "a circular lethal bursting area" (Figure B-5, Table B-1 give areas in square metres; not in the text reached).
+* **Radius or diameter? Resolved as far as the sources allow (2026-10-22): the "26 m" is almost certainly not a radius.** The source is Wikipedia, Type 67
+  mortar: "the shrapnel of this mortar weights 3.32 kg, with a 0.4 kg TNT, and the lethal radius of this shrapnel is 26m" (uncited; the page is a
+  translation-style stub). Three checks:
+  1. **Russian lethal area for the same class of round.** The Russian Wikipedia page for the 2B24 (a table taken from the encyclopedia *Oruzhie i tekhnologii
+     Rossii*, vol. 12, pp. 215-216) lists the 82 mm fragmentation mine 53-O-832DU (3.1 kg, 0.454 kg of explosive) with a "lethal area against personnel"
+     (*ploshchad porazheniya zhivoy sily*) of **715 m²**, for the BM-37 and 2B14 (the posture it is for is not stated). A circle of 715 m² has a radius of
+     15.1 m. The Type 67 round (3.32 kg, 0.4 kg) is almost the same. Read as a radius, 26 m is an area of 2,124 m², **three times** the Russian figure; read
+     as a diameter it is 531 m² (radius 13 m), **0.74 times** it. The diameter reading fits.
+  2. **FM 7-90.** The 81 mm's lethal bursting diameter is 35-38 m (radius 17.5-19 m, an area of about 1,000-1,100 m² for a round with 0.7 kg of filler against
+     the 82 mm's 0.45): the same scale.
+  3. **A rough physical estimate** (mine): a 3.3 kg round with 0.4 kg of TNT gives fragments at about 900 m/s; one lethal fragment per m² (a spray mostly
+     within 30-45 degrees of the horizontal, half the fragments lost to the ground) comes out at about 11-16 m.
+  So the equivalent radius of an 82 mm round is about **13-15 m** if the 715 m² is for people in the open on their feet, up to about 21 m if it is for
+  prone troops (standing people present perhaps two to three times the area; unverified).
+* **What the game's curve implies for lethal area.** The expected casualty area of the game's curve (the integral of the casualty chance over the ground,
+  for an upright person in the open, 100 m reach) is **about 5,400 m²**, or about 1,800 m² for people lying in the open. Against the Russian 715 m² for
+  the same round, the game's casualty area is about **7.5 times** as large (2.5 times for people lying down). Even a true 26 m cookie-cutter 50 percent
+  radius is 2,124 m²; the exponential tail makes the game's area 2.5 times that.
 * **The game's 26 m is NOT established as "50 percent of exposed men" (checked 2026-10-22).** The code and the 2026-10-12 doctrine entry cite "82 mm Type 67
   mortar HE, ~26 m lethal-fragment radius" and "an ~8 m near-certain-casualty core"; no URL or document is recorded. "Casualty radius" being the distance
   at which 50 percent of exposed people become casualties is a general convention, and the earlier session applied it to that figure; the source says
