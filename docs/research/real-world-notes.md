@@ -146,6 +146,27 @@ Larger radii: searched harder on 2026-10-22; **no source gives a probability of 
   the 26 m casualty radius is fragments.** Confined spaces (a pit, a bunker, a building) raise the pressure a good deal (Weibull's formula on the same
   Wikipedia page), so a crew in a fighting position is closer to these radii than one in the open.
 
+### Sanity check of the blast radius against real casualties (2026-10-22)
+
+* **No dataset of people killed by mortar rounds, with their distances from the burst and cause of death, was reached** (cause-of-death series and
+  autopsy studies are in journals and DTIC reports that the browser could not search for; Wikipedia has no such table).
+* What the reachable sources say: "most casualties are caused by secondary injuries" (fragments), and fragments "affect a larger area than the primary
+  blast area"; primary (overpressure) injuries are "especially likely when a person is close to an exploding munition, such as a land mine"; tertiary
+  injuries are people thrown by the blast wind (Wikipedia, Blast injury); explosions in confined spaces or with structural collapse "usually produce more
+  deaths and injuries" (same page); an offensive grenade's "concussion effect, rather than any expelled fragments, is the effective killer" in
+  confined spaces such as buildings and fortifications (Wikipedia, Hand grenade). The M67 grenade's fatality radius (5 m) is several times what its 180 g of
+  explosive can do by blast alone (about 1-2 m on the same formulas), which is fragments again.
+* Incident with numbers but no distances: the first Markale market shelling, one 120 mm round into a crowded open-air market, 68 killed and 144 wounded
+  (Wikipedia). With a filler of a few kilograms the blast-only fatal radius is about 4 m on the formulas above, so most of those deaths must have been
+  fragments at greater distances (an inference; no autopsy breakdown was found).
+* **Second formula as a check on the derived radii.** Sadovsky's empirical formula (from memory, unverified) gives, for the same 0.7 kg ground burst:
+  1 psi at 19 m, 2 psi at 11 m, 5 psi (1 percent eardrum) at 6.3 m, 15 psi at 3.5 m, 35 psi (1 percent fatal) at 2.4 m; Kinney-Graham gave 14.5, 8.5, 5.0,
+  2.9 and 2.0 m. So the two disagree by about 25 percent: **the eardrum radius is about 5-6 m, the lung-damage radius about 3-3.5 m, light injury about
+  15-19 m.** For a 120 mm round (filler assumed 3 kg): eardrum about 10 m, lung about 6 m, 1 percent fatal about 4 m.
+* Limits of "blast is unlikely to cause major harm beyond about 5 m": it is for a person standing in the open and for peak overpressure; it does not
+  cover a person in a pit, bunker or building (higher pressure), the blast-wind throw (25 psi, about 2.5 m, is where a standing man is blown away at
+  10 ft/s on the DTIC figure), or mild blast-induced brain injury, whose thresholds depend on more than peak pressure and were not found.
+
 ## Vegetation, soil and cover between a burst and people (2026-10-22)
 
 * FM 7-90, B-4: soft ground (a foot of soft soil, mud or sand, or 3 feet of snow) can cut the effect of a surface-burst round by up to 80 percent; hard
