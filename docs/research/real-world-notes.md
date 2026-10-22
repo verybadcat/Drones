@@ -102,6 +102,26 @@ Larger radii: searched harder on 2026-10-22; **no source gives a probability of 
   The game's curve lies between the other two from 40 m to 65 m and is below the 1/r² curve beyond 80 m. **An earlier remark (2026-10-21) that the game is
   generous at 35-70 m is withdrawn**: it rested on the Gaussian, which the grenade figures (injuries to three times the fatal radius, fragments far
   beyond) do not favour.
+* **Everything that bears on the drop-off, proven or not** (2026-10-22; each item marked):
+  1. *Sourced.* A small round's injuries reach three times its fatal radius and some fragments fly far beyond it (M67: fatal 5 m, injury 15 m,
+     fragments to 230 m; Wikipedia). So casualties do not stop at the kill radius; the amount at 2-4 times the radius is not given.
+  2. *Sourced.* Kill radii: 81 mm 35 m, 120 mm 69 m (Wikipedia, citing US Army); 82 mm Type 67 casualty radius 26 m (cited in `game_config.gd`; an
+     "effective kill radius" and a 50 percent casualty radius are not the same thing, and the casualty radius is the larger).
+  3. *Sourced, but not a probability.* Troops assaulting under 60 mm fire may close to "about 50 meters (minimum safe distance)" (FM 7-90, ch. 8): a risk
+     accepted for a small round at about 2-3 times its casualty radius. The risk level behind a "minimum safe distance" was not found.
+  4. *Unproven, general physics.* From a point burst the fragments spread over a sphere (or hemisphere on the ground), so the number passing through a
+     given area falls as 1/r²; air drag slows the small ones but heavy ones keep their energy for hundreds of metres. The chance that a person is hit by
+     a fragment that incapacitates is then about density x presented area x chance a hit incapacitates, which is the 1/r² column above in the far field.
+     The Gaussian ("Carleton") form is a planning convenience for short ranges (from memory; not verified).
+  5. *Sourced.* A steep fall makes the pattern close to circular and more effective ("the steeper the angle of the fall of the round, the more effective
+     it is"; FM 7-90, B-2 and B-5), which is why mortar lethal areas are planned as circles.
+  6. *Sourced in direction.* Posture changes the drop-off: standing is almost twice as vulnerable as prone (FM 7-90, B-5; the UK WWII figures give
+     1:3). Fragments in the far field travel low, so lying down should help more far out than near the burst (unproven).
+  7. *Sourced.* Soft ground cuts a surface burst's effect by up to 80 percent (FM 7-90, B-4): ground matters for the whole pattern, not only the far field.
+  8. *Unproven.* A "casualty" is a person lost to the unit; far-field fragments are slower and smaller, so more of the wounds at long range should be
+     light ones that leave the person at their post. The share was not found.
+  9. *Unattributed.* The game's code quotes "casualty radius is a statistical planning figure, not a wall: fragments kill well beyond the published radius,
+     and people survive inside it" as real reporting; the source is not named and was not found again.
 * **Severity by distance** (killed / seriously wounded / lightly wounded, and the share of the lightly wounded who stay at their post) was not found.
   The game sorts every casualty 30/35/35 killed/heavily/walking whatever the distance, and counts every casualty as lost to the unit.
 * What a **single casualty does to a crew**: doctrine's answer (from the 2026-09-07 entry, FM 7-90 and Korean-war-era positions built to
