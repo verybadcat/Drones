@@ -167,6 +167,23 @@ Larger radii: searched harder on 2026-10-22; **no source gives a probability of 
   cover a person in a pit, bunker or building (higher pressure), the blast-wind throw (25 psi, about 2.5 m, is where a standing man is blown away at
   10 ft/s on the DTIC figure), or mild blast-induced brain injury, whose thresholds depend on more than peak pressure and were not found.
 
+### Blast alone: how far to "unable to fight for the time being" (2026-10-22)
+
+* **No study of the distance at which blast alone leaves a person temporarily unable to fight was found.** The nearest evidence is the stun grenade, a
+  weapon designed for exactly that effect (Wikipedia, M84 stun grenade and Stun grenade): a 4.5 g magnesium/ammonium nitrate charge that deflagrates (not
+  a detonation) gives 170-180 dB and 6-8 million candela within 1.5 m, "sufficient to cause immediate flash blindness, deafness, tinnitus, and inner ear
+  disturbance"; exposed people experience "disorientation, confusion and loss of coordination and balance", intended to be temporary, with a risk of
+  permanent hearing loss. How long the effect lasts was not on the pages reached (from memory, seconds to a few tens of seconds; not verified).
+* Other thresholds on the same pages: some eardrums rupture around 22 kPa (3.2 psi) and lung damage begins around 70 kPa (Wikipedia, Effects of
+  nuclear explosions); 1 percent of eardrums rupture at 5 psi, 50 percent at 15 psi (Wikipedia, Overpressure). Primary blast injury is "especially likely"
+  close to the munition; the ears are affected first (Wikipedia, Blast injury).
+* **Derived, not sourced**: mapping the stun grenade's 170-180 dB onto the peak overpressure of an 82 mm round (0.7 kg of explosive, ground burst; two
+  formulas, Kinney-Graham and Sadovsky, both from memory): 160 dB (2 kPa) at 46-56 m; 165 dB at 26-33 m; **170 dB (6.3 kPa) at 16-20 m; 175 dB at 10-13 m;
+  180 dB (20 kPa) at 7-9 m**; 185 dB (the 5 psi eardrum figure) at 5-6 m; 22 kPa at 6-8 m; 70 kPa at 3.5-4 m. So the stun-grenade level is reached
+  out to about 7-20 m. The comparison is weak: a stun grenade's flash does part of the work, an HE round's pulse is a detonation with more impulse (which
+  should make a given dB worse, not better, but that is unproven), and the level of a stun grenade is quoted at 1.5 m while its effect at 5-10 m was not found.
+* In the game there is no blast-only incapacitation: a person is a casualty (lost to the unit) or unaffected, by fragments and blast together.
+
 ## Vegetation, soil and cover between a burst and people (2026-10-22)
 
 * FM 7-90, B-4: soft ground (a foot of soft soil, mud or sand, or 3 feet of snow) can cut the effect of a surface-burst round by up to 80 percent; hard
