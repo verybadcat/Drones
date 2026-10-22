@@ -96,16 +96,72 @@ func run() -> void:
 	var building_point: Vector2 = GameConfig._building_rects[0].get_center()
 	var up: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, open_point)
 	bm.player_units.append(up)
-	check(CombatResolver.fragment_exposure(up, 10.0, GameConfig.TerrainType.OPEN) == 1.0, "standing in the open: every potential applies")
+	check(CombatResolver.fragment_exposure(up, 10.0) == 1.0, "standing in the open: every potential applies")
 	var down: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, open_point + m(0, 500))
 	bm.player_units.append(down)
 	down.gone_to_ground = true
-	check(near(CombatResolver.fragment_exposure(down, 10.0, GameConfig.TerrainType.OPEN), GameConfig.PRONE_IN_OPEN_FACTOR, 1e-6), "lying in the open: a third of the potentials")
+	check(near(CombatResolver.fragment_exposure(down, 10.0), GameConfig.PRONE_IN_OPEN_FACTOR, 1e-6), "lying in the open: a third of the potentials")
+	# --- what stands between the burst and the person (user, 2026-10-22): 10 m of trees stop half, 20 m three quarters, a wall all, and in the building
+	# the round burst in, 80 percent
+	check(GameConfig.fragment_transmission(open_point, open_point + m(30, 0)) == 1.0, "open ground between: everything gets through")
+	var rect: Rect2 = GameConfig._building_rects[0]
+	var inside_a: Vector2 = rect.get_center()
+	var inside_b: Vector2 = rect.get_center() + Vector2(minf(rect.size.x * 0.3, 40.0), 0.0)
+	check(rect.has_point(inside_a) and rect.has_point(inside_b), "setup: two places in one building")
+	check(near(GameConfig.fragment_transmission(inside_a, inside_b), 0.2, 1e-9), "a round that bursts in the building: 80 percent of the hits to a person in it are stopped")
+	var outside_near: Vector2 = Vector2(rect.position.x - 15.0, rect.get_center().y)
+	var outside_far: Vector2 = Vector2(rect.end.x + 15.0, rect.get_center().y)
+	check(not rect.has_point(outside_near) and not rect.has_point(outside_far), "setup: places outside the building")
+	check(GameConfig.fragment_transmission(outside_near, inside_a) == 0.0 and GameConfig.fragment_transmission(inside_a, outside_near) == 0.0, "a wall between (burst outside, person in, or the other way): no hit gets through")
+	check(GameConfig.fragment_transmission(outside_near, outside_far) == 0.0, "a building between burst and person: no hit gets through")
+	# a stretch of forest with open ground beyond it
+	var edge := Vector2.INF
+	for x in range(-3000, 6000, 10):
+		for y in range(-500, 6000, 40):
+			var p := m(x, y)
+			var all_trees := true
+			for k in range(0, 21):
+				if GameConfig.get_terrain_type_at(p - m(k, 0)) != GameConfig.TerrainType.TREES:
+					all_trees = false
+					break
+			if not all_trees:
+				continue
+			var all_open := true
+			for k in range(1, 21):
+				if GameConfig.get_terrain_type_at(p + m(k, 0)) != GameConfig.TerrainType.OPEN:
+					all_open = false
+					break
+			if all_open:
+				edge = p
+				break
+		if not is_inf(edge.x):
+			break
+	check(not is_inf(edge.x), "setup: the edge of a forest with 20 m of trees behind it and 20 m of open ground beyond")
+	if not is_inf(edge.x):
+		check(near(GameConfig.fragment_transmission(edge - m(10, 0), edge + m(0.5, 0)), 0.5, 0.04), "10 m of trees between: half the hits get through (%.3f)" % GameConfig.fragment_transmission(edge - m(10, 0), edge + m(0.5, 0)))
+		check(near(GameConfig.fragment_transmission(edge - m(20, 0), edge + m(0.5, 0)), 0.25, 0.03), "20 m of trees: a quarter (%.3f)" % GameConfig.fragment_transmission(edge - m(20, 0), edge + m(0.5, 0)))
+		check(near(GameConfig.fragment_transmission(edge - m(5, 0), edge + m(0.5, 0)), 0.707, 0.04), "5 m of trees: 0.5 to the power of a half (%.3f)" % GameConfig.fragment_transmission(edge - m(5, 0), edge + m(0.5, 0)))
+		check(near(GameConfig.fragment_transmission(edge - m(10, 0), edge + m(10, 0)), 0.5, 0.04), "10 m of trees and then open ground: the open ground adds nothing (%.3f)" % GameConfig.fragment_transmission(edge - m(10, 0), edge + m(10, 0)))
+		# the screen counts in the person's exposure, and only for the fragments that reach him
+		var screened: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, edge + m(10, 0))
+		bm.player_units.append(screened)
+		check(near(CombatResolver.fragment_person_exposure(screened, edge - m(10, 0), edge + m(10, 0)), 0.5, 0.04), "a man 10 m behind the forest edge from a burst 10 m into it: half the potentials apply")
+		var burst_count := 0
+		for i in 600:
+			screened.pips = screened.max_pips
+			screened.state = Unit.State.ACTIVE
+			bm._apply_shell_blast(edge - m(9, 0), null)
+			if screened.pips < screened.max_pips:
+				burst_count += 1
+		# the man is 19 m from the burst: lethal, serious and light potentials each apply half the time (a roll for the whole line is not the thing)
+		var expected_hit: float = CombatResolver.fragment_casualty_chance(19.0, CombatResolver.fragment_person_exposure(screened, edge - m(9, 0), edge + m(10, 0)))
+		check(near(float(burst_count) / 600.0, expected_hit, 0.07), "...and in a battle he is hurt %.2f of the time, as the worked-out %.2f" % [float(burst_count) / 600.0, expected_hit])
+		bm.player_units.erase(screened)
+		screened.free()
 	var inside: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, building_point)
 	bm.player_units.append(inside)
-	var in_building: float = CombatResolver.fragment_exposure(inside, 10.0, GameConfig.TerrainType.BUILDING)
-	check(in_building < 0.3 and in_building > 0.1, "standing in a building: well under a third (%.3f)" % in_building)
-	check(CombatResolver.fragment_exposure(inside, 50.0, GameConfig.TerrainType.BUILDING) < in_building, "...and less the further the burst, which only the weak far fragments reach")
+	check(CombatResolver.fragment_person_exposure(inside, building_point + m(2, 0), building_point) < 0.21, "a squad's man in a building the round burst in: a fifth of the potentials")
+	check(CombatResolver.fragment_person_exposure(inside, building_point + Vector2(rect.size.x, 0.0), building_point) == 0.0, "...none if it burst outside")
 
 	# --- in a battle: a lone man in the open at a given distance, the fragments alone (past the 10 m of the blast)
 	var results := {}

@@ -99,12 +99,21 @@ static func fragment_potentials(distance_m: float) -> Array[int]:
 	return levels
 
 
-## The share of the potentials that apply to ONE PERSON of `unit` for a round `distance_m` from him: 1 for a man standing in the open (the case the
-## user's radii are for); the terrain's cover (more of it with distance, none for a round in his hole), a finished fighting position, and lying down
-## (Unit.posture_factor: a third in the open, a half in cover) all reduce it, as they reduced the old curve.
-static func fragment_exposure(unit: Unit, distance_m: float, terrain: GameConfig.TerrainType) -> float:
-	var cover: float = cover_factor(distance_m * GameConfig.PIXELS_PER_METER, GameConfig.MORTAR_BLAST_CASUALTY_RADIUS, terrain, unit.cover_kept(), unit.fighting_position_ratio())
-	return cover * unit.posture_factor()
+## The share of the potentials that apply to ONE PERSON of `unit` for a round `distance_m` from him, before anything between them: 1 for a man
+## standing; a finished fighting position (none of it for a round in the hole, more of it with distance) and lying down (Unit.posture_factor: a third
+## in the open, a half in cover) reduce it, as they reduced the old curve. What stands between the burst and him is GameConfig.fragment_transmission.
+static func fragment_exposure(unit: Unit, distance_m: float) -> float:
+	var position_cover: float = cover_factor(distance_m * GameConfig.PIXELS_PER_METER, GameConfig.MORTAR_BLAST_CASUALTY_RADIUS, GameConfig.TerrainType.OPEN, 1.0, unit.fighting_position_ratio())
+	return position_cover * unit.posture_factor()
+
+
+## The same for a person at `person` (pixels) when the burst is at `burst`: the exposure above, and the trees and walls between them.
+static func fragment_person_exposure(unit: Unit, burst: Vector2, person: Vector2, step_m: float = 1.0) -> float:
+	var distance_m: float = burst.distance_to(person) / GameConfig.PIXELS_PER_METER
+	var exposure: float = fragment_exposure(unit, distance_m)
+	if exposure <= 0.0 or distance_m > GameConfig.FRAGMENT_R1_M * GameConfig.FRAGMENT_R3_FACTOR:
+		return exposure
+	return exposure * GameConfig.fragment_transmission(burst, person, step_m)
 
 
 ## One potential of `level` actually done to a person: as it is with FRAGMENT_AS_POTENTIAL, one level lower with FRAGMENT_ONE_LOWER, else two lower
@@ -199,14 +208,20 @@ static func blast_spread_m(unit: Unit) -> float:
 	return 0.0
 
 
-## One person's distance from a burst `center_m` from the unit's centre, the person standing at a uniformly random place on a disc of radius
-## `spread_m` round it.
+## Where one person of a unit centred at `center` stands, at a uniformly random place on a disc of radius `spread_m` (metres) round it.
+static func person_point_px(center: Vector2, spread_m: float) -> Vector2:
+	if spread_m <= 0.0:
+		return center
+	var rho: float = spread_m * sqrt(randf()) * GameConfig.PIXELS_PER_METER
+	return center + Vector2.from_angle(TAU * randf()) * rho
+
+
+## One person's distance from a burst `center_m` from the unit's centre (see person_point_px).
 static func person_distance_m(center_m: float, spread_m: float) -> float:
 	if spread_m <= 0.0:
 		return center_m
-	var rho: float = spread_m * sqrt(randf())
-	var theta: float = TAU * randf()
-	return sqrt(maxf(center_m * center_m + rho * rho - 2.0 * center_m * rho * cos(theta), 0.0))
+	var centre := Vector2(center_m * GameConfig.PIXELS_PER_METER, 0.0)
+	return person_point_px(centre, spread_m).length() / GameConfig.PIXELS_PER_METER
 
 
 ## How many of `people` become casualties when each is one with probability `p`, independently (a binomial draw; for a large number the

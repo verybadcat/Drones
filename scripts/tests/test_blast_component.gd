@@ -136,7 +136,7 @@ func run() -> void:
 		# hurt unless the blast is escaped AND the fragments (reduced by the cover) also miss
 		var probe: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, case.at)
 		var escape: float = CombatResolver.blast_escape_chance(probe.exposure_terrain(), probe.cover_kept())
-		var expected: float = 1.0 - escape * (1.0 - CombatResolver.fragment_casualty_chance(2.0, CombatResolver.fragment_exposure(probe, 2.0, probe.exposure_terrain())))
+		var expected: float = 1.0 - escape * (1.0 - CombatResolver.fragment_casualty_chance(2.0, CombatResolver.fragment_person_exposure(probe, case.at + m(2.0, 0), case.at)))
 		probe.free()
 		check(absf(rate - expected) < 0.07 and escape > 0.3, "2 m from a burst in %s: %.2f hurt (expected %.2f)" % [case.name, rate, expected])
 

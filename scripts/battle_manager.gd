@@ -8562,7 +8562,6 @@ func _mortar_friendly_fire_check(mortar: Unit, target: Unit, aim: Vector2) -> Di
 		nearest = minf(nearest, d)
 		if d > GameConfig.MORTAR_BLAST_COLLATERAL_SEARCH_RADIUS + 3.0 * sigma:
 			continue # too far from anywhere the round can plausibly land to matter
-		var terrain: GameConfig.TerrainType = u.exposure_terrain()
 		# The expected chance over the scatter: a fixed set of points laid out like a Gaussian of this sigma (rings by equal probability,
 		# turned a golden angle each), so the check is deterministic and cheap. A unit's people stand over a disc (CombatResolver.blast_spread_m):
 		# four of them stand for it, on a ring of its root-mean-square radius, two on the line to the landing point and two across it.
@@ -8577,8 +8576,10 @@ func _mortar_friendly_fire_check(mortar: Unit, target: Unit, aim: Vector2) -> Di
 			var toward: Vector2 = (landing - u.global_position).normalized() if landing != u.global_position else Vector2.RIGHT
 			var per_person := 0.0
 			for offset in [toward * spread, -toward * spread, toward.orthogonal() * spread, -toward.orthogonal() * spread]:
-				var person_m: float = landing.distance_to(u.global_position + offset) / GameConfig.PIXELS_PER_METER
-				per_person += CombatResolver.fragment_casualty_chance(person_m, CombatResolver.fragment_exposure(u, person_m, terrain)) * 0.25
+				var person_at: Vector2 = u.global_position + offset
+				var person_m: float = landing.distance_to(person_at) / GameConfig.PIXELS_PER_METER
+				if person_m <= GameConfig.FRAGMENT_R1_M * GameConfig.FRAGMENT_R3_FACTOR:
+					per_person += CombatResolver.fragment_casualty_chance(person_m, CombatResolver.fragment_person_exposure(u, landing, person_at, 4.0)) * 0.25
 			total += 1.0 - pow(1.0 - per_person, float(maxi(people, 1))) # the chance the round costs this unit at least one person
 		risk += total / float(SAMPLES)
 	var endangered: bool = nearest < GameConfig.MORTAR_DANGER_CLOSE_M * GameConfig.PIXELS_PER_METER or risk > GameConfig.MORTAR_FRIENDLY_FIRE_RISK_TOLERANCE
@@ -8682,17 +8683,18 @@ func _apply_shell_blast(impact: Vector2, attacker: Unit) -> Array[Dictionary]:
 		var distance_m: float = distance / GameConfig.PIXELS_PER_METER
 		if people > BLAST_PEOPLE_LIMIT:
 			# a test unit of thousands: no person-by-person, the chance at the unit's own distance
-			casualties = CombatResolver.binomial(people, CombatResolver.fragment_casualty_chance(distance_m, CombatResolver.fragment_exposure(u, distance_m, terrain)))
+			casualties = CombatResolver.binomial(people, CombatResolver.fragment_casualty_chance(distance_m, CombatResolver.fragment_person_exposure(u, impact, u.global_position)))
 		else:
 			var spread_m: float = CombatResolver.blast_spread_m(u)
 			var escape: float = CombatResolver.blast_escape_chance(terrain, u.cover_kept())
 			var fragments_reach: bool = distance_m - spread_m <= GameConfig.FRAGMENT_R1_M * GameConfig.FRAGMENT_R3_FACTOR
 			var blast_reaches: bool = distance_m - spread_m <= GameConfig.BLAST_WALKING_TO_M
 			for i in people:
-				var person_m: float = CombatResolver.person_distance_m(distance_m, spread_m)
+				var person_at: Vector2 = CombatResolver.person_point_px(u.global_position, spread_m)
+				var person_m: float = impact.distance_to(person_at) / GameConfig.PIXELS_PER_METER
 				var fragment_severity := 0
 				if fragments_reach:
-					fragment_severity = CombatResolver.fragment_severity(person_m, CombatResolver.fragment_exposure(u, person_m, terrain))
+					fragment_severity = CombatResolver.fragment_severity(person_m, CombatResolver.fragment_person_exposure(u, impact, person_at))
 				var blast_severity := 0
 				if blast_reaches and randf() >= escape:
 					blast_severity = CombatResolver.blast_severity(person_m, randf())

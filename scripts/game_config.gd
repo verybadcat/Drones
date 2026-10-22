@@ -9571,14 +9571,26 @@ const BLAST_CREW_SPREAD_M: float = 4.0 # a mortar crew or a drone team (JUDGMENT
 ## worst outcome that actually applies ... For now, try R1=20 meters, R2=2R1, and R3=3R1." (CombatResolver.fragment_severity; the levels are none,
 ## walking wounded, seriously wounded, dead; one level lower than a light wound is none.) R1 is not a cited figure: it is the user's trial value (FM 7-90
 ## gives the 82 mm round's reliable one-lethal-fragment-per-square-metre DIAMETER as about 40 m: docs/research/real-world-notes.md). Not decided by the
-## user, taken here: each potential is rolled apart from the others; a person in cover or lying down has each potential apply only with the share
-## CombatResolver.fragment_exposure gives (the cover and posture factors the old curve used, 1 for a man standing in the open), the cover counting for more
-## with distance as before; each person is rolled at his own distance from the burst (the squad spread of BLAST_SQUAD_SPREAD_M), not a share of the unit.
+## user, taken here: each potential is rolled apart from the others; a person in a fighting position or lying down has each potential apply only with the
+## share CombatResolver.fragment_exposure gives (the old factors; 1 for a man standing), times what stands between him and the burst
+## (fragment_transmission, below); each person is rolled at his own distance from the burst (the squad spread of BLAST_SQUAD_SPREAD_M), not a share of the unit.
 const FRAGMENT_R1_M: float = 20.0
 const FRAGMENT_R2_FACTOR: float = 2.0
 const FRAGMENT_R3_FACTOR: float = 3.0
 const FRAGMENT_AS_POTENTIAL: float = 0.4
 const FRAGMENT_ONE_LOWER: float = 0.3 # the rest, 0.3, is two levels lower
+
+## WHAT STANDS BETWEEN THE BURST AND A PERSON. User, 2026-10-22: "Vegetation and walls should help. A wall should prevent all fragment hits. Let's have 10
+## meters of trees prevent 50% of fragment hits, with the value scaling exponentially with the amount of trees, so for example 20 meters of trees would
+## prevent 75% of fragment hits. If the person is indoors, and the round hits the building, have it prevent 80% of the hits to the person."
+## GameConfig.fragment_transmission: the share of fragment hits that get through along the straight line from the burst to the person: 0.5 to the power of
+## (metres of trees along the line over FRAGMENT_TREES_HALVING_M); nothing at all if the line crosses a building's wall; and, for a person in the very
+## building the round burst in, FRAGMENT_INSIDE_BUILDING_PASSES. This REPLACES the old cover of the terrain the unit stands in (a tree line a man stands
+## beside gave him that cover whichever side the burst was on). Taken here, not decided by the user: a round that bursts in a building counts as hitting it
+## for everyone in it; a building's wall blocks whatever its height (the hills and the river are not looked at); the line is the one to the person's own
+## place, so a squad's men in the open and in the trees are screened differently; a fighting position and lying down still count on top, as before.
+const FRAGMENT_TREES_HALVING_M: float = 10.0
+const FRAGMENT_INSIDE_BUILDING_PASSES: float = 0.2
 
 ## Ballistic dispersion: a mortar's calculated aim point (BattleManager.
 ## _mortar_aim_point) isn't where the round actually lands — real indirect
@@ -9923,6 +9935,33 @@ static func _build_terrain_grid() -> void:
 		var reach_px: float = patch.radius_m * max_warp * PIXELS_PER_METER
 		var center_px: Vector2 = patch.center_m * PIXELS_PER_METER
 		_terrain_grid_add(_terrain_grid_patches, i, center_px - Vector2(reach_px, reach_px), center_px + Vector2(reach_px, reach_px))
+
+
+## The share of fragment hits that get through from a burst at `burst` to a person at `person` (positions in pixels), 1 across open ground:
+## 0 if a building's wall is in the way, FRAGMENT_INSIDE_BUILDING_PASSES if both are in the same building, else 0.5 to the power of the metres of
+## trees along the line over FRAGMENT_TREES_HALVING_M (looked at every `step_m` metres).
+static func fragment_transmission(burst: Vector2, person: Vector2, step_m: float = 1.0) -> float:
+	if not _terrain_grid_built:
+		_build_terrain_grid()
+	var segment_box: Rect2 = Rect2(burst, person - burst).abs()
+	for rect in _building_rects:
+		if rect.has_point(burst) and rect.has_point(person):
+			return FRAGMENT_INSIDE_BUILDING_PASSES
+	for rect in _building_rects:
+		if not rect.intersects(segment_box, true):
+			continue
+		var span: Vector2 = _segment_rect_range(burst, person, rect)
+		if span.y - span.x > 1e-6:
+			return 0.0 # in or out through a wall
+	var length_m: float = burst.distance_to(person) / PIXELS_PER_METER
+	if length_m <= 0.0:
+		return 1.0
+	var steps: int = clampi(int(ceil(length_m / maxf(step_m, 0.1))), 1, 200)
+	var trees := 0
+	for i in steps:
+		if get_terrain_type_at(burst.lerp(person, (float(i) + 0.5) / float(steps))) == TerrainType.TREES:
+			trees += 1
+	return pow(0.5, length_m * float(trees) / float(steps) / FRAGMENT_TREES_HALVING_M)
 
 
 static func is_in_cover(terrain: TerrainType) -> bool:

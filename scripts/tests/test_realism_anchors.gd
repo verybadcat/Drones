@@ -138,7 +138,7 @@ func run() -> void:
 		for i in squads:
 			for p in 9:
 				var d: float = CombatResolver.person_distance_m(0.0, GameConfig.BLAST_SQUAD_SPREAD_M)
-				if CombatResolver.fragment_severity(d, CombatResolver.fragment_exposure(squad, d, GameConfig.TerrainType.OPEN)) > 0:
+				if CombatResolver.fragment_severity(d, CombatResolver.fragment_exposure(squad, d)) > 0:
 					n += 1
 		if state:
 			lying_total = n

@@ -93,7 +93,7 @@ func run() -> void:
 	target.free()
 
 	# 3. a shell's blast and the friendly-fire estimate: the same terrain rule. An own squad in a building 20 m from the aim point is
-	# endangered more when it is on the move (in trees here).
+	# endangered less for the trees between it and the aim point.
 	GameConfig.set_active_map("pishchane")
 	var bm := BattleManager.new()
 	root.add_child(bm)
@@ -106,12 +106,34 @@ func run() -> void:
 	foe.is_visible = true
 	var own: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, in_trees)
 	bm.player_units.append(own)
-	var aim: Vector2 = in_trees + m(65, 0) # out where only the weak fragments of the third radius reach (nearer, nine people make the risk nearly 1 either way)
+	var aim := Vector2.INF
+	for k in 8:
+		var candidate: Vector2 = in_trees + m(45, 0).rotated(TAU * float(k) / 8.0)
+		if GameConfig.fragment_transmission(candidate, in_trees) < 0.1:
+			aim = candidate
+			break
+	check(not is_inf(aim.x), "Setup: an aim point 45 m off with forest all the way to the squad") # out where only the weak fragments of the third radius reach (nearer, nine people make the risk nearly 1 either way)
 	own.activity = Unit.Activity.STATIONARY
-	var risk_down: float = bm._mortar_friendly_fire_check(gun, foe, aim).risk
-	own.activity = Unit.Activity.MOVING
-	var risk_up: float = bm._mortar_friendly_fire_check(gun, foe, aim).risk
-	check(risk_up > 1.5 * risk_down and risk_down > 0.0, "The friendly-fire estimate counts a squad on the move as exposed and one down in trees as protected (%.3f on the move, %.3f in the trees)" % [risk_up, risk_down])
+	var risk_trees: float = bm._mortar_friendly_fire_check(gun, foe, aim).risk
+	# the same squad on open ground, the same distance from the aim point: trees between the burst and the people (fragments are stopped by them, user
+	# 2026-10-22) must make the estimate smaller; being on the move changes nothing about the trees themselves
+	var open_place := Vector2.INF
+	for x in range(-3000, 3000, 100):
+		for y in range(0, 3000, 100):
+			var clear := true
+			for dx in [-100, -50, 0, 50, 100]:
+				for dy in [-100, -50, 0, 50, 100]:
+					if GameConfig.get_terrain_type_at(m(x + dx, y + dy)) != GameConfig.TerrainType.OPEN:
+						clear = false
+			if clear and is_inf(open_place.x):
+				open_place = m(x, y)
+	check(not is_inf(open_place.x), "Setup: open ground 100 m clear on this map")
+	own.global_position = open_place
+	var shift: Vector2 = open_place - in_trees
+	gun.global_position += shift # the same range, so the same scatter
+	foe.global_position += shift
+	var risk_open: float = bm._mortar_friendly_fire_check(gun, foe, aim + shift).risk
+	check(risk_open > 2.0 * risk_trees and risk_trees >= 0.0, "The friendly-fire estimate counts the trees between the aim point and a squad (%.3f in the trees, %.3f in the open)" % [risk_trees, risk_open])
 	bm.combat_log.free()
 	bm.free()
 

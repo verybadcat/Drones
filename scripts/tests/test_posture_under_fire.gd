@@ -68,14 +68,14 @@ func run() -> void:
 	var foe: Unit = unit(c, Unit.Team.ENEMY, Unit.Kind.SQUAD, c.open + m(300))
 	check(squad.posture() == Unit.Posture.STANDING, "A squad standing in the open is upright")
 	var p_up: float = CombatResolver.hit_probability(foe, squad)
-	var q_up: float = CombatResolver.fragment_exposure(squad, 10.0, squad.exposure_terrain())
+	var q_up: float = CombatResolver.fragment_exposure(squad, 10.0)
 	bm._note_fire_arrival(squad)
 	advance(c, 1.0)
 	check(squad.posture() == Unit.Posture.STANDING, "One second after fire arrives it is still upright")
 	advance(c, GameConfig.GO_TO_GROUND_REACTION_S)
 	check(squad.posture() == Unit.Posture.PRONE, "Past the reaction time it is down")
 	var p_down: float = CombatResolver.hit_probability(foe, squad)
-	var q_down: float = CombatResolver.fragment_exposure(squad, 10.0, squad.exposure_terrain())
+	var q_down: float = CombatResolver.fragment_exposure(squad, 10.0)
 	check(absf(p_down / p_up - down_factor) < 0.01, "A bullet finds it %.2f as easily as before (%.4f against %.4f)" % [p_down / p_up, p_down, p_up])
 	check(absf(q_up / q_down - 1.0 / down_factor) < 0.05, "A fragment: three times as likely to catch a man on his feet as a lying one (%.3f against %.3f)" % [q_up, q_down])
 
@@ -114,10 +114,10 @@ func run() -> void:
 	advance(c, 0.5)
 	check(crew.posture() == Unit.Posture.PRONE, "...and one that has not fired for a whole cycle goes down under fire")
 	# the crew's own casualty rolls: a crew down takes a third of what one on its feet does
-	var crew_down: float = CombatResolver.fragment_exposure(crew, 20.0, crew.exposure_terrain())
+	var crew_down: float = CombatResolver.fragment_exposure(crew, 20.0)
 	crew.last_round_fired_at = bm.scenario_elapsed_time
 	advance(c, 0.1)
-	var crew_up: float = CombatResolver.fragment_exposure(crew, 20.0, crew.exposure_terrain())
+	var crew_up: float = CombatResolver.fragment_exposure(crew, 20.0)
 	check(crew_up > 0.0 and absf(crew_down / crew_up - down_factor) < 0.02, "A crew down takes %.2f of the chance of one on its feet (%.3f against %.3f)" % [crew_down / maxf(crew_up, 0.0001), crew_down, crew_up])
 
 	# 5. in cover: the building is the protection of a man at his post and he is upright there (not lying on the floor); fire sends him
@@ -125,7 +125,7 @@ func run() -> void:
 	var held: Unit = unit(c, Unit.Team.PLAYER, Unit.Kind.SQUAD, c.building)
 	var foe2: Unit = unit(c, Unit.Team.ENEMY, Unit.Kind.SQUAD, c.building + m(300))
 	var at_post: float = CombatResolver.hit_probability(foe2, held)
-	var person_at_post: float = CombatResolver.fragment_exposure(held, 20.0, held.exposure_terrain())
+	var person_at_post: float = CombatResolver.fragment_exposure(held, 20.0)
 	check(held.posture() == Unit.Posture.STANDING and is_equal_approx(held.posture_factor(), 1.0), "In a building a squad is upright at its post until fire arrives")
 	check(held.exposure_terrain() == GameConfig.TerrainType.BUILDING, "...and has the building's protection")
 	bm._note_fire_arrival(held)
@@ -133,20 +133,20 @@ func run() -> void:
 	check(held.posture() == Unit.Posture.PRONE and held.posture_factor() > 0.4 and held.posture_factor() < 0.6, "Under fire it goes down on the floor, worth about a half (UK: firing from a trench 1/15-1/50, crouching in it 1/25-1/100)")
 	var down_in_cover: float = CombatResolver.hit_probability(foe2, held)
 	check(absf(down_in_cover / at_post - held.posture_factor()) < 0.01 and held.posture_factor() < 0.6, "A bullet finds it half as easily, on top of the building (%.4f against %.4f)" % [down_in_cover, at_post])
-	var person_down: float = CombatResolver.fragment_exposure(held, 20.0, held.exposure_terrain())
+	var person_down: float = CombatResolver.fragment_exposure(held, 20.0)
 	check(absf(person_down / person_at_post - held.posture_factor()) < 0.02 and person_down < 0.6 * person_at_post, "A fragment: half as likely to catch a man down in the building (%.4f against %.4f)" % [person_down, person_at_post])
 	# the squad's 0.2 per person is the figure at its post in cover and lying in the open: not three times that in a building
 	var open_lying := unit(c, Unit.Team.PLAYER, Unit.Kind.SQUAD, c.open + m(0, 500))
 	open_lying.gone_to_ground = true
 	var open_up := unit(c, Unit.Team.PLAYER, Unit.Kind.SQUAD, c.open + m(0, 1000))
-	var open_q_lying: float = CombatResolver.fragment_exposure(open_lying, 0.0, open_lying.exposure_terrain())
-	var open_q_up: float = CombatResolver.fragment_exposure(open_up, 0.0, open_up.exposure_terrain())
+	var open_q_lying: float = CombatResolver.fragment_exposure(open_lying, 0.0)
+	var open_q_up: float = CombatResolver.fragment_exposure(open_up, 0.0)
 	check(absf(open_q_up / open_q_lying - 3.0) < 0.05, "In the open a squad on its feet has three times the casualty area of one lying (%.3f against %.3f)" % [open_q_up, open_q_lying])
 	# a crew in a building: the building's curve at its post, half of it down
 	var building_crew: Unit = unit(c, Unit.Team.PLAYER, Unit.Kind.MORTAR, c.building + m(2, 2))
-	var crew_post: float = CombatResolver.fragment_exposure(building_crew, 15.0, building_crew.exposure_terrain())
+	var crew_post: float = CombatResolver.fragment_exposure(building_crew, 15.0)
 	building_crew.gone_to_ground = true
-	var crew_floor: float = CombatResolver.fragment_exposure(building_crew, 15.0, building_crew.exposure_terrain())
+	var crew_floor: float = CombatResolver.fragment_exposure(building_crew, 15.0)
 	check(crew_post > 0.0 and absf(crew_floor / crew_post - 0.5) < 0.02, "A crew in cover: half the chance down (%.4f against %.4f)" % [crew_floor, crew_post])
 
 	# 6. the real paths record fire: a direct volley (whoever it is aimed at) and a round landing within 60 m, any ground unit

@@ -243,7 +243,7 @@ func test_mortar_hits_are_totally_unaffected() -> void:
 	# A mortar round is resolved by where it lands (BattleManager._apply_shell_blast), not by the shooter's hit chance: a unit right at the
 	# impact point is caught with the blast's own chance at distance 0 for its cover, crossfire or not.
 	# (a round that lands on the squad costs it at least one person with the chance 1 - (1 - q)^people, q being one person's, at the burst)
-	var q: float = CombatResolver.fragment_casualty_chance(0.0, CombatResolver.fragment_exposure(target, 0.0, GameConfig.get_terrain_type_at(target.global_position)))
+	var q: float = CombatResolver.fragment_casualty_chance(0.0, CombatResolver.fragment_exposure(target, 0.0))
 	var plain: float = 1.0 - pow(1.0 - q, float(target.max_pips))
 	check(absf(observed - plain) < 0.012, "Mortar hit rate in crossfire is the plain rate (observed %.3f, expected %.3f)" % [observed, plain])
 	cleanup(bm)
