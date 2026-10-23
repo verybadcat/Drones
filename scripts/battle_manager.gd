@@ -8578,7 +8578,7 @@ func _mortar_friendly_fire_check(mortar: Unit, target: Unit, aim: Vector2) -> Di
 			for offset in [toward * spread, -toward * spread, toward.orthogonal() * spread, -toward.orthogonal() * spread]:
 				var person_at: Vector2 = u.global_position + offset
 				var person_m: float = landing.distance_to(person_at) / GameConfig.PIXELS_PER_METER
-				if person_m <= GameConfig.FRAGMENT_R1_M * GameConfig.FRAGMENT_R3_FACTOR:
+				if person_m <= GameConfig.FRAGMENT_REACH_M:
 					per_person += CombatResolver.fragment_casualty_chance(person_m, CombatResolver.fragment_person_exposure(u, landing, person_at, 4.0)) * 0.25
 			total += 1.0 - pow(1.0 - per_person, float(maxi(people, 1))) # the chance the round costs this unit at least one person
 		risk += total / float(SAMPLES)
@@ -8687,7 +8687,7 @@ func _apply_shell_blast(impact: Vector2, attacker: Unit) -> Array[Dictionary]:
 		else:
 			var spread_m: float = CombatResolver.blast_spread_m(u)
 			var escape: float = CombatResolver.blast_escape_chance(terrain, u.cover_kept())
-			var fragments_reach: bool = distance_m - spread_m <= GameConfig.FRAGMENT_R1_M * GameConfig.FRAGMENT_R3_FACTOR
+			var fragments_reach: bool = distance_m - spread_m <= GameConfig.FRAGMENT_REACH_M
 			var blast_reaches: bool = distance_m - spread_m <= GameConfig.BLAST_WALKING_TO_M
 			for i in people:
 				var person_at: Vector2 = CombatResolver.person_point_px(u.global_position, spread_m)

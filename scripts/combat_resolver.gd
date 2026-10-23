@@ -84,24 +84,33 @@ static func cover_factor(distance: float, falloff: float, terrain: GameConfig.Te
 	return pow(factor, maxf(1.0, distance / falloff))
 
 
-## Fragment wounds, as the user's three radii (GameConfig.FRAGMENT_R1_M): the levels are the severities below (0 none, 1 walking wounded, 2 seriously
-## wounded, 3 dead), and a person `distance_m` from the burst is inside the radius of every potential level up to his distance: dead within R1, serious
-## within R2, walking within R3.
-static func fragment_potentials(distance_m: float) -> Array[int]:
+## Fragment wounds, as the user's three classes (GameConfig.FRAGMENT_R1_M): the levels are the severities below (0 none, 1 walking wounded, 2 seriously
+## wounded, 3 dead); each class is the potential of its level, with its own radius, the one at which a person is hit by it half the time: lethal R1, serious
+## R2, light R3.
+static func fragment_class_radius_m(level: int) -> float:
 	var r1: float = GameConfig.FRAGMENT_R1_M
-	var levels: Array[int] = []
-	if distance_m <= r1 * GameConfig.FRAGMENT_R3_FACTOR:
-		levels.append(BLAST_WALKING)
-	if distance_m <= r1 * GameConfig.FRAGMENT_R2_FACTOR:
-		levels.append(BLAST_SERIOUS)
-	if distance_m <= r1:
-		levels.append(BLAST_DEAD)
-	return levels
+	if level >= BLAST_DEAD:
+		return r1
+	if level == BLAST_SERIOUS:
+		return r1 * GameConfig.FRAGMENT_R2_FACTOR
+	return r1 * GameConfig.FRAGMENT_R3_FACTOR
 
 
-## The share of the potentials that apply to ONE PERSON of `unit` for a round `distance_m` from him, before anything between them: 1 for a man
-## standing; a finished fighting position (none of it for a round in the hole, more of it with distance) and lying down (Unit.posture_factor: a third
-## in the open, a half in cover) reduce it, as they reduced the old curve. What stands between the burst and him is GameConfig.fragment_transmission.
+## The chance that an exposed person `distance_m` from the burst is hit by a fragment of class `level`: 50 percent at the class's radius, falling as 1/r^2
+## beyond it and rising to certain at the burst (a Poisson hit chance with the density a 1/r^2 spread gives); none past GameConfig.FRAGMENT_REACH_M.
+static func fragment_hit_chance(distance_m: float, level: int) -> float:
+	if distance_m > GameConfig.FRAGMENT_REACH_M:
+		return 0.0
+	if distance_m < 0.001:
+		return 1.0
+	var ratio: float = fragment_class_radius_m(level) / distance_m
+	return 1.0 - pow(1.0 - GameConfig.FRAGMENT_HIT_AT_RADIUS, ratio * ratio)
+
+
+## The chance that anything at all reaches ONE PERSON of `unit` from a round `distance_m` from him, before what is between them: 1 for a man standing;
+## a finished fighting position (none of it for a round in the hole, more of it with distance) and lying down (Unit.posture_factor: a third in the open,
+## a half in cover) reduce it, as they reduced the old curve. It is rolled once for all the classes of fragment. What stands between the burst and him is
+## GameConfig.fragment_transmission.
 static func fragment_exposure(unit: Unit, distance_m: float) -> float:
 	var position_cover: float = cover_factor(distance_m * GameConfig.PIXELS_PER_METER, GameConfig.MORTAR_BLAST_CASUALTY_RADIUS, GameConfig.TerrainType.OPEN, 1.0, unit.fighting_position_ratio())
 	return position_cover * unit.posture_factor()
@@ -111,12 +120,12 @@ static func fragment_exposure(unit: Unit, distance_m: float) -> float:
 static func fragment_person_exposure(unit: Unit, burst: Vector2, person: Vector2, step_m: float = 1.0) -> float:
 	var distance_m: float = burst.distance_to(person) / GameConfig.PIXELS_PER_METER
 	var exposure: float = fragment_exposure(unit, distance_m)
-	if exposure <= 0.0 or distance_m > GameConfig.FRAGMENT_R1_M * GameConfig.FRAGMENT_R3_FACTOR:
-		return exposure
+	if exposure <= 0.0 or distance_m > GameConfig.FRAGMENT_REACH_M:
+		return 0.0
 	return exposure * GameConfig.fragment_transmission(burst, person, step_m)
 
 
-## One potential of `level` actually done to a person: as it is with FRAGMENT_AS_POTENTIAL, one level lower with FRAGMENT_ONE_LOWER, else two lower
+## One fragment of class `level` that has hit a person, actually done to him: as it is with FRAGMENT_AS_POTENTIAL, one level lower with FRAGMENT_ONE_LOWER, else two lower
 ## (never below none). `roll` is a uniform draw in [0, 1).
 static func fragment_reduced(level: int, roll: float) -> int:
 	if roll < GameConfig.FRAGMENT_AS_POTENTIAL:
@@ -126,37 +135,40 @@ static func fragment_reduced(level: int, roll: float) -> int:
 	return maxi(level - 2, 0)
 
 
-## The fragment wound of one person `distance_m` from a burst whose potentials apply with share `exposure`: every potential he is inside is rolled
-## (applies? how much reduced?) and only the worst outcome counts.
+## The fragment wound of one person `distance_m` from a burst, `exposure` being the chance that anything reaches him (his screening, posture and position,
+## rolled once for all the classes): then every class is rolled for a hit, a class that hits is reduced, and only the worst outcome counts.
 static func fragment_severity(distance_m: float, exposure: float = 1.0) -> int:
+	if exposure < 1.0 and randf() >= exposure:
+		return BLAST_NONE
 	var worst: int = BLAST_NONE
-	for level in fragment_potentials(distance_m):
-		if exposure >= 1.0 or randf() < exposure:
+	for level in [BLAST_WALKING, BLAST_SERIOUS, BLAST_DEAD]:
+		if randf() < fragment_hit_chance(distance_m, level):
 			worst = maxi(worst, fragment_reduced(level, randf()))
 	return worst
 
 
-## The chances of each fragment wound for one person, worked out rather than rolled: [none, walking, serious, dead] (index = severity), the
-## potentials being independent so the worst of them has the product of their chances of being no worse.
+## The chances of each fragment wound for one person, worked out rather than rolled: [none, walking, serious, dead] (index = severity), the classes
+## being independent once he is exposed, so the worst of them has the product of their chances of being no worse.
 static func fragment_distribution(distance_m: float, exposure: float = 1.0) -> Array[float]:
-	var at_most: Array[float] = [1.0, 1.0, 1.0, 1.0] # chance that the worst outcome is no worse than [index]
-	for level in fragment_potentials(distance_m):
-		var outcome: Array[float] = [0.0, 0.0, 0.0, 0.0]
-		outcome[level] += exposure * GameConfig.FRAGMENT_AS_POTENTIAL
-		outcome[maxi(level - 1, 0)] += exposure * GameConfig.FRAGMENT_ONE_LOWER
-		outcome[maxi(level - 2, 0)] += exposure * (1.0 - GameConfig.FRAGMENT_AS_POTENTIAL - GameConfig.FRAGMENT_ONE_LOWER)
-		outcome[0] += 1.0 - exposure
+	var at_most: Array[float] = [1.0, 1.0, 1.0, 1.0] # chance that the worst outcome is no worse than [index], given he is exposed
+	for level in [BLAST_WALKING, BLAST_SERIOUS, BLAST_DEAD]:
+		var hit: float = fragment_hit_chance(distance_m, level)
+		var outcome: Array[float] = [1.0 - hit, 0.0, 0.0, 0.0]
+		outcome[level] += hit * GameConfig.FRAGMENT_AS_POTENTIAL
+		outcome[maxi(level - 1, 0)] += hit * GameConfig.FRAGMENT_ONE_LOWER
+		outcome[maxi(level - 2, 0)] += hit * (1.0 - GameConfig.FRAGMENT_AS_POTENTIAL - GameConfig.FRAGMENT_ONE_LOWER)
 		var running := 0.0
 		for severity in 4:
 			running += outcome[severity]
 			at_most[severity] *= running
-	var result: Array[float] = [at_most[0], 0.0, 0.0, 0.0]
+	var exposed: Array[float] = [at_most[0], 0.0, 0.0, 0.0]
 	for severity in range(1, 4):
-		result[severity] = at_most[severity] - at_most[severity - 1]
+		exposed[severity] = at_most[severity] - at_most[severity - 1]
+	var result: Array[float] = [1.0 - exposure + exposure * exposed[0], exposure * exposed[1], exposure * exposed[2], exposure * exposed[3]]
 	return result
 
 
-## The chance a person `distance_m` from a burst, with `exposure` (1 standing in the open), is hurt at all by the fragments.
+## The chance a person `distance_m` from a burst, with `exposure` (1 standing in the open with nothing between), is hurt at all by the fragments.
 static func fragment_casualty_chance(distance_m: float, exposure: float = 1.0) -> float:
 	return 1.0 - fragment_distribution(distance_m, exposure)[BLAST_NONE]
 

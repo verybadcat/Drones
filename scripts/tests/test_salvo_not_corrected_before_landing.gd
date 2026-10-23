@@ -36,7 +36,7 @@ func make(observed: bool) -> Dictionary:
 	bm.enemy_units.append(target)
 	target.is_visible = true
 	if observed:
-		var spotter: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, target.global_position + m(0, 60))
+		var spotter: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, target.global_position + m(0, 110)) # beyond the 100 m a fragment reaches from rounds landing 50 m the other side of the target: the observer survives to watch
 		bm.player_units.append(spotter)
 	return {"bm": bm, "mortar": mortar, "target": target}
 

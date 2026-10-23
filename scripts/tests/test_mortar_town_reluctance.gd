@@ -55,7 +55,9 @@ func make_scene(bm, points: Array, kinds: Array) -> Unit:
 		var t: Unit = bm._make_unit(Unit.Team.ENEMY, kinds[i], points[i])
 		bm.enemy_units.append(t)
 		t.is_visible = true
-	var observer: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, points[1] + m(0.0, 120.0))
+	# 250 m off: fragments reach 100 m (GameConfig.FRAGMENT_REACH_M) and the scatter at this range is some 40 m, so a nearer observer is itself a
+	# reason for the mortar to hold fire (the friendly-fire estimate)
+	var observer: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SPOTTER, points[1] + m(0.0, 250.0))
 	bm.player_units.append(observer)
 	bm.unit_type_doctrines[Unit.Team.PLAYER] = preload("res://scripts/unit_doctrine.gd").sanitize({})
 	bm._update_player_intel()

@@ -105,7 +105,7 @@ func run() -> void:
 	# 7 m is inside R1 and inside the blast's walking band: the blast leaves him walking at least, the fragments dead 40 percent of the time, serious 42, else walking
 	check(at7[3] == 0 and at7[0] > 130 and at7[0] < 190 and at7[1] > 140 and at7[1] < 200 and at7[2] > 40 and at7[2] < 100, "7 m: about 40 percent dead, 42 serious, 18 walking, nobody untouched (%s)" % str(at7))
 	var at12: Array = expectations[12.0]
-	check(at12[3] == 0 and at12[0] > 120 and at12[0] < 200, "12 m, past the blast: only the fragments, who within R1 leave nobody untouched and kill 40 percent (%s)" % str(at12))
+	check(at12[3] < 40 and at12[0] > 100 and at12[0] < 175, "12 m, past the blast: only the fragments, who within R1 kill about a third of the time and leave one in forty untouched (%s)" % str(at12))
 
 	# in vegetation and in a building at 7 m
 	var tree_point := Vector2.INF

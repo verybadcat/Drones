@@ -9571,14 +9571,27 @@ const BLAST_CREW_SPREAD_M: float = 4.0 # a mortar crew or a drone team (JUDGMENT
 ## worst outcome that actually applies ... For now, try R1=20 meters, R2=2R1, and R3=3R1." (CombatResolver.fragment_severity; the levels are none,
 ## walking wounded, seriously wounded, dead; one level lower than a light wound is none.) R1 is not a cited figure: it is the user's trial value (FM 7-90
 ## gives the 82 mm round's reliable one-lethal-fragment-per-square-metre DIAMETER as about 40 m: docs/research/real-world-notes.md). Not decided by the
-## user, taken here: each potential is rolled apart from the others; a person in a fighting position or lying down has each potential apply only with the
-## share CombatResolver.fragment_exposure gives (the old factors; 1 for a man standing), times what stands between him and the burst
-## (fragment_transmission, below); each person is rolled at his own distance from the burst (the squad spread of BLAST_SQUAD_SPREAD_M), not a share of the unit.
+## user, taken here: a person in a fighting position or lying down is exposed only with the chance CombatResolver.fragment_exposure gives (the old factors; 1
+## for a man standing), times what stands between him and the burst (fragment_transmission, below); each person is rolled at his own distance from the burst
+## (the squad spread of BLAST_SQUAD_SPREAD_M), not a share of the unit. The hit roll within each class is FRAGMENT_HIT_AT_RADIUS, below.
 const FRAGMENT_R1_M: float = 20.0
 const FRAGMENT_R2_FACTOR: float = 2.0
 const FRAGMENT_R3_FACTOR: float = 3.0
 const FRAGMENT_AS_POTENTIAL: float = 0.4
 const FRAGMENT_ONE_LOWER: float = 0.3 # the rest, 0.3, is two levels lower
+
+## THE HIT ROLL. User, 2026-10-22/23: "Even an exposed person may not be hit. We need to add a roll for that. I'm not sure if it should be 1/r^2 or gaussian."
+## (1/r^2 chosen: from a point burst the fragments spread over a sphere, so the number through a given area falls as 1/r^2: docs/research/real-world-notes.md.)
+## "one roll per class per person. But the exposure check comes prior to any of that. So if a tree happens to block exposure, it blocks it for all types
+## of fragments. Similarly for the person lying down. Make R1 the radius with 50% probability of a hit. I may adjust the value of R1, but don't do that
+## for now." So, for a person: one exposure roll (CombatResolver.fragment_exposure x the screening: fail it and no fragment of any class reaches him);
+## then for each class (lethal R1, serious R2 = 2 R1, light R3 = 3 R1) one hit roll, with chance 1 - (1 - FRAGMENT_HIT_AT_RADIUS) ^ ((R / r)^2) at his distance r
+## (50 percent at the class's own radius, more inside it, falling as 1/r^2 outside it, which Poisson hits with a constant presented area give); a class
+## that hits is reduced by the 40/30/30 roll, and the worst counts. Taken here: the 50 percent applies to each class at its own radius (the user named R1);
+## there is no cut-off at the radius itself (a casualty radius is a 50 percent figure, not a wall) but fragments are taken as reaching no further than
+## FRAGMENT_REACH_M, the collateral search radius (MORTAR_BLAST_COLLATERAL_SEARCH_RADIUS) used for everything else.
+const FRAGMENT_HIT_AT_RADIUS: float = 0.5
+const FRAGMENT_REACH_M: float = 100.0
 
 ## WHAT STANDS BETWEEN THE BURST AND A PERSON. User, 2026-10-22: "Vegetation and walls should help. A wall should prevent all fragment hits. Let's have 10
 ## meters of trees prevent 50% of fragment hits, with the value scaling exponentially with the amount of trees, so for example 20 meters of trees would

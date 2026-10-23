@@ -147,7 +147,7 @@ func run() -> void:
 	var standing_cas: float = float(standing_total) / squads
 	var lying_cas: float = float(lying_total) / squads
 	check(standing_cas > 7.6 and standing_cas < 8.6, "A7: a round on the centre of a squad of nine on its feet in the open costs it about 8 (%.2f)" % standing_cas)
-	check(lying_cas > 3.0 and lying_cas < 5.5, "A7: ... and lying about half that, 3-5.5 (%.2f)" % lying_cas)
+	check(lying_cas > 2.0 and lying_cas < 3.4, "A7: ... and lying (a third as exposed) about 2.7 (%.2f)" % lying_cas)
 	squad.free()
 
 	print("Realism anchor tests: %d failures" % failures)
