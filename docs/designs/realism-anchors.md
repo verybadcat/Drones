@@ -6,6 +6,7 @@ the mortar, blast, casualty or movement code should not move the game out of a b
 
 * Unit-level anchors are asserted in `scripts/tests/test_realism_anchors.gd` (in the suite). A failure there means a change has moved the
   model out of a real-world band.
+* Last battle-level run: 2026-10-23, 80 battles, after the blast, fragment-radii and screening changes: mortars cause 75% of casualties (band 45-75%, was 53%); salvo accuracy unchanged (see the doctrine log entry of that date).
 * Battle-level anchors are measured by `tools/research/realism_anchors_sim.gd` (about 15 minutes; copy under `scripts/` to run), with the
   bands in its header. Run it after a change to who fights whom, fire control or movement, and record the result here.
 * Sources are mostly secondary (Wikipedia's summaries of the analysts and of doctrine, 2026-10); the manuals themselves were not reached.
