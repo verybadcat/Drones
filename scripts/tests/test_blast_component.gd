@@ -105,7 +105,14 @@ func run() -> void:
 	# 7 m is inside R1 and inside the blast's walking band: the blast leaves him walking at least, the fragments dead 40 percent of the time, serious 42, else walking
 	check(at7[3] == 0 and at7[0] > 130 and at7[0] < 190 and at7[1] > 140 and at7[1] < 200 and at7[2] > 40 and at7[2] < 100, "7 m: about 40 percent dead, 42 serious, 18 walking, nobody untouched (%s)" % str(at7))
 	var at12: Array = expectations[12.0]
-	check(at12[3] < 40 and at12[0] > 100 and at12[0] < 175, "12 m, past the blast: only the fragments, who within R1 kill about a third of the time and leave one in forty untouched (%s)" % str(at12))
+	var worked12 := CombatResolver.fragment_distribution(12.0)
+	var close12 := true
+	for k in 4: # [killed, heavily, walking, none] against [none, walking, serious, dead]
+		var rolled_share: float = float(at12[k]) / 400.0
+		var worked_share: float = worked12[[3, 2, 1, 0][k]]
+		if absf(rolled_share - worked_share) > 0.08:
+			close12 = false
+	check(close12, "12 m, past the blast: only the fragments, as worked out (%s of 400 against %s)" % [str(at12), str(worked12)])
 
 	# in vegetation and in a building at 7 m
 	var tree_point := Vector2.INF
@@ -155,7 +162,7 @@ func run() -> void:
 		squad.free()
 	var mean_blast: float = float(blast_total) / 400.0
 	check(mean_blast > 0.1 and mean_blast < 0.45, "a burst on the centre of a squad of nine: about one of them is within the blast, and by blast alone or as much as the fragments hurts a fifth to a third of those (%.2f)" % mean_blast)
-	check(float(casualties_total) / 400.0 > 7.5 and float(casualties_total) / 400.0 < 8.7, "...the fragments do the rest: with R1 20 m, a squad spread over 30 m loses about 8 of 9 (%.2f casualties a round)" % (float(casualties_total) / 400.0))
+	check(float(casualties_total) / 400.0 > 6.0 and float(casualties_total) / 400.0 < 7.5, "...the fragments do the rest: with R1 13 m, a squad spread over 30 m loses about 6.8 of 9 (%.2f casualties a round)" % (float(casualties_total) / 400.0))
 	var far_blast := 0
 	for i in 200:
 		var squad2: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, open_point)
