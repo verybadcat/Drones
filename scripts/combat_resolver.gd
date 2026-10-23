@@ -210,13 +210,13 @@ static func blast_escape_chance(terrain: GameConfig.TerrainType, kept: float = 1
 	return 1.0 - pow(1.0 - base, kept)
 
 
-## The radius of the disc a unit's people are spread over round its centre, for the blast: a squad 30 m, a mortar crew or a drone team 4 m, a lone
-## person none.
+## The radius of the disc a unit's people are spread over round its centre, for the blast and the fragments: a squad 30 m standing, 50 m on the move, a
+## mortar crew or a drone team 4 m, a lone person none.
 static func blast_spread_m(unit: Unit) -> float:
 	if unit.kind == Unit.Kind.MORTAR or unit.kind == Unit.Kind.DRONE_TEAM:
 		return GameConfig.BLAST_CREW_SPREAD_M
 	if unit.max_pips > 1:
-		return GameConfig.BLAST_SQUAD_SPREAD_M
+		return GameConfig.BLAST_SQUAD_MOVING_SPREAD_M if unit.activity == Unit.Activity.MOVING else GameConfig.BLAST_SQUAD_SPREAD_M
 	return 0.0
 
 

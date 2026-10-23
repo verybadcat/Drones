@@ -187,6 +187,25 @@ func run() -> void:
 		squad2.free()
 	check(far_blast == 0, "a burst 55 m from a squad's centre is beyond the blast of all its people (%d)" % far_blast)
 
+	# a squad on the move is spread over 50 m, not 30 m: its people are further from a burst on its centre, so it loses fewer
+	var still_squad: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, open_point)
+	var moving_squad: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, open_point)
+	moving_squad.activity = Unit.Activity.MOVING
+	check(CombatResolver.blast_spread_m(still_squad) == GameConfig.BLAST_SQUAD_SPREAD_M and CombatResolver.blast_spread_m(moving_squad) == 50.0, "a squad stands over a 30 m disc, over 50 m on the move")
+	still_squad.free()
+	moving_squad.free()
+	var moving_cas := 0
+	for i in 400:
+		var mover: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.SQUAD, open_point)
+		mover.activity = Unit.Activity.MOVING
+		bm.player_units.append(mover)
+		bm._apply_shell_blast(open_point, null)
+		moving_cas += mover.max_pips - mover.pips
+		bm.player_units.erase(mover)
+		mover.free()
+	var expected_moving: float = 9.0 * disc_mean_chance(50.0, 1.0)
+	check(absf(float(moving_cas) / 400.0 - expected_moving) < 0.7 and float(moving_cas) / 400.0 < float(casualties_total) / 400.0 - 0.8, "a burst on the centre of a squad of nine on the move costs it about %.1f, fewer than the %.1f of one standing still (%.2f)" % [expected_moving, float(casualties_total) / 400.0, float(moving_cas) / 400.0])
+
 	# a mortar crew within a few metres of the burst is wrecked
 	var wrecked := 0
 	for i in 200:

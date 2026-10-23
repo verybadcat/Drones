@@ -9562,6 +9562,10 @@ const BLAST_WALKING_TO_M: float = 10.0
 const BLAST_ESCAPE_IN_TREES: float = 0.33
 const BLAST_ESCAPE_IN_BUILDING: float = 0.67
 const BLAST_SQUAD_SPREAD_M: float = 30.0 # radius of the disc a squad's people are spread over (JUDGMENT)
+## A squad on the move is more spread out. User, 2026-10-23, on whether the people in advancing squads are packed too tightly: "have the squads go in 50
+## meter circle with moving." Read as a disc of 50 m RADIUS (100 m across: FM 7-8, a squad is 50 to 100 m across) for a squad that is moving when the round
+## lands; a squad standing still keeps BLAST_SQUAD_SPREAD_M. (If 50 m diameter was meant, it would be tighter than the 30 m radius it replaces.)
+const BLAST_SQUAD_MOVING_SPREAD_M: float = 50.0
 const BLAST_CREW_SPREAD_M: float = 4.0 # a mortar crew or a drone team (JUDGMENT)
 
 ## FRAGMENTS AS THREE RADII. User, 2026-10-22: "for people standing and without cover, let's use three radii. R1 for potential lethal wounds, R2 for
