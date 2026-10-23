@@ -9574,8 +9574,8 @@ const BLAST_CREW_SPREAD_M: float = 4.0 # a mortar crew or a drone team (JUDGMENT
 ## user, taken here: a person in a fighting position or lying down is exposed only with the chance CombatResolver.fragment_exposure gives (the old factors; 1
 ## for a man standing), times what stands between him and the burst (fragment_transmission, below); each person is rolled at his own distance from the burst
 ## (the squad spread of BLAST_SQUAD_SPREAD_M), not a share of the unit. The hit roll within each class is FRAGMENT_HIT_AT_RADIUS, below.
-# 20 m at first; 13 m from 2026-10-23 on the user's instruction ("reduce R1 to 13 meters"; R2 and R3 are multiples of it)
-const FRAGMENT_R1_M: float = 13.0
+# 20 m at first; 13 m, then 10 m from 2026-10-23 on the user's instructions (R2 and R3 are multiples of it)
+const FRAGMENT_R1_M: float = 10.0
 const FRAGMENT_R2_FACTOR: float = 2.0
 const FRAGMENT_R3_FACTOR: float = 3.0
 const FRAGMENT_AS_POTENTIAL: float = 0.4

@@ -14,8 +14,6 @@ extends SceneTree
 ## Run: godot --headless --path . --script scripts/tests/test_fragment_radii.gd
 const Log = preload("res://scripts/tests/test_combat_log.gd")
 var failures := 0
-const SPARED_LOW := 1.7
-const SPARED_HIGH := 2.8
 
 func check(condition: bool, message: String) -> void:
 	if not condition:
@@ -39,6 +37,16 @@ func sampled(distance_m: float, exposure: float, trials: int) -> Array[float]:
 	for k in 4:
 		counts[k] /= float(trials)
 	return counts
+
+## The chance that one person, standing at a uniformly random place on a disc of radius `spread_m` round the burst, is hurt at all by the fragments
+## (worked out by quadrature over the disc, so the tests follow GameConfig.FRAGMENT_R1_M).
+func disc_mean_chance(spread_m: float, exposure: float) -> float:
+	var total := 0.0
+	var n := 200
+	for i in n:
+		var rho: float = spread_m * sqrt((float(i) + 0.5) / float(n)) # equal-area rings
+		total += CombatResolver.fragment_casualty_chance(rho, exposure)
+	return total / float(n)
 
 func run() -> void:
 	# --- the hit roll per class: 50 percent at the class's own radius (lethal R1 20 m, serious R2 40 m, light R3 60 m), 1/r^2 beyond, certain at the burst
@@ -245,7 +253,8 @@ func run() -> void:
 		spared += sq.pips
 		bm.player_units.erase(sq)
 		sq.free()
-	check(float(spared) / 300.0 > SPARED_LOW and float(spared) / 300.0 < SPARED_HIGH, "a round on the centre of a squad of nine leaves about two of them untouched (%.2f)" % (float(spared) / 300.0))
+	var expected_spared: float = 9.0 * (1.0 - disc_mean_chance(GameConfig.BLAST_SQUAD_SPREAD_M, 1.0))
+	check(absf(float(spared) / 300.0 - expected_spared) < 0.6, "a round on the centre of a squad of nine leaves about %.1f of them untouched (%.2f; the blast takes a few of those)" % [expected_spared, float(spared) / 300.0])
 
 	# --- the friendly-fire estimate follows the same radii: a round that can only land a long way from a unit endangers it not at all, one near does
 	var gun: Unit = bm._make_unit(Unit.Team.PLAYER, Unit.Kind.MORTAR, open_point + m(0, 5000))

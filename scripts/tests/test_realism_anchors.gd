@@ -47,6 +47,16 @@ func make(range_m: float, observer: String) -> Dictionary:
 func cep_m(c: Dictionary, corrections: int) -> float:
 	return c.bm._mortar_dispersion_spread(c.mortar, c.target, c.target.global_position, corrections).cep / GameConfig.PIXELS_PER_METER
 
+## The chance that one person, standing at a uniformly random place on a disc of radius `spread_m` round the burst, is hurt at all by the fragments
+## (worked out by quadrature over the disc, so the tests follow GameConfig.FRAGMENT_R1_M).
+func disc_mean_chance(spread_m: float, exposure: float) -> float:
+	var total := 0.0
+	var n := 200
+	for i in n:
+		var rho: float = spread_m * sqrt((float(i) + 0.5) / float(n)) # equal-area rings
+		total += CombatResolver.fragment_casualty_chance(rho, exposure)
+	return total / float(n)
+
 func run() -> void:
 	# A1. unadjusted fire at 4 km: a CEP of about 3% of the range (NATO: ~136 m for an unguided 120 mm at its maximum range)
 	var c := make(4000.0, "none")
@@ -146,8 +156,10 @@ func run() -> void:
 			standing_total = n
 	var standing_cas: float = float(standing_total) / squads
 	var lying_cas: float = float(lying_total) / squads
-	check(standing_cas > 6.0 and standing_cas < 7.5, "A7: a round on the centre of a squad of nine on its feet in the open costs it about 6.8 (R1 13 m) (%.2f)" % standing_cas)
-	check(lying_cas > 2.0 and lying_cas < 3.4, "A7: ... and lying (a third as exposed) about 2.7 (%.2f)" % lying_cas)
+	var expected_standing: float = 9.0 * disc_mean_chance(GameConfig.BLAST_SQUAD_SPREAD_M, 1.0)
+	check(absf(standing_cas - expected_standing) < 0.35, "A7: a round on the centre of a squad of nine on its feet in the open costs it about %.1f (%.2f)" % [expected_standing, standing_cas])
+	var expected_lying: float = 9.0 * disc_mean_chance(GameConfig.BLAST_SQUAD_SPREAD_M, GameConfig.PRONE_IN_OPEN_FACTOR)
+	check(absf(lying_cas - expected_lying) < 0.35, "A7: ... and lying (a third as exposed) about %.1f (%.2f)" % [expected_lying, lying_cas])
 	squad.free()
 
 	print("Realism anchor tests: %d failures" % failures)
