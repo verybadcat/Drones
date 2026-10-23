@@ -292,7 +292,7 @@ User: "fatal/serious/walking is at roughly 20/30/50 percent. Are you able to res
   | WWII (US) | 291,557 | 670,846 | 30% |
   | Korea (US) | 33,686 | 103,284 | 25% |
   | Vietnam (US), wounded hospitalised | 47,434 | 153,303 | 24% |
-  | Vietnam (US), with the 150,332 wounded who needed no hospital care | 47,434 | 303,635 | 13% |
+  | Vietnam (US), with the 150,332 wounded who needed no hospital care | 47,434 | 303,635 | 14% |
   | Gulf War 1991 (US) | 149 | 849 | 15% |
   | Iraq 2003-11 (US) | 3,519 | 32,222 | 10% |
   | Afghanistan 2001-21 (US) | 1,910 | 20,093 | 9% |
@@ -300,10 +300,10 @@ User: "fatal/serious/walking is at roughly 20/30/50 percent. Are you able to res
   | First Chechen War (Russia, General Staff) | 3,826 | 17,892 | 18% (24% with the official 5,500 killed) |
   | Falklands 1982 (UK / Argentina) | 255 / 649 | 775 / 1,657 | 25% / 28% |
   | Nagorno-Karabakh 2020 (Azerbaijan / Armenia) | 2,906 / 3,825 | 11,110 / about 11,000 wounded and sick | 21% / 26% |
-  | Donbas 2014-21 (Ukraine / separatists) | 4,535 / 6,500 | 13,800-14,200 / 15,800-16,200 | 25% / 29% |
+  | Donbas 2014-21 (Ukraine / separatists) | 4,535 / 6,500 | 13,800-14,200 / 15,800-16,200 | 24% / 29% |
 
-  So in conventional wars before body armour and rapid evacuation the fatal share ran 15-30 percent, the middle about 25; the US wars of 2001-2021 are 9-10 percent (body armour, helicopter evacuation, surgical care close to the line). The 2014-2021 war in Donbas, the nearest to the 2022 setting, is 25 percent on the Ukrainian side.
+  So in conventional wars before body armour and rapid evacuation the fatal share ran 15-30 percent, the middle about 25; the US wars of 2001-2021 are 9-10 percent (body armour, helicopter evacuation, surgical care close to the line). The 2014-2021 war in Donbas, the nearest to the 2022 setting, is 24 percent on the Ukrainian side.
 * **Walking wounded**: the one figure found: of about 303,600 US wounded in Vietnam, 150,332 (49.5 percent) "did not require hospital care" (Wikipedia, Vietnam War casualties). Those are the light wounds. That is half of the wounded, or 43 percent of killed plus wounded. No equivalent was found for other wars.
 * **Wounds that kill later**: killed above includes those who died of wounds. Wikipedia's Vietnam page says "30% of wounded service members died of their wounds", which does not fit its own numbers (it would be about 45,000 against 153,000 wounded and 47,434 battle deaths in all) and is not used.
 * **Not found**: the split of killed/serious/walking for mortar or artillery fragments alone; any wound-severity split for the Russian or Ukrainian army; how many of the 2014-2021 Donbas wounded were light. The WDMET (Vietnam wound data) page is a stub.
-* **Caveat that decides the comparison**: armies count "wounded" differently. Where the light wounds are counted (Vietnam with the non-hospitalised) the fatal share halves; where only evacuated wounded are counted it is 20-30 percent. The game's "walking wounded" are lost to the unit, which is most of the light wounds, so the right comparison is the lower, 13 percent, but its serious count includes some who would die later.
+* **Caveat that decides the comparison**: armies count "wounded" differently. Where the light wounds are counted (Vietnam with the non-hospitalised) the fatal share halves; where only evacuated wounded are counted it is 20-30 percent. The game's "walking wounded" are lost to the unit, which is most of the light wounds, so the right comparison is the lower, 14 percent, but its serious count includes some who would die later.
