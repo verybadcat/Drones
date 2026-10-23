@@ -28,8 +28,29 @@ func doctrine(mode: GameConfig.ReconMode) -> Dictionary:
 		"recon_mode": mode,
 	}
 
+## Wound types (2026-10-23, "walking, serious, fatal"): everyone lost by the end of each battle, by side and by squad or everyone else (crews, spotters),
+## counted from the units' own killed / heavily wounded / walking wounded counts; "left" are wounded a retreating squad left on the field (captured; already
+## out of the serious count). Totals over all battles and maps.
+var wound_totals := {}
+
+func add_wounds(units: Array) -> void:
+	for u in units:
+		if u.kind == Unit.Kind.DRONE or u.kind == Unit.Kind.RESUPPLY_RUN:
+			continue
+		var side := "Ukr" if u.team == Unit.Team.PLAYER else "Rus"
+		var group := "squads" if u.kind == Unit.Kind.SQUAD else "crews+spotters"
+		var key := side + " " + group
+		var row: Array = wound_totals.get(key, [0, 0, 0, 0])
+		row[0] += int(u.killed_count)
+		row[1] += int(u.heavily_wounded_count)
+		row[2] += int(u.walking_wounded_count)
+		var left = u.get("wounded_left_behind_count")
+		row[3] += int(left) if left != null else 0
+		wound_totals[key] = row
+
 func run() -> void:
 	var grand := {"squad_ua": 0, "squad_ru": 0, "mortar_ua": 0, "mortar_ru": 0}
+	var battles := 0
 	for map_id in GameConfig.MAPS.keys():
 		GameConfig.set_active_map(map_id)
 		for mode in [GameConfig.ReconMode.SPOTTER, GameConfig.ReconMode.DRONE_TEAM]:
@@ -52,6 +73,9 @@ func run() -> void:
 						key = "mortar_ua" if row.team == Unit.Team.PLAYER else "mortar_ru"
 					if key != "":
 						tot[key] += int(row.casualties)
+				add_wounds(bm.player_units)
+				add_wounds(bm.enemy_units)
+				battles += 1
 				if bm.combat_log != null and is_instance_valid(bm.combat_log):
 					bm.combat_log.free()
 				bm.queue_free()
@@ -62,4 +86,16 @@ func run() -> void:
 				grand[k] += tot[k]
 	var g: float = float(grand.squad_ua + grand.squad_ru + grand.mortar_ua + grand.mortar_ru)
 	print("ALL: casualties %d: small arms %.0f%%, mortars %.0f%% (Ukrainian mortar %d, Russian mortars %d; Ukrainian squads %d, Russian squads %d)" % [g, 100.0 * float(grand.squad_ua + grand.squad_ru) / maxf(g, 1.0), 100.0 * float(grand.mortar_ua + grand.mortar_ru) / maxf(g, 1.0), grand.mortar_ua, grand.mortar_ru, grand.squad_ua, grand.squad_ru])
+	var all_k := 0
+	var all_h := 0
+	var all_w := 0
+	for key in wound_totals:
+		var r: Array = wound_totals[key]
+		all_k += r[0]
+		all_h += r[1]
+		all_w += r[2]
+		var n: float = maxf(float(r[0] + r[1] + r[2]), 1.0)
+		print("WOUNDS %-16s killed %d (%.0f%%), serious %d (%.0f%%), walking %d (%.0f%%); left on the field %d; per battle %.1f / %.1f / %.1f" % [key, r[0], 100.0 * r[0] / n, r[1], 100.0 * r[1] / n, r[2], 100.0 * r[2] / n, r[3], float(r[0]) / battles, float(r[1]) / battles, float(r[2]) / battles])
+	var nn: float = maxf(float(all_k + all_h + all_w), 1.0)
+	print("WOUNDS ALL: killed %d (%.0f%%), serious %d (%.0f%%), walking %d (%.0f%%) over %d battles; per battle %.1f / %.1f / %.1f" % [all_k, 100.0 * all_k / nn, all_h, 100.0 * all_h / nn, all_w, 100.0 * all_w / nn, battles, float(all_k) / battles, float(all_h) / battles, float(all_w) / battles])
 	quit()
