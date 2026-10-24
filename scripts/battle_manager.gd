@@ -9049,6 +9049,8 @@ func _update_enemy_squad_advance() -> void:
 		var consolidating: bool = not _friendly_mortar_is_active() and not _enemy_attack_stance() and not _known_friendly_squad_positions().is_empty()
 		var rush_target := _consolidation_step(u) if consolidating else _next_advance_point(u)
 		if rush_target == u.global_position:
+			if not consolidating and _enemy_squad_to_cover(u):
+				continue
 			if consolidating:
 				u.last_order_reason = "Gathered: not enough of an advantage to attack, so waiting clear of the friendly squads."
 			else:
@@ -9062,6 +9064,30 @@ func _update_enemy_squad_advance() -> void:
 		u.move_queue.clear()
 		u.move_speed = GameConfig.ENEMY_ADVANCE_SPEED
 		u.movement_predictable = false # a deliberate rush, not the road-bound march
+
+
+## An enemy squad that has halted at its standoff ring with nothing to shoot at, standing in the open, goes to nearby cover. User, 2026-10-24: "Everybody
+## should prefer cover. Both sides." Our squads already do (_update_friendly_squad_positioning: a squad wants to be in cover whenever possible, and standing in
+## the open needs a reason: moving, a live target, an order); this is the enemy's mirror, with the same exceptions (a squad in a fighting position stays in it;
+## one with something to shoot at does not get here). The cover must lie inside the ring too, so that the squad stays held there (_next_advance_point holds within
+## ENEMY_SURROUND_STANDOFF_RADIUS) instead of bounding out of it again, and not nearer than half the ring. Returns true when it sent the squad.
+func _enemy_squad_to_cover(u: Unit) -> bool:
+	if u.in_fighting_position() or GameConfig.is_in_cover(u.terrain_type()):
+		return false
+	var dest: Vector2 = GameConfig.nearest_cover_point(u.global_position, 0.0, false, _ally_positions_for(u), _known_enemy_positions(Unit.Team.ENEMY))
+	if dest == u.global_position:
+		return false
+	var ring: float = GameConfig.ENEMY_SURROUND_STANDOFF_RADIUS
+	var from_objective: float = dest.distance_to(_enemy_advance_objective(u))
+	if from_objective >= ring or from_objective < 0.5 * ring:
+		return false
+	u.last_order_reason = "Moving into available cover."
+	u.move_target = dest
+	u.has_move_target = true
+	u.move_queue.clear()
+	u.move_speed = GameConfig.ENEMY_ADVANCE_SPEED
+	u.movement_predictable = false
+	return true
 
 
 ## The numbers rule for an assault, for either side: never without a numerical advantage (GameConfig.ASSAULT_MIN_RATIO times the people of
