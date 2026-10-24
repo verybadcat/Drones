@@ -7448,7 +7448,17 @@ static func enemy_squad_y_offsets_m(n: int) -> Array[float]:
 ## rows shifted by half a step so no squad is behind another. Sourced (FM 7-8, Fire team and Platoon articles): a squad is itself 50 to
 ## 100 m across; "the platoon column ... provides good dispersion both laterally and in depth"; the distances between squads are not
 ## fixed but vary with the likelihood of contact, and are kept within sight of one another. JUDGMENT: the 110 m row depth.
-const ENEMY_ADVANCE_MIN_SPACING_M: float = 75.0
+const ENEMY_ADVANCE_MIN_SPACING_M: float = ENEMY_ADVANCE_DESIRED_SPACING_M
+
+## SQUADS KEEP APART WHILE ADVANCING. User, 2026-10-24, when the 100 m spacing tried for the formation did nothing to the hits on other squads because the
+## setting held only at the start of the march: "yes, of course it should apply to the locations of the squads while advancing. They should try to keep 100
+## meters apart. That was the whole point." (Where they stop was left alone: "For now, don't worry about where they stop.") So the next point of each advance
+## bound (BattleManager._next_advance_point) is weighted down when it is closer than this to where another active enemy squad is, or is going (its move
+## target): by ENEMY_ADVANCE_SPACING_FLOOR of its weight on top of that squad, in a straight line out to full weight at this distance. A preference, not a
+## wall (the other terms still count, and a squad that cannot find a place 100 m from the rest still goes on), as the user ruled for the player's squads
+## ("This does NOT mean they can never be closer"). The starting formation (ENEMY_ADVANCE_MIN_SPACING_M) is the same distance. JUDGMENT: the floor.
+const ENEMY_ADVANCE_DESIRED_SPACING_M: float = 100.0
+const ENEMY_ADVANCE_SPACING_FLOOR: float = 0.15
 const ENEMY_ADVANCE_ROW_DEPTH_M: float = 110.0
 
 ## The start positions of `n` enemy squads as (x offset, y offset) in metres: x from the spawn line (0 or negative: further west, nearer the

@@ -34,7 +34,7 @@ func run() -> void:
 	# per firing side: rounds, squads hit, people lost, histogram of squads hit, own squads caught, rounds that landed and were matched
 	var stats := {}
 	for side in [Unit.Team.PLAYER, Unit.Team.ENEMY]:
-		stats[side] = {"rounds": 0, "landed": 0, "hits": 0, "people": 0, "hist": [0, 0, 0, 0], "own": 0, "on_target": 0, "others_rounds": 0, "others": 0, "others_people": 0, "others_only": 0}
+		stats[side] = {"rounds": 0, "landed": 0, "hits": 0, "people": 0, "hist": [0, 0, 0, 0], "own": 0, "on_target": 0, "others_rounds": 0, "others": 0, "others_people": 0, "others_only": 0, "dist": [0, 0, 0, 0, 0, 0]}
 	for map_id in GameConfig.MAPS.keys():
 		GameConfig.set_active_map(map_id)
 		for t in TRIALS:
@@ -90,6 +90,9 @@ func run() -> void:
 							else:
 								other += 1
 								other_people += int(v.casualties)
+								# how far the impact was from that squad's centre: under 25, 25-50, 50-75, 75-100, 100-150, over 150 m
+								var dm: float = float(v.distance_m)
+								st.dist[0 if dm < 25.0 else (1 if dm < 50.0 else (2 if dm < 75.0 else (3 if dm < 100.0 else (4 if dm < 150.0 else 5))))] += 1
 					if target_hit:
 						st.on_target += 1
 					if other > 0:
@@ -110,4 +113,7 @@ func run() -> void:
 		var h: Array = st.hist
 		print("%s mortars: %d rounds fired at squads (%d seen landing): squads hit per round %.2f, people lost by them per round %.2f; rounds hitting no squad %.0f%%, one %.0f%%, two %.0f%%, three or more %.0f%%; own squads caught %d" % ["Ukrainian" if side == Unit.Team.PLAYER else "Russian", st.rounds, st.landed, float(st.hits) / n, float(st.people) / n, 100.0 * h[0] / n, 100.0 * h[1] / n, 100.0 * h[2] / n, 100.0 * h[3] / n, st.own])
 		print("   of those rounds: %.0f%% hit the squad they were fired at; %.0f%% hit some other enemy squad (%.0f%% hit another squad and missed the target); other squads hit per round %.2f, people they lost per round %.2f" % [100.0 * st.on_target / n, 100.0 * st.others_rounds / n, 100.0 * st.others_only / n, float(st.others) / n, float(st.others_people) / n])
+		var d: Array = st.dist
+		var dn: float = maxf(float(st.others), 1.0)
+		print("   the other squads hit were this far from the impact (centre): under 25 m %.0f%%, 25-50 %.0f%%, 50-75 %.0f%%, 75-100 %.0f%%, 100-150 %.0f%%, over 150 m %.0f%%" % [100.0 * d[0] / dn, 100.0 * d[1] / dn, 100.0 * d[2] / dn, 100.0 * d[3] / dn, 100.0 * d[4] / dn, 100.0 * d[5] / dn])
 	quit()

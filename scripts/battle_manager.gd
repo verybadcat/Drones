@@ -9594,7 +9594,15 @@ func _next_advance_point(u: Unit, max_step: float = GameConfig.ENEMY_ADVANCE_RUS
 	# ~1200 m out. See _advance_tactical_pressure. The alert-time scatter (max_step INF) happens at contact and
 	# keeps full weight.
 	var pressure: float = 1.0 if is_inf(max_step) else _advance_tactical_pressure(distance_to_objective)
-	return _weighted_advance_point_pick(candidates, GameConfig.ENEMY_ADVANCE_ANGLES_DEG, known_player_positions, friendly_center, other_bearings, pressure)
+	# where the other active enemy squads are, and where they are going
+	var mate_points: Array[Vector2] = []
+	for other in enemy_units:
+		if other == u or other.kind != Unit.Kind.SQUAD or other.state != Unit.State.ACTIVE:
+			continue
+		mate_points.append(other.global_position)
+		if other.has_move_target:
+			mate_points.append(other.move_target)
+	return _weighted_advance_point_pick(candidates, GameConfig.ENEMY_ADVANCE_ANGLES_DEG, known_player_positions, friendly_center, other_bearings, pressure, mate_points)
 
 
 ## How much the fight-related terms of an advance bound's scoring (cover, concealment, encirclement) count for
@@ -10637,7 +10645,7 @@ func _lane_is_screened(from: Vector2, to: Vector2, squads: Array[Unit]) -> bool:
 ## shared objective instead of all crowding the one patch of cover nearest
 ## the direct line to it. Neutral 0 with no known friendly cluster yet, or
 ## with no other squad to differ from (nothing to spread out relative to).
-func _score_advance_candidate(point: Vector2, angle_deg: float, known_player_positions: Array[Vector2], friendly_center: Vector2 = Vector2.INF, other_bearings_deg: Array[float] = [], tactical_pressure: float = 1.0) -> float:
+func _score_advance_candidate(point: Vector2, angle_deg: float, known_player_positions: Array[Vector2], friendly_center: Vector2 = Vector2.INF, other_bearings_deg: Array[float] = [], tactical_pressure: float = 1.0, mate_points: Array[Vector2] = []) -> float:
 	var score: float = GameConfig.ENEMY_ADVANCE_BASE_WEIGHT
 	if GameConfig.is_in_cover(GameConfig.get_terrain_type_at(point)):
 		score += GameConfig.ENEMY_ADVANCE_COVER_BONUS * tactical_pressure
@@ -10666,6 +10674,13 @@ func _score_advance_candidate(point: Vector2, angle_deg: float, known_player_pos
 	# squad is from anything, which alone is roughly a one-in-three chance of a wasted or backward bound.
 	if absf(angle_deg) > GameConfig.ENEMY_ADVANCE_WIDE_BEND_DEG:
 		score *= tactical_pressure
+	# ...and a point close to where another squad is, or is going, is worth less: squads try to advance GameConfig.ENEMY_ADVANCE_DESIRED_SPACING_M apart.
+	if not mate_points.is_empty():
+		var nearest := INF
+		for mp in mate_points:
+			nearest = minf(nearest, point.distance_to(mp))
+		var wanted: float = GameConfig.ENEMY_ADVANCE_DESIRED_SPACING_M * GameConfig.PIXELS_PER_METER
+		score *= lerpf(GameConfig.ENEMY_ADVANCE_SPACING_FLOOR, 1.0, clampf(nearest / wanted, 0.0, 1.0))
 	return score
 
 
@@ -10673,11 +10688,11 @@ func _score_advance_candidate(point: Vector2, angle_deg: float, known_player_pos
 ## _next_advance_point) — not a deterministic "always the single best
 ## angle," matching the same real-tactics-isn't-perfectly-rational idiom as
 ## _weighted_mortar_target_pick.
-func _weighted_advance_point_pick(candidates: Array[Vector2], angles_deg: Array[float], known_player_positions: Array[Vector2], friendly_center: Vector2 = Vector2.INF, other_bearings_deg: Array[float] = [], tactical_pressure: float = 1.0) -> Vector2:
+func _weighted_advance_point_pick(candidates: Array[Vector2], angles_deg: Array[float], known_player_positions: Array[Vector2], friendly_center: Vector2 = Vector2.INF, other_bearings_deg: Array[float] = [], tactical_pressure: float = 1.0, mate_points: Array[Vector2] = []) -> Vector2:
 	var weights: Array[float] = []
 	var total := 0.0
 	for i in candidates.size():
-		var w: float = _score_advance_candidate(candidates[i], angles_deg[i], known_player_positions, friendly_center, other_bearings_deg, tactical_pressure)
+		var w: float = _score_advance_candidate(candidates[i], angles_deg[i], known_player_positions, friendly_center, other_bearings_deg, tactical_pressure, mate_points)
 		weights.append(w)
 		total += w
 	var roll: float = randf() * total
