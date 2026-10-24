@@ -8576,7 +8576,7 @@ func _mortar_friendly_fire_check(mortar: Unit, target: Unit, aim: Vector2) -> Di
 			var toward: Vector2 = (landing - u.global_position).normalized() if landing != u.global_position else Vector2.RIGHT
 			var per_person := 0.0
 			for offset in [toward * spread, -toward * spread, toward.orthogonal() * spread, -toward.orthogonal() * spread]:
-				var person_at: Vector2 = u.global_position + offset
+				var person_at: Vector2 = CombatResolver.point_in_cover_if_used(u, u.global_position + offset)
 				var person_m: float = landing.distance_to(person_at) / GameConfig.PIXELS_PER_METER
 				if person_m <= GameConfig.FRAGMENT_REACH_M:
 					per_person += CombatResolver.fragment_casualty_chance(person_m, CombatResolver.fragment_person_exposure(u, landing, person_at, 4.0)) * 0.25
@@ -8667,7 +8667,6 @@ func _apply_shell_blast(impact: Vector2, attacker: Unit) -> Array[Dictionary]:
 	near.sort_custom(func(a: Unit, b: Unit) -> bool: return impact.distance_to(a.global_position) < impact.distance_to(b.global_position))
 	for u in near:
 		var distance: float = impact.distance_to(u.global_position)
-		var terrain: GameConfig.TerrainType = u.exposure_terrain()
 		# One person at a time: each of the unit's people is a casualty with the chance for this distance and this cover. A round that
 		# costs a unit nobody is no hit; a crew that has a round land close still reacts to it (it knows it is being shelled).
 		var is_crew: bool = u.kind == Unit.Kind.MORTAR or u.kind == Unit.Kind.DRONE_TEAM
@@ -8686,17 +8685,17 @@ func _apply_shell_blast(impact: Vector2, attacker: Unit) -> Array[Dictionary]:
 			casualties = CombatResolver.binomial(people, CombatResolver.fragment_casualty_chance(distance_m, CombatResolver.fragment_person_exposure(u, impact, u.global_position)))
 		else:
 			var spread_m: float = CombatResolver.blast_spread_m(u)
-			var escape: float = CombatResolver.blast_escape_chance(terrain, u.cover_kept())
+			var kept: float = u.cover_kept()
 			var fragments_reach: bool = distance_m - spread_m <= GameConfig.FRAGMENT_REACH_M
 			var blast_reaches: bool = distance_m - spread_m <= GameConfig.BLAST_WALKING_TO_M
 			for i in people:
-				var person_at: Vector2 = CombatResolver.person_point_px(u.global_position, spread_m)
+				var person_at: Vector2 = CombatResolver.person_point(u, spread_m)
 				var person_m: float = impact.distance_to(person_at) / GameConfig.PIXELS_PER_METER
 				var fragment_severity := 0
 				if fragments_reach:
 					fragment_severity = CombatResolver.fragment_severity(person_m, CombatResolver.fragment_person_exposure(u, impact, person_at))
 				var blast_severity := 0
-				if blast_reaches and randf() >= escape:
+				if blast_reaches and randf() >= CombatResolver.blast_escape_chance(GameConfig.get_terrain_type_at(person_at), kept):
 					blast_severity = CombatResolver.blast_severity(person_m, randf())
 				var severity: int = maxi(fragment_severity, blast_severity)
 				if severity == CombatResolver.BLAST_NONE:

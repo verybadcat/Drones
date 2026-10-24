@@ -228,6 +228,39 @@ static func person_point_px(center: Vector2, spread_m: float) -> Vector2:
 	return center + Vector2.from_angle(TAU * randf()) * rho
 
 
+## Whether a unit that is standing (not moving) in cover, trees or a building, has its people use it. User, 2026-10-24: "If there is cover, the people should use it.
+## while standing that is. When moving, not necessarily."
+static func people_use_cover(unit: Unit) -> bool:
+	if unit.activity == Unit.Activity.MOVING:
+		return false
+	var terrain: GameConfig.TerrainType = unit.exposure_terrain()
+	return terrain == GameConfig.TerrainType.TREES or terrain == GameConfig.TerrainType.BUILDING
+
+
+## Where one person of `unit` stands: a random place on the disc of its spread round its centre (person_point_px); but for a unit standing in cover
+## (people_use_cover) only a place in that same kind of cover, found by trying up to PERSON_COVER_TRIES times and else the unit's own centre. A unit on the
+## move has its people where the disc puts them, in the open or in the cover.
+const PERSON_COVER_TRIES := 24
+static func person_point(unit: Unit, spread_m: float) -> Vector2:
+	var center: Vector2 = unit.global_position
+	if spread_m <= 0.0 or not people_use_cover(unit):
+		return person_point_px(center, spread_m)
+	var terrain: GameConfig.TerrainType = unit.exposure_terrain()
+	for i in PERSON_COVER_TRIES:
+		var p: Vector2 = person_point_px(center, spread_m)
+		if GameConfig.get_terrain_type_at(p) == terrain:
+			return p
+	return center
+
+
+## `point`, a place a person of `unit` might stand (the friendly-fire estimate uses fixed places): the unit's centre instead, if the unit is standing in cover
+## and the place is not in the same kind of cover.
+static func point_in_cover_if_used(unit: Unit, point: Vector2) -> Vector2:
+	if people_use_cover(unit) and GameConfig.get_terrain_type_at(point) != unit.exposure_terrain():
+		return unit.global_position
+	return point
+
+
 ## One person's distance from a burst `center_m` from the unit's centre (see person_point_px).
 static func person_distance_m(center_m: float, spread_m: float) -> float:
 	if spread_m <= 0.0:
