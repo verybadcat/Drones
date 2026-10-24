@@ -62,11 +62,11 @@ func run() -> void:
 	bm.combat_log.free()
 	bm.free()
 
-	# 2. already 75 m or more apart: nothing
+	# 2. already as far apart as they want to be (GameConfig.SQUAD_DESIRED_SPACING, 100 m since 2026-10-24) or more: nothing
 	bm = make()
 	a = squad(bm, Vector2(2000.0, 1000.0))
-	b = squad(bm, Vector2(2000.0, 1080.0))
-	check(bm._retreat_spacing_offset(a) == 0.0 and bm._retreat_spacing_offset(b) == 0.0, "Squads 80 m apart are left alone")
+	b = squad(bm, Vector2(2000.0, 1000.0 + GameConfig.SQUAD_DESIRED_SPACING / GameConfig.PIXELS_PER_METER + 5.0))
+	check(bm._retreat_spacing_offset(a) == 0.0 and bm._retreat_spacing_offset(b) == 0.0, "Squads just over the desired spacing apart are left alone")
 	bm.combat_log.free()
 	bm.free()
 

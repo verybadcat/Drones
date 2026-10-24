@@ -7693,7 +7693,8 @@ const RETREAT_THREAT_STEER_FRACTION: float = 0.6
 ## preference that squads which are closer than this act on, and it fades out as enemy squads press on them (BattleManager.
 ## _retreat_spacing_offset). Direct user instruction: "Use 75m as the desirable distance. This does NOT mean they can never be closer. It
 ## means they strive for 75 meters", and "If they are under pressure from other squads, it could be reasonable to be closer."
-const SQUAD_DESIRED_SPACING: float = 75.0 * PIXELS_PER_METER
+## 100 m from 2026-10-24 (user: "retreat should also be 100 meters"), the same as the advance (ENEMY_ADVANCE_DESIRED_SPACING_M).
+const SQUAD_DESIRED_SPACING: float = 100.0 * PIXELS_PER_METER
 ## Fraction of retreat_speed a squad may spend steering sideways to open the gap to a neighbour closer than SQUAD_DESIRED_SPACING, at
 ## the maximum push (a neighbour right on top of it, no enemy squad near). Under RETREAT_THREAT_STEER_FRACTION: forward progress first.
 const RETREAT_SPACING_STEER_FRACTION: float = 0.4
@@ -10125,7 +10126,8 @@ static func _random_point_in_cover_zone(zone: Dictionary) -> Vector2:
 ## away, that should be better than being in the same place."
 ## (Now SQUAD_DESIRED_SPACING, 75 m: "Use 75m as the desirable distance. This does NOT mean they can never be closer. It means they strive for
 ## 75 meters": a mortar round on one squad catches its neighbour within about that distance.)
-const SQUAD_SPACING_PREFERRED: float = 75.0 * PIXELS_PER_METER
+## 100 m too from 2026-10-24, with the retreat spacing and the advance (the user asked for squads to keep 100 m apart).
+const SQUAD_SPACING_PREFERRED: float = 100.0 * PIXELS_PER_METER
 ## What standing on top of another unit costs, in metres of walking: the cost of a spot is this times the shortfall from the preferred spacing
 ## (linear: 35 m from a neighbour is 30% short, so costs 45 m of walking; 10 m is 80% short, 120 m).
 const SQUAD_SPACING_WEIGHT: float = 150.0 * PIXELS_PER_METER
