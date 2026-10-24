@@ -3,7 +3,9 @@ extends SceneTree
 ## For every map and TRIALS seeds (Drone Recon, default doctrine) it follows every mortar round fired at a SQUAD (whichever side fires: the intended target
 ## is read when the round is launched) to where it lands (BattleManager.shell_landing_log, matched on the impact point) and reports, for each side's mortars:
 ## the rounds fired at squads, the squads hit per round (a squad that lost at least one person), the people lost by the squads hit per round, the share of
-## rounds that hit no squad / one / two / three or more, and the squads of the firing side's own that a round caught.
+## rounds that hit no squad / one / two / three or more, and the squads of the firing side's own that a round caught. Also (user, 2026-10-23: "Track shots
+## that hit squads other than the target squad."): the share of rounds that hit the squad they were fired at, the share that hit some OTHER enemy squad,
+## the other squads hit per round and the people they lost per round, and the rounds that hit another squad but not the target.
 const TestBattleManagerScript := preload("res://scripts/tests/test_battle_manager.gd")
 const TestCombatLogScript := preload("res://scripts/tests/test_combat_log.gd")
 
@@ -32,7 +34,7 @@ func run() -> void:
 	# per firing side: rounds, squads hit, people lost, histogram of squads hit, own squads caught, rounds that landed and were matched
 	var stats := {}
 	for side in [Unit.Team.PLAYER, Unit.Team.ENEMY]:
-		stats[side] = {"rounds": 0, "landed": 0, "hits": 0, "people": 0, "hist": [0, 0, 0, 0], "own": 0}
+		stats[side] = {"rounds": 0, "landed": 0, "hits": 0, "people": 0, "hist": [0, 0, 0, 0], "own": 0, "on_target": 0, "others_rounds": 0, "others": 0, "others_people": 0, "others_only": 0}
 	for map_id in GameConfig.MAPS.keys():
 		GameConfig.set_active_map(map_id)
 		for t in TRIALS:
@@ -42,7 +44,8 @@ func run() -> void:
 			var log = TestCombatLogScript.new()
 			bm.start_battle(doctrine(), log)
 			var seen := {}
-			var at_squad := {} # key -> true for rounds launched at a squad
+			var at_squad := {} # key -> the team that fired it, for rounds launched at a squad
+			var targets := {} # key -> the squad it was fired at
 			var consumed := 0
 			var ticks := 0
 			while not bm.battle_over and ticks < MAX_TICKS:
@@ -57,6 +60,7 @@ func run() -> void:
 					seen[k] = true
 					if is_instance_valid(s.target) and s.target.kind == Unit.Kind.SQUAD:
 						at_squad[key_of(s.mortar.team, s.impact_point)] = int(s.mortar.team)
+						targets[key_of(s.mortar.team, s.impact_point)] = s.target
 						stats[s.mortar.team].rounds += 1
 				while consumed < bm.shell_landing_log.size():
 					var entry: Dictionary = bm.shell_landing_log[consumed]
@@ -65,9 +69,14 @@ func run() -> void:
 					if not at_squad.has(k2):
 						continue
 					at_squad.erase(k2)
+					var aimed_at = targets.get(k2)
+					targets.erase(k2)
 					var st: Dictionary = stats[entry.team]
 					st.landed += 1
 					var hit := 0
+					var other := 0
+					var other_people := 0
+					var target_hit := false
 					for v in entry.victims:
 						if v.kind != Unit.Kind.SQUAD or int(v.casualties) <= 0:
 							continue
@@ -76,6 +85,19 @@ func run() -> void:
 						else:
 							hit += 1
 							st.people += int(v.casualties)
+							if v.get("unit") != null and v.unit == aimed_at:
+								target_hit = true
+							else:
+								other += 1
+								other_people += int(v.casualties)
+					if target_hit:
+						st.on_target += 1
+					if other > 0:
+						st.others_rounds += 1
+						st.others += other
+						st.others_people += other_people
+						if not target_hit:
+							st.others_only += 1
 					st.hits += hit
 					st.hist[mini(hit, 3)] += 1
 			if is_instance_valid(log):
@@ -87,4 +109,5 @@ func run() -> void:
 		var n: float = maxf(float(st.landed), 1.0)
 		var h: Array = st.hist
 		print("%s mortars: %d rounds fired at squads (%d seen landing): squads hit per round %.2f, people lost by them per round %.2f; rounds hitting no squad %.0f%%, one %.0f%%, two %.0f%%, three or more %.0f%%; own squads caught %d" % ["Ukrainian" if side == Unit.Team.PLAYER else "Russian", st.rounds, st.landed, float(st.hits) / n, float(st.people) / n, 100.0 * h[0] / n, 100.0 * h[1] / n, 100.0 * h[2] / n, 100.0 * h[3] / n, st.own])
+		print("   of those rounds: %.0f%% hit the squad they were fired at; %.0f%% hit some other enemy squad (%.0f%% hit another squad and missed the target); other squads hit per round %.2f, people they lost per round %.2f" % [100.0 * st.on_target / n, 100.0 * st.others_rounds / n, 100.0 * st.others_only / n, float(st.others) / n, float(st.others_people) / n])
 	quit()

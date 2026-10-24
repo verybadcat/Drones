@@ -8723,7 +8723,7 @@ func _apply_shell_blast(impact: Vector2, attacker: Unit) -> Array[Dictionary]:
 		var victims: Array[Dictionary] = []
 		for l in landed:
 			var v: Unit = l.unit
-			victims.append({"team": v.team, "kind": v.kind, "moving": v.activity == Unit.Activity.MOVING, "casualties": int(l.casualties), "blast": int(l.by_blast), "distance_m": float(l.distance) / GameConfig.PIXELS_PER_METER})
+			victims.append({"unit": v, "team": v.team, "kind": v.kind, "moving": v.activity == Unit.Activity.MOVING, "casualties": int(l.casualties), "blast": int(l.by_blast), "distance_m": float(l.distance) / GameConfig.PIXELS_PER_METER})
 		shell_landing_log.append({"time": scenario_elapsed_time, "team": attacker.team, "impact": impact, "victims": victims})
 	return landed
 
