@@ -60,7 +60,7 @@ func run() -> void:
 	var mean_30: float = -log(1.0 - CombatResolver.fragment_hit_chance(1.5 * r1, 3)) / log(2.0)
 	var mean_60: float = -log(1.0 - CombatResolver.fragment_hit_chance(3.0 * r1, 3)) / log(2.0)
 	check(near(mean_30 / mean_60, 4.0, 1e-6), "the expected hits fall as 1/r^2 (%.4f against %.4f)" % [mean_30, mean_60])
-	check(CombatResolver.fragment_hit_chance(99.0, 1) > 0.05 and CombatResolver.fragment_hit_chance(101.0, 1) == 0.0, "beyond R3 the light class still hits, until the reach of 100 m")
+	check(CombatResolver.fragment_hit_chance(99.0, 1) > 0.0 and CombatResolver.fragment_hit_chance(99.0, 1) < CombatResolver.fragment_hit_chance(50.0, 1) and CombatResolver.fragment_hit_chance(101.0, 1) == 0.0, "beyond R3 the light class still hits, less far out, until the reach of 100 m")
 
 	# --- one fragment of a class that hit, reduced: 40 percent as it is, 30 one lower, 30 two lower
 	for level in [1, 2, 3]:

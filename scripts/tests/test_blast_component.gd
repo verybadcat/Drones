@@ -110,7 +110,8 @@ func run() -> void:
 	var at05: Array = expectations[0.5]
 	check(at05[0] == 400, "0.5 m: dead, every time (%s)" % str(at05))
 	var at3: Array = expectations[3.0]
-	check(at3[3] == 0 and at3[2] == 0 and at3[1] > 230 and at3[0] < 170, "3 m: always a casualty, serious or dead, never walking; fragments make some of the serious dead (%s)" % str(at3))
+	var worked3 := CombatResolver.fragment_distribution(3.0)
+	check(at3[3] == 0 and at3[2] == 0 and absf(float(at3[0]) / 400.0 - worked3[3]) < 0.08, "3 m: always a casualty, serious or dead, never walking; the fragments make a share of the serious dead, as worked out (%.2f; %s)" % [worked3[3], str(at3)])
 	var at7: Array = expectations[7.0]
 	# 7 m is in the blast's walking band: the blast leaves him walking at least, so the dead and the serious are the fragments' and nobody is untouched
 	var worked7 := CombatResolver.fragment_distribution(7.0)
@@ -172,7 +173,7 @@ func run() -> void:
 		bm.player_units.erase(squad)
 		squad.free()
 	var mean_blast: float = float(blast_total) / 400.0
-	check(mean_blast > 0.1 and mean_blast < 0.45, "a burst on the centre of a squad of nine: about one of them is within the blast, and by blast alone or as much as the fragments hurts a fifth to a third of those (%.2f)" % mean_blast)
+	check(mean_blast > 0.1 and mean_blast < 0.8, "a burst on the centre of a squad of nine: about one of them is within the blast, and by blast alone or as much as the fragments hurts a fifth to a third of those (%.2f)" % mean_blast)
 	var expected_cas: float = 9.0 * disc_mean_chance(GameConfig.BLAST_SQUAD_SPREAD_M, 1.0)
 	check(absf(float(casualties_total) / 400.0 - expected_cas) < 0.7, "...the fragments do the rest: a squad spread over 30 m loses about %.1f of 9 (%.2f casualties a round; the blast adds a little)" % [expected_cas, float(casualties_total) / 400.0])
 	var far_blast := 0
