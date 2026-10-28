@@ -64,13 +64,26 @@ func run() -> void:
 	bm.enemy_units.erase(probe)
 	probe.free()
 
-	# 1. halted in the open at the ring, nothing to shoot at: it goes to cover
-	var e: Unit = enemy_at(bm, spot)
-	bm._update_enemy_squad_advance()
-	check(e.has_move_target, "a squad halted in the open at its standoff ring is sent somewhere")
-	check(e.has_move_target and GameConfig.is_in_cover(GameConfig.get_terrain_type_at(e.move_target)), "...to a place in cover")
-	check(e.has_move_target and e.move_target.distance_to(objective) < ring, "...inside the ring, so that it stays held there")
-	check(e.last_order_reason == "Moving into available cover.", "...and says why (%s)" % e.last_order_reason)
+	# 1. halted in the open at the ring, nothing to shoot at: it goes to cover (which of the nearest cover points it is given is a roll, and one outside the ring is
+	# refused, so over many squads: some are sent, and every one that is sent is sent to cover inside the ring)
+	var sent := 0
+	var all_in_cover := true
+	var all_in_ring := true
+	var reason_ok := true
+	for i in 30:
+		var e: Unit = enemy_at(bm, spot)
+		bm._update_enemy_squad_advance()
+		if e.has_move_target:
+			sent += 1
+			all_in_cover = all_in_cover and GameConfig.is_in_cover(GameConfig.get_terrain_type_at(e.move_target))
+			all_in_ring = all_in_ring and e.move_target.distance_to(objective) < ring
+			reason_ok = reason_ok and e.last_order_reason == "Moving into available cover."
+		bm.enemy_units.erase(e)
+		e.free()
+	check(sent >= 10, "a squad halted in the open at its standoff ring is usually sent somewhere (%d of 30)" % sent)
+	check(all_in_cover, "...to a place in cover")
+	check(all_in_ring, "...inside the ring, so that it stays held there")
+	check(reason_ok, "...and says why")
 
 	# 2. already in cover: it stays
 	var in_cover: Unit = enemy_at(bm, cover)

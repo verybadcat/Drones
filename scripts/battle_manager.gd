@@ -7773,7 +7773,7 @@ func _step_retreat(unit: Unit, scenario_delta: float) -> void:
 	unit.activity = Unit.Activity.MOVING
 	var retreat_pace: float = unit.retreat_speed * unit.load_speed_factor() # a crew carrying the gun is slowed by its load
 	var dir_x: float = -1.0 if unit.team == Unit.Team.PLAYER else 1.0
-	var next_pos: Vector2 = unit.position + Vector2(dir_x * retreat_pace * scenario_delta, 0.0)
+	var next_pos: Vector2 = unit.position + _retreat_heading(unit, dir_x) * retreat_pace * scenario_delta
 
 	if unit.zigzagging:
 		unit._zigzag_timer -= scenario_delta
@@ -7838,6 +7838,43 @@ func _step_retreat(unit: Unit, scenario_delta: float) -> void:
 		unit.state = Unit.State.WITHDRAWN
 		unit.queue_redraw()
 		combat_log.log_withdrawn(unit)
+
+
+## The direction of a retreat step: toward the exit along x (`dir_x` is -1 for the player's side, +1 for the enemy's), pushed away from every opposing position the
+## unit's side knows of within GameConfig.RETREAT_KEEP_AWAY_RANGE (a crew's own danger range for a mortar crew), the more the nearer: see GameConfig.RETREAT_KEEP_AWAY_GAIN.
+## It always keeps at least GameConfig.RETREAT_MIN_PROGRESS toward the exit, turning to the side away from the nearest position (by y; the unit with the higher
+## instance id goes high when level) rather than back. A unit of length 1.
+func _retreat_heading(unit: Unit, dir_x: float) -> Vector2:
+	var base := Vector2(dir_x, 0.0)
+	var range_px: float = GameConfig.MORTAR_CREW_OVERRUN_DANGER_RANGE if unit.kind == Unit.Kind.MORTAR else GameConfig.RETREAT_KEEP_AWAY_RANGE
+	var push := Vector2.ZERO
+	var nearest := INF
+	var nearest_pos := Vector2.INF
+	for p in _known_enemy_positions(unit.team, false):
+		var d: float = unit.global_position.distance_to(p)
+		if d >= range_px:
+			continue
+		if d < nearest:
+			nearest = d
+			nearest_pos = p
+		var away: Vector2 = (unit.global_position - p).normalized() if d > 0.5 else Vector2.ZERO
+		var w: float = 1.0 - d / range_px
+		push += away * w
+	if push == Vector2.ZERO:
+		return base
+	var heading: Vector2 = base + push * GameConfig.RETREAT_KEEP_AWAY_GAIN
+	if heading.length() < 0.001:
+		heading = base
+	heading = heading.normalized()
+	if heading.dot(base) < GameConfig.RETREAT_MIN_PROGRESS:
+		var side: float = 1.0 if heading.y > 0.05 else (-1.0 if heading.y < -0.05 else 0.0)
+		if side == 0.0:
+			if unit.global_position.y != nearest_pos.y:
+				side = 1.0 if unit.global_position.y > nearest_pos.y else -1.0
+			else:
+				side = 1.0 if unit.get_instance_id() % 2 == 0 else -1.0
+		heading = base * GameConfig.RETREAT_MIN_PROGRESS + Vector2(0.0, side) * sqrt(1.0 - GameConfig.RETREAT_MIN_PROGRESS * GameConfig.RETREAT_MIN_PROGRESS)
+	return heading
 
 
 ## Signed lateral steering strength for _step_retreat's final dash: 0.0

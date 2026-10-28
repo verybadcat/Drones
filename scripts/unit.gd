@@ -979,7 +979,7 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 		# to the least-wrong zone: the west flank has almost no cover (4 of the map's 263 zones lie
 		# west of x = -300 m), so a unit out there can be handed a zone back toward the enemy.
 		# Cover is a means to reaching the edge, never a reason to walk away from it.
-		if actually_hidden and retreat_detour_is_allowed(global_position, move_target, retreat_dir):
+		if actually_hidden and retreat_detour_is_allowed(global_position, move_target, retreat_dir) and not detour_nears_a_known_position(global_position, move_target, known_enemy_positions):
 			has_move_target = true
 			move_queue.clear()
 			move_speed = GameConfig.REPOSITION_SPEED * speed_multiplier
@@ -988,6 +988,22 @@ func order_retreat(known_enemy_positions: Array[Vector2] = [], avoid_positions: 
 	else:
 		has_move_target = false
 	state_changed.emit(self)
+
+
+## Whether a retreat's cover detour from `from` to `detour` comes (at its end or anywhere along the straight way) more than GameConfig.RETREAT_APPROACH_TOLERANCE_M nearer to a
+## known opposing position that is within the danger range of `from` than `from` is: a retreat is not to walk toward, or past, what it is retreating from (user, 2026-10-28:
+## make sure it is really avoided). Measured: detours chosen well away from a known squad still ran past it on the way.
+static func detour_nears_a_known_position(from: Vector2, detour: Vector2, known_positions: Array[Vector2]) -> bool:
+	var way: Vector2 = detour - from
+	for p in known_positions:
+		var now: float = from.distance_to(p)
+		if now > GameConfig.SQUAD_DANGER_RANGE:
+			continue
+		var along: float = 0.0 if way.length_squared() < 0.0001 else clampf((p - from).dot(way) / way.length_squared(), 0.0, 1.0)
+		var closest: float = (from + way * along).distance_to(p)
+		if closest < now - GameConfig.RETREAT_APPROACH_TOLERANCE_M * GameConfig.PIXELS_PER_METER:
+			return true
+	return false
 
 
 ## A retreat's cover detour is only taken if it does not lead back toward the enemy: `retreat_dir`

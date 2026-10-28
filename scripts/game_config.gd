@@ -7687,6 +7687,20 @@ static var PLAYER_SAFE_X: float # -(WEST_FLANK_WIDTH_M - 100.0) * PIXELS_PER_MET
 ## toward safety throughout, never stalling to purely sidestep.
 const RETREAT_THREAT_STEER_FRACTION: float = 0.6
 
+## A RETREAT KEEPS AWAY FROM THE OPPOSING SQUADS ITS SIDE KNOWS OF. User, 2026-10-28: "Retreating enemies should avoid our squads when the position is known. This
+## is similar to how retreating friendlies should avoid enemy squads when the position is known. In both cases, make sure it is really avoided." Measured before
+## (tools/research/retreat_avoidance_sim.gd): about one retreat in ten came at least 50 m closer to a known opposing squad than it began, because the straight dash
+## bent only sideways (_retreat_avoidance_offset) and a cover detour was chosen without regard to the distance to them. Now, in BattleManager._step_retreat, every known
+## opposing position within RETREAT_KEEP_AWAY_RANGE (a mortar crew's own danger range for a crew) pushes the heading away from it, more the nearer (the weight is
+## (range - distance) / range), with RETREAT_KEEP_AWAY_GAIN times that sum added to the heading toward the exit; the result always keeps at least
+## RETREAT_MIN_PROGRESS of its length toward the exit, bending to the side away from the nearest position if it would otherwise turn back, so a squad with an enemy squad
+## between it and the exit goes round it instead of through it. A cover detour (Unit.order_retreat) is not taken if it or its way comes more than RETREAT_APPROACH_TOLERANCE_M
+## nearer to a known opposing position within the danger range than the unit is. JUDGMENT: all four values.
+const RETREAT_KEEP_AWAY_RANGE: float = 600.0 * PIXELS_PER_METER
+const RETREAT_KEEP_AWAY_GAIN: float = 3.0
+const RETREAT_MIN_PROGRESS: float = 0.2
+const RETREAT_APPROACH_TOLERANCE_M: float = 25.0
+
 ## How far apart squads like to be while retreating: a mortar round that lands on one catches a neighbour within about this distance
 ## (the 50% casualty radius is 26 m, the collateral search stops at 60 m: see MORTAR_BLAST_CASUALTY_RADIUS), at 30 m still about 40% of
 ## the time under well-observed fire and about a quarter under squad-observed fire. A DESIRABLE distance, not a rule: it is a steering
