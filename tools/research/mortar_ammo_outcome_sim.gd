@@ -36,6 +36,7 @@ func run() -> void:
 	var mortar_lost := 0
 	var ended_first := 0 # the battle ended before the load was fired
 	var by_count := {} # number of enemy mortars -> battles
+	var out_by_count := {} # number of enemy mortars -> [battles with every enemy mortar out of action, with every one destroyed outright, with at least two out, with the enemy squads' losses over 10]
 	var all_destroyed := 0 # every enemy mortar DESTROYED
 	var all_out := 0 # every enemy mortar destroyed or no longer active
 	var at_least_two_destroyed := 0
@@ -106,6 +107,16 @@ func run() -> void:
 				var lost: int = squads_total - squads_now
 				squad_loss_total += lost
 				lost_hist[lost / 10] = int(lost_hist.get(lost / 10, 0)) + 1
+				var row: Array = out_by_count.get(n, [0, 0, 0, 0])
+				if n > 0 and out == n:
+					row[0] += 1
+				if n > 0 and destroyed == n:
+					row[1] += 1
+				if out >= 2:
+					row[2] += 1
+				if lost > 10:
+					row[3] += 1
+				out_by_count[n] = row
 				var all_d: bool = n > 0 and destroyed == n
 				if all_d:
 					all_destroyed += 1
@@ -134,5 +145,11 @@ func run() -> void:
 	print("by then, every enemy mortar DESTROYED: %s (%d); every one destroyed or out of action: %s; two or more destroyed (battles with 2+ enemy mortars: %d): %s" % [pct(all_destroyed, finished), all_destroyed, pct(all_out, finished), with_two_or_more, pct(at_least_two_destroyed, with_two_or_more)])
 	print("enemy general retreat ordered by then: %s (%d)" % [pct(retreat, finished), retreat])
 	print("BOTH (every enemy mortar destroyed and the retreat ordered): %s (%d); in battles with 2+ enemy mortars: %d" % [pct(both, finished), both, both_two])
+	var keys: Array = out_by_count.keys()
+	keys.sort()
+	for k in keys:
+		var r: Array = out_by_count[k]
+		var nb: int = by_count[k]
+		print("   with %d enemy mortars (%d battles): every one out of action %d (%.0f%%), every one destroyed outright %d (%.0f%%), at least two out of action %d (%.0f%%), enemy squads lost more than 10 people %d (%.0f%%)" % [k, nb, r[0], 100.0 * r[0] / nb, r[1], 100.0 * r[1] / nb, r[2], 100.0 * r[2] / nb, r[3], 100.0 * r[3] / nb])
 	print("enemy squad people lost by then: mean %.1f; by tens: %s" % [squad_loss_total / maxf(finished, 1), str(lost_hist)])
 	quit()
